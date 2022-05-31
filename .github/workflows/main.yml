@@ -23,4 +23,4 @@ jobs:
       # Runs a set of commands using the runners shell
       - name: Run a build script
         run: |
-          cmd.exe /c build.bat
+          powershell.exe -NoProfile -ExecutionPolicy Unrestricted ".\build.ps1"

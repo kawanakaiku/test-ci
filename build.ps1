@@ -1,5 +1,8 @@
 # exit on fail
 $ErrorActionPreference = "Stop"
+# no progress bar for faster download
+# https://stackoverflow.com/questions/28682642/powershell-why-is-using-invoke-webrequest-much-slower-than-a-browser-download
+$ProgressPreference = "SilentlyContinue"
 
 Invoke-WebRequest -Uri "https://github.com/kawanakaiku/test-ci/releases/download/win10/Optimize-Offline.zip" -OutFile "Optimize-Offline.zip" -Verbose -PassThru
 Expand-Archive ".\Optimize-Offline.zip" .

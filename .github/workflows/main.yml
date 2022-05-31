@@ -28,4 +28,4 @@ jobs:
       # Runs a set of commands using the runners shell
       - name: Run a build script
         run: |
-          call build.bat
+          cmd.exe /c "./build.bat"

@@ -4,10 +4,13 @@ $ErrorActionPreference = "Stop"
 # https://stackoverflow.com/questions/28682642/powershell-why-is-using-invoke-webrequest-much-slower-than-a-browser-download
 $ProgressPreference = "SilentlyContinue"
 
-Invoke-WebRequest -Uri "https://github.com/kawanakaiku/test-ci/releases/download/win10/Optimize-Offline.zip" -OutFile "Optimize-Offline.zip" -Verbose -PassThru
+# client for download
+$wc = New-Object net.webclient
+
+$wc.DownloadFile("https://github.com/kawanakaiku/test-ci/releases/download/win10/Optimize-Offline.zip", "Optimize-Offline.zip")
 Expand-Archive ".\Optimize-Offline.zip" .
 
-Foreach ($item in @("aa", "ab", "ac", "ad", "ae")) { Invoke-WebRequest -Uri ("https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_" + $item) -OutFile ("Win10_21H2_Japanese_x64.wim_" + $item) -Verbose -PassThru }
+Foreach ($item in @("aa", "ab", "ac", "ad", "ae")) { $wc.DownloadFile("https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_" + $item, "Win10_21H2_Japanese_x64.wim_" + $item) }
 Get-Content "Win10_21H2_Japanese_x64.wim_*" | Set-Content "Win10_21H2_Japanese_x64.wim"
 Remove-Item "Win10_21H2_Japanese_x64.wim_*"
 

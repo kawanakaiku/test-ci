@@ -13,6 +13,8 @@ Expand-Archive ".\Optimize-Offline.zip" .
 # Foreach ($item in @("aa", "ab", "ac", "ad", "ae")) { Write-Output -InputObject $item ; $wc.DownloadFile("https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_" + $item, "Win10_21H2_Japanese_x64.wim_" + $item) }
 # Get-Content "Win10_21H2_Japanese_x64.wim_*" | Set-Content "Win10_21H2_Japanese_x64.wim"
 # Remove-Item "Win10_21H2_Japanese_x64.wim_*"
-python.exe -c "import requests"
+python.exe -m pip install requests
+python.exe -c "import io, requests, shutil;s=requests.Session();i=io.BytesIO;[i.write(s.get('https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_'+i).content) for i in ['aa', 'ab', 'ac', 'ad', 'ae']];i.seek(0);shutil.copyfileobj(myBytesIOObj, open('Win10_21H2_Japanese_x64.wim', 'wb'))"
+Write-Output -InputObject "dowloaded"
 
 powershell.exe -NoProfile -ExecutionPolicy Unrestricted ".\Start-Optimize.ps1"

@@ -27,7 +27,7 @@ jobs:
         run: |
           powershell.exe -NoProfile -ExecutionPolicy Unrestricted ".\build_vhd\build_vhd.ps1"
 
-      - name: Store esd files
+      - name: Store vhd files
         if: always()
         uses: actions/upload-artifact@v3
         with:

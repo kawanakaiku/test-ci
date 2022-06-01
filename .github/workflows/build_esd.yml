@@ -1,12 +1,14 @@
 # This is a basic workflow to help you get started with Actions
 
-name: CI
+name: build_esd
 
 # Controls when the workflow will run
 on:
   # Triggers the workflow on push or pull request events but only for the main branch
   push:
     branches: [ main ]
+    paths:
+      - 'build_esd/**'
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
@@ -23,17 +25,18 @@ jobs:
       # Runs a set of commands using the runners shell
       - name: Run a build script
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Unrestricted ".\build.ps1"
+          powershell.exe -NoProfile -ExecutionPolicy Unrestricted ".\build_esd\build_esd.ps1"
 
       - name: Store log files
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: logs
-          path: Optimize-Offline_*/**/*.log
+          path: |
+            Optimize-Offline_*/**/*.log
       - name: Store esd files
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: esd
-          path: ./install.esd
+          path: install.esd

@@ -8,10 +8,10 @@ Write-Output -InputObject "download starting"
 # python.exe -c "from urllib.request import urlopen;f=open('Win10_21H2_Japanese_x64.esd', 'wb');[[print(i), f.write(urlopen('https://github.com/kawanakaiku/test-ci/releases/download/win10_custom/Win10_21H2_Japanese_x64.esd_'+i).read())] for i in ['aa', 'ab']];f.close()"
 Write-Output -InputObject "download completed"
 
-Write-Output -InputObject "enable hyper-v"
-Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All
-
+Write-Output -InputObject "creating vhd"
 # create vhd file
-New-VHD -Path .\win10.vhd -SizeBytes 32GB -Dynamic
+$vhdfile = Join-Path (Get-Location) 'win10.vhd'
+'create vdisk file="{0}" maximum=32000 type=expandable' -f $vhdfile | diskpart.exe
+Write-Output -InputObject "creating vhd completed"
 
 cmd.exe /c "dir"

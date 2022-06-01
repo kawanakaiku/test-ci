@@ -30,7 +30,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: logs
-          path: ./**/*.log
+          path: Optimize-Offline_*/**/*.log
       - name: Store esd files
         if: always()
         uses: actions/upload-artifact@v3

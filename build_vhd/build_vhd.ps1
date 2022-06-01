@@ -29,7 +29,7 @@ Write-Output -InputObject "download esd completed"
 
 dism.exe /Apply-Image /ImageFile:$esdfile /index:1 /ApplyDir:W:\
 dism.exe /Image:W:\ /Set-LayeredDriver:6
-bcdboot.exe W:\Windows /l ja-jp /s S: /f ALL
+bcdboot.exe W:\Windows /l ja-jp /s S: /f UEFI
 
 Write-Output -InputObject "detaching vhd"
 'select vdisk file="{0}"' -f $vhdfile | Out-File -Encoding utf8 diskpart.txt

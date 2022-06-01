@@ -11,7 +11,18 @@ Write-Output -InputObject "download completed"
 Write-Output -InputObject "creating vhd"
 # create vhd file
 $vhdfile = Join-Path (Get-Location) 'win10.vhd'
-'create vdisk file="{0}" maximum=32000 type=expandable' -f $vhdfile | diskpart.exe
+'create vdisk file="{0}" maximum=32000 type=expandable' -f $vhdfile > diskpart.txt
+'select vdisk file="{0}"' -f $vhdfile >> diskpart.txt
+'attach vdisk' >> diskpart.txt
+'clean' >> diskpart.txt
+'convert gpt' >> diskpart.txt
+'create partition efi size=100' >> diskpart.txt
+'format quick fs=fat32' >> diskpart.txt
+'assign letter=s' >> diskpart.txt
+'create partition primary' >> diskpart.txt
+'format quick fs=ntfs' >> diskpart.txt
+'assign letter=w' >> diskpart.txt
+diskpart.exe /s diskpart.txt
 Write-Output -InputObject "creating vhd completed"
 
 cmd.exe /c "dir"

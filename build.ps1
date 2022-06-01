@@ -1,8 +1,8 @@
 # exit on fail
-$ErrorActionPreference = "Stop"
+# $ErrorActionPreference = "Stop"
 # no progress bar for faster download
 # https://stackoverflow.com/questions/28682642/powershell-why-is-using-invoke-webrequest-much-slower-than-a-browser-download
-$ProgressPreference = "SilentlyContinue"
+# $ProgressPreference = "SilentlyContinue"
 
 # client for download
 $wc = New-Object net.webclient
@@ -19,3 +19,6 @@ python.exe -c "from urllib.request import urlopen;f=open('Win10_21H2_Japanese_x6
 Write-Output -InputObject "download completed"
 
 powershell.exe -NoProfile -ExecutionPolicy Unrestricted ".\Start-Optimize.ps1"
+
+# store logs
+Compress-Archive -Path .\OfflineTemp_*\*.txt, .\OfflineTemp_*\*\*.txt -DestinationPath logs.zip -Force

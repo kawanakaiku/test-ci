@@ -8,7 +8,7 @@
 $wc = New-Object net.webclient
 
 $wc.DownloadFile("https://github.com/kawanakaiku/test-ci/releases/download/win10/Optimize-Offline.zip", "Optimize-Offline.zip")
-Expand-Archive ".\Optimize-Offline.zip" .
+Expand-Archive -LiteralPath ".\Optimize-Offline.zip" -DestinationPath . -Force
 
 Write-Output -InputObject "download starting"
 # Foreach ($item in @("aa", "ab", "ac", "ad", "ae")) { Write-Output -InputObject $item ; $wc.DownloadFile("https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_" + $item, "Win10_21H2_Japanese_x64.wim_" + $item) }

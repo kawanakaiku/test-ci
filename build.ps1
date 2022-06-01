@@ -21,4 +21,4 @@ Write-Output -InputObject "download completed"
 powershell.exe -NoProfile -ExecutionPolicy Unrestricted ".\Start-Optimize.ps1"
 
 # store logs
-Compress-Archive -Path .\OfflineTemp_*\*.txt, .\OfflineTemp_*\*\*.txt -DestinationPath logs.zip -Force
+Compress-Archive -Path .\OfflineTemp_*\*.log, .\OfflineTemp_*\*\*.log -DestinationPath logs.zip -Force

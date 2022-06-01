@@ -4,13 +4,11 @@ $ErrorActionPreference = "Stop"
 # https://stackoverflow.com/questions/28682642/powershell-why-is-using-invoke-webrequest-much-slower-than-a-browser-download
 $ProgressPreference = "SilentlyContinue"
 
-Write-Output -InputObject "download starting"
-# python.exe -c "from urllib.request import urlopen;f=open('Win10_21H2_Japanese_x64.esd', 'wb');[[print(i), f.write(urlopen('https://github.com/kawanakaiku/test-ci/releases/download/win10_custom/Win10_21H2_Japanese_x64.esd_'+i).read())] for i in ['aa', 'ab']];f.close()"
-Write-Output -InputObject "download completed"
+$esdfile = Join-Path (Get-Location) 'Win10_21H2_Japanese_x64.esd'
+$vhdfile = Join-Path (Get-Location) 'win10.vhd'
 
 Write-Output -InputObject "creating vhd"
 # create vhd file
-$vhdfile = Join-Path (Get-Location) 'win10.vhd'
 'create vdisk file="{0}" maximum=32000 type=expandable' -f $vhdfile | Out-File -Encoding utf8 diskpart.txt
 'select vdisk file="{0}"' -f $vhdfile | Out-File -Append -Encoding utf8 diskpart.txt
 'attach vdisk' | Out-File -Append -Encoding utf8 diskpart.txt
@@ -24,5 +22,19 @@ $vhdfile = Join-Path (Get-Location) 'win10.vhd'
 'assign letter=w' | Out-File -Append -Encoding utf8 diskpart.txt
 diskpart.exe /s diskpart.txt
 Write-Output -InputObject "creating vhd completed"
+
+Write-Output -InputObject "download esd starting"
+python.exe -c "from urllib.request import urlopen;f=open('Win10_21H2_Japanese_x64.esd', 'wb');[[print(i), f.write(urlopen('https://github.com/kawanakaiku/test-ci/releases/download/win10_custom/Win10_21H2_Japanese_x64.esd_'+i).read())] for i in ['aa', 'ab']];f.close()"
+Write-Output -InputObject "download esd completed"
+
+dism.exe /Apply-Image /ImageFile:$esdfile /index:1 /ApplyDir:W:\
+dism.exe /Image:W:\ /Set-LayeredDriver:6
+bcdboot.exe W:\Windows /l ja-jp /s S: /f ALL
+
+Write-Output -InputObject "detaching vhd"
+'select vdisk file="{0}"' -f $vhdfile | Out-File -Encoding utf8 diskpart.txt
+'detach vdisk' | Out-File -Append -Encoding utf8 diskpart.txt
+diskpart.exe /s diskpart.txt
+Write-Output -InputObject "detaching vhd finished"
 
 cmd.exe /c "dir"

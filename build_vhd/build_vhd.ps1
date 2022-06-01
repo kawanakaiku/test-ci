@@ -17,6 +17,7 @@ Write-Output -InputObject "creating vhd"
 'create partition efi size=100' | Out-File -Append -Encoding utf8 diskpart.txt
 'format quick fs=fat32' | Out-File -Append -Encoding utf8 diskpart.txt
 'assign letter=s' | Out-File -Append -Encoding utf8 diskpart.txt
+'CREATE PARTITION MSR SIZE=16' | Out-File -Append -Encoding utf8 diskpart.txt
 'create partition primary' | Out-File -Append -Encoding utf8 diskpart.txt
 'format quick fs=ntfs' | Out-File -Append -Encoding utf8 diskpart.txt
 'assign letter=w' | Out-File -Append -Encoding utf8 diskpart.txt

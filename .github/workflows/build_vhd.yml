@@ -25,7 +25,7 @@ jobs:
       # Runs a set of commands using the runners shell
       - name: Run a build script
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Unrestricted ".\build_vhd\build_vhd.ps1
+          powershell.exe -NoProfile -ExecutionPolicy Unrestricted ".\build_vhd\build_vhd.ps1"
 
       - name: Store esd files
         if: always()

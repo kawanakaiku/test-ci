@@ -5,7 +5,8 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 $esdfile = Join-Path (Get-Location) 'Win10_21H2_Japanese_x64.wim'
-$vhdfile = Join-Path (Get-Location) 'win10.vhd'
+$vhdfile = 'C:\win10.vhd'
+$7zfile = 'C:\win10.vhd.7z'
 
 Write-Output -InputObject "creating vhd"
 # create vhd file
@@ -36,5 +37,9 @@ Write-Output -InputObject "detaching vhd"
 'detach vdisk' | Out-File -Append -Encoding utf8 diskpart.txt
 diskpart.exe /s diskpart.txt
 Write-Output -InputObject "detaching vhd finished"
+
+Write-Output -InputObject "archiving vhd"
+7z.exe a -t7z -mx=9 -ms=on $7zfile $vhdfile
+Write-Output -InputObject "archiving vhd finished"
 
 cmd.exe /c "dir"

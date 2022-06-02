@@ -1,0 +1,5 @@
+cmd /c "dir"
+cmd /c "systeminfo"
+cmd /c "mountvol"
+cmd /c "echo list disk | diskpart"
+cmd /c "echo list volume | diskpart"

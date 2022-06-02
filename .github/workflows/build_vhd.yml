@@ -32,4 +32,4 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: vhd
-          path: win10.vhd
+          path: C:/win10.vhd.7z

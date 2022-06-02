@@ -1,14 +1,14 @@
-	# exit on fail
+# exit on fail
 # $ErrorActionPreference = "Stop"
 # no progress bar for faster download
 # https://stackoverflow.com/questions/28682642/powershell-why-is-using-invoke-webrequest-much-slower-than-a-browser-download
 # $ProgressPreference = "SilentlyContinue"
 
 # client for download
-$wc = New-Object net.webclient
+# $wc = New-Object net.webclient
 
-$wc.DownloadFile("https://github.com/kawanakaiku/test-ci/releases/download/win10/Optimize-Offline.zip", "Optimize-Offline.zip")
-Expand-Archive -LiteralPath ".\Optimize-Offline.zip" -DestinationPath . -Force
+# $wc.DownloadFile("https://github.com/kawanakaiku/test-ci/releases/download/win10/Optimize-Offline.zip", "Optimize-Offline.zip")
+# Expand-Archive -LiteralPath ".\Optimize-Offline.zip" -DestinationPath . -Force
 
 Write-Output -InputObject "download starting"
 # Foreach ($item in @("aa", "ab", "ac", "ad", "ae")) { Write-Output -InputObject $item ; $wc.DownloadFile("https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_" + $item, "Win10_21H2_Japanese_x64.wim_" + $item) }
@@ -18,7 +18,9 @@ Write-Output -InputObject "download starting"
 python.exe -c "from urllib.request import urlopen;f=open('Win10_21H2_Japanese_x64.wim', 'wb');[[print(i), f.write(urlopen('https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_'+i).read())] for i in ['aa', 'ab', 'ac', 'ad', 'ae']];f.close()"
 Write-Output -InputObject "download completed"
 
-powershell.exe -NoProfile -ExecutionPolicy Unrestricted ".\Start-Optimize.ps1"
+# powershell.exe -NoProfile -ExecutionPolicy Unrestricted ".\Start-Optimize.ps1"
+
+dism.exe /Export-Image /SourceImageFile:Win10_21H2_Japanese_x64.wim /SourceIndex:1 /DestinationImageFile:"install.esd" /Compress:Recovery /CheckIntegrity
 
 # store logs
 Compress-Archive -Path .\Optimize-Offline_*\*.log, .\Optimize-Offline_*\*\*.log -DestinationPath logs.zip -Force

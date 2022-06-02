@@ -39,7 +39,7 @@ diskpart.exe /s diskpart.txt
 Write-Output -InputObject "detaching vhd finished"
 
 Write-Output -InputObject "archiving vhd"
-7z.exe a -t7z -mx=9 -ms=on $7zfile $vhdfile
+7z.exe a -t7z -mx=9 -ms=on -bsp1 $7zfile $vhdfile
 Write-Output -InputObject "archiving vhd finished"
 
 cmd.exe /c "dir"

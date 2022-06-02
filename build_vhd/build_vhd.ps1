@@ -4,7 +4,7 @@ $ErrorActionPreference = "Stop"
 # https://stackoverflow.com/questions/28682642/powershell-why-is-using-invoke-webrequest-much-slower-than-a-browser-download
 $ProgressPreference = "SilentlyContinue"
 
-$esdfile = Join-Path (Get-Location) 'Win10_21H2_Japanese_x64.esd'
+$esdfile = Join-Path (Get-Location) 'Win10_21H2_Japanese_x64.wim'
 $vhdfile = Join-Path (Get-Location) 'win10.vhd'
 
 Write-Output -InputObject "creating vhd"
@@ -17,7 +17,6 @@ Write-Output -InputObject "creating vhd"
 'create partition efi size=100' | Out-File -Append -Encoding utf8 diskpart.txt
 'format quick fs=fat32' | Out-File -Append -Encoding utf8 diskpart.txt
 'assign letter=s' | Out-File -Append -Encoding utf8 diskpart.txt
-'CREATE PARTITION MSR SIZE=16' | Out-File -Append -Encoding utf8 diskpart.txt
 'create partition primary' | Out-File -Append -Encoding utf8 diskpart.txt
 'format quick fs=ntfs' | Out-File -Append -Encoding utf8 diskpart.txt
 'assign letter=w' | Out-File -Append -Encoding utf8 diskpart.txt
@@ -25,7 +24,7 @@ diskpart.exe /s diskpart.txt
 Write-Output -InputObject "creating vhd completed"
 
 Write-Output -InputObject "download esd starting"
-python.exe -c "from urllib.request import urlopen;f=open('Win10_21H2_Japanese_x64.esd', 'wb');[[print(i), f.write(urlopen('https://github.com/kawanakaiku/test-ci/releases/download/win10_custom/Win10_21H2_Japanese_x64.esd_'+i).read())] for i in ['aa', 'ab']];f.close()"
+python.exe -c "from urllib.request import urlopen;f=open('Win10_21H2_Japanese_x64.wim', 'wb');[[print(i), f.write(urlopen('https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_'+i).read())] for i in ['aa', 'ab', 'ac', 'ad', 'ae']];f.close()"
 Write-Output -InputObject "download esd completed"
 
 dism.exe /Apply-Image /ImageFile:$esdfile /index:1 /ApplyDir:W:\

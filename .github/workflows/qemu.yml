@@ -21,5 +21,5 @@ jobs:
         run: |
           echo Add other actions to build,
           echo test, and deploy your project.
-          which qemu-system-x86_64
-          find / -name 'edk2-x86_64-code.fd' 2>/dev/null
+          which qemu-system-x86_64 || true
+          find / -name 'edk2-x86_64-code.fd' 2>/dev/null || true

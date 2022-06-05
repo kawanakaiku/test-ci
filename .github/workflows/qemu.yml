@@ -16,9 +16,8 @@ jobs:
 
       - name: Run a multi-line script
         run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
-          sudo apt-get install -y --no-install-recommends qemu-system-x86
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
           which qemu-system-x86_64 || true
+          which qemu-img || true
           qemu-system-x86_64 --version || true
           find / -name 'edk2-x86_64-code.fd' 2>/dev/null || true

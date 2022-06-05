@@ -1,6 +1,6 @@
 name: qemu
 
-	on:
+on:
     push:
       branches: [ main ]
       paths:

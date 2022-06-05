@@ -1,0 +1,25 @@
+name: qemu
+
+	on:
+    push:
+      branches: [ main ]
+      paths:
+        - 'test/**'
+    workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+  
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run a one-line script
+        run: echo Hello, world!
+        
+      - name: Run a multi-line script
+        run: |
+          echo Add other actions to build,
+          echo test, and deploy your project.
+          which qemu-system-x86_64
+          find / -name 'edk2-x86_64-code.fd' 2>/dev/null

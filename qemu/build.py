@@ -1,6 +1,10 @@
 import subprocess
 import time
 
+import logging
+logging.basicConfig(level=logging.DEBUG, filename="log.txt")
+logger = logging.getLogger(__name__)
+
 class process:
     def __init__(self, command):
         self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", bufsize=1)
@@ -8,13 +12,13 @@ class process:
     def read(self):
         self.process.stdout.flush()
         output = self.process.stdout.readline().rstrip('\n')
-        print(f">>> {output}")
+        logger.info(f">>> {output}")
         return output
 
     def write(self, input):
         self.process.stdin.write(input+"\n")
         self.process.stdin.flush()
-        print(f"<<< {input}")
+        logger.info(f"<<< {input}")
 
     def terminate(self):
         self.process.stdin.close()
@@ -25,7 +29,7 @@ class process:
         self.process.stdin.close()
         self.process.wait()
         returncode = self.process.returncode
-        print(f"returncode={returncode}")
+        logger.info(f"returncode={returncode}")
         
     def answer(self, match, input):
         while True:

@@ -4,7 +4,7 @@ on:
     push:
       branches: [ main ]
       paths:
-        - 'test/**'
+        - 'qemu/**'
     workflow_dispatch:
 
 jobs:
@@ -17,7 +17,5 @@ jobs:
       - name: Run a multi-line script
         run: |
           sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
-          which qemu-system-x86_64 || true
-          which qemu-img || true
-          qemu-system-x86_64 --version || true
-          find / -name 'edk2-x86_64-code.fd' 2>/dev/null || true
+          qemu-system-x86_64 --version
+          timeout 180 python3 qemu/build.py

@@ -1,4 +1,4 @@
-name: qemu
+name: wine
 
 on:
     push:

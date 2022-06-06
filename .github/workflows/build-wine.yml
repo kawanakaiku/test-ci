@@ -16,8 +16,10 @@ jobs:
 
       - name: Run a multi-line script
         run: |
+          sudo apt-get purge -y --auto-remove man-db
+          sudo apt-get install -y gcc-multilib g++-multilib
           wget -nc https://github.com/wine-mirror/wine/archive/refs/tags/wine-7.10.tar.gz
-          tar xvf wine-7.10.tar.gz --strip-components 1
+          tar xf wine-7.10.tar.gz --strip-components 1
           mkdir build && cd build
           ../configure
           make

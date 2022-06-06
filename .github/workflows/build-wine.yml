@@ -24,6 +24,7 @@ jobs:
           wget -nc -nv https://github.com/wine-mirror/wine/archive/refs/tags/wine-7.10.tar.gz
           tar xf wine-7.10.tar.gz --strip-components 1
           mkdir build && cd build
+          export CFLAGS+=" -s "
           ../configure
           make
           cd ..

@@ -1,0 +1,31 @@
+name: qemu
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - 'wine/**'
+    workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+  
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run a multi-line script
+        run: |
+          wget -nc https://github.com/wine-mirror/wine/archive/refs/tags/wine-7.10.tar.gz
+          tar xvf wine-7.10.tar.gz --strip-components 1
+          mkdir build && cd build
+          ../configure
+          make
+          cd ..
+          tar -Jcf wine-7.10-amd64-build.tar.xz build
+      - name: Store built files
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: wine-7.10-amd64-build.tar.xz

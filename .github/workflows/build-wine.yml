@@ -28,7 +28,7 @@ jobs:
           ../configure
           make -j2
           cd ..
-          tar -Jcf wine-7.10-amd64-build.tar.xz build
+          XZ_OPT=-e9 tar -Jcf wine-7.10-amd64-build.tar.xz build
       - name: Store built files
         if: always()
         uses: actions/upload-artifact@v3

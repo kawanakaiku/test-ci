@@ -1,4 +1,4 @@
-from subprocess import run, PIPE, DEVNULL
+from subprocess import Popen, PIPE, DEVNULL
 from time import sleep
 
 import logging

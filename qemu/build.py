@@ -23,7 +23,7 @@ logger.info("started qemu in background")
 
 # communicate with qemu
 def read():
-    return process.stdout.readline().strip()
+    return process.stdout.readline()
 
 def write(message):
     process.stdin.write(message + "\n")
@@ -33,8 +33,10 @@ logger.info("Opening FIFO...")
 write("")
 while True:
     data = read()
-    if len(data) == 0:
+    if data == "":
         print("Writer closed")
         break
-    logger.info('>>>' + data)
+    data = data.strip()
+    if data != "":
+        logger.info('>>>' + data)
     

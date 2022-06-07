@@ -44,8 +44,19 @@ def answer(pattern, message):
             logger.info('>>> ' + message)
             break
 
+def wait_shutdown():    
+    while True:
+        data = read()
+        if data == "":
+            return
+        data = data.strip()
+        if data != "":
+            logger.info('<<< ' + data)
+
 logger.info("Opening FIFO...")
 write("")
     
 answer("Welcome to Alpine Linux", "root")
-time.sleep(3)
+answer("localhost:~#", "ls -lha")
+write("poweroff")
+wait_shutdown()

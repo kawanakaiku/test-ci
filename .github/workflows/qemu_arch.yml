@@ -28,7 +28,7 @@ jobs:
             wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/archlinux/archlinux-2022.06.01-x86_64.iso
             qemu-img create -f qcow2 qemu_arch.img 32G
             python3 qemu_arch/build.py
-            sudo virt-sparsify qemu_arch.img --convert qcow2 qemu_arch2.img && mv qemu_arch2.img qemu_arch.img
+            echo sudo virt-sparsify qemu_arch.img --convert qcow2 qemu_arch2.img && mv qemu_arch2.img qemu_arch.img
             7z a -mx=9 qemu_arch.img.7z qemu_arch.img
             
       - name: Store 7z files

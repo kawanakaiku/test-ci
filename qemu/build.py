@@ -24,7 +24,9 @@ logger.info("started qemu in background")
 # communicate with qemu
 line_buffer = ""
 def read():
+    print("reading")
     data = process.stdout.read()
+    print("reading ok")
     if data == "":
         return False
     line_buffer += data
@@ -40,7 +42,7 @@ def write(message):
     process.stdin.flush()
 
 def answer(pattern, message):    
-    logger.info(f"running answer {pattern} {message}")
+    logger.info(f"running answer '{pattern}' '{message}'")
     while True:
         data = read()
         if data == False:

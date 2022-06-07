@@ -25,7 +25,3 @@ jobs:
         with:
           name: archive
           path: ubuntu-22.04.ncdu.7z
-© 2022 GitHub, Inc.
-Terms
-Privacy
-Security

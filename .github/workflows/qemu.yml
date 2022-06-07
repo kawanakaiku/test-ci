@@ -23,7 +23,7 @@ jobs:
             wget -nc -nv https://dl-cdn.alpinelinux.org/alpine/v3.16/releases/x86_64/alpine-virt-3.16.0-x86_64.iso
             qemu-img create -f qcow2 qemu.img 2G
             python3 qemu/build.py
-            sudo virt-sparsify --in-place qemu.img
+            sudo virt-sparsify qemu.img --convert qcow2 qemu2.img && mv qemu2.img qemu.img
             7z a -mx=9 qemu.img.7z qemu.img
 
       - name: Store log files

@@ -19,7 +19,7 @@ jobs:
         run: |
             bash qemu/build.sh
             python3 qemu/build.py
-            LIBGUESTFS_DEBUG=1 LIBGUESTFS_TRACE=1 virt-sparsify --in-place qemu.img
+            sudo virt-sparsify --in-place qemu.img
             7z a -mx=9 qemu.img.7z qemu.img
 
       - name: Store log files

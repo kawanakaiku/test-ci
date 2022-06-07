@@ -28,6 +28,7 @@ def read():
     if data == "":
         return False
     line_buffer += data
+    print(line_buffer)
     if "\n" in line_buffer:
         line, line_buffer = line_buffer.split("\n", 1)
         return line
@@ -44,13 +45,13 @@ def answer(pattern, message):
         if data == False:
             print("Writer closed")
             break
-        data = data.strip()
+        data = data.rstrip()
         if data != "":
-            logger.info('<<< ' + data)
+            print('<<< ' + data)
         if pattern in data:
             time.sleep(1)
             write(message)
-            logger.info('>>> ' + message)
+            print('>>> ' + message)
             break
 
 def wait_shutdown():    
@@ -60,7 +61,7 @@ def wait_shutdown():
             return
         data = data.rstrip()
         if data != "":
-            logger.info('<<< ' + data)
+            print('<<< ' + data)
 
 logger.info("Opening FIFO...")
 write("")

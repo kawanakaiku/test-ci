@@ -32,7 +32,7 @@ def wait_shutdown():
 start_qemu(cdrom=True)
     
 write("")
-sleep(100)
+sleep(120)
 
 write("root")
 sleep(3)

@@ -94,7 +94,7 @@ write(r"""sed -i -E 's/GRUB_TIMEOUT=\S+?/GRUB_TIMEOUT=0/ ; s/(GRUB_CMDLINE_LINUX
 write("grub-mkconfig -o /boot/grub/grub.cfg")
 sleep(10)
 
-write("apk update && apk --no-cache add docker htop ncdu ; service docker start ; rc-update add docker ; apk cache clean")
+write("apk update && apk --no-cache add docker htop ncdu git ; service docker start ; rc-update add docker ; apk cache clean")
 sleep(30)
 
 write("reboot")

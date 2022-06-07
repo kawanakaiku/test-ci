@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 logger.info("starting qemu")
 
 command = ["qemu-system-x86_64"]
-command += "-machine q35 -m 1024 -smp cpus=2 -cpu qemu64 -nographic".split()
+command += "-machine q35 -m 2048 -smp cpus=2 -cpu qemu64 -nographic".split()
 command += " -drive if=pflash,format=raw,read-only,file=edk2-x86_64-code.fd".split()
 command += "-netdev user,id=n1,hostfwd=tcp::2222-:22".split()
 command += "-device virtio-net,netdev=n1".split()
@@ -58,9 +58,46 @@ logger.info("Opening FIFO...")
 write("")
 
 sleep(60)
+
 write("root")
 sleep(3)
-write("ls -lha")
+
+write("setup-interfaces")
 sleep(3)
+write("")
+sleep(1)
+write("")
+sleep(1)
+write("")
+sleep(1)
+
+write("ifup eth0")
+sleep(10)
+
+write("""sed -i -E 's/(local kernel_opts)=.*/\1="console=ttyS0"/' /sbin/setup-disk""")
+sleep(3)
+
+write("""sed -i -e 's/ext4) mkfs_args="$mkfs_args -O ^64bit";;/ext4) mkfs_args="$mkfs_args -O ^64bit,^has_journal";;/' """)
+sleep(3)
+
+write("wget https://github.com/kawanakaiku/test-ci/releases/download/alpine/answerfile")
+sleep(10)
+
+write("setup-alpine -f answerfile")
+sleep(10)
+# passwd
+write("")
+sleep(1)
+write("")
+sleep(1)
+write("")
+sleep(5)
+write("")
+sleep(5)
+write("")
+sleep(5)
+write("y")
+sleep(10)
+
 write("poweroff")
 wait_shutdown()

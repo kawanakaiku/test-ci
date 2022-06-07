@@ -24,6 +24,7 @@ logger.info("started qemu in background")
 
 # communicate with qemu
 def write(message):
+    logger.info("writing {message}")
     process.stdin.write(message + "\n")
     process.stdin.flush()
 
@@ -31,7 +32,7 @@ def wait_shutdown():
     process.wait()
 
 write("")
-sleep(100)
+sleep(60)
 
 write("root")
 sleep(3)

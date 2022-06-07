@@ -5,4 +5,6 @@ qemu-system-x86_64 -machine q35 -m 1024 -smp cpus=2 -cpu qemu64 -drive if=pflash
 echo starting qemu finished
 
 echo reading stdout
-( while read line ; do echo ">>> $line" ; done ) < guest.out
+cat guest.out | while read line ; do
+  echo ">>> $line"
+done

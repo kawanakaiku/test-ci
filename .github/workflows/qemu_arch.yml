@@ -1,0 +1,38 @@
+name: qemu
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - 'qemu_arch/**'
+        - '.github/workflows/qemu_arch.yml'
+    workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+  
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: get storage info
+        run: |
+            free -h
+            df -h
+            
+      - name: Run a multi-line script
+        run: |
+            sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils libguestfs-tools
+            wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/files/edk2-x86_64-code.fd
+            wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/archlinux/archlinux-2022.06.01-x86_64.iso
+            qemu-img create -f qcow2 qemu_arch.img 32G
+            python3 qemu_arch/build.py
+            sudo virt-sparsify qemu_arch.img --convert qcow2 qemu_arch2.img && mv qemu_arch2.img qemu_arch.img
+            7z a -mx=9 qemu_arch.img.7z qemu_arch.img
+            
+      - name: Store 7z files
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: arch_img
+          path: qemu_arch.img.7z

@@ -57,6 +57,6 @@ logger.info("Opening FIFO...")
 write("")
     
 answer("Welcome to Alpine Linux", "root")
-answer("localhost:~#", "ls -lha")
+answer("You may change this message by editing /etc/motd.", "ls -lha")
 write("poweroff")
 wait_shutdown()

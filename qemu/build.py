@@ -24,7 +24,7 @@ logger.info("started qemu in background")
 
 # communicate with qemu
 def write(message):
-    logger.info("writing {message}")
+    logger.info(f"writing '{message}'")
     process.stdin.write(message + "\n")
     process.stdin.flush()
 

@@ -1,31 +1,40 @@
-import subprocess
+from subprocess import Popen, PIPE, DEVNULL
 import time
 
 import logging
-logging.basicConfig(level=logging.DEBUG, filename="log.txt")
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-import os
-import errno
 
-GUEST_IN = 'guest.in'
-GUEST_OUT = 'guest.out'
-
-os.mkfifo(GUEST_IN)
-os.mkfifo(GUEST_OUT)
-
+# start qemu process
 logger.info("starting qemu")
-os.system(f"qemu-system-x86_64 -machine q35 -m 1024 -smp cpus=2 -cpu qemu64 -drive if=pflash,format=raw,read-only,file=edk2-x86_64-code.fd -netdev user,id=n1,hostfwd=tcp::2222-:22 -device virtio-net,netdev=n1 -cdrom alpine-virt-3.16.0-x86_64.iso -nographic <{GUEST_IN} >{GUEST_OUT} &")
+
+command = ["qemu-system-x86_64"]
+command += "-machine q35 -m 1024 -smp cpus=2 -cpu qemu64 -nographic".split()
+command += " -drive if=pflash,format=raw,read-only,file=edk2-x86_64-code.fd".split()
+command += "-netdev user,id=n1,hostfwd=tcp::2222-:22".split()
+command += "-device virtio-net,netdev=n1".split()
+command += "-cdrom alpine-virt-3.16.0-x86_64.iso".split()
+
+process = Popen(command, stdin=PIPE, stdout=PIPE, stderr=DEVNULL, text=True, encoding="utf-8")
+
 logger.info("started qemu in background")
 
+
+# communicate with qemu
+def read():
+    return process.stdout.readline().strip()
+
+def write(message):
+    process.stdin.write(message + "\n")
+    process.stdin.flush()
+
 logger.info("Opening FIFO...")
-with open(GUEST_IN, 'r', encoding='utf-8') as stdin, open(GUEST_OUT, 'w', encoding='utf-8') as stdout:
-    logger.info("i/o opened")
-    stdin.write('')
-    while True:
-        data = stdout.readline()
-        if len(data) == 0:
-            print("Writer closed")
-            break
-        logger.info('>>>' + data)
+write("")
+while True:
+    data = read()
+    if len(data) == 0:
+        print("Writer closed")
+        break
+    logger.info('>>>' + data)
     

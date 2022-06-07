@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 logger.info("starting qemu")
 
 command = ["qemu-system-x86_64"]
+command += "-accel kvm".split()
 command += "-machine q35 -m 1024 -smp cpus=2 -cpu qemu64 -nographic".split()
 command += " -drive if=pflash,format=raw,read-only,file=edk2-x86_64-code.fd".split()
 command += "-netdev user,id=n1,hostfwd=tcp::2222-:22".split()

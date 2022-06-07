@@ -16,10 +16,10 @@ os.mkfifo(FIFO)
 os.system("qemu-system-x86_64 -serial pipe:guest -machine q35 -m 1024 -smp cpus=2 -cpu qemu64 -drive if=pflash,format=raw,read-only,file=edk2-x86_64-code.fd -netdev user,id=n1,hostfwd=tcp::2222-:22 -device virtio-net,netdev=n1 -cdrom alpine-virt-3.16.0-x86_64.iso -nographic &")
 
 print("Opening FIFO...")
-with open(GUEST_IN, 'rb') as in, open(GUEST_OUT, 'rb') as out:
-    print("in/out opened")
+with open(GUEST_IN, 'rb') as stdin, open(GUEST_OUT, 'rb') as stdout:
+    print("i/o opened")
     while True:
-        data = out.readline()
+        data = stdout.readline()
         if len(data) == 0:
             print("Writer closed")
             break

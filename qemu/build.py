@@ -40,6 +40,7 @@ def write(message):
     process.stdin.flush()
 
 def answer(pattern, message):    
+    logger.info(f"running answer {pattern} {message}")
     while True:
         data = read()
         if data == False:

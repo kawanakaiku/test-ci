@@ -74,10 +74,10 @@ sleep(1)
 write("ifup eth0")
 sleep(10)
 
-write("""sed -i -E 's/(local kernel_opts)=.*/\1="console=ttyS0"/' /sbin/setup-disk""")
+write(r"""sed -i -E 's/(local kernel_opts)=.*/\1="console=ttyS0"/' /sbin/setup-disk""")
 sleep(3)
 
-write("""sed -i -e 's/ext4) mkfs_args="$mkfs_args -O ^64bit";;/ext4) mkfs_args="$mkfs_args -O ^64bit,^has_journal";;/' """)
+write(r"""sed -i -e 's/ext4) mkfs_args="$mkfs_args -O ^64bit";;/ext4) mkfs_args="$mkfs_args -O ^64bit,^has_journal";;/' """)
 sleep(3)
 
 write("wget https://github.com/kawanakaiku/test-ci/releases/download/alpine/answerfile")

@@ -16,7 +16,7 @@ command += "-netdev user,id=n1,hostfwd=tcp::2222-:22".split()
 command += "-device virtio-net,netdev=n1".split()
 command += "-cdrom alpine-virt-3.16.0-x86_64.iso".split()
 
-process = Popen(command, stdin=PIPE, stdout=PIPE, stderr=DEVNULL, text=True, encoding="utf-8")
+process = Popen(command, stdin=PIPE, stdout=PIPE, stderr=DEVNULL, text=True, encoding="utf-8", errors="ignore")
 
 logger.info("started qemu in background")
 

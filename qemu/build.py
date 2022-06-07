@@ -17,7 +17,7 @@ command += "-device virtio-net,netdev=n1".split()
 command += "-cdrom alpine-virt-3.16.0-x86_64.iso".split()
 command += ["qemu.img"]
 
-process = run(command, stdin=PIPE, stderr=DEVNULL, text=True, encoding="utf-8", errors="ignore")
+process = Popen(command, stdin=PIPE, stderr=DEVNULL, text=True, encoding="utf-8", errors="ignore")
 
 logger.info("started qemu in background")
 

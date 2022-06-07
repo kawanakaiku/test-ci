@@ -32,7 +32,7 @@ def wait_shutdown():
     process.wait()
 
 write("")
-sleep(60)
+sleep(100)
 
 write("root")
 sleep(3)

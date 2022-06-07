@@ -31,77 +31,18 @@ def wait_shutdown():
 
 start_qemu(cdrom=True)
     
+# edit boot param
 write("")
-sleep(120)
-
-write("root")
-sleep(3)
-
-write("setup-interfaces")
-sleep(3)
-write("")
-sleep(1)
-write("")
-sleep(1)
-write("")
-sleep(1)
-
-write("ifup eth0")
 sleep(10)
-
-write(r"""sed -i -E 's/(local kernel_opts)=.*/\1="console=ttyS0"/' /sbin/setup-disk""")
+write("\t")
 sleep(3)
-
-write(r"""sed -i -e 's/ext4) mkfs_args="$mkfs_args -O ^64bit";;/ext4) mkfs_args="$mkfs_args -O ^64bit,^has_journal";;/' /sbin/setup-disk""")
+write(" console=tty0 console=ttyS0,115200")
 sleep(3)
-
-write("wget https://github.com/kawanakaiku/test-ci/releases/download/alpine/answerfile")
-sleep(10)
-
-write("setup-alpine -e -f answerfile")
-sleep(20)
-# passwd
-write("")
-sleep(1)
-write("")
-sleep(5)
-write("")
-sleep(5)
-write("y")
-sleep(10)
-
-write("poweroff")
-wait_shutdown()
-
-
-
-start_qemu(cdrom=False)
-
 write("")
 sleep(100)
 
 write("root")
-sleep(3)
-
-write(r"""sed -i -E 's/relatime/noatime/g ; s/[0-9]+$/0/g ; s/(\s+?ext4\s+?\S+)/\1,barrier=0/g' /etc/fstab""")
-sleep(3)
-
-write("rm /etc/motd")
-sleep(3)
-
-write(r"""sed -i -E 's/GRUB_TIMEOUT=\S+?/GRUB_TIMEOUT=0/ ; s/(GRUB_CMDLINE_LINUX_DEFAULT=".*?)"/\1 mitigations=off fsck.mode=skip nowatchdog selinux=0 apparmor=0 lsm="/' /etc/default/grub""")
-
-write("grub-mkconfig -o /boot/grub/grub.cfg")
-sleep(10)
-
-write("apk update && apk --no-cache add docker htop ncdu git ; service docker start ; rc-update add docker ; apk cache clean")
 sleep(30)
-
-write("reboot")
-sleep(100)
-
-write("root")
-sleep(100)
 
 write("poweroff")
 wait_shutdown()

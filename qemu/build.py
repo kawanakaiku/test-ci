@@ -29,14 +29,23 @@ def write(message):
     process.stdin.write(message + "\n")
     process.stdin.flush()
 
+def answer(pattern, message):    
+    while True:
+        data = read()
+        if data == "":
+            print("Writer closed")
+            break
+        data = data.strip()
+        if data != "":
+            logger.info('<<< ' + data)
+        if pattern in data:
+            time.sleep(1)
+            write(message)
+            logger.info('>>> ' + message)
+            break
+
 logger.info("Opening FIFO...")
 write("")
-while True:
-    data = read()
-    if data == "":
-        print("Writer closed")
-        break
-    data = data.strip()
-    if data != "":
-        logger.info('>>>' + data)
     
+answer("Welcome to Alpine Linux", "root")
+time.sleep(3)

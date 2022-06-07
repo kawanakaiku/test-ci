@@ -83,7 +83,7 @@ sleep(3)
 write("wget https://github.com/kawanakaiku/test-ci/releases/download/alpine/answerfile")
 sleep(10)
 
-write("setup-alpine -f answerfile")
+write("setup-alpine -e -f answerfile")
 sleep(10)
 # passwd
 write("")

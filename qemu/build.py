@@ -22,8 +22,17 @@ logger.info("started qemu in background")
 
 
 # communicate with qemu
+line_buffer = ""
 def read():
-    return process.stdout.readline()
+    data = process.stdout.read()
+    if data == "":
+        return False
+    line_buffer += data
+    if "\n" in line_buffer:
+        line, line_buffer = line_buffer.split("\n", 1)
+        return line
+    else:
+        return line_buffer
 
 def write(message):
     process.stdin.write(message + "\n")
@@ -32,7 +41,7 @@ def write(message):
 def answer(pattern, message):    
     while True:
         data = read()
-        if data == "":
+        if data == False:
             print("Writer closed")
             break
         data = data.strip()
@@ -47,16 +56,16 @@ def answer(pattern, message):
 def wait_shutdown():    
     while True:
         data = read()
-        if data == "":
+        if data == False:
             return
-        data = data.strip()
+        data = data.rstrip()
         if data != "":
             logger.info('<<< ' + data)
 
 logger.info("Opening FIFO...")
 write("")
     
-answer("Welcome to Alpine Linux", "root")
-answer("You may change this message by editing /etc/motd.", "ls -lha")
+answer("localhost login:", "root")
+answer("localhost:~#", "ls -lha")
 write("poweroff")
 wait_shutdown()

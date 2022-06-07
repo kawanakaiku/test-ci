@@ -59,10 +59,8 @@ write("wget https://github.com/kawanakaiku/test-ci/releases/download/alpine/answ
 sleep(10)
 
 write("setup-alpine -e -f answerfile")
-sleep(10)
+sleep(20)
 # passwd
-write("")
-sleep(1)
 write("")
 sleep(1)
 write("")

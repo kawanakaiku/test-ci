@@ -1,5 +1,5 @@
 from subprocess import Popen, PIPE, DEVNULL
-import time
+from time import sleep
 
 import logging
 logging.basicConfig(level=logging.DEBUG)
@@ -22,54 +22,44 @@ logger.info("started qemu in background")
 
 
 # communicate with qemu
-line_buffer = ""
 def read():
-    print("reading")
-    data = process.stdout.read()
-    print("reading ok")
-    if data == "":
-        return False
-    line_buffer += data
-    print(line_buffer)
-    if "\n" in line_buffer:
-        line, line_buffer = line_buffer.split("\n", 1)
-        return line
-    else:
-        return line_buffer
+    return process.stdout.readline()
 
 def write(message):
     process.stdin.write(message + "\n")
     process.stdin.flush()
 
 def answer(pattern, message):    
-    logger.info(f"running answer '{pattern}' '{message}'")
     while True:
         data = read()
-        if data == False:
+        if data == "":
             print("Writer closed")
             break
-        data = data.rstrip()
+        data = data.strip()
         if data != "":
-            print('<<< ' + data)
+            logger.info('<<< ' + data)
         if pattern in data:
-            time.sleep(1)
+            sleep(1)
             write(message)
-            print('>>> ' + message)
+            logger.info('>>> ' + message)
             break
 
 def wait_shutdown():    
     while True:
         data = read()
-        if data == False:
+        if data == "":
             return
         data = data.rstrip()
         if data != "":
-            print('<<< ' + data)
+            logger.info('<<< ' + data)
 
 logger.info("Opening FIFO...")
 write("")
-    
-answer("localhost login:", "root")
-answer("localhost:~#", "ls -lha")
+
+sleep(60)
+write("root")
+sleep(3)
+write("ls -lha")
+sleep(3)
 write("poweroff")
 wait_shutdown()

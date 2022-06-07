@@ -11,12 +11,12 @@ def start_qemu(cdrom=True):
     logger.info("starting qemu")
     command = ["qemu-system-x86_64"]
     command += "-machine q35 -m 2048 -smp cpus=2 -cpu qemu64 -nographic".split()
-    command += " -drive if=pflash,format=raw,read-only,file=edk2-x86_64-code.fd".split()
+    command += "-drive if=pflash,format=raw,read-only,file=edk2-x86_64-code.fd".split()
     command += "-netdev user,id=n1,hostfwd=tcp::2222-:22".split()
     command += "-device virtio-net,netdev=n1".split()
     if cdrom:
         command += "-cdrom archlinux-2022.06.01-x86_64.iso".split()
-    command += ["qemu.img"]
+    command += ["qemu_arch.img"]
     process = Popen(command, stdin=PIPE, stderr=DEVNULL, text=True, encoding="utf-8", errors="ignore")
     logger.info("started qemu in background")
 

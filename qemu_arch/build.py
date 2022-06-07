@@ -20,9 +20,9 @@ def start_qemu(cdrom=True):
     process = Popen(command, stdin=PIPE, stderr=DEVNULL, text=True, encoding="utf-8", errors="ignore")
     logger.info("started qemu in background")
 
-def write(message):
+def write(message, end="\n"):
     logger.info(f"writing '{message}'")
-    process.stdin.write(message + "\n")
+    process.stdin.write(message + end)
     process.stdin.flush()
 
 def wait_shutdown():    
@@ -34,11 +34,9 @@ start_qemu(cdrom=True)
 # edit boot param
 write("")
 sleep(10)
-write("\t")
+write("\t", end="")
 sleep(3)
 write(" console=tty0 console=ttyS0,115200")
-sleep(3)
-write("")
 sleep(100)
 
 write("root")

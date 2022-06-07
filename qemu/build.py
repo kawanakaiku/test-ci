@@ -15,6 +15,7 @@ command += " -drive if=pflash,format=raw,read-only,file=edk2-x86_64-code.fd".spl
 command += "-netdev user,id=n1,hostfwd=tcp::2222-:22".split()
 command += "-device virtio-net,netdev=n1".split()
 command += "-cdrom alpine-virt-3.16.0-x86_64.iso".split()
+command += ["qemu.img"]
 
 process = Popen(command, stdin=PIPE, stdout=PIPE, stderr=DEVNULL, text=True, encoding="utf-8", errors="ignore")
 

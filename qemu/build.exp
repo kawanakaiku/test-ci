@@ -11,8 +11,8 @@ sleep 3
 send "root\n"
 
 expect "localhost:~#"
+sleep 3
 send "ls -lha\n"
 
-sleep 3
-
-send "shutdown -h now"
+send "shutdown -h now\n"
+sleep 10

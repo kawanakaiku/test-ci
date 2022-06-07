@@ -57,9 +57,7 @@ def wait_shutdown():
 logger.info("Opening FIFO...")
 write("")
 
-sleep(60)
-
-write("root")
+answer("Welcome to Alpine", "root")
 sleep(3)
 
 write("setup-interfaces")

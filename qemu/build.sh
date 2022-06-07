@@ -1,4 +1,4 @@
-sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils qemu-kvm
+sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
 qemu-system-x86_64 --version
 wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/files/edk2-x86_64-code.fd
 wget -nc -nv https://dl-cdn.alpinelinux.org/alpine/v3.16/releases/x86_64/alpine-virt-3.16.0-x86_64.iso

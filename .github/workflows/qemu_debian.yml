@@ -48,7 +48,7 @@ jobs:
                 --variant=essential --architecture=amd64 --include=linux-image-generic \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
-                --dpkgopt='path-exclude=/usr/share/doc/*' 
+                --dpkgopt='path-exclude=/usr/share/doc/*' \
                 jammy /_mnt http://azure.archive.ubuntu.com/ubuntu
             sudo cp --archive /_mnt/. /mnt
             echo -e "UUID=${UUID_ROOT} / ext4 noatime,nobarrier 0 0\nUUID=${UUID_EFI} /boot/efi vfat noatime 0 0" | sudo tee -a /mnt/etc/fstab

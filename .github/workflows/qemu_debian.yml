@@ -47,7 +47,8 @@ jobs:
             sudo mount -t vfat -o noatime /dev/nbd0p1 /mnt/boot/efi
 
             sudo mkdir /_mnt
-            sudo mmdebstrap --components="main restricted universe multiverse" --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs \
+            curl -Lo- https://ftp-master.debian.org/keys/release-11.asc | sudo apt-key add -
+            sudo mmdebstrap --components=main,contrib,non-free --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs \
                 --variant=apt --architecture=amd64 \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \

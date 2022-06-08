@@ -45,7 +45,7 @@ jobs:
             sudo umount /mnt/boot/efi /mnt
 
             sudo qemu-nbd --disconnect /dev/nbd0 
-            # sudo killall --wait qemu-nbd
+            sudo killall --wait qemu-nbd || true
             # sudo modprobe -r nbd
             7z a -mx=9 qemu_debian.img.7z qemu_debian.img
             

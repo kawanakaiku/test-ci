@@ -45,6 +45,10 @@ jobs:
 
             sudo mmdebstrap --components="main restricted universe multiverse" --variant=essential --architecture=amd64 --include=linux-image-generic,grub-efi-amd64 jammy /mnt http://azure.archive.ubuntu.com/ubuntu
             echo -e "UUID=${UUID_ROOT} / ext4 noatime,nobarrier 0 0\nUUID=${UUID_EFI} /boot/efi vfat noatime 0 0" | sudo tee -a /mnt/etc/fstab
+            sudo mount --bind /dev /mnt/dev
+            sudo mount --bind /dev/pts /mnt/dev/pts
+            sudo mount --bind /proc /mnt/proc
+            sudo mount --bind /sys /mnt/sys
             sudo chroot /mnt mkdir /boot/efi
             sudo mount -t vfat -o noatime /dev/nbd0p1 /mnt/boot/efi
             sudo chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=grub
@@ -53,7 +57,8 @@ jobs:
             
             df -h
             sudo sync
-            sudo umount /mnt/var/cache /mnt/boot/efi /mnt
+            sudo umount -lf /mnt/sys /mnt/proc /mnt/dev/pts /mnt/dev
+            sudo umount /mnt/boot/efi /mnt
 
             sudo qemu-nbd --disconnect /dev/nbd0 
             sudo killall --wait qemu-nbd || true

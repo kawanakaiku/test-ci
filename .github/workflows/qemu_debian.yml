@@ -89,13 +89,13 @@ jobs:
             sudo mount -t sysfs none /_mnt/sys
             
             sudo chroot /_mnt sh -c 'update-initramfs -c -k all'
-            for i in /_mnt/boot/vmlinuz-* /_mnt/boot/vmlinuz-* ; do sudo mv ${i} keep_${i} ; done
+            for i in /_mnt/boot/vmlinuz-* /_mnt/boot/vmlinuz-* ; do sudo mv ${i} ${i}_keep ; done
             
             sudo chroot /_mnt apt-get clean
             sudo find /_mnt/var/lib/apt/lists -type f -exec rm -vf {} \;
             echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-cloud-amd64 initramfs-tools e2fsprogs zstd
             
-            for i in /_mnt/boot/keep_* /_mnt/boot/initrd.img-* ; do sudo mv ${i} ${i:5} ; done
+            for i in /_mnt/boot/*_keep ; do sudo mv ${i} ${i:0:-5} ; done
             
             df -h
             sudo umount -lf /_mnt/sys /_mnt/proc /_mnt/dev/pts /_mnt/dev

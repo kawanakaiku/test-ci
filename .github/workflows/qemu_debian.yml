@@ -93,7 +93,7 @@ jobs:
                 set default=0
                 menuentry 'Debian GNU/Linux' {
                     echo	'Loading Linux ...'
-                    linux	`path_join / ${VMLINUZ}` root=UUID=${UUID_ROOT} ro quiet console=tty0 console=ttyS0,115200 earlyprintk=ttyS0,115200 consoleblank=0 mitigations=off fsck.mode=skip nowatchdog  selinux=0 apparmor=0 lsm=
+                    linux	`path_join / ${VMLINUZ}` root=UUID=${UUID_ROOT} ro console=tty0 console=ttyS0,115200 earlyprintk=ttyS0,115200 consoleblank=0 mitigations=off fsck.mode=skip nowatchdog  selinux=0 apparmor=0 lsm=
                     echo	'Loading initial ramdisk ...'
                     initrd	`path_join / ${INITRD_IMG}`
                 }

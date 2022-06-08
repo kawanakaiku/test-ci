@@ -44,8 +44,13 @@ jobs:
             sudo mount -t ext4 -o noatime,nobarrier /dev/nbd0p2 /mnt
 
             sudo mkdir /_mnt
-            sudo mmdebstrap --components="main restricted universe multiverse" --variant=essential --architecture=amd64 --include=linux-image-generic jammy /_mnt http://azure.archive.ubuntu.com/ubuntu
-            cp --archive /_mnt/. /mnt
+            sudo mmdebstrap --components="main restricted universe multiverse" \
+                --variant=essential --architecture=amd64 --include=linux-image-generic \
+                --dpkgopt='path-exclude=/usr/share/man/*' \
+                --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
+                --dpkgopt='path-exclude=/usr/share/doc/*' 
+                jammy /_mnt http://azure.archive.ubuntu.com/ubuntu
+            sudo cp --archive /_mnt/. /mnt
             echo -e "UUID=${UUID_ROOT} / ext4 noatime,nobarrier 0 0\nUUID=${UUID_EFI} /boot/efi vfat noatime 0 0" | sudo tee -a /mnt/etc/fstab
             sudo mount --bind /dev /mnt/dev
             sudo mount --bind /dev/pts /mnt/dev/pts

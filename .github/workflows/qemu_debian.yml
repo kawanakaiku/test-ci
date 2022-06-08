@@ -40,7 +40,7 @@ jobs:
             sudo mkfs.ext4 -O ^has_journal,^64bit,^metadata_csum /dev/nbd0p2
             UUID_EFI=`sudo blkid /dev/nbd0p1 | perl -n -e'/UUID="(.*?)"/ && print $1'`
             UUID_ROOT=`sudo blkid /dev/nbd0p2 | perl -n -e'/UUID="(.*?)"/ && print $1'`
-            EXT4_OPT="nobarrier,data=writeback,journal_async_commit"
+            EXT4_OPT="nobarrier,data=writeback"
             echo "UUID_EFI=${UUID_EFI}"
             echo "UUID_ROOT=${UUID_ROOT}"
             sudo mount -t ext4 -o noatime,${EXT4_OPT} /dev/nbd0p2 /mnt

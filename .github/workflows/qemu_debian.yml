@@ -45,7 +45,7 @@ jobs:
 
             sudo mkdir /_mnt
             sudo mmdebstrap --components="main restricted universe multiverse" \
-                --variant=essential --architecture=amd64 --include=grub-efi-amd64 \
+                --variant=essential --architecture=amd64 --include=linux-image-generic \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
                 --dpkgopt='path-exclude=/usr/share/doc/*' \
@@ -57,9 +57,9 @@ jobs:
             sudo mount -t sysfs none /mnt/sys/
             sudo chroot /mnt mkdir /boot/efi
             sudo mount -t vfat -o noatime /dev/nbd0p1 /mnt/boot/efi
-            sudo chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=grub
-            sudo chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-            cat /mnt/boot/grub/grub.cfg
+            # sudo chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=grub
+            # sudo chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+            # cat /mnt/boot/grub/grub.cfg
             
             df -h
             sudo sync

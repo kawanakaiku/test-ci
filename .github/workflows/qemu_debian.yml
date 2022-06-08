@@ -52,8 +52,8 @@ jobs:
             sudo chroot /mnt mkdir /boot/efi
             sudo mount -t vfat -o noatime /dev/nbd0p1 /mnt/boot/efi
             sudo grub-install --target=x86_64-efi --efi-directory=/mnt/boot/efi --bootloader-id=grub
-            cat /mnt/boot/grub/grub.cfg
             sudo grub-mkconfig -o /mnt/boot/grub/grub.cfg
+            cat /mnt/boot/grub/grub.cfg
             
             df -h
             sudo sync

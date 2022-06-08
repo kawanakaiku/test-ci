@@ -41,6 +41,7 @@ jobs:
             sudo mkdir -p /mnt/boot/efi
             sudo mount -t vfat -o noatime /dev/nbd0p1 /mnt/boot/efi
             df -h
+            sudo sync
             sudo umount /mnt/boot/efi /mnt
 
             sudo qemu-nbd --disconnect /dev/nbd0 

@@ -46,7 +46,7 @@ jobs:
             sudo mkdir -p /mnt/boot/efi
             sudo mount -t vfat -o noatime /dev/nbd0p1 /mnt/boot/efi
 
-            sudo mkdir /_mnt
+            sudo mkdir /_mnt /__mnt
             # curl -Lo- https://ftp-master.debian.org/keys/release-11.asc | sudo apt-key add -
             for i in 648ACFD622F3D138 0E98404D386FA1D9 ; do sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $i ; done
             sudo mmdebstrap --components=main,contrib,non-free --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs,zstd \
@@ -89,13 +89,16 @@ jobs:
             sudo mount -t sysfs none /_mnt/sys
             
             sudo chroot /_mnt sh -c 'update-initramfs -c -k all'
-            for i in /_mnt/boot/vmlinuz-* /_mnt/boot/initrd.img-* ; do sudo mv ${i} ${i}_keep ; done
+            VMLINUZ=` cd /_mnt && find boot -name 'vmlinuz-*' | tail -n1 `
+            INITRD_IMG=` cd /_mnt && find boot -name 'initrd.img-*' | tail -n1 `
+            
+            ( cd /_mnt ; sudo cp --archive --parents ${VMLINUZ} ${INITRD_IMG} /__mnt )
             
             sudo chroot /_mnt apt-get clean
             sudo find /_mnt/var/lib/apt/lists -type f -exec rm -vf {} \;
             echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-cloud-amd64 initramfs-tools e2fsprogs zstd
             
-            for i in /_mnt/boot/*_keep ; do sudo mv ${i} ${i:0:-5} ; done
+            ( cd /__mnt ; sudo cp --archive --parents . /_mnt )
             
             df -h
             sudo umount -lf /_mnt/sys /_mnt/proc /_mnt/dev/pts /_mnt/dev

@@ -72,6 +72,7 @@ jobs:
             # sudo modprobe -r nbd
             ls -lha
             7z a -mx=9 qemu_debian.img.7z qemu_debian.img
+            ls -lha qemu_debian.img.7z
             
       - name: Store 7z files
         if: always()

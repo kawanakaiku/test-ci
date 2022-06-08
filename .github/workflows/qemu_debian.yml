@@ -59,6 +59,7 @@ jobs:
                 UUID=${UUID_EFI} /boot/efi vfat noatime 0 0
             EOF
             
+            sudo mkdir /_mnt/boot/{efi,grub}
             sudo 7z x EFI.7z -O/_mnt/boot/efi/
             
             cat <<EOF | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /_mnt/boot/efi/EFI/debian/grub.cfg
@@ -83,7 +84,6 @@ jobs:
             sudo mount -t proc none /_mnt/proc/
             sudo mount -t devtmpfs none /_mnt/dev/
             sudo mount -t sysfs none /_mnt/sys/
-            sudo mkdir /_mnt/boot/{efi,grub}
             
             sudo chroot /_mnt apt-get install -y initramfs-tools
             # sudo chroot /_mnt sh -c 'update-initramfs -c -k $(uname -r)'

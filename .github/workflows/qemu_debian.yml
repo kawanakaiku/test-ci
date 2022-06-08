@@ -49,7 +49,7 @@ jobs:
             sudo mkdir /_mnt
             # curl -Lo- https://ftp-master.debian.org/keys/release-11.asc | sudo apt-key add -
             for i in 648ACFD622F3D138 0E98404D386FA1D9 ; do sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $i ; done
-            sudo mmdebstrap --components=main,contrib,non-free --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs \
+            sudo mmdebstrap --components=main,contrib,non-free --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs,zstd \
                 --variant=apt --architecture=amd64 \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
@@ -74,7 +74,7 @@ jobs:
                 set default=0
                 menuentry 'Debian GNU/Linux' {
                     echo	'Loading Linux ...'
-                    linux	/boot/vmlinuz root=UUID=${UUID_ROOT} ro quiet console=tty1 console=ttyS0 mitigations=off fsck.mode=skip nowatchdog  selinux=0 apparmor=0 lsm=
+                    linux	/boot/vmlinuz root=UUID=${UUID_ROOT} ro quiet console=tty0 console=ttyS0,115200 earlyprintk=ttyS0,115200 consoleblank=0 mitigations=off fsck.mode=skip nowatchdog  selinux=0 apparmor=0 lsm=
                     echo	'Loading initial ramdisk ...'
                     initrd	/boot/initrd.img
                 }
@@ -83,25 +83,25 @@ jobs:
                 }
             EOF
             
-            sudo mount -t proc none /_mnt/proc/
-            sudo mount -t devtmpfs none /_mnt/dev/
-            sudo mount -t sysfs none /_mnt/sys/
+            sudo mount -t proc none /_mnt/proc
+            sudo mount -t devtmpfs none /_mnt/dev
+            sudo mount -t devpts pts /_mnt/dev/pts
+            sudo mount -t sysfs none /_mnt/sys
             
             sudo chroot /_mnt sh -c 'update-initramfs -c -k all'
-            for i in /_mnt/boot/vmlinuz-* ; do sudo mv ${i} ${i}.keep ; done
+            for i in /_mnt/boot/vmlinuz-* /_mnt/boot/vmlinuz-* ; do sudo mv ${i} keep_${i} ; done
             
             sudo chroot /_mnt apt-get clean
             sudo find /_mnt/var/lib/apt/lists -type f -exec rm -vf {} \;
-            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-cloud-amd64 initramfs-tools e2fsprogs
+            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-cloud-amd64 initramfs-tools e2fsprogs zstd
             
-            for i in /_mnt/boot/vmlinuz-*.keep ; do sudo mv ${i} ${i:0:-5} ; done
+            for i in /_mnt/boot/keep_* /_mnt/boot/initrd.img-* ; do sudo mv ${i} ${i:5} ; done
             
             df -h
-            sudo sync
-            sudo umount -lf /_mnt/sys /_mnt/proc /_mnt/dev
+            sudo umount -lf /_mnt/sys /_mnt/proc /_mnt/dev/pts /_mnt/dev
             
-            sudo cp --archive --no-clobber /_mnt/boot/efi/. /mnt/boot/efi
-            sudo cp --archive --no-clobber /_mnt/. /mnt
+            sudo cp --archive --no-clobber /_mnt/boot/efi/. /mnt/boot/efi ; sudo sync
+            sudo cp --archive --no-clobber /_mnt/. /mnt ; sudo sync
             sudo umount /mnt/boot/efi /mnt
 
             sudo qemu-nbd --disconnect /dev/nbd0 

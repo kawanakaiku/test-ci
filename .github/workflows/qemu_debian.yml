@@ -47,7 +47,7 @@ jobs:
             
             sudo mkdir -p /mnt/var/cache
             sudo mount --bind /var/cache /mnt/var/cache
-            sudo debootstrap --include=linux-image-generic,grub jammy /mnt http://azure.archive.ubuntu.com/ubuntu
+            sudo debootstrap --include=linux-image-generic,grub jammy /mnt http://mirror.math.princeton.edu/pub/ubuntu
             
             df -h
             sudo sync

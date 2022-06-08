@@ -90,8 +90,8 @@ jobs:
             sudo chroot /_mnt sh -c 'update-initramfs -c -k all'
             
             sudo chroot /_mnt apt-get clean
-            sudo find /var/lib/apt/lists -type f -exec rm -vf {} \;
-            # echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt
+            sudo find /_mnt/var/lib/apt/lists -type f -exec rm -vf {} \;
+            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt e2fsprogs
             
             df -h
             sudo sync

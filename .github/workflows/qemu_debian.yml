@@ -86,7 +86,7 @@ jobs:
             sudo mount -t sysfs none /_mnt/sys/
             
             sudo chroot /_mnt apt-get update
-            sudo chroot /_mnt apt-get install -y initramfs-tools
+            sudo chroot /_mnt apt-get install -y --no-install-recommends initramfs-tools e2fsprogs
             sudo chroot /_mnt sh -c 'update-initramfs -c -k all'
             
             sudo chroot /_mnt apt-get clean

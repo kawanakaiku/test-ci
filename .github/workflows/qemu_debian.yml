@@ -46,7 +46,7 @@ jobs:
 
             sudo mkdir /_mnt
             sudo mmdebstrap --components="main restricted universe multiverse" \
-                --variant=essential --architecture=amd64 --include=linux-image-kvm,initramfs-tools \
+                --variant=essential --architecture=amd64 --include=linux-image-kvm \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
                 --dpkgopt='path-exclude=/usr/share/doc/*' \
@@ -87,9 +87,8 @@ jobs:
                 }
             EOF
             
-            sudo chroot /mnt sh <<'EOF'
-                update-initramfs -c -k $(uname -r)
-            EOF
+            sudo chroot /mnt apt-get install -y initramfs-tools
+            # sudo chroot /mnt sh -c 'update-initramfs -c -k $(uname -r)'
             
             df -h
             sudo sync

@@ -107,8 +107,8 @@ jobs:
                 }
             EOF
             
-            echo -en '' | tee /_mnt/etc/motd
-            # echo -en '' | tee /_mnt/root/.sudo_as_admin_successful
+            echo -en '' | sudo tee /_mnt/etc/motd
+            # echo -en '' | sudo tee /_mnt/root/.sudo_as_admin_successful
             
             sudo chroot /_mnt systemctl enable haveged.service
             

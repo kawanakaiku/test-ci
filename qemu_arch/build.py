@@ -33,13 +33,15 @@ start_qemu(cdrom=True)
 # edit boot param
 write(); sleep(10)
 write("\t", end=""); sleep(3)
-write(" console=tty0 console=ttyS0,115200 fsck.mode=skip nowatchdog mitigations=off"); sleep(100)
+write(" console=tty0"); sleep(100)
 
 write("root"); sleep(30)
 
+write("pacman -Sy --noconfirm ncdu"); sleep(100)
+
 write(r"""echo -en 'g\nn\n\n\n+100M\nt\n1\nn\n\n\n\nw\n' | fdisk /dev/vda"""); sleep(5)
 
-write(r"""mkfs.fat -F 32 /dev/vda1 && mkfs.ext4 -O '^has_journal' /dev/vda2"""); sleep(5)
+write(r"""mkfs.fat -F 32 /dev/vda1 && mkfs.ext4 /dev/vda2"""); sleep(5)
 
 write(r"""mount -t ext4 -o noatime,nobarrier /dev/vda2 /mnt && mkdir -p /mnt/boot/efi && mount -t vfat -o noatime /dev/vda1 /mnt/boot/efi"""); sleep(5)
 

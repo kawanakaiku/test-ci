@@ -55,6 +55,11 @@ jobs:
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
                 --dpkgopt='path-exclude=/usr/share/doc/*' \
+                --dpkgopt='path-exclude=/etc/cron.d/*' \
+                --dpkgopt='path-exclude=/etc/cron.daily/*' \
+                --dpkgopt='path-exclude=/etc/cron.hourly/*' \
+                --dpkgopt='path-exclude=/etc/cron.monthly/*' \
+                --dpkgopt='path-exclude=/etc/cron.weekly/*' \
                 bookworm /_mnt http://deb.debian.org/debian/
                 
             sudo mount -t proc none /_mnt/proc
@@ -102,9 +107,13 @@ jobs:
                 }
             EOF
             
+            echo -en '' | tee /_mnt/etc/motd
+            # echo -en '' | tee /_mnt/root/.sudo_as_admin_successful
             
             df -h
             sudo umount -lf /_mnt/sys /_mnt/proc /_mnt/dev/pts /_mnt/dev
+            
+            ( cd /_mnt ; sudo rm -rf tmp/. var/{cache,tmp,log}/. )
             
             sudo cp --archive --no-clobber /_mnt/boot/efi/. /mnt/boot/efi ; sudo sync
             sudo cp --archive --no-clobber /_mnt/. /mnt ; sudo sync

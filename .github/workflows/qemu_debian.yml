@@ -90,7 +90,7 @@ jobs:
             
             sudo chroot /_mnt apt-get clean
             sudo find /_mnt/var/lib/apt/lists -type f -exec rm -vf {} \;
-            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-kvm initramfs-tools e2fsprogs
+            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-cloud-amd64 initramfs-tools e2fsprogs
             
             for i in /_mnt/boot/vmlinuz-*.keep ; do sudo mv ${i} ${i:0:-5} ; done
             

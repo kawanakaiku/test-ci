@@ -89,6 +89,8 @@ jobs:
             sudo chroot /_mnt apt-get install -y initramfs-tools
             # sudo chroot /_mnt sh -c 'update-initramfs -c -k $(uname -r)'
             
+            sudo chroot /_mnt apt-get clean
+            sudo find /var/lib/apt/lists -type f -exec rm -vf {} \;
             # echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt
             
             df -h

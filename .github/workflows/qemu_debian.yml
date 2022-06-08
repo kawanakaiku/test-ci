@@ -85,6 +85,7 @@ jobs:
             sudo mount -t devtmpfs none /_mnt/dev/
             sudo mount -t sysfs none /_mnt/sys/
             
+            sudo chroot /_mnt apt-get update
             sudo chroot /_mnt apt-get install -y initramfs-tools
             # sudo chroot /_mnt sh -c 'update-initramfs -c -k $(uname -r)'
             
@@ -94,7 +95,7 @@ jobs:
             sudo sync
             sudo umount -lf /_mnt/sys /_mnt/proc /_mnt/dev
             
-            sudo cp --archive /_mnt/boot/efi/. /mnt/boot/efi
+            sudo cp --archive --no-clobber /_mnt/boot/efi/. /mnt/boot/efi
             sudo cp --archive --no-clobber /_mnt/. /mnt
             sudo umount /mnt/boot/efi /mnt
 

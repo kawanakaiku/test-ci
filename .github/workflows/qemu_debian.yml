@@ -31,9 +31,9 @@ jobs:
             # sudo virt-sparsify qemu_debian.img --convert qcow2 qemu_debian2.img && mv qemu_debian2.img qemu_debian.img
             sudo modprobe nbd max_part=63
             sudo qemu-nbd -c /dev/nbd0 qemu_debian.img
-            echo -n 'g,n,,,+100M,t,1,n,,,,w,' | sed -e 's/,/\n/g' | sudo fdisk
+            echo -n 'g,n,,,+100M,t,1,n,,,,w,' | sed -e 's/,/\n/g' | sudo fdisk /dev/nbd0
             lsblk
-            sudo killall qemu-nbd /dev/nbd0
+            sudo killall qemu-nbd
             sudo losetup -d /dev/nbd0
             sudo modprobe -r nbd
             7z a -mx=9 qemu_debian.img.7z qemu_debian.img

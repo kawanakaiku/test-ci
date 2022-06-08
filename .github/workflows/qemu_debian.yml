@@ -23,7 +23,7 @@ jobs:
       - name: Run a multi-line script
         run: |
             echo "path-exclude=/usr/share/man/*" | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
-            sudo apt-get install -y --no-install-recommends qemu-utils libguestfs-tools debootstrap
+            sudo apt-get install -y --no-install-recommends qemu-utils libguestfs-tools mmdebstrap
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/files/edk2-x86_64-code.fd
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/archlinux/archlinux-2022.06.01-x86_64.iso
             qemu-img create -f qcow2 qemu_debian.img 32G
@@ -47,9 +47,11 @@ jobs:
             
             sudo mkdir -p /mnt/var/cache
             sudo mount --bind /var/cache /mnt/var/cache
-            sudo debootstrap --include=linux-image-generic,grub-efi-amd64 jammy /mnt http://azure.archive.ubuntu.com/ubuntu
+            sudo mmdebstrap --components="main restricted universe multiverse" --variant=essential --architecture=amd64 --include=linux-image-generic,grub-efi-amd64 jammy /mnt http://azure.archive.ubuntu.com/ubuntu
             echo -e "UUID=${UUID_ROOT} / ext4 noatime,nobarrier 0 0\nUUID=${UUID_EFI} /boot/efi vfat noatime 0 0" | sudo tee -a /mnt/etc/fstab
-            chroot /mnt lsblk
+            sudo chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=grub
+            cat /mnt/boot/grub/grub.cfg
+            sudo grub-mkconfig -o /boot/grub/grub.cfg
             
             df -h
             sudo sync

@@ -56,7 +56,7 @@ jobs:
             sudo mount --bind /dev/pts /mnt/dev/pts
             sudo mount --bind /proc /mnt/proc
             sudo mount --bind /sys /mnt/sys
-            sudo chroot /mnt mkdir /boot/efi /boot/grub
+            sudo chroot /mnt mkdir /boot/efi
             sudo mount -t vfat -o noatime /dev/nbd0p1 /mnt/boot/efi
             sudo grub-install --target=x86_64-efi --efi-directory=/mnt/boot/efi --bootloader-id=grub
             sudo chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg

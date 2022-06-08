@@ -43,7 +43,6 @@ jobs:
             echo "UUID_ROOT=${UUID_ROOT}"
             sudo mount -t ext4 -o noatime,nobarrier /dev/nbd0p2 /mnt
 
-            mk
             sudo mmdebstrap --components="main restricted universe multiverse" --variant=essential --architecture=amd64 --include=linux-image-generic jammy /mnt http://azure.archive.ubuntu.com/ubuntu
             echo -e "UUID=${UUID_ROOT} / ext4 noatime,nobarrier 0 0\nUUID=${UUID_EFI} /boot/efi vfat noatime 0 0" | sudo tee -a /mnt/etc/fstab
             sudo mount --bind /dev /mnt/dev

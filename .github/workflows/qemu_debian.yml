@@ -26,6 +26,7 @@ jobs:
             sudo apt-get install -y --no-install-recommends qemu-utils libguestfs-tools mmdebstrap grub-efi-amd64
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/files/edk2-x86_64-code.fd
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/archlinux/archlinux-2022.06.01-x86_64.iso
+            wget -nc https://github.com/kawanakaiku/test-ci/releases/download/debian/EFI.7z
             qemu-img create -f qcow2 qemu_debian.img 32G
             # python3 qemu_arch/build.py
             # sudo virt-sparsify qemu_debian.img --convert qcow2 qemu_debian2.img && mv qemu_debian2.img qemu_debian.img
@@ -62,8 +63,9 @@ jobs:
             # sudo chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
             # cat /mnt/boot/grub/grub.cfg
             
-            sudo mkdir -p /mnt/boot/efi/efi/boot /mnt/boot/grub
-            sudo cp /usr/lib/grub/x86_64-efi/monolithic/grubx64.efi /mnt/boot/efi/efi/boot
+            sudo mkdir -p /mnt/boot/grub
+            # sudo cp /usr/lib/grub/x86_64-efi/monolithic/grubx64.efi /mnt/boot/efi/efi/boot
+            sudo 7z x EFI.7z -O/mnt/boot/efi/
             cat <<EOF | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /mnt/boot/efi/efi/boot/grub.cfg
                 search.fs_uuid ${UUID_ROOT} root
                 set prefix=(\$root)'/boot/grub'

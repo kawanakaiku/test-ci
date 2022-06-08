@@ -48,7 +48,7 @@ jobs:
 
             sudo mkdir /_mnt
             sudo mmdebstrap --components="main restricted universe multiverse" \
-                --variant=apt --architecture=amd64 --include=linux-image-kvm \
+                --variant=apt --architecture=amd64 --include= \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
                 --dpkgopt='path-exclude=/usr/share/doc/*' \
@@ -86,12 +86,15 @@ jobs:
             sudo mount -t sysfs none /_mnt/sys/
             
             sudo chroot /_mnt apt-get update
-            sudo chroot /_mnt apt-get install -y --no-install-recommends initramfs-tools e2fsprogs
+            sudo chroot /_mnt apt-get install -y --no-install-recommends linux-image-kvm initramfs-tools e2fsprogs
             sudo chroot /_mnt sh -c 'update-initramfs -c -k all'
+            for i in /_mnt/boot/vmlinuz-* ; do sudo mv ${i} ${i}.keep ; done
             
             sudo chroot /_mnt apt-get clean
             sudo find /_mnt/var/lib/apt/lists -type f -exec rm -vf {} \;
-            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt e2fsprogs
+            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-kvm initramfs-tools e2fsprogs
+            
+            for i in /_mnt/boot/vmlinuz-*.keep ; do sudo mv ${i} ${i:0:-5} ; done
             
             df -h
             sudo sync

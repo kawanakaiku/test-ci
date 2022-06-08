@@ -1,4 +1,4 @@
-cat >/dev/null <'EOF'
+cat >/dev/null <<'EOF'
 path_join() {
   local result='' path
   for path in "`pwd`" "$@" ; do

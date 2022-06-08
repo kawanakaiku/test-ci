@@ -23,7 +23,7 @@ jobs:
       - name: Run a multi-line script
         run: |
             echo "path-exclude=/usr/share/man/*" | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
-            sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils libguestfs-tools
+            sudo apt-get install -y --no-install-recommends qemu-utils libguestfs-tools
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/files/edk2-x86_64-code.fd
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/archlinux/archlinux-2022.06.01-x86_64.iso
             qemu-img create -f qcow2 qemu_debian.img 32G

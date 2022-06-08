@@ -84,6 +84,10 @@ jobs:
                 }
             EOF
             
+            sudo chroot /mnt sh <<'EOF'
+                update-initramfs -c -k $(uname -r)
+            EOF
+            
             df -h
             sudo sync
             sudo umount -lf /mnt/sys /mnt/proc /mnt/dev

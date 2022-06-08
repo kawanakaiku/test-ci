@@ -62,7 +62,7 @@ jobs:
             # sudo chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
             # cat /mnt/boot/grub/grub.cfg
             
-            sudo mkdir -p /mnt/boot/efi/efi/boot
+            sudo mkdir -p /mnt/boot/efi/efi/boot /mnt/boot/grub
             sudo cp /usr/lib/grub/x86_64-efi/monolithic/grubx64.efi /mnt/boot/efi/efi/boot
             cat <<EOF | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /mnt/boot/efi/efi/boot/grub.cfg
                 search.fs_uuid ${UUID_ROOT} root

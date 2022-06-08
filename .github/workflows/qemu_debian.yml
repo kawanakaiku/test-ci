@@ -67,6 +67,7 @@ jobs:
             sudo mount -t devpts pts /_mnt/dev/pts
             sudo mount -t sysfs none /_mnt/sys
             
+            sudo chroot /_mnt passwd -d root
             sudo chroot /_mnt sh -c 'update-initramfs -c -k all'
             VMLINUZ=` cd /_mnt && find boot -name 'vmlinuz-*' | tail -n1 `
             INITRD_IMG=` cd /_mnt && find boot -name 'initrd.img-*' | tail -n1 `

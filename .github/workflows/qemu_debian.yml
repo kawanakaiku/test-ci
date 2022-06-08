@@ -115,7 +115,7 @@ jobs:
             df -h
             sudo umount -lf /_mnt/sys /_mnt/proc /_mnt/dev/pts /_mnt/dev
             
-            ( cd /_mnt ; sudo rm -rf tmp/. var/{cache,tmp,log}/. )
+            ( cd /_mnt && for i in tmp var/{cache,tmp,log} ; do cd $i ; sudo find $i -type f -exec rm -vf {} \; ; sudo find $i -type d -empty -exec rm -vf {} \; ; done )
             
             sudo cp --archive --no-clobber /_mnt/boot/efi/. /mnt/boot/efi ; sudo sync
             sudo cp --archive --no-clobber /_mnt/. /mnt ; sudo sync

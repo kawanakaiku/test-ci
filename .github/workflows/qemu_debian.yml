@@ -53,7 +53,10 @@ jobs:
                 --dpkgopt='path-exclude=/usr/share/doc/*' \
                 jammy /_mnt http://azure.archive.ubuntu.com/ubuntu
             sudo cp --archive /_mnt/. /mnt
-            echo -e "UUID=${UUID_ROOT} / ext4 errors=remount-ro,noatime,${EXT4_OPT} 0 0\nUUID=${UUID_EFI} /boot/efi vfat noatime 0 0" | sudo tee /mnt/etc/fstab
+            cat <<EOF | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /mnt/etc/fstab
+                UUID=${UUID_ROOT} / ext4 errors=remount-ro,noatime,${EXT4_OPT} 0 0
+                UUID=${UUID_EFI} /boot/efi vfat noatime 0 0
+            EOF
             sudo mount -t proc none /mnt/proc/
             sudo mount -t devtmpfs none /mnt/dev/
             sudo mount -t sysfs none /mnt/sys/

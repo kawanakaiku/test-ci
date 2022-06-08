@@ -43,7 +43,7 @@ jobs:
             echo "UUID_EFI=${UUID_EFI}"
             echo "UUID_ROOT=${UUID_ROOT}"
             sudo mount -t ext4 -o noatime,nobarrier /dev/nbd0p2 /mnt
-            sudo mkdir -p /mnt/boot/grub
+            sudo mkdir -p /mnt/boot/efi
             sudo mount -t vfat -o noatime /dev/nbd0p1 /mnt/boot/efi
 
             sudo mkdir /_mnt
@@ -83,7 +83,7 @@ jobs:
             sudo mount -t proc none /_mnt/proc/
             sudo mount -t devtmpfs none /_mnt/dev/
             sudo mount -t sysfs none /_mnt/sys/
-            sudo mkdir /_mnt/boot/efi
+            sudo mkdir /_mnt/boot/{efi,grub}
             
             sudo chroot /_mnt apt-get install -y initramfs-tools
             # sudo chroot /_mnt sh -c 'update-initramfs -c -k $(uname -r)'

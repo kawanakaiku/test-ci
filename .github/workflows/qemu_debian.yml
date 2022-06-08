@@ -89,7 +89,7 @@ jobs:
             sudo mount -t sysfs none /_mnt/sys
             
             sudo chroot /_mnt sh -c 'update-initramfs -c -k all'
-            for i in /_mnt/boot/vmlinuz-* /_mnt/boot/vmlinuz-* ; do sudo mv ${i} ${i}_keep ; done
+            for i in /_mnt/boot/vmlinuz-* /_mnt/boot/initrd.img-* ; do sudo mv ${i} ${i}_keep ; done
             
             sudo chroot /_mnt apt-get clean
             sudo find /_mnt/var/lib/apt/lists -type f -exec rm -vf {} \;

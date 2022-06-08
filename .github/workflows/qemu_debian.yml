@@ -53,7 +53,7 @@ jobs:
                 --dpkgopt='path-exclude=/lib/firmware/*' \
                 jammy /_mnt http://azure.archive.ubuntu.com/ubuntu
             sudo cp --archive /_mnt/. /mnt
-            echo -e "UUID=${UUID_ROOT} / ext4 errors=remount-ro,noatime,nobarrier 0 0\nUUID=${UUID_EFI} /boot/efi vfat noatime 0 0" | sudo tee -a /mnt/etc/fstab
+            echo -e "UUID=${UUID_ROOT} / ext4 errors=remount-ro,noatime,nobarrier 0 0\nUUID=${UUID_EFI} /boot/efi vfat noatime 0 0" | sudo tee /mnt/etc/fstab
             sudo mount -t proc none /mnt/proc/
             sudo mount -t devtmpfs none /mnt/dev/
             sudo mount -t sysfs none /mnt/sys/
@@ -66,7 +66,7 @@ jobs:
             sudo mkdir -p /mnt/boot/grub
             # sudo cp /usr/lib/grub/x86_64-efi/monolithic/grubx64.efi /mnt/boot/efi/efi/boot
             sudo 7z x EFI.7z -O/mnt/boot/efi/
-            cat <<EOF | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /mnt/boot/efi/efi/boot/grub.cfg
+            cat <<EOF | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /mnt/boot/efi/efi/debian/grub.cfg
                 search.fs_uuid ${UUID_ROOT} root
                 set prefix=(\$root)'/boot/grub'
                 configfile $prefix/grub.cfg

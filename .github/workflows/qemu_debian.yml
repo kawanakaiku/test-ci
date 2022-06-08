@@ -47,12 +47,12 @@ jobs:
             sudo mount -t vfat -o noatime /dev/nbd0p1 /mnt/boot/efi
 
             sudo mkdir /_mnt
-            sudo mmdebstrap --components="main restricted universe multiverse" --include=systemd-sysv,linux-image-kvm,initramfs-tools,e2fsprogs \
+            sudo mmdebstrap --components="main restricted universe multiverse" --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs \
                 --variant=apt --architecture=amd64 \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
                 --dpkgopt='path-exclude=/usr/share/doc/*' \
-                jammy /_mnt http://azure.archive.ubuntu.com/ubuntu
+                bookworm /_mnt http://deb.debian.org/debian/
                 
             cat <<EOF | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /_mnt/etc/fstab
                 UUID=${UUID_ROOT} / ext4 errors=remount-ro,noatime,nobarrier 0 0

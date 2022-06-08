@@ -68,8 +68,7 @@ jobs:
             sudo 7z x EFI.7z -O/mnt/boot/efi/
             cat <<EOF | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /mnt/boot/efi/efi/debian/grub.cfg
                 search.fs_uuid ${UUID_ROOT} root
-                set prefix=(\$root)'/boot/grub'
-                configfile $prefix/grub.cfg
+                configfile (\$root)'/boot/grub/grub.cfg'
             EOF
             
             cat <<EOF | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /mnt/boot/grub/grub.cfg

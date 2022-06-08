@@ -110,6 +110,8 @@ jobs:
             echo -en '' | sudo tee /_mnt/etc/motd
             # echo -en '' | sudo tee /_mnt/root/.sudo_as_admin_successful
             
+            echo 'XKBLAYOUT="xx"' | sudo tee /_mnt/etc/default/keyboard
+            
             sudo chroot /_mnt systemctl enable haveged.service
             
             df -h

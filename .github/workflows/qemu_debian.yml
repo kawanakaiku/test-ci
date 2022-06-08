@@ -29,10 +29,17 @@ jobs:
             qemu-img create -f qcow2 qemu_debian.img 32G
             # python3 qemu_arch/build.py
             # sudo virt-sparsify qemu_debian.img --convert qcow2 qemu_debian2.img && mv qemu_debian2.img qemu_debian.img
+
             sudo modprobe nbd max_part=63
             sudo qemu-nbd -c /dev/nbd0 qemu_debian.img
             echo -n 'g,n,,,+100M,t,1,n,,,,w,' | sed -e 's/,/\n/g' | sudo fdisk /dev/nbd0
             lsblk
+            sudo mount -t ext4 -o noatime,nobarrier /dev/nbd0p1 /mnt
+            sudo mkdir -p /mnt/boot/efi
+            sudo mount -t vfat -o noatime /dev/nbd0p2 /mnt/boot/efi
+            df -h
+            sudo umount /mnt/boot/efi /mnt
+
             sudo qemu-nbd --disconnect /dev/nbd0 
             sudo killall --wait qemu-nbd
             # sudo modprobe -r nbd

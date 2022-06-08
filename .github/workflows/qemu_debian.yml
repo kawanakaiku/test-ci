@@ -47,7 +47,9 @@ jobs:
             
             sudo mkdir -p /mnt/var/cache
             sudo mount --bind /var/cache /mnt/var/cache
-            sudo debootstrap --include=linux-image-generic,grub jammy /mnt http://mirror.math.princeton.edu/pub/ubuntu
+            sudo debootstrap --include=linux-image-generic,grub-efi-amd64 jammy /mnt http://azure.archive.ubuntu.com/ubuntu
+            echo -e "UUID=${UUID_ROOT} / ext4 noatime,nobarrier 0 0\nUUID=${UUID_EFI} /boot/efi vfat noatime 0 0" | sudo tee -a /mnt/etc/fstab
+            chroot /mnt lsblk
             
             df -h
             sudo sync

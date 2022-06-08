@@ -22,15 +22,7 @@ jobs:
             
       - name: Run a multi-line script
         run: |
-            path_join() {
-              local result='' path
-              for path in "`pwd`" "$@" ; do
-                [[ ${path} == /* ]] && result="${path}" || result+="/${path}/"
-                result="`printf \"${result}\" | sed -E 's@/+@/@g ; s@/[^(/|\.\.)]+?/\.\./@@g ; s@/\./@/@g'`"
-              done
-              [[ ${result:1} == */ ]] && result="${result:0:-1}"
-              printf "${result}"
-            }
+            . path_join.sh
             echo "path-exclude=/usr/share/man/*" | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
             sudo apt-get install -y --no-install-recommends qemu-utils libguestfs-tools mmdebstrap grub-efi-amd64
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/files/edk2-x86_64-code.fd

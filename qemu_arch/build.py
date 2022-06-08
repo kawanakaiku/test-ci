@@ -33,7 +33,7 @@ start_qemu(cdrom=True)
 # edit boot param
 write(); sleep(10)
 write("\t", end=""); sleep(3)
-write(" console=tty0"); sleep(100)
+write(" console=tty0 console=ttyS0,115200"); sleep(100)
 
 write("root"); sleep(30)
 

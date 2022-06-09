@@ -57,7 +57,7 @@ jobs:
             sudo mkdir /_mnt /__mnt
             # curl -Lo- https://ftp-master.debian.org/keys/release-11.asc | sudo apt-key add -
             for i in 648ACFD622F3D138 0E98404D386FA1D9 ; do sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $i ; done
-            sudo mmdebstrap --components=main,contrib,non-free --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs,zstd,haveged,libsndfile1,dhcpcd5 \
+            sudo mmdebstrap --components=main,contrib,non-free --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs,zstd,haveged,libsndfile1,isc-dhcp-client-ddns \
                 --variant=apt --architecture=amd64 \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
@@ -124,7 +124,7 @@ jobs:
             echo 'XKBLAYOUT="jp"' | sudo tee /_mnt/etc/default/keyboard
             
             sudo chroot /_mnt systemctl enable haveged.service
-            sudo chroot /_mnt systemctl enable dhcpcd.service
+            sudo chroot /_mnt systemctl enable dhclient.service
             
             # enable auto login
             sudo mkdir /_mnt/etc/systemd/system/getty@tty1.service.d

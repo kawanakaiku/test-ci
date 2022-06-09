@@ -28,7 +28,7 @@ jobs:
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/archlinux/archlinux-2022.06.01-x86_64.iso
             wget -nc -nv https://github.com/VOICEVOX/voicevox/releases/download/0.12.2/voicevox-linux-cpu-0.12.2.tar.gz -O voicevox.tar.gz
             wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/debian/EFI.7z
-            wget -nc -nv https://github.com/TheWaWaR/simple-http-server/releases/download/v0.6.1/x86_64-unknown-linux-musl-simple-http-server -O server
+            # wget -nc -nv https://github.com/TheWaWaR/simple-http-server/releases/download/v0.6.1/x86_64-unknown-linux-musl-simple-http-server -O server
             qemu-img create -f qcow2 -o lazy_refcounts=on,preallocation=off qemu_debian.img 32G
             # python3 qemu_arch/build.py
             # sudo virt-sparsify qemu_debian.img --convert qcow2 qemu_debian2.img && mv qemu_debian2.img qemu_debian.img
@@ -58,7 +58,7 @@ jobs:
             sudo mkdir /_mnt /__mnt
             # curl -Lo- https://ftp-master.debian.org/keys/release-11.asc | sudo apt-key add -
             for i in 648ACFD622F3D138 0E98404D386FA1D9 ; do sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $i ; done
-            sudo mmdebstrap --components=main,contrib,non-free --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs,zstd,haveged,libsndfile1,isc-dhcp-client-ddns,iproute2,dhcpcd5,procps,curl,network-manager \
+            sudo mmdebstrap --components=main,contrib,non-free --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs,zstd,haveged,libsndfile1,dhcpcd5 \
                 --variant=apt --architecture=amd64 \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
@@ -84,8 +84,7 @@ jobs:
             
             sudo chroot /_mnt apt-get clean
             sudo find /_mnt/var/lib/apt/lists -type f -exec rm -vf {} \;
-            # apt
-            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential linux-image-cloud-amd64 initramfs-tools e2fsprogs zstd
+            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-cloud-amd64 initramfs-tools e2fsprogs zstd
             
             ( cd /__mnt ; sudo cp --archive --parents . /_mnt )
             
@@ -130,8 +129,8 @@ jobs:
             # sudo chroot /_mnt systemctl enable NetworkManager.service
             
             # simple server
-            sudo cp server /_mnt/bin
-            sudo chmod 755 /_mnt/bin/server
+            # sudo cp server /_mnt/bin
+            # sudo chmod 755 /_mnt/bin/server
             
             # enable auto login
             sudo mkdir /_mnt/etc/systemd/system/getty@tty1.service.d
@@ -155,7 +154,9 @@ jobs:
             sudo tar xf voicevox.tar.gz --strip-components 1 -C /_mnt/opt/voicevox
             ( cd /_mnt/opt/voicevox ; sudo rm -rf resources* locales *swiftshader* chrome* voicevox )
             sudo find /_mnt -xdev -type f -print0 | xargs -0 --no-run-if-empty file | awk -F: '$2 ~ /not .*strip/ { print $1 }' | xargs -I@ sudo sh -c "echo 'stripping @' ; strip --strip-all '@'" || true
-            echo '/opt/voicevox/run' | sudo tee -a /_mnt/root/.bashrc
+            cat <<'EOF' | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee -a /_mnt/root/.bashrc
+                /opt/voicevox/run --host `hostname -I | cut -d' ' -f1`
+            EOF
             
             df -h
             sudo umount -lf /_mnt/sys /_mnt/proc /_mnt/dev/pts /_mnt/dev

@@ -37,7 +37,7 @@ jobs:
             # gpt
             # echo -n 'g,n,,,+100M,t,1,n,,,,w,' | sed -e 's/,/\n/g' | sudo fdisk /dev/nbd0
             # mbr
-            echo -n 'o,n,,,+100M,t,1,n,,,,w,' | sed -e 's/,/\n/g' | sudo fdisk /dev/nbd0
+            echo -n 'o,n,,,,+100M,t,0b,n,,,,,w,' | sed -e 's/,/\n/g' | sudo fdisk /dev/nbd0
             
             lsblk
 

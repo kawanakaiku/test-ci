@@ -58,7 +58,7 @@ jobs:
             sudo mkdir /_mnt /__mnt
             # curl -Lo- https://ftp-master.debian.org/keys/release-11.asc | sudo apt-key add -
             for i in 648ACFD622F3D138 0E98404D386FA1D9 ; do sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $i ; done
-            sudo mmdebstrap --components=main,contrib,non-free --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs,zstd,haveged,libsndfile1,dhcpcd5 \
+            sudo mmdebstrap --components=main,contrib,non-free --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs,zstd,haveged,libsndfile1,dhcpcd5,overlayroot \
                 --variant=apt --architecture=amd64 \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
@@ -110,7 +110,7 @@ jobs:
                 set default=0
                 menuentry 'Debian GNU/Linux' {
                     echo	'Loading Linux ...'
-                    linux	`path_join / ${VMLINUZ}` root=UUID=${UUID_ROOT} ro consoleblank=0 mitigations=off fsck.mode=skip nowatchdog  selinux=0 apparmor=0 lsm= notsc nohpet nomodeset noapic acpi=off
+                    linux	`path_join / ${VMLINUZ}` root=UUID=${UUID_ROOT} ro consoleblank=0 mitigations=off fsck.mode=skip nowatchdog  selinux=0 apparmor=0 lsm= notsc nohpet nomodeset noapic acpi=off　overlayroot=tmpfs
                     echo	'Loading initial ramdisk ...'
                     initrd	`path_join / ${INITRD_IMG}`
                 }

@@ -83,6 +83,9 @@ jobs:
             
             cat <<EOF | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /_mnt/etc/fstab
                 UUID=${UUID_ROOT} / ext4 errors=remount-ro,noatime,nobarrier 0 0
+                tmpfs /tmp tmpfs noatime,size=1G 0 0
+                tmpfs /var/tmp tmpfs noatime,size=1G 0 0
+                tmpfs /var/log tmpfs noatime,size=1G 0 0
             EOF
             
             sudo mkdir /_mnt/boot/{efi,grub}
@@ -113,10 +116,6 @@ jobs:
             echo 'XKBLAYOUT="xx"' | sudo tee /_mnt/etc/default/keyboard
             
             sudo chroot /_mnt systemctl enable haveged.service
-            
-            # https://wiki.debian.org/SSDOptimization
-            sudo cp /_mnt/usr/share/systemd/tmp.mount /_mnt/etc/systemd/system/
-            sudo chroot /_mnt systemctl enable tmp.mount
             
             df -h
             sudo umount -lf /_mnt/sys /_mnt/proc /_mnt/dev/pts /_mnt/dev

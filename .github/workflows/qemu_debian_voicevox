@@ -1,0 +1,168 @@
+name: qemu_debian_voicevox
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/qemu_debian_voicevox.yml'
+    workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+  
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: get storage info
+        run: |
+            free -h
+            df -h
+            
+      - name: Run a multi-line script
+        run: |
+            . path_join.sh
+            echo "path-exclude=/usr/share/man/*" | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
+            sudo apt-get install -y --no-install-recommends qemu-utils libguestfs-tools mmdebstrap grub-efi-amd64
+            # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/files/edk2-x86_64-code.fd
+            # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/archlinux/archlinux-2022.06.01-x86_64.iso
+            wget -nc -nc https://github.com/VOICEVOX/voicevox/releases/download/0.12.2/voicevox-linux-cpu-0.12.2.tar.gz -O voicevox.tar.gz
+            wget -nc https://github.com/kawanakaiku/test-ci/releases/download/debian/EFI.7z
+            qemu-img create -f qcow2 -o lazy_refcounts=on,preallocation=off qemu_debian.img 32G
+            # python3 qemu_arch/build.py
+            # sudo virt-sparsify qemu_debian.img --convert qcow2 qemu_debian2.img && mv qemu_debian2.img qemu_debian.img
+            
+            sudo modprobe nbd max_part=63
+            sudo qemu-nbd -c /dev/nbd0 qemu_debian.img
+            # gpt
+            # echo -n 'g,n,,,+100M,t,1,n,,,,w,' | sed -e 's/,/\n/g' | sudo fdisk /dev/nbd0
+            # mbr
+            echo -n 'o,n,,,,+100M,t,0b,n,,,,,w,' | sed -e 's/,/\n/g' | sudo fdisk /dev/nbd0
+            
+            lsblk
+
+            sudo mkfs.fat -F 32 /dev/nbd0p1
+            sudo mkfs.ext4 -O ^has_journal,^64bit,^metadata_csum -E root_owner=0:0,lazy_itable_init=1,lazy_journal_init=1 -m 0 -T small -N 8000 /dev/nbd0p2
+            UUID_EFI=`sudo blkid /dev/nbd0p1 | perl -n -e'/UUID="(.*?)"/ && print $1'`
+            UUID_ROOT=`sudo blkid /dev/nbd0p2 | perl -n -e'/UUID="(.*?)"/ && print $1'`
+            echo "UUID_EFI=${UUID_EFI}"
+            echo "UUID_ROOT=${UUID_ROOT}"
+            sudo mount -t ext4 -o noatime,nobarrier /dev/nbd0p2 /mnt
+            sudo mkdir -p /mnt/boot/efi
+            sudo mount -t vfat -o noatime /dev/nbd0p1 /mnt/boot/efi
+            
+            # install grub for bios
+            sudo grub-install --target=i386-pc --root-directory=/mnt --no-floppy --recheck /dev/nbd0
+
+            sudo mkdir /_mnt /__mnt
+            # curl -Lo- https://ftp-master.debian.org/keys/release-11.asc | sudo apt-key add -
+            for i in 648ACFD622F3D138 0E98404D386FA1D9 ; do sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $i ; done
+            sudo mmdebstrap --components=main,contrib,non-free --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs,zstd,haveged \
+                --variant=apt --architecture=amd64 \
+                --dpkgopt='path-exclude=/usr/share/man/*' \
+                --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
+                --dpkgopt='path-exclude=/usr/share/doc/*' \
+                --dpkgopt='path-exclude=/etc/cron.d/*' \
+                --dpkgopt='path-exclude=/etc/cron.daily/*' \
+                --dpkgopt='path-exclude=/etc/cron.hourly/*' \
+                --dpkgopt='path-exclude=/etc/cron.monthly/*' \
+                --dpkgopt='path-exclude=/etc/cron.weekly/*' \
+                bookworm /_mnt http://deb.debian.org/debian/
+                
+            sudo mount -t proc none /_mnt/proc
+            sudo mount -t devtmpfs none /_mnt/dev
+            sudo mount -t devpts pts /_mnt/dev/pts
+            sudo mount -t sysfs none /_mnt/sys
+            
+            sudo chroot /_mnt passwd -d root
+            sudo chroot /_mnt sh -c 'update-initramfs -c -k all'
+            VMLINUZ=` cd /_mnt && find boot -name 'vmlinuz-*' | tail -n1 `
+            INITRD_IMG=` cd /_mnt && find boot -name 'initrd.img-*' | tail -n1 `
+            
+            ( cd /_mnt ; sudo cp --archive --parents ${VMLINUZ} ${INITRD_IMG} /__mnt )
+            
+            sudo chroot /_mnt apt-get clean
+            sudo find /_mnt/var/lib/apt/lists -type f -exec rm -vf {} \;
+            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-cloud-amd64 initramfs-tools e2fsprogs zstd
+            
+            ( cd /__mnt ; sudo cp --archive --parents . /_mnt )
+            
+            
+            cat <<EOF | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /_mnt/etc/fstab
+                UUID=${UUID_ROOT} / ext4 errors=remount-ro,noatime,nobarrier 0 0
+                tmpfs /tmp tmpfs noatime,size=1G 0 0
+                tmpfs /var/tmp tmpfs noatime,size=1G 0 0
+                tmpfs /var/log tmpfs noatime,size=1G 0 0
+            EOF
+            
+            sudo mkdir /_mnt/boot/{efi,grub}
+            sudo 7z x EFI.7z -O/_mnt/boot/efi
+            
+            cat <<EOF | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /_mnt/boot/efi/EFI/debian/grub.cfg
+                search.fs_uuid ${UUID_ROOT} root
+                configfile (\$root)'/boot/grub/grub.cfg'
+            EOF
+            
+            # console=tty0 console=ttyS0,115200 earlyprintk=ttyS0,115200 consoleblank=0
+            cat <<EOF | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /_mnt/boot/grub/grub.cfg
+                set timeout=0
+                set default=0
+                menuentry 'Debian GNU/Linux' {
+                    echo	'Loading Linux ...'
+                    linux	`path_join / ${VMLINUZ}` root=UUID=${UUID_ROOT} ro consoleblank=0 mitigations=off fsck.mode=skip nowatchdog  selinux=0 apparmor=0 lsm=
+                    echo	'Loading initial ramdisk ...'
+                    initrd	`path_join / ${INITRD_IMG}`
+                }
+                menuentry 'System setup' {
+                    fwsetup
+                }
+            EOF
+            
+            echo -en '' | sudo tee /_mnt/etc/motd
+            # echo -en '' | sudo tee /_mnt/root/.sudo_as_admin_successful
+            
+            echo 'XKBLAYOUT="jp"' | sudo tee /_mnt/etc/default/keyboard
+            
+            sudo chroot /_mnt systemctl enable haveged.service
+            
+            # enable auto login
+            sudo mkdir /_mnt/etc/systemd/system/getty@tty1.service.d
+            sudo tee <<'EOF' | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /_mnt/etc/systemd/system/getty@tty1.service.d/override.conf
+                [Service]
+                ExecStart=
+                ExecStart=-/sbin/agetty --autologin root --noclear %I 38400 linux
+            EOF
+            sudo chroot /_mnt systemctl enable getty@tty1.service
+            
+            # install voicevox
+            sudo mkdir /_mnt/opt/voicevox
+            tar xvf --strip-components 1 voicevox.tar.gz -C /_mnt/opt/voicevox
+            ( cd /_mnt/opt/voicevox ; sudo rm -rf resources* locales *swiftshader* chrome* voicevox )
+            find /_mnt/opt/voicevox -type f -print0 | xargs -0 --no-run-if-empty file | awk -F: '$2 ~ /not .*strip/ { print $1 }' | xargs -I@ sh -c "echo 'stripping @' ; strip --strip-all '@'" || true
+            
+            df -h
+            sudo umount -lf /_mnt/sys /_mnt/proc /_mnt/dev/pts /_mnt/dev
+            
+            ( cd /_mnt && for i in tmp var/{cache,tmp,log} ; do sudo find $i -mindepth 1 -type f -exec rm -vf {} \; ; sudo find $i -mindepth 1 -type d -empty -exec echo {} \; ; done )
+            
+            sudo cp --archive --no-clobber /_mnt/boot/efi/. /mnt/boot/efi ; sudo sync
+            sudo cp --archive --no-clobber /_mnt/. /mnt ; sudo sync
+            sudo umount /mnt/boot/efi /mnt
+
+            sudo qemu-nbd --disconnect /dev/nbd0 
+            sudo killall --wait qemu-nbd || true
+            # sudo modprobe -r nbd
+            ls -lha qemu_debian.img
+            7z a -mx=9 qemu_debian.img.7z qemu_debian.img
+            ls -lha qemu_debian.img.7z
+            
+      - name: Waiting for debugger
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3
+            
+      - name: Store 7z files
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: debian_img
+          path: qemu_debian.img.7z

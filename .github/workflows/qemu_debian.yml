@@ -24,7 +24,7 @@ jobs:
         run: |
             . path_join.sh
             echo "path-exclude=/usr/share/man/*" | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
-            sudo apt-get install -y --no-install-recommends qemu-utils libguestfs-tools mmdebstrap grub-efi-amd64 perforate
+            sudo apt-get install -y --no-install-recommends qemu-utils libguestfs-tools mmdebstrap grub-efi-amd64
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/files/edk2-x86_64-code.fd
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/archlinux/archlinux-2022.06.01-x86_64.iso
             wget -nc https://github.com/kawanakaiku/test-ci/releases/download/debian/EFI.7z
@@ -128,8 +128,6 @@ jobs:
             sudo umount -lf /_mnt/sys /_mnt/proc /_mnt/dev/pts /_mnt/dev
             
             ( cd /_mnt && for i in tmp var/{cache,tmp,log} ; do sudo find $i -mindepth 1 -type f -exec rm -vf {} \; ; sudo find $i -mindepth 1 -type d -empty -exec echo {} \; ; done )
-            
-            ( cd /_mnt && sudo findstrip )
             
             sudo cp --archive --no-clobber /_mnt/boot/efi/. /mnt/boot/efi ; sudo sync
             sudo cp --archive --no-clobber /_mnt/. /mnt ; sudo sync

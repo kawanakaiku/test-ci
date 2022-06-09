@@ -76,7 +76,7 @@ jobs:
             
             sudo chroot /_mnt apt-get clean
             sudo find /_mnt/var/lib/apt/lists -type f -exec rm -vf {} \;
-            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-cloud-amd64 initramfs-tools e2fsprogs zstd
+            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-cloud-amd64 initramfs-tools e2fsprogs zstd libguestfs-tools
             
             ( cd /__mnt ; sudo cp --archive --parents . /_mnt )
             
@@ -130,7 +130,10 @@ jobs:
             sudo qemu-nbd --disconnect /dev/nbd0 
             sudo killall --wait qemu-nbd || true
             # sudo modprobe -r nbd
-            ls -lha
+            ls -lha qemu_debian.img
+            sudo virt-sparsify qemu_debian.img --convert qcow2 0.img
+            sudo mv 0.img qemu_debian.img
+            ls -lha qemu_debian.img
             7z a -mx=9 qemu_debian.img.7z qemu_debian.img
             ls -lha qemu_debian.img.7z
             

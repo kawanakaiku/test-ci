@@ -128,6 +128,7 @@ jobs:
             
             sudo cp --archive --no-clobber /_mnt/boot/efi/. /mnt/boot/efi ; sudo sync
             sudo cp --archive --no-clobber /_mnt/. /mnt ; sudo sync
+            sudo grub-install --target=i386-pc --root-directory=/mnt --no-floppy --recheck /dev/nbd0
             sudo umount /mnt/boot/efi /mnt
 
             sudo qemu-nbd --disconnect /dev/nbd0 

@@ -114,6 +114,10 @@ jobs:
             
             sudo chroot /_mnt systemctl enable haveged.service
             
+            # https://wiki.debian.org/SSDOptimization
+            sudo cp /_mnt/usr/share/systemd/tmp.mount /_mnt/etc/systemd/system/
+            sudo chroot /_mnt systemctl enable tmp.mount
+            
             df -h
             sudo umount -lf /_mnt/sys /_mnt/proc /_mnt/dev/pts /_mnt/dev
             

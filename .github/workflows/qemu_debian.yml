@@ -34,7 +34,7 @@ jobs:
             
             sudo modprobe nbd max_part=63
             sudo qemu-nbd -c /dev/nbd0 qemu_debian.img
-            echo -n 'g,n,,,+100M,t,1,n,,,,w,' | sed -e 's/,/\n/g' | sudo fdisk /dev/nbd0
+            echo -n 'm,n,,,+100M,t,1,n,,,,w,' | sed -e 's/,/\n/g' | sudo fdisk /dev/nbd0
             lsblk
 
             sudo mkfs.fat -F 32 /dev/nbd0p1

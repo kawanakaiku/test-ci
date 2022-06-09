@@ -50,6 +50,9 @@ jobs:
             sudo mount -t ext4 -o noatime,nobarrier /dev/nbd0p2 /mnt
             sudo mkdir -p /mnt/boot/efi
             sudo mount -t vfat -o noatime /dev/nbd0p1 /mnt/boot/efi
+            
+            # install grub for bios
+            sudo grub-install --target=i386-pc --root-directory=/mnt --no-floppy --recheck /dev/nbd0
 
             sudo mkdir /_mnt /__mnt
             # curl -Lo- https://ftp-master.debian.org/keys/release-11.asc | sudo apt-key add -
@@ -128,7 +131,6 @@ jobs:
             
             sudo cp --archive --no-clobber /_mnt/boot/efi/. /mnt/boot/efi ; sudo sync
             sudo cp --archive --no-clobber /_mnt/. /mnt ; sudo sync
-            sudo grub-install --target=i386-pc --root-directory=/mnt --no-floppy --recheck /dev/nbd0
             sudo umount /mnt/boot/efi /mnt
 
             sudo qemu-nbd --disconnect /dev/nbd0 

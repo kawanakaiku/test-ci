@@ -58,7 +58,7 @@ jobs:
             sudo mkdir /_mnt /__mnt
             # curl -Lo- https://ftp-master.debian.org/keys/release-11.asc | sudo apt-key add -
             for i in 648ACFD622F3D138 0E98404D386FA1D9 ; do sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $i ; done
-            sudo mmdebstrap --components=main,contrib,non-free --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs,zstd,haveged,libsndfile1,dhcpcd5,overlayroot \
+            sudo mmdebstrap --components=main,contrib,non-free --include=systemd-sysv,linux-image-cloud-amd64,initramfs-tools,e2fsprogs,zstd,haveged,libsndfile1,dhcpcd5,busybox \
                 --variant=apt --architecture=amd64 \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
@@ -76,6 +76,10 @@ jobs:
             sudo mount -t sysfs none /_mnt/sys
             
             sudo chroot /_mnt passwd -d root
+            
+            # overlayfs root
+            ( mkdir overlayroot-master ; git clone https://github.com/chesty/overlayroot overlayroot-master ; cd overlayroot-master ; sudo cp hooks-overlay /_mnt/etc/initramfs-tools/hooks/ ; sudo cp init-bottom-overlay /_mnt/etc/initramfs-tools/scripts/init-bottom/ )
+            
             sudo chroot /_mnt sh -c 'update-initramfs -c -k all'
             VMLINUZ=` cd /_mnt && find boot -name 'vmlinuz-*' | tail -n1 `
             INITRD_IMG=` cd /_mnt && find boot -name 'initrd.img-*' | tail -n1 `
@@ -84,7 +88,7 @@ jobs:
             
             sudo chroot /_mnt apt-get clean
             sudo find /_mnt/var/lib/apt/lists -type f -exec rm -vf {} \;
-            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-cloud-amd64 initramfs-tools e2fsprogs zstd
+            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-cloud-amd64 initramfs-tools e2fsprogs zstd busybox
             
             ( cd /__mnt ; sudo cp --archive --parents . /_mnt )
             

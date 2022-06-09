@@ -111,7 +111,7 @@ jobs:
                 set default=0
                 menuentry 'Debian GNU/Linux' {
                     echo	'Loading Linux ...'
-                    linux	`path_join / ${VMLINUZ}` root=UUID=${UUID_ROOT} ro consoleblank=0 mitigations=off fsck.mode=skip nowatchdog  selinux=0 apparmor=0 lsm= notsc nohpet nomodeset noapic acpi=off　overlayroot=tmpfs
+                    linux	`path_join / ${VMLINUZ}` root=UUID=${UUID_ROOT} ro consoleblank=0 mitigations=off fsck.mode=skip nowatchdog  selinux=0 apparmor=0 lsm= notsc nohpet nomodeset noapic acpi=off overlayroot=tmpfs
                     echo	'Loading initial ramdisk ...'
                     initrd	`path_join / ${INITRD_IMG}`
                 }

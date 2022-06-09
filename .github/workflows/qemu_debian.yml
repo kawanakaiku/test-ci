@@ -103,12 +103,13 @@ jobs:
                 configfile (\$root)'/boot/grub/grub.cfg'
             EOF
             
+            # console=tty0 console=ttyS0,115200 earlyprintk=ttyS0,115200 consoleblank=0
             cat <<EOF | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /_mnt/boot/grub/grub.cfg
                 set timeout=0
                 set default=0
                 menuentry 'Debian GNU/Linux' {
                     echo	'Loading Linux ...'
-                    linux	`path_join / ${VMLINUZ}` root=UUID=${UUID_ROOT} ro mitigations=off fsck.mode=skip nowatchdog  selinux=0 apparmor=0 lsm=
+                    linux	`path_join / ${VMLINUZ}` root=UUID=${UUID_ROOT} ro consoleblank=0 mitigations=off fsck.mode=skip nowatchdog  selinux=0 apparmor=0 lsm=
                     echo	'Loading initial ramdisk ...'
                     initrd	`path_join / ${INITRD_IMG}`
                 }
@@ -120,9 +121,18 @@ jobs:
             echo -en '' | sudo tee /_mnt/etc/motd
             # echo -en '' | sudo tee /_mnt/root/.sudo_as_admin_successful
             
-            echo 'XKBLAYOUT="xx"' | sudo tee /_mnt/etc/default/keyboard
+            echo 'XKBLAYOUT="jp"' | sudo tee /_mnt/etc/default/keyboard
             
             sudo chroot /_mnt systemctl enable haveged.service
+            
+            # enable auto login
+            sudo mkdir /_mnt/etc/systemd/system/getty@tty1.service.d
+            sudo tee <<'EOF' | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee /_mnt/etc/systemd/system/getty@tty1.service.d/override.conf
+                [Service]
+                ExecStart=
+                ExecStart=-/sbin/agetty --autologin root --noclear %I 38400 linux
+            EOF
+            sudo chroot /_mnt systemctl enable getty@tty1.service
             
             df -h
             sudo umount -lf /_mnt/sys /_mnt/proc /_mnt/dev/pts /_mnt/dev

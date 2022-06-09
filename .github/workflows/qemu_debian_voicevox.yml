@@ -28,7 +28,7 @@ jobs:
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/archlinux/archlinux-2022.06.01-x86_64.iso
             wget -nc -nv https://github.com/VOICEVOX/voicevox/releases/download/0.12.2/voicevox-linux-cpu-0.12.2.tar.gz -O voicevox.tar.gz
             wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/debian/EFI.7z
-            whet -nc -nv https://github.com/TheWaWaR/simple-http-server/releases/download/v0.6.1/x86_64-unknown-linux-musl-simple-http-server -O server
+            wget -nc -nv https://github.com/TheWaWaR/simple-http-server/releases/download/v0.6.1/x86_64-unknown-linux-musl-simple-http-server -O server
             qemu-img create -f qcow2 -o lazy_refcounts=on,preallocation=off qemu_debian.img 32G
             # python3 qemu_arch/build.py
             # sudo virt-sparsify qemu_debian.img --convert qcow2 qemu_debian2.img && mv qemu_debian2.img qemu_debian.img

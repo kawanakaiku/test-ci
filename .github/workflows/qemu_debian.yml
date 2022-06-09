@@ -28,7 +28,7 @@ jobs:
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/files/edk2-x86_64-code.fd
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/archlinux/archlinux-2022.06.01-x86_64.iso
             wget -nc https://github.com/kawanakaiku/test-ci/releases/download/debian/EFI.7z
-            qemu-img create -f qcow2 -o lazy_refcounts=on,preallocation=off,compression_type=zstd qemu_debian.img 32G
+            qemu-img create -f qcow2 -o lazy_refcounts=on,preallocation=off,compression_type=zstd qemu_debian.img 2G
             # python3 qemu_arch/build.py
             # sudo virt-sparsify qemu_debian.img --convert qcow2 qemu_debian2.img && mv qemu_debian2.img qemu_debian.img
             
@@ -133,6 +133,8 @@ jobs:
             ls -lha qemu_debian.img
             sudo virt-sparsify qemu_debian.img --convert qcow2 0.img
             sudo mv 0.img qemu_debian.img
+            sudo qemu-img resize qemu_debian.img 32G
+            sudo resize2fs /dev/nbd0p2
             ls -lha qemu_debian.img
             7z a -mx=9 qemu_debian.img.7z qemu_debian.img
             ls -lha qemu_debian.img.7z

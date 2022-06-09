@@ -34,7 +34,11 @@ jobs:
             
             sudo modprobe nbd max_part=63
             sudo qemu-nbd -c /dev/nbd0 qemu_debian.img
+            # gpt
+            # echo -n 'g,n,,,+100M,t,1,n,,,,w,' | sed -e 's/,/\n/g' | sudo fdisk /dev/nbd0
+            # mbr
             echo -n 'o,n,,,+100M,t,1,n,,,,w,' | sed -e 's/,/\n/g' | sudo fdisk /dev/nbd0
+            
             lsblk
 
             sudo mkfs.fat -F 32 /dev/nbd0p1
@@ -132,6 +136,10 @@ jobs:
             ls -lha qemu_debian.img
             7z a -mx=9 qemu_debian.img.7z qemu_debian.img
             ls -lha qemu_debian.img.7z
+            
+      - name: Waiting for debugger
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3
             
       - name: Store 7z files
         if: always()

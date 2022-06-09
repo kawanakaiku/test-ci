@@ -125,7 +125,7 @@ jobs:
             echo 'XKBLAYOUT="jp"' | sudo tee /_mnt/etc/default/keyboard
             
             sudo chroot /_mnt systemctl enable haveged.service
-            sudo chroot /_mnt systemctl enable dhcpcd5.service
+            sudo chroot /_mnt systemctl enable dhcpcd.service
             
             # enable auto login
             sudo mkdir /_mnt/etc/systemd/system/getty@tty1.service.d

@@ -76,7 +76,7 @@ jobs:
             
             sudo chroot /_mnt apt-get clean
             sudo find /_mnt/var/lib/apt/lists -type f -exec rm -vf {} \;
-            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-cloud-amd64 initramfs-tools e2fsprogs zstd libguestfs-tools
+            echo 'Yes, do as I say!' | sudo chroot /_mnt apt-get purge --auto-remove -y --allow-remove-essential apt linux-image-cloud-amd64 initramfs-tools e2fsprogs zstd
             
             ( cd /__mnt ; sudo cp --archive --parents . /_mnt )
             

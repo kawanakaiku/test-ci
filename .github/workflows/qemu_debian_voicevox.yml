@@ -167,7 +167,7 @@ jobs:
             ( cd /_mnt/opt/voicevox ; sudo rm -rf resources* locales *swiftshader* chrome* voicevox )
             sudo find /_mnt -xdev -type f -print0 | xargs -0 --no-run-if-empty file | awk -F: '$2 ~ /not .*strip/ { print $1 }' | xargs -I@ sudo sh -c "echo 'stripping @' ; strip --strip-all '@'" || true
             sudo chmod 777 /_mnt/opt/voicevox/run
-            sudo chroot /_mnt --preserve-status --verbose --signal=SIGTERM 30 /opt/voicevox/run
+            sudo chroot /_mnt timeout --preserve-status --verbose --signal=SIGTERM 30 /opt/voicevox/run
             cat <<'EOF' | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee -a /_mnt/root/.bashrc
                 while [[ `hostname -I` == '' ]] ; do sleep 1 ; done
                 /opt/voicevox/run --host `hostname -I | cut -d' ' -f1`

@@ -26,7 +26,8 @@ jobs:
             sudo apt-get install -y --no-install-recommends qemu-utils libguestfs-tools mmdebstrap grub-efi-amd64
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/files/edk2-x86_64-code.fd
             # wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/archlinux/archlinux-2022.06.01-x86_64.iso
-            wget -nc -nv https://github.com/VOICEVOX/voicevox/releases/download/0.12.2/voicevox-linux-cpu-0.12.2.tar.gz -O voicevox.tar.gz
+            # wget -nc -nv https://github.com/VOICEVOX/voicevox/releases/download/0.12.2/voicevox-linux-cpu-0.12.2.tar.gz -O voicevox.tar.gz
+            wget -nc -nv https://github.com/VOICEVOX/voicevox_engine/releases/download/0.12.1/linux-cpu.7z.001 -O voicevox.tar.gz
             wget -nc -nv https://github.com/kawanakaiku/test-ci/releases/download/debian/EFI.7z
             # wget -nc -nv https://github.com/TheWaWaR/simple-http-server/releases/download/v0.6.1/x86_64-unknown-linux-musl-simple-http-server -O server
             qemu-img create -f qcow2 -o lazy_refcounts=on,preallocation=off qemu_debian.img 32G

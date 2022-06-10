@@ -44,7 +44,7 @@ jobs:
             lsblk
 
             sudo mkfs.fat -F 32 /dev/nbd0p1
-            sudo mkfs.ext4 -O ^has_journal,^64bit,^metadata_csum -E root_owner=0:0,lazy_itable_init=1,lazy_journal_init=1 -m 0 -T small -N 8000 /dev/nbd0p2
+            sudo mkfs.ext4 -O ^has_journal,^64bit,^metadata_csum -E root_owner=0:0,lazy_itable_init=1,lazy_journal_init=1 -m 0 -T small -N 5000 /dev/nbd0p2
             UUID_EFI=`sudo blkid /dev/nbd0p1 | perl -n -e'/UUID="(.*?)"/ && print $1'`
             UUID_ROOT=`sudo blkid /dev/nbd0p2 | perl -n -e'/UUID="(.*?)"/ && print $1'`
             echo "UUID_EFI=${UUID_EFI}"

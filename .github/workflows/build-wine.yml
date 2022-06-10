@@ -8,6 +8,9 @@ on:
         - '.github/workflows/build-wine.yml'
     workflow_dispatch:
 
+env:
+  wine_version: "6.0.4"
+ 
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,17 +24,23 @@ jobs:
           sudo dpkg --add-architecture i386
           sudo apt-get -qq update
           sudo apt-get install --no-install-recommends -y gcc-multilib g++-multilib gcc-mingw-w64 libasound2-dev libpulse-dev libdbus-1-dev libfontconfig-dev libfreetype-dev libgnutls28-dev libpng-dev libtiff-dev libgl-dev libunwind-dev libxml2-dev libxslt1-dev libfaudio-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libmpg123-dev libosmesa6-dev libsdl2-dev libudev-dev libvkd3d-dev libvulkan-dev libcapi20-dev liblcms2-dev libcups2-dev libgphoto2-dev libsane-dev libgsm1-dev libkrb5-dev libldap2-dev samba-dev ocl-icd-opencl-dev libpcap-dev libusb-1.0-0-dev libv4l-dev  xorg-dev libx11-dev libx11-dev:i386 libfreetype6-dev:i386
-          wget -nc -nv https://github.com/wine-mirror/wine/archive/refs/tags/wine-7.10.tar.gz
-          tar xf wine-7.10.tar.gz --strip-components 1
+          sudo apt-get install --no-install-recommends -y binutils-mingw-w64-x86-64
+          wget -nc -nv https://github.com/wine-mirror/wine/archive/refs/tags/wine-${{ env.wine_version }}.tar.gz -O wine.tar.gz
+          tar xf wine.tar.gz --strip-components 1
+          export DLLTOOL=/usr/bin/x86_64-w64-mingw32-dlltool
+          export WINDRES=/usr/bin/x86_64-w64-mingw32-windres
           mkdir build && cd build
           export CFLAGS+=" -s "
           ../configure
           make -j2
           cd ..
+          
+      - name: archive built files
           XZ_OPT=-e9 tar -Jcf wine-7.10-amd64-build.tar.xz build
+          
       - name: Store built files
         if: always()
         uses: actions/upload-artifact@v3
         with:
-          name: build
-          path: wine-7.10-amd64-build.tar.xz
+          name: wine-${{ env.wine_version }}-amd64-build
+          path: wine-${{ env.wine_version }}-amd64-build.tar.xz

@@ -36,11 +36,20 @@ jobs:
           cd ..
           
       - name: archive built files
-        run: XZ_OPT=-e9 tar -Jcf wine-${{ env.wine_version }}-amd64-build.tar.xz build
+        run: |
+            XZ_OPT=-e9 tar -Jcf wine-${{ env.wine_version }}-amd64-build.tar.xz build
+            sha256sum wine-${{ env.wine_version }}-amd64-build.tar.xz | tee -a checksums.txt
           
-      - name: Store built files
+      - name: Store built file
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: wine-${{ env.wine_version }}-amd64-build
           path: wine-${{ env.wine_version }}-amd64-build.tar.xz
+          
+      - name: Store checksum file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: checksums
+          path: checksums.txt

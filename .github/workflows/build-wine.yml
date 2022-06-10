@@ -30,13 +30,13 @@ jobs:
           export DLLTOOL=/usr/bin/x86_64-w64-mingw32-dlltool
           export WINDRES=/usr/bin/x86_64-w64-mingw32-windres
           mkdir build && cd build
-          export CFLAGS+=" -s "
+          export CFLAGS+=" -pipe -s "
           ../configure
           make -j2
           cd ..
           
       - name: archive built files
-        run: XZ_OPT=-e9 tar -Jcf wine-7.10-amd64-build.tar.xz build
+        run: XZ_OPT=-e9 tar -Jcf wine-${{ env.wine_version }}-amd64-build.tar.xz build
           
       - name: Store built files
         if: always()

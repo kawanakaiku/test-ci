@@ -162,7 +162,7 @@ jobs:
             EOF
             
             # install voicevox
-            sudo mkdir /_mnt/opt/voicevox
+            # sudo mkdir /_mnt/opt/voicevox
             ( sudo 7z x voicevox.7z -o/_mnt/opt && sudo mv /_mnt/opt/{linux-cpu,voicevox} )
             ( cd /_mnt/opt/voicevox ; sudo rm -rf resources* locales *swiftshader* chrome* voicevox )
             sudo find /_mnt -xdev -type f -print0 | xargs -0 --no-run-if-empty file | awk -F: '$2 ~ /not .*strip/ { print $1 }' | xargs -I@ sudo sh -c "echo 'stripping @' ; strip --strip-all '@'" || true

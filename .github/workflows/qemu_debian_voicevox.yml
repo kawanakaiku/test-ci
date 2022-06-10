@@ -122,7 +122,7 @@ jobs:
                 set default=0
                 menuentry 'Debian GNU/Linux' {
                     echo	'Loading Linux ...'
-                    linux	`path_join / ${VMLINUZ}` root=UUID=${UUID_ROOT} ro consoleblank=0 mitigations=off fsck.mode=skip nowatchdog  selinux=0 apparmor=0 lsm= notsc nohpet nomodeset noapic acpi=off overlayroot=tmpfs
+                    linux	`path_join / ${VMLINUZ}` root=UUID=${UUID_ROOT} ro consoleblank=0 mitigations=off fsck.mode=skip nowatchdog  selinux=0 apparmor=0 lsm= notsc nohpet nomodeset overlayroot=tmpfs
                     echo	'Loading initial ramdisk ...'
                     initrd	`path_join / ${INITRD_IMG}`
                 }
@@ -164,14 +164,22 @@ jobs:
             # install voicevox
             # sudo mkdir /_mnt/opt/voicevox
             ( sudo 7z x voicevox.7z -o/_mnt/opt && sudo mv /_mnt/opt/{linux-cpu,voicevox} )
-            ( cd /_mnt/opt/voicevox ; sudo rm -rf resources* locales *swiftshader* chrome* voicevox )
-            sudo find /_mnt -xdev -type f -print0 | xargs -0 --no-run-if-empty file | awk -F: '$2 ~ /not .*strip/ { print $1 }' | xargs -I@ sudo sh -c "echo 'stripping @' ; strip --strip-all '@'" || true
-            sudo chmod 777 /_mnt/opt/voicevox/run
-            sudo chroot /_mnt timeout --preserve-status --verbose --signal=SIGTERM 30 /opt/voicevox/run
+            (
+                cd /_mnt/opt/voicevox
+                sudo rm -rf resources* locales *swiftshader* chrome* voicevox
+                sudo find . -name tests -print0 | xargs -0 sudo rm -vrf
+                sudo find . -empty -print0 | xargs -0 sudo rm -vrf
+                sudo chmod 777 run
+            )
+            sudo chroot /_mnt timeout --preserve-status --verbose --signal=SIGTERM 10 /opt/voicevox/run
+            sudo chroot /_mnt timeout --preserve-status --verbose --signal=SIGTERM 10 /opt/voicevox/run
             cat <<'EOF' | gawk '{if(NR==1){match($0, /^\s*/);s=RLENGTH+1};print substr($0, s)}' | sudo tee -a /_mnt/root/.bashrc
                 while [[ `hostname -I` == '' ]] ; do sleep 1 ; done
                 /opt/voicevox/run --host `hostname -I | cut -d' ' -f1`
             EOF
+            
+            # strip all elf files
+            sudo find /_mnt -xdev -type f -print0 | xargs -0 --no-run-if-empty file | awk -F: '$2 ~ /not .*strip/ { print $1 }' | xargs -I@ sudo sh -c "echo 'stripping @' ; strip --strip-all '@'" || true
             
             df -h
             sudo umount -lf /_mnt/sys /_mnt/proc /_mnt/dev/pts /_mnt/dev

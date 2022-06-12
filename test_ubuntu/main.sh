@@ -1,6 +1,5 @@
-echo apt.conf ; find /etc/apt/apt.conf || true
 echo apt.conf.d ; find /etc/apt/apt.conf.d
-rm /etc/apt/apt.conf.d/*
+sudo rm /etc/apt/apt.conf.d/*
 echo 'path-exclude=/usr/share/man/*' | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
 echo 'Acquire::Languages "none";' | sudo tee /etc/apt/apt.conf.d/99_translations
 

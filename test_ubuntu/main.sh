@@ -1,7 +1,9 @@
+echo apt.conf ; find /etc/apt/apt.conf || true
+echo apt.conf.d ; find /etc/apt/apt.conf.d
+rm /etc/apt/apt.conf.d/*
 echo 'path-exclude=/usr/share/man/*' | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
 echo 'Acquire::Languages "none";' | sudo tee /etc/apt/apt.conf.d/99_translations
 
-# sudo dpkg --add-architecture i386
 echo sources.list: ; sudo cat /etc/apt/sources.list || true
 echo sources.list.d ; sudo find /etc/apt/sources.list.d
 echo 'deb http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse' | sudo tee /etc/apt/sources.list

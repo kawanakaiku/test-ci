@@ -11,4 +11,4 @@ sudo rm -rf /etc/apt/sources.list.d
 sudo apt-get update
 sudo apt-get install -y gcc-multilib
 
-gcc -m32 -static -s -pipe -O3 $(dirname $0)/primes.c -o primes
+gcc -static -s -pipe -O3 $(dirname $0)/primes.c -o primes

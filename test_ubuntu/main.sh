@@ -9,6 +9,6 @@ echo 'deb http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multi
 sudo rm -rf /etc/apt/sources.list.d
 
 sudo apt-get update
-sudo apt-get install -y gcc-multilib gcc-i686-linux-gnu
+sudo apt-get install -y gcc-multilib
 
 i686-linux-gnu-gcc -m32 -s -pipe -O3 $(dirname $0)/primes.c -o primes

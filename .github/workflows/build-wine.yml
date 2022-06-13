@@ -38,7 +38,7 @@ jobs:
           
       - name: archive built files
         run: |
-            XZ_OPT=-e9 tar -Jcf wine-${{ env.wine_version }}-amd64-build.tar.xz ${HOME}/wine-build
+            XZ_OPT=-e9 tar -Jcf wine-${{ env.wine_version }}-amd64-build.tar.xz -C ${HOME} wine-build
             sha256sum wine-${{ env.wine_version }}-amd64-build.tar.xz | tee -a checksums.txt
           
       - name: Store built file

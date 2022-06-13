@@ -1,0 +1,71 @@
+name: chroot_ubuntu_x86
+
+on:
+    workflow_dispatch:
+
+env:
+  ubuntu_version: jammy
+  chroot_dir: /chroot
+ 
+jobs:
+  build:
+    runs-on: ubuntu-latest
+  
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run a multi-line script
+        run: |
+            . path_join.sh
+            . mod_apt.sh
+            
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends qemu-utils mmdebstrap
+            
+            sudo mkdir ${{ chroot_dir }}
+            (
+              echo creating rootfs of ubuntu ${{ ubuntu_version }} i386 on ${{ chroot_dir }}...
+              cd ${{ chroot_dir }}
+              for i in 648ACFD622F3D138 0E98404D386FA1D9 ; do sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $i ; done
+              
+              sudo mmdebstrap --components=main,contrib,non-free \
+                  --variant=apt --architecture=i386 \
+                  --dpkgopt='path-exclude=/usr/share/man/*' \
+                  --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
+                  --dpkgopt='path-exclude=/usr/share/doc/*' \
+                  --dpkgopt='path-exclude=/etc/cron.d/*' \
+                  --dpkgopt='path-exclude=/etc/cron.daily/*' \
+                  --dpkgopt='path-exclude=/etc/cron.hourly/*' \
+                  --dpkgopt='path-exclude=/etc/cron.monthly/*' \
+                  --dpkgopt='path-exclude=/etc/cron.weekly/*' \
+                  ${{ ubuntu_version }} . http://deb.debian.org/debian/
+
+              sudo mount -t proc none proc
+              sudo mount -t devtmpfs none dev
+              sudo mount -t devpts pts dev/pts
+              sudo mount -t sysfs none sys
+             )
+             
+             (
+              echo unmounting...
+              cd ${{ chroot_dir }}
+              sudo umount -lf sys dev/pts dev proc
+             )
+             
+             ( cd ${{ chroot_dir }} && sudo tar Jcf - . ) > ubuntu_i386_${{ ubuntu_version }}.tar.xz
+             
+             sha256sum ubuntu_i386_${{ ubuntu_version }}.tar.xz >> checksums.txt
+             
+      - name: Store archive file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: ubuntu_i386_${{ ubuntu_version }}
+          path: ubuntu_i386_${{ ubuntu_version }}.tar.xz
+          
+      - name: Store checksum file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: checksums
+          path: checksums.txt

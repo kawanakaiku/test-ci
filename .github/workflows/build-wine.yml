@@ -9,7 +9,7 @@ on:
     workflow_dispatch:
 
 env:
-  wine_version: "6.0.4"
+  wine_version: 7.10
  
 jobs:
   build:
@@ -27,8 +27,8 @@ jobs:
           sudo apt-get install --no-install-recommends -y binutils-mingw-w64-x86-64
           wget -nc -nv https://github.com/wine-mirror/wine/archive/refs/tags/wine-${{ env.wine_version }}.tar.gz -O wine.tar.gz
           tar xf wine.tar.gz --strip-components 1
-          export DLLTOOL=/usr/bin/x86_64-w64-mingw32-dlltool
-          export WINDRES=/usr/bin/x86_64-w64-mingw32-windres
+          # export DLLTOOL=/usr/bin/x86_64-w64-mingw32-dlltool
+          # export WINDRES=/usr/bin/x86_64-w64-mingw32-windres
           mkdir build && cd build
           export CFLAGS+=" -pipe -s "
           ../configure

@@ -1,4 +1,4 @@
-name: wine
+name: build_wine
 
 on:
     push:
@@ -31,13 +31,14 @@ jobs:
           # export WINDRES=/usr/bin/x86_64-w64-mingw32-windres
           mkdir build && cd build
           export CFLAGS+=" -pipe -s "
-          ../configure
+          ../configure --prefix=${HOME}/wine-build
           make -j2
+          make install
           cd ..
           
       - name: archive built files
         run: |
-            XZ_OPT=-e9 tar -Jcf wine-${{ env.wine_version }}-amd64-build.tar.xz build
+            XZ_OPT=-e9 tar -Jcf wine-${{ env.wine_version }}-amd64-build.tar.xz ${HOME}/wine-build
             sha256sum wine-${{ env.wine_version }}-amd64-build.tar.xz | tee -a checksums.txt
           
       - name: Store built file

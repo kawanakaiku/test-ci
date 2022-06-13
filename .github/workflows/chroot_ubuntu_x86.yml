@@ -20,7 +20,7 @@ jobs:
             . mod_apt.sh
             
             sudo apt-get update
-            sudo apt-get install -y --no-install-recommends qemu-user mmdebstrap
+            sudo apt-get install -y --no-install-recommends qemu-user mmdebstrap qemu-user-static binfmt-support
             
             sudo mkdir ${{ env.chroot_dir }}
             (

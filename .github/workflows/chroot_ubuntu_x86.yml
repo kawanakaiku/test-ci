@@ -22,10 +22,10 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends qemu-utils mmdebstrap
             
-            sudo mkdir ${{ chroot_dir }}
+            sudo mkdir ${{ env.chroot_dir }}
             (
-              echo creating rootfs of ubuntu ${{ ubuntu_version }} i386 on ${{ chroot_dir }}...
-              cd ${{ chroot_dir }}
+              echo creating rootfs of ubuntu ${{ env.ubuntu_version }} i386 on ${{ env.chroot_dir }}...
+              cd ${{ env.chroot_dir }}
               for i in 648ACFD622F3D138 0E98404D386FA1D9 ; do sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $i ; done
               
               sudo mmdebstrap --components=main,contrib,non-free \
@@ -38,7 +38,7 @@ jobs:
                   --dpkgopt='path-exclude=/etc/cron.hourly/*' \
                   --dpkgopt='path-exclude=/etc/cron.monthly/*' \
                   --dpkgopt='path-exclude=/etc/cron.weekly/*' \
-                  ${{ ubuntu_version }} . http://deb.debian.org/debian/
+                  ${{ env.ubuntu_version }} . http://deb.debian.org/debian/
 
               sudo mount -t proc none proc
               sudo mount -t devtmpfs none dev
@@ -48,20 +48,20 @@ jobs:
              
              (
               echo unmounting...
-              cd ${{ chroot_dir }}
+              cd ${{ env.chroot_dir }}
               sudo umount -lf sys dev/pts dev proc
              )
              
-             ( cd ${{ chroot_dir }} && sudo tar Jcf - . ) > ubuntu_i386_${{ ubuntu_version }}.tar.xz
+             ( cd ${{ env.chroot_dir }} && sudo tar Jcf - . ) > ubuntu_i386_${{ env.ubuntu_version }}.tar.xz
              
-             sha256sum ubuntu_i386_${{ ubuntu_version }}.tar.xz >> checksums.txt
+             sha256sum ubuntu_i386_${{ env.ubuntu_version }}.tar.xz >> checksums.txt
              
       - name: Store archive file
         if: always()
         uses: actions/upload-artifact@v3
         with:
-          name: ubuntu_i386_${{ ubuntu_version }}
-          path: ubuntu_i386_${{ ubuntu_version }}.tar.xz
+          name: ubuntu_i386_${{ env.ubuntu_version }}
+          path: ubuntu_i386_${{ env.ubuntu_version }}.tar.xz
           
       - name: Store checksum file
         if: always()

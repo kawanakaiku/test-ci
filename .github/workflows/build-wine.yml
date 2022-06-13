@@ -34,6 +34,7 @@ jobs:
           ../configure --prefix=${HOME}/wine-build
           make -j2
           make install
+          find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
           cd ..
           
       - name: archive built files

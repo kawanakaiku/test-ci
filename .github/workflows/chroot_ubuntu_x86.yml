@@ -20,7 +20,7 @@ jobs:
             . mod_apt.sh
             
             sudo apt-get update
-            sudo apt-get install -y --no-install-recommends qemu-utils mmdebstrap
+            sudo apt-get install -y --no-install-recommends qemu-user mmdebstrap
             
             sudo mkdir ${{ env.chroot_dir }}
             (

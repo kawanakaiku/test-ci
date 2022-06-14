@@ -25,7 +25,7 @@ jobs:
 
           ls $PWD/android-ndk-r23b/toolchains/llvm/prebuilt/linux-x86_64/bin/
 
-          BOX86_COMPILER=$PWD/android-ndk-r23b/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-clang
+          BOX86_COMPILER=$PWD/android-ndk-r23b/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang
           BOX86_PLATFORM_MARCRO="-DANDROID=1 -DNOLOADADDR=1"
           BOX86_BUILD_TYPE=Release
           BOX86_HAVE_TRACE=0

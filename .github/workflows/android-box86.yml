@@ -28,6 +28,7 @@ jobs:
           BOX86_BUILD_TYPE=Release
           BOX86_HAVE_TRACE=0
   
+          cd box86
           mkdir build
           cd build
           cmake .. -DCMAKE_C_COMPILER=${BOX86_COMPILER} \

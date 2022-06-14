@@ -21,7 +21,7 @@ jobs:
           sudo apt-get -y --no-install-recommends install git cmake make python3 file
           git clone https://github.com/ptitSeb/box86.git box86
           wget -nv https://dl.google.com/android/repository/android-ndk-r23b-linux.zip
-          unzip android-ndk-r23b-linux.zip
+          unzip -q android-ndk-r23b-linux.zip
 
           BOX86_COMPILER=$PWD/android-ndk-r23b/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi31-clang
           BOX86_PLATFORM_MARCRO="-DANDROID=1 -DNOLOADADDR=1"

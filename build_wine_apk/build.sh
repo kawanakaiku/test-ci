@@ -21,7 +21,7 @@
 
 set -e
 
-basedir=$HOME/wine/packages/android
+basedir=$HOME/wine_packages_android
 winetree=https://github.com/wine-mirror/wine.git
 android_root=$HOME/android
 android_api=26

@@ -5,6 +5,7 @@ on:
       branches: [ main ]
       paths:
         - '.github/workflows/build_wine_apk.yml'
+        - 'build_wine_apk/**'
     workflow_dispatch:
  
 jobs:

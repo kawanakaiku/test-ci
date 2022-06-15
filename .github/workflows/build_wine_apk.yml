@@ -1,0 +1,37 @@
+name: build_wine_apk
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/build_wine_apk.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-latest
+  
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run a multi-line script
+        run: |
+          wget -nv https://source.winehq.org/git/tools.git/blob_plain/HEAD:/packaging/android/build-apks -O build.sh
+          bash build.sh
+                    
+      - name: built file info
+        run: |
+          file *.apk
+          sha256sum *.apk
+          
+      - name: built file info
+        run: |
+          7z a -mx=9 apks.7z *.apk
+          
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: apks
+          path: apks.7z
+          

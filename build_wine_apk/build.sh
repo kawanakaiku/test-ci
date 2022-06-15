@@ -71,12 +71,6 @@ config_toolchain ()
     ../$android_ndk/build/tools/make_standalone_toolchain.py --arch $arch --api $android_api --install-dir toolchain
 }
 
-config_gradle ()
-{
-    echo running config_gradle "$@"
-    download $gradle https://services.gradle.org/distributions/$gradle-bin.zip
-}
-
 config_llvm_mingw ()
 {
     echo running config_llvm_mingw "$@"
@@ -194,7 +188,6 @@ test -d $basedir || mkdir $basedir
 cd $basedir
 
 test -d $android_ndk || config_ndk
-test -d $gradle || config_gradle
 test -d $llvm_mingw || config_llvm_mingw
 
 test -d wine || git clone $winetree

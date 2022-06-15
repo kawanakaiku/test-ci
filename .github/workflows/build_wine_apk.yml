@@ -17,6 +17,7 @@ jobs:
       - name: Run a multi-line script
         run: |
           wget -nv https://source.winehq.org/git/tools.git/blob_plain/HEAD:/packaging/android/build-apks -O build.sh
+          mkdir -p $HOME/wine/packages/android
           bash build.sh
                     
       - name: built file info

@@ -47,7 +47,7 @@ release=$1
 download ()
 {
     test -d $downloads || mkdir -p $downloads
-    test -f $downloads/$(basename $2) || wget -O $downloads/$(basename $2) ${3:-$2}
+    test -f $downloads/$(basename $2) || wget -nv -O $downloads/$(basename $2) ${3:-$2}
     rm -rf $1
     case $2 in
         *.zip)

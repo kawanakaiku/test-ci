@@ -16,11 +16,14 @@ jobs:
 
       - name: Run a multi-line script
         run: |
-          wget -nv https://source.winehq.org/git/tools.git/blob_plain/HEAD:/packaging/android/build-apks -O build.sh
+          wget -nv https://source.winehq.org/git/tools.git/blob_plain/HEAD:/packaging/android/build-apks
+          wget -nv https://source.winehq.org/git/tools.git/blob_plain/HEAD:/packaging/android/cups.diff
+          wget -nv https://source.winehq.org/git/tools.git/blob_plain/HEAD:/packaging/android/LICENSE.txt
           mkdir -p $HOME/wine/packages/android
-          sed -i -e 's/ wget / wget -nv /' build.sh
-          sed -i -e 's@/home/winehq/opt/source/git/wine.git@https://github.com/wine-mirror/wine.git@' build.sh
-          bash build.sh
+          sed -i -e 's/ wget / wget -nv /' build-apks
+          sed -i -e 's@/home/winehq/opt/source/git/wine.git@https://github.com/wine-mirror/wine.git@' build-apks
+          sed -i -e 's@x86 arm@x86@' build-apks
+          bash build-apks
                     
       - name: built file info
         run: |

@@ -16,28 +16,16 @@ jobs:
 
       - name: Run a multi-line script
         run: |
-          wget -nv https://source.winehq.org/git/tools.git/blob_plain/HEAD:/packaging/android/build-apks
-          wget -nv https://source.winehq.org/git/tools.git/blob_plain/HEAD:/packaging/android/cups.diff
-          wget -nv https://source.winehq.org/git/tools.git/blob_plain/HEAD:/packaging/android/LICENSE.txt
-          mkdir -p $HOME/wine/packages/android
-          sed -i -e 's/ wget / wget -nv /' build-apks
-          sed -i -e 's@/home/winehq/opt/source/git/wine.git@https://github.com/wine-mirror/wine.git@' build-apks
-          sed -i -e 's@x86 arm@x86@' build-apks
-          bash build-apks
-                    
-      - name: built file info
-        run: |
-          file *.apk
-          sha256sum *.apk
+          bash build_wine_apk/build.sh
           
-      - name: built file info
+      - name: archive
         run: |
-          7z a -mx=9 apks.7z *.apk
+          7z a -mx=9 build.7z build
           
       - name: Store built file
         if: always()
         uses: actions/upload-artifact@v3
         with:
-          name: apks
-          path: apks.7z
+          name: build
+          path: build.7z
           

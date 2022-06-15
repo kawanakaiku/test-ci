@@ -35,7 +35,6 @@ jobs:
           export CFLAGS+=" -pipe -s "
           ${HOME}/wine-src/configure --without-x --enable-win64
           make -j2
-          make install
           find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
           cd ..
           

@@ -31,7 +31,7 @@ jobs:
           # export WINDRES=/usr/bin/x86_64-w64-mingw32-windres
           mkdir build && cd build
           export CFLAGS+=" -pipe -s "
-          ../configure --prefix=${HOME}/wine-build
+          ../configure --prefix=${HOME}/wine-build --without-x --enable-win64
           make -j2
           make install
           find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose

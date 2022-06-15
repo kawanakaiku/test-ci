@@ -17,7 +17,7 @@ jobs:
 
       - name: Run a multi-line script
         run: |
-          bash build_wine_apk/build.sh
+          bash build_wine_apk/build.sh 6.0.4
           
       - name: archive
         run: |

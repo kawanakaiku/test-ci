@@ -46,6 +46,7 @@ release=$1
 
 download ()
 {
+    echo running download "$@"
     test -d $downloads || mkdir -p $downloads
     test -f $downloads/$(basename $2) || wget -nv -O $downloads/$(basename $2) ${3:-$2}
     rm -rf $1
@@ -59,39 +60,46 @@ download ()
 
 config_ndk ()
 {
+    echo running config_ndk "$@"
     download $android_ndk https://dl.google.com/android/repository/$android_ndk-linux-x86_64.zip
 }
 
 config_toolchain ()
 {
+    echo running config_toolchain "$@"
     rm -rf toolchain
     ../$android_ndk/build/tools/make_standalone_toolchain.py --arch $arch --api $android_api --install-dir toolchain
 }
 
 config_gradle ()
 {
+    echo running config_gradle "$@"
     download $gradle https://services.gradle.org/distributions/$gradle-bin.zip
 }
 
 config_llvm_mingw ()
 {
+    echo running config_llvm_mingw "$@"
     download $llvm_mingw https://github.com/mstorsjo/llvm-mingw/releases/download/20201020/$llvm_mingw.tar.xz
 }
 
 config_freetype ()
 {
+    echo running config_freetype "$@"
     download $freetype http://download.savannah.gnu.org/releases/freetype/$freetype.tar.xz
     (cd $freetype && $run_configure --without-png && make $makeflags)
 }
 
 config_gmp ()
 {
+    echo running config_gmp "$@"
     download $gmp https://gmplib.org/download/gmp/$gmp.tar.xz
     (cd $gmp && $run_configure --disable-static && make $makeflags)
 }
 
 config_nettle ()
 {
+    echo running config_nettle "$@"
     test -d $gmp || config_gmp
     download $nettle https://ftp.gnu.org/gnu/nettle/$nettle.tar.gz
     gmpdir=$(pwd)/$gmp
@@ -100,6 +108,7 @@ config_nettle ()
 
 config_gnutls ()
 {
+    echo running config_gnutls "$@"
     test -d $nettle || config_nettle
     version=v$(expr $gnutls : '.*-\([0-9]\+\.[0-9]\+\)')
     download $gnutls https://www.gnupg.org/ftp/gcrypt/gnutls/$version/$gnutls.tar.xz
@@ -117,6 +126,7 @@ config_gnutls ()
 
 config_openldap ()
 {
+    echo running config_openldap "$@"
     download $openldap ftp://ftp.openldap.org/pub/OpenLDAP/openldap-release/$openldap.tgz
     cp $gnutls/build-aux/ltmain.sh $gnutls/build-aux/config.guess $gnutls/build-aux/config.sub $openldap/build
     (cd $openldap && aclocal && autoconf && $run_configure --with-yielding_select=yes --disable-bdb --disable-hdb ac_cv_func_memcmp_working=yes CPPFLAGS=-DANDROID CC=$host-gcc && make $makeflags)
@@ -125,12 +135,14 @@ config_openldap ()
 
 config_wine_tools ()
 {
+    echo running config_wine_tools "$@"
     mkdir tools
     (cd tools && ../wine/configure --without-x --enable-win64 $silent && make $makeflags __tooldeps__)
 }
 
 config_wine ()
 {
+    echo running config_wine "$@"
     test -d toolchain || config_toolchain
     test -d $freetype || config_freetype
     test -d $gmp || config_gmp
@@ -151,6 +163,7 @@ config_wine ()
 
 install_all ()
 {
+    echo running install_all "$@"
     test -d wine || config_wine
     cd wine
     destdir=$(pwd)/dlls/wineandroid.drv

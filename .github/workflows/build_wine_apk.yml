@@ -18,7 +18,8 @@ jobs:
         run: |
           wget -nv https://source.winehq.org/git/tools.git/blob_plain/HEAD:/packaging/android/build-apks -O build.sh
           mkdir -p $HOME/wine/packages/android
-          sed -i -e 's@wget @wget -nv @g' build.sh
+          sed -i -e 's/ wget / wget -nv /' build.sh
+          sed -i -e 's@/home/winehq/opt/source/git/wine.git@https://github.com/wine-mirror/wine.git@' build.sh
           bash build.sh
                     
       - name: built file info

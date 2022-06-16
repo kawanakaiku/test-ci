@@ -1,0 +1,71 @@
+name: build_wine_android
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/build_wine_android.yml'
+    workflow_dispatch:
+
+env:
+  android_api: 26
+  android_ndk: android-ndk-r21d
+  llvm_mingw: llvm-mingw-20201020-ucrt-ubuntu-18.04
+  gradle: gradle-3.5.1
+  freetype: freetype-2.10.4
+  gmp: gmp-6.2.1
+  nettle: nettle-3.6
+  gnutls: gnutls-3.7.0
+  openldap: openldap-2.4.56
+  cups: cups-2.3.3
+  gecko: wine-gecko-2.47.2
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: prepare android ndk
+        run: |
+          echo "pwd: ${PWD}"
+
+      - name: prepare android ndk
+        run: |
+          mkdir tmp ; cd tmp
+          wget -nv https://dl.google.com/android/repository/${{ env.android_ndk }}-linux-x86_64.zip -O android_ndk.zip
+          unzip -q android_ndk.zip
+          mv ${{ env.android_ndk }} ${HOME}
+          echo "CC=${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${{ env.android_api }}-clang" >> $GITHUB_ENV
+          cd .. ; rm -r tmp
+
+      - name: prepare llvm mingw
+        run: |
+          mkdir tmp ; cd tmp
+          wget -nv https://github.com/mstorsjo/llvm-mingw/releases/download/20201020/${{ env.llvm_mingw }}.tar.xz -O llvm-mingw.tar.xz
+          tar xf llvm-mingw.tar.xz
+          mv ${{ env.llvm_mingw }} ${HOME}
+          echo "llvm_mingw_path=${HOME}/${{ env.llvm_mingw }}/bin" >> $GITHUB_ENV
+          cd .. ; rm -r tmp
+
+      - name: clone wine source
+        run: |
+          git clone https://github.com/wine-mirror/wine.git ${HOME}/wine-src
+
+      - name: prepare wine tools
+        run: |
+          mkdir ${HOME}/wine-tools ; cd ${HOME}/wine-tools
+          ${HOME}/wine-src/configure --without-x --enable-win64
+          make -j2 __tooldeps__
+
+      - name: archive
+        run: |
+          7z a -mx=9 build.7z build
+
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: build.7z

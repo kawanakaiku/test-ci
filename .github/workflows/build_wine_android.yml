@@ -38,7 +38,7 @@ jobs:
           wget -nv https://dl.google.com/android/repository/${{ env.android_ndk }}-linux-x86_64.zip -O android_ndk.zip
           unzip -q android_ndk.zip
           mv ${{ env.android_ndk }} ${HOME}
-          echo "CC=${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${{ env.android_api }}-clang" >> $GITHUB_ENV
+          # echo "CC=${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${{ env.android_api }}-clang" >> $GITHUB_ENV
           cd .. ; rm -r tmp
 
       - name: prepare llvm mingw

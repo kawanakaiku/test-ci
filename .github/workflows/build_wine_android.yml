@@ -28,9 +28,10 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: show info
+      - name: prepare
         run: |
           echo "pwd: ${PWD}"
+          mkdir ${HOME}/src ${HOME}/build
 
       - name: prepare android ndk
         run: |
@@ -47,7 +48,7 @@ jobs:
           wget -nv https://github.com/mstorsjo/llvm-mingw/releases/download/20201020/${{ env.llvm_mingw }}.tar.xz -O llvm-mingw.tar.xz
           tar xf llvm-mingw.tar.xz
           mv ${{ env.llvm_mingw }} ${HOME}
-          echo "llvm_mingw_path=${HOME}/${{ env.llvm_mingw }}/bin" >> $GITHUB_ENV
+          # echo "llvm_mingw_path=${HOME}/${{ env.llvm_mingw }}/bin" >> $GITHUB_ENV
           cd .. ; rm -r tmp
 
       - name: clone wine source
@@ -55,14 +56,81 @@ jobs:
           mkdir tmp ; cd tmp
           wget -nv https://github.com/wine-mirror/wine/archive/refs/tags/wine-${{ env.wine_version }}.tar.gz -O wine.tar.xz
           tar xf wine.tar.xz
-          mv wine-wine-${{ env.wine_version }} ${HOME}/wine-src
+          mv wine-wine-${{ env.wine_version }} ${HOME}/src/wine
           cd .. ; rm -r tmp
 
       - name: prepare wine tools
         run: |
           mkdir ${HOME}/wine-tools ; cd ${HOME}/wine-tools
-          ${HOME}/wine-src/configure --without-x --enable-win64
+          ${HOME}/src/wine/configure --without-x --enable-win64
           make -j2 __tooldeps__
+
+      - name: set env
+        run: |
+          echo "CC=${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${{ env.android_api }}-clang" >> $GITHUB_ENV
+          echo "PATH=${HOME}/${{ env.llvm_mingw }}/bin:${PATH}" >> $GITHUB_ENV
+
+      - name: clone freetype source
+        run: |
+          mkdir tmp ; cd tmp
+          wget -nv http://download.savannah.gnu.org/releases/freetype/${{ env.freetype }}.tar.xz -O freetype.tar.xz
+          tar xf wine.tar.xz
+          mv ${{ env.freetype }} ${HOME}/src/freetype
+          cd .. ; rm -r tmp
+
+      - name: build freetype
+        run: |
+          mkdir ${HOME}/build/freetype ; cd ${HOME}/build/freetype
+          ${HOME}/src/freetype/configure --without-png
+          make -j2
+
+      - name: clone gmp source
+        run: |
+          mkdir tmp ; cd tmp
+          wget -nv https://gmplib.org/download/gmp/${{ env.gmp }}.tar.xz -O gmp.tar.xz
+          tar xf gmp.tar.xz
+          mv ${{ env.gmp }} ${HOME}/src/gmp
+          cd .. ; rm -r tmp
+
+      - name: build gmp
+        run: |
+          mkdir ${HOME}/build/gmp ; cd ${HOME}/build/gmp
+          ${HOME}/src/gmp/configure --disable-static
+          make -j2
+
+      - name: clone nettle source
+        run: |
+          mkdir tmp ; cd tmp
+          wget -nv https://ftp.gnu.org/gnu/nettle/${{ env.nettle }}.tar.gz -O nettle.tar.gz
+          tar xf nettle.tar.gz
+          mv ${{ env.nettle }} ${HOME}/src/nettle
+          cd .. ; rm -r tmp
+
+      - name: build nettle
+        run: |
+          mkdir ${HOME}/build/nettle ; cd ${HOME}/build/nettle
+          ${HOME}/src/nettle/configure --disable-shared --disable-documentation CPPFLAGS=-I${HOME}/build/gmp LDFLAGS=-L${HOME}/build/gmp/.libs
+          make -j2
+
+      - name: clone gnutls source
+        run: |
+          mkdir tmp ; cd tmp
+          version=v$(expr ${{ env.gnutls }} : '.*-\([0-9]\+\.[0-9]\+\)')
+          wget -nv https://www.gnupg.org/ftp/gcrypt/gnutls/${version}/${{ env.gnutls }}.tar.xz -O gnutls.tar.xz
+          tar xf gnutls.tar.gz
+          mv ${{ env.gnutls }} ${HOME}/src/gnutls
+          cd .. ; rm -r tmp
+
+      - name: build gnutls
+        run: |
+          mkdir ${HOME}/build/gnutls ; cd ${HOME}/build/gnutls
+          ${HOME}/src/gnutls/configure --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
+            --disable-maintainer-mode --disable-static --disable-doc --disable-tools --disable-tests \
+            PKG_CONFIG=true \
+            GMP_CFLAGS="-I${HOME}/build/gmp -L${HOME}/build/gmp/.libs -lgmp" GMP_LIBS=${HOME}/build/gmp/.libs/libgmp.so \
+            NETTLE_CFLAGS=-I${HOME}/build/nettle NETTLE_LIBS="-L${HOME}/build/nettle -lnettle" \
+            HOGWEED_CFLAGS=-I${HOME}/build/nettle HOGWEED_LIBS="-L${HOME}/build/nettle -lhogweed -lnettle ${HOME}/build/gmp/.libs/libgmp.so"
+          make -j2
 
       - name: archive log files
         if: always()
@@ -87,3 +155,4 @@ jobs:
         with:
           name: build
           path: build.7z
+          

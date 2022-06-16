@@ -77,42 +77,45 @@ jobs:
           mkdir tmp ; cd tmp
           wget -nv http://download.savannah.gnu.org/releases/freetype/${{ env.freetype }}.tar.xz -O freetype.tar.xz
           tar xf freetype.tar.xz
-          mv ${{ env.freetype }} ${HOME}/build/freetype
+          mv ${{ env.freetype }} ${HOME}/src/freetype
           cd .. ; rm -r tmp
 
       - name: build freetype
         run: |
-          cd ${HOME}/build/freetype
-          ./configure --host=${{ env.host }} --without-png
+          cd ${HOME}/src/freetype
+          ./configure --prefix=${HOME}/build --host=${{ env.host }} --without-png
           make -j2
+          make install
 
       - name: clone gmp source
         run: |
           mkdir tmp ; cd tmp
           wget -nv https://gmplib.org/download/gmp/${{ env.gmp }}.tar.xz -O gmp.tar.xz
           tar xf gmp.tar.xz
-          mv ${{ env.gmp }} ${HOME}/build/gmp
+          mv ${{ env.gmp }} ${HOME}/src/gmp
           cd .. ; rm -r tmp
 
       - name: build gmp
         run: |
-          cd ${HOME}/build/gmp
-          ./configure --host=${{ env.host }} --disable-static
+          cd ${HOME}/src/gmp
+          ./configure --prefix=${HOME}/build --host=${{ env.host }} --disable-static
           make -j2
+          make install
 
       - name: clone nettle source
         run: |
           mkdir tmp ; cd tmp
           wget -nv https://ftp.gnu.org/gnu/nettle/${{ env.nettle }}.tar.gz -O nettle.tar.gz
           tar xf nettle.tar.gz
-          mv ${{ env.nettle }} ${HOME}/build/nettle
+          mv ${{ env.nettle }} ${HOME}/src/nettle
           cd .. ; rm -r tmp
 
       - name: build nettle
         run: |
-          cd ${HOME}/build/nettle
-          ./configure --host=${{ env.host }} --disable-shared --disable-documentation CPPFLAGS=-I${HOME}/build/gmp LDFLAGS=-L${HOME}/build/gmp/.libs
+          cd ${HOME}/src/nettle
+          ./configure --prefix=${HOME}/build --host=${{ env.host }} --disable-shared --disable-documentation CPPFLAGS=-I${HOME}/build/gmp LDFLAGS=-L${HOME}/build/gmp/.libs
           make -j2
+          make install
 
       - name: clone gnutls source
         run: |
@@ -120,41 +123,43 @@ jobs:
           version=v$(expr ${{ env.gnutls }} : '.*-\([0-9]\+\.[0-9]\+\)')
           wget -nv https://www.gnupg.org/ftp/gcrypt/gnutls/${version}/${{ env.gnutls }}.tar.xz -O gnutls.tar.xz
           tar xf gnutls.tar.xz
-          mv ${{ env.gnutls }} ${HOME}/build/gnutls
+          mv ${{ env.gnutls }} ${HOME}/src/gnutls
           cd .. ; rm -r tmp
 
       - name: build gnutls
         run: |
-          cd ${HOME}/build/gnutls
-          ./configure --host=${{ env.host }} --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
+          cd ${HOME}/src/gnutls
+          ./configure --prefix=${HOME}/build --host=${{ env.host }} --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
             --disable-maintainer-mode --disable-static --disable-doc --disable-tools --disable-tests \
             PKG_CONFIG=true \
             GMP_CFLAGS="-I${HOME}/build/gmp -L${HOME}/build/gmp/.libs -lgmp" GMP_LIBS=${HOME}/build/gmp/.libs/libgmp.so \
             NETTLE_CFLAGS=-I${HOME}/build/nettle NETTLE_LIBS="-L${HOME}/build/nettle -lnettle" \
             HOGWEED_CFLAGS=-I${HOME}/build/nettle HOGWEED_LIBS="-L${HOME}/build/nettle -lhogweed -lnettle ${HOME}/build/gmp/.libs/libgmp.so"
           make -j2
+          make install
 
       - name: clone openldap source
         run: |
           mkdir tmp ; cd tmp
           wget -nv ftp://ftp.openldap.org/pub/OpenLDAP/openldap-release/${{ env.openldap }}.tgz -O openldap.tgz
           tar xf openldap.tgz
-          mv ${{ env.openldap }} ${HOME}/build/openldap
+          mv ${{ env.openldap }} ${HOME}/src/openldap
           cd .. ; rm -r tmp
 
       - name: build openldap
         run: |
-          cp ${HOME}/build/gnutls/build-aux/ltmain.sh ${HOME}/build/gnutls/build-aux/config.guess ${HOME}/build/gnutls/build-aux/config.sub ${HOME}/build/openldap/build
-          cd ${HOME}/build/openldap
+          cp ${HOME}/src/gnutls/build-aux/ltmain.sh ${HOME}/src/gnutls/build-aux/config.guess ${HOME}/src/gnutls/build-aux/config.sub ${HOME}/src/openldap/build
+          cd ${HOME}/src/openldap
           aclocal && autoconf
 
-          cd ${HOME}/build/openldap
-          ./configure --host=${{ env.host }} --with-yielding_select=yes --disable-bdb --disable-hdb ac_cv_func_memcmp_working=yes CPPFLAGS=-DANDROID
+          cd ${HOME}/src/openldap
+          ./configure --prefix=${HOME}/build --host=${{ env.host }} --with-yielding_select=yes --disable-bdb --disable-hdb ac_cv_func_memcmp_working=yes CPPFLAGS=-DANDROID
           make -j2
+          make install
 
       - name: build wine
         run: |
-          mkdir ${HOME}/build/wine ; cd ${HOME}/build/wine
+          cd ${HOME}/src/wine
           ${HOME}/src/wine/configure --host=${{ env.host }} --with-wine-tools=${HOME}/wine-tools \
             FREETYPE_CFLAGS="-I${HOME}/build/freetype/include" \
             FREETYPE_LIBS="-l${HOME}/build/freetype/objs/.libs/libfreetype.so" \

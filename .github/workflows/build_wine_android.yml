@@ -70,7 +70,7 @@ jobs:
         run: |
           echo "CC=${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ env.host }}${{ env.android_api }}-clang" >> $GITHUB_ENV
           echo "PATH=${HOME}/${{ env.llvm_mingw }}/bin:${PATH}" >> $GITHUB_ENV
-          echo "CFLAGS=${CFLAGS} -I${HOME}/src -I${HOME}/build" >> $GITHUB_ENV
+          echo "CFLAGS=${CFLAGS} -I${HOME}/build/include" >> $GITHUB_ENV
 
       - name: clone freetype source
         run: |

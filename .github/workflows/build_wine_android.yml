@@ -134,7 +134,7 @@ jobs:
           ./configure --prefix=${HOME}/build --host=${{ env.host }} --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
             --disable-maintainer-mode --disable-static --disable-doc --disable-tools --disable-tests \
             PKG_CONFIG=true \
-            LIBS="`find ${HOME}/build -name '*.so' | xargs readlink -f` `find ${HOME}/build -name '*.a' | xargs readlink -f`"
+            LIBS="`find ${HOME}/build -name '*.so' -or -name '*.a' | xargs readlink -f`"
           make -j2
           make install
 
@@ -161,7 +161,7 @@ jobs:
         run: |
           cd ${HOME}/src/wine
           ${HOME}/src/wine/configure --prefix=${HOME}/build --host=${{ env.host }} --with-wine-tools=${HOME}/wine-tools \
-            LIBS="`find ${HOME}/build -name '*.so' | xargs readlink -f` `find ${HOME}/build -name '*.a' | xargs readlink -f`"
+            LIBS="`find ${HOME}/build -name '*.so' -or -name '*.a' | xargs readlink -f`"
           make -j2
           make install
 

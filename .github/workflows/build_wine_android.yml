@@ -133,7 +133,7 @@ jobs:
           ./configure --prefix=${HOME}/build --host=${{ env.host }} --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
             --disable-maintainer-mode --disable-static --disable-doc --disable-tools --disable-tests \
             PKG_CONFIG=true \
-            LIBS="-lgmp -lnettle -lhogweed"
+            LIBS="-lgmp -lnettle -llibhogweed.a"
           make -j2
           make install
 

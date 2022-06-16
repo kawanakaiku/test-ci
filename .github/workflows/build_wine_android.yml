@@ -125,7 +125,7 @@ jobs:
       - name: build gnutls
         run: |
           mkdir ${HOME}/build/gnutls ; cd ${HOME}/build/gnutls
-          CFLAGS+=" -I${HOME}/src" ${HOME}/src/gnutls/configure --host=${{ env.host }} --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
+          CFLAGS+=" -I${HOME}/src -I${HOME}/build" ${HOME}/src/gnutls/configure --host=${{ env.host }} --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
             --disable-maintainer-mode --disable-static --disable-doc --disable-tools --disable-tests \
             PKG_CONFIG=true \
             GMP_CFLAGS="-I${HOME}/build/gmp -L${HOME}/build/gmp/.libs -lgmp" GMP_LIBS=${HOME}/build/gmp/.libs/libgmp.so \

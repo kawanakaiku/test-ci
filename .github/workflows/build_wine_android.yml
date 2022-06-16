@@ -74,7 +74,7 @@ jobs:
         run: |
           mkdir tmp ; cd tmp
           wget -nv http://download.savannah.gnu.org/releases/freetype/${{ env.freetype }}.tar.xz -O freetype.tar.xz
-          tar xf wine.tar.xz
+          tar xf freetype.tar.xz
           mv ${{ env.freetype }} ${HOME}/src/freetype
           cd .. ; rm -r tmp
 
@@ -132,6 +132,25 @@ jobs:
             HOGWEED_CFLAGS=-I${HOME}/build/nettle HOGWEED_LIBS="-L${HOME}/build/nettle -lhogweed -lnettle ${HOME}/build/gmp/.libs/libgmp.so"
           make -j2
 
+      - name: clone openldap source
+        run: |
+          mkdir tmp ; cd tmp
+          wget -nv ftp://ftp.openldap.org/pub/OpenLDAP/openldap-release/${{ env.openldap }}.tgz -O openldap.tgz
+          tar xf gnutls.tar.gz
+          mv ${{ env.gnutls }} ${HOME}/src/gnutls
+          cd .. ; rm -r tmp
+
+      - name: build openldap
+        run: |
+          mkdir ${HOME}/build/gnutls ; cd ${HOME}/build/gnutls
+          ${HOME}/src/gnutls/configure --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
+            --disable-maintainer-mode --disable-static --disable-doc --disable-tools --disable-tests \
+            PKG_CONFIG=true \
+            GMP_CFLAGS="-I${HOME}/build/gmp -L${HOME}/build/gmp/.libs -lgmp" GMP_LIBS=${HOME}/build/gmp/.libs/libgmp.so \
+            NETTLE_CFLAGS=-I${HOME}/build/nettle NETTLE_LIBS="-L${HOME}/build/nettle -lnettle" \
+            HOGWEED_CFLAGS=-I${HOME}/build/nettle HOGWEED_LIBS="-L${HOME}/build/nettle -lhogweed -lnettle ${HOME}/build/gmp/.libs/libgmp.so"
+          make -j2
+
       - name: archive log files
         if: always()
         run: |
@@ -155,4 +174,3 @@ jobs:
         with:
           name: build
           path: build.7z
-          

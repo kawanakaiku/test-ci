@@ -70,7 +70,7 @@ jobs:
         run: |
           echo "CC=${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ env.host }}${{ env.android_api }}-clang" >> $GITHUB_ENV
           echo "PATH=${HOME}/${{ env.llvm_mingw }}/bin:${PATH}" >> $GITHUB_ENV
-          echo "CFLAGS=-pipe -s" >> $GITHUB_ENV
+          # echo "CFLAGS=-pipe -s" >> $GITHUB_ENV
 
       - name: clone freetype source
         run: |
@@ -166,7 +166,7 @@ jobs:
 
       - name: strip built files
         run: |
-          find ${HOME}/build -type f | xargs file | awk -F: '$2 ~ /not strip/ { print $1 }' | xargs ${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ env.host }}-strip
+          find ${HOME}/build -type f | xargs file | awk -F: '$2 ~ /not strip/ { print $1 }' | xargs ${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ env.host }}-strip --strip-all
 
       - name: archive build files
         if: always()

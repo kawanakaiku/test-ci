@@ -20,6 +20,7 @@ env:
   openldap: openldap-2.4.56
   cups: cups-2.3.3
   gecko: wine-gecko-2.47.2
+  host: aarch64-linux-android
 
 jobs:
   build:
@@ -81,7 +82,7 @@ jobs:
       - name: build freetype
         run: |
           mkdir ${HOME}/build/freetype ; cd ${HOME}/build/freetype
-          ${HOME}/src/freetype/configure --without-png
+          ${HOME}/src/freetype/configure --host=${{ env.host }} --without-png
           make -j2
 
       - name: clone gmp source
@@ -95,7 +96,7 @@ jobs:
       - name: build gmp
         run: |
           mkdir ${HOME}/build/gmp ; cd ${HOME}/build/gmp
-          ${HOME}/src/gmp/configure --disable-static
+          ${HOME}/src/gmp/configure --host=${{ env.host }} --disable-static
           make -j2
 
       - name: clone nettle source
@@ -109,7 +110,7 @@ jobs:
       - name: build nettle
         run: |
           mkdir ${HOME}/build/nettle ; cd ${HOME}/build/nettle
-          ${HOME}/src/nettle/configure --disable-shared --disable-documentation CPPFLAGS=-I${HOME}/build/gmp LDFLAGS=-L${HOME}/build/gmp/.libs
+          ${HOME}/src/nettle/configure --host=${{ env.host }} --disable-shared --disable-documentation CPPFLAGS=-I${HOME}/build/gmp LDFLAGS=-L${HOME}/build/gmp/.libs
           make -j2
 
       - name: clone gnutls source
@@ -124,7 +125,7 @@ jobs:
       - name: build gnutls
         run: |
           mkdir ${HOME}/build/gnutls ; cd ${HOME}/build/gnutls
-          ${HOME}/src/gnutls/configure --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
+          ${HOME}/src/gnutls/configure --host=${{ env.host }} --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
             --disable-maintainer-mode --disable-static --disable-doc --disable-tools --disable-tests \
             PKG_CONFIG=true \
             GMP_CFLAGS="-I${HOME}/build/gmp -L${HOME}/build/gmp/.libs -lgmp" GMP_LIBS=${HOME}/build/gmp/.libs/libgmp.so \
@@ -147,13 +148,13 @@ jobs:
           aclocal && autoconf
 
           mkdir ${HOME}/build/openldap ; cd ${HOME}/build/openldap
-          ${HOME}/src/openldap/configure --with-yielding_select=yes --disable-bdb --disable-hdb ac_cv_func_memcmp_working=yes CPPFLAGS=-DANDROID
+          ${HOME}/src/openldap/configure --host=${{ env.host }} --with-yielding_select=yes --disable-bdb --disable-hdb ac_cv_func_memcmp_working=yes CPPFLAGS=-DANDROID
           make -j2
 
       - name: build wine
         run: |
           mkdir ${HOME}/build/wine ; cd ${HOME}/build/wine
-          ${HOME}/src/wine/configure --with-wine-tools=${HOME}/wine-tools \
+          ${HOME}/src/wine/configure --host=${{ env.host }} --with-wine-tools=${HOME}/wine-tools \
             FREETYPE_CFLAGS="-I${HOME}/build/freetype/include" \
             FREETYPE_LIBS="-L${HOME}/build/freetype/objs/.libs -lfreetype" \
             GNUTLS_CFLAGS="-I${HOME}/build/gnutls/lib/includes" \
@@ -162,15 +163,25 @@ jobs:
             LDAP_LIBS="-L${HOME}/build/openldap/libraries/liblber/.libs -L${HOME}/build/openldap/libraries/libldap_r/.libs -lldap_r-2.4 -llber-2.4" \
           make -j2
 
+      - name: archive build files
+        if: always()
+        run: |
+          7z a -mx=9 build.7z ${HOME}/build
+          
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: build.7z
+
       - name: archive log files
         if: always()
         run: |
-          find ${HOME} -type f -iname '*.log' -print0 2>/dev/null | xargs -0 --no-run-if-empty 7z a -mx=9 -spf logs.7z
-
-      - name: archive
-        if: always()
-        run: |
-          7z a -mx=9 build.7z build
+          mkdir ${HOME}/logs
+          shopt -s globstar
+          cp -a ${HOME}/**/*.log ${HOME}/logs
+          7z a -mx=9 logs.7z ${HOME}/logs
 
       - name: Store log file
         if: always()
@@ -178,10 +189,3 @@ jobs:
         with:
           name: log
           path: logs.7z
-
-      - name: Store built file
-        if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: build
-          path: build.7z

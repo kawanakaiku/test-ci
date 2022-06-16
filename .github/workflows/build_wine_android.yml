@@ -130,9 +130,10 @@ jobs:
       - name: build gnutls
         run: |
           cd ${HOME}/src/gnutls
-          LIBS="-lgmp -lnettle -lhogweed" ./configure --prefix=${HOME}/build --host=${{ env.host }} --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
+          ./configure --prefix=${HOME}/build --host=${{ env.host }} --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
             --disable-maintainer-mode --disable-static --disable-doc --disable-tools --disable-tests \
-            PKG_CONFIG=true
+            PKG_CONFIG=true \
+            LIBS="-lgmp -lnettle -lhogweed"
           make -j2
           make install
 
@@ -158,7 +159,8 @@ jobs:
       - name: build wine
         run: |
           cd ${HOME}/src/wine
-          LIBS="-lfreetype -lgnutls -lgmp -lldap_r-2.4 -llber-2.4" ${HOME}/src/wine/configure --host=${{ env.host }} --with-wine-tools=${HOME}/wine-tools
+          ${HOME}/src/wine/configure --host=${{ env.host }} --with-wine-tools=${HOME}/wine-tools \
+            LIBS="-lfreetype -lgnutls -lgmp -lldap_r-2.4 -llber-2.4"
           make -j2
 
       - name: strip built files

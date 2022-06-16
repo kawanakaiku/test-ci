@@ -161,7 +161,7 @@ jobs:
             GNUTLS_CFLAGS="-I${HOME}/build/gnutls/lib/includes" \
             GNUTLS_LIBS="-L${HOME}/build/gnutls/lib/.libs -lgnutls -L${HOME}/build/gmp/.libs -lgmp" \
             LDAP_CFLAGS="-I${HOME}/build/openldap/include" \
-            LDAP_LIBS="-L${HOME}/build/openldap/libraries/liblber/.libs -L${HOME}/build/openldap/libraries/libldap_r/.libs -lldap_r-2.4 -llber-2.4" \
+            LDAP_LIBS="-L${HOME}/build/openldap/libraries/liblber/.libs -L${HOME}/build/openldap/libraries/libldap_r/.libs -lldap_r-2.4 -llber-2.4"
           make -j2
 
       - name: strip built files

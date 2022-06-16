@@ -170,6 +170,7 @@ jobs:
           make -j2
 
       - name: strip built files
+        if: always()
         run: |
           find ${HOME}/build -type f | xargs file | awk -F: '$2 ~ /not strip/ { print $1 }' | xargs ${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ env.host }}-strip --strip-all
 

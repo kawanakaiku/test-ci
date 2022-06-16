@@ -8,19 +8,19 @@ on:
     workflow_dispatch:
 
 env:
-  wine_version: 7.10
-  android_api: 26
-  android_ndk: android-ndk-r21d
-  llvm_mingw: llvm-mingw-20201020-ucrt-ubuntu-18.04
-  gradle: gradle-3.5.1
-  freetype: freetype-2.10.4
-  gmp: gmp-6.2.1
-  nettle: nettle-3.6
-  gnutls: gnutls-3.7.0
-  openldap: openldap-2.4.56
-  cups: cups-2.3.3
-  gecko: wine-gecko-2.47.2
-  host: aarch64-linux-android
+  wine_version: '7.10'
+  android_api: '26'
+  android_ndk: 'android-ndk-r21d'
+  llvm_mingw: 'llvm-mingw-20201020-ucrt-ubuntu-18.04'
+  gradle: 'gradle-3.5.1'
+  freetype: 'freetype-2.10.4'
+  gmp: 'gmp-6.2.1'
+  nettle: 'nettle-3.6'
+  gnutls: 'gnutls-3.7.0'
+  openldap: 'openldap-2.4.56'
+  cups: 'cups-2.3.3'
+  gecko: 'wine-gecko-2.47.2'
+  host: 'aarch64-linux-android'
 
 jobs:
   build:

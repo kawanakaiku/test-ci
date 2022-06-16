@@ -118,7 +118,7 @@ jobs:
           mkdir tmp ; cd tmp
           version=v$(expr ${{ env.gnutls }} : '.*-\([0-9]\+\.[0-9]\+\)')
           wget -nv https://www.gnupg.org/ftp/gcrypt/gnutls/${version}/${{ env.gnutls }}.tar.xz -O gnutls.tar.xz
-          tar xf gnutls.tar.gz
+          tar xf gnutls.tar.xz
           mv ${{ env.gnutls }} ${HOME}/src/gnutls
           cd .. ; rm -r tmp
 
@@ -180,7 +180,7 @@ jobs:
         run: |
           mkdir ${HOME}/logs
           shopt -s globstar
-          cp -a ${HOME}/**/*.log ${HOME}/logs
+          cp -a ${HOME}/**/*.log ${HOME}/logs || true
           7z a -mx=9 logs.7z ${HOME}/logs
 
       - name: Store log file

@@ -83,7 +83,7 @@ jobs:
       - name: build freetype
         run: |
           cd ${HOME}/build/freetype
-          ${HOME}/build/freetype/configure --host=${{ env.host }} --without-png
+          ./configure --host=${{ env.host }} --without-png
           make -j2
 
       - name: clone gmp source
@@ -97,7 +97,7 @@ jobs:
       - name: build gmp
         run: |
           cd ${HOME}/build/gmp
-          ${HOME}/build/gmp/configure --host=${{ env.host }} --disable-static
+          ./configure --host=${{ env.host }} --disable-static
           make -j2
 
       - name: clone nettle source
@@ -111,7 +111,7 @@ jobs:
       - name: build nettle
         run: |
           cd ${HOME}/build/nettle
-          ${HOME}/build/nettle/configure --host=${{ env.host }} --disable-shared --disable-documentation CPPFLAGS=-I${HOME}/build/gmp LDFLAGS=-L${HOME}/build/gmp/.libs
+          ./configure --host=${{ env.host }} --disable-shared --disable-documentation CPPFLAGS=-I${HOME}/build/gmp LDFLAGS=-L${HOME}/build/gmp/.libs
           make -j2
 
       - name: clone gnutls source
@@ -126,7 +126,7 @@ jobs:
       - name: build gnutls
         run: |
           cd ${HOME}/build/gnutls
-          ${HOME}/build/gnutls/configure --host=${{ env.host }} --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
+          ./configure --host=${{ env.host }} --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
             --disable-maintainer-mode --disable-static --disable-doc --disable-tools --disable-tests \
             PKG_CONFIG=true \
             GMP_CFLAGS="-I${HOME}/build/gmp -L${HOME}/build/gmp/.libs -lgmp" GMP_LIBS=${HOME}/build/gmp/.libs/libgmp.so \
@@ -149,7 +149,7 @@ jobs:
           aclocal && autoconf
 
           cd ${HOME}/build/openldap
-          ${HOME}/build/openldap/configure --host=${{ env.host }} --with-yielding_select=yes --disable-bdb --disable-hdb ac_cv_func_memcmp_working=yes CPPFLAGS=-DANDROID
+          ./configure --host=${{ env.host }} --with-yielding_select=yes --disable-bdb --disable-hdb ac_cv_func_memcmp_working=yes CPPFLAGS=-DANDROID
           make -j2
 
       - name: build wine

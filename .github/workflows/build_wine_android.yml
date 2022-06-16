@@ -100,7 +100,7 @@ jobs:
       - name: build gmp
         run: |
           cd ${HOME}/src/gmp
-          ./configure --prefix=${HOME}/build --host=${{ env.host }} --disable-static
+          ./configure --prefix=${HOME}/build --host=${{ env.host }}
           make -j2
           make install
 

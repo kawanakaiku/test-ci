@@ -159,14 +159,15 @@ jobs:
       - name: build wine
         run: |
           cd ${HOME}/src/wine
-          ${HOME}/src/wine/configure --host=${{ env.host }} --with-wine-tools=${HOME}/wine-tools \
+          ${HOME}/src/wine/configure --prefix=${HOME}/build --host=${{ env.host }} --with-wine-tools=${HOME}/wine-tools \
             LIBS="-lfreetype -lgnutls -lgmp -lldap_r-2.4 -llber-2.4"
           make -j2
+          make install
 
       - name: strip built files
         if: always()
         run: |
-          find ${HOME}/build -type f | xargs file | awk -F: '$2 ~ /not strip/ { print $1 }' | xargs ${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ env.host }}-strip --strip-all
+          find ${HOME}/build -type f | xargs file | awk -F: '$2 ~ /not strip/ { print $1 }' | xargs ${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ env.host }}-strip --strip-all --verbose
 
       - name: archive build files
         if: always()

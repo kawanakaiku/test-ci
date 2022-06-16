@@ -8,6 +8,7 @@ on:
     workflow_dispatch:
 
 env:
+  wine_version: 7.10
   android_api: 26
   android_ndk: android-ndk-r21d
   llvm_mingw: llvm-mingw-20201020-ucrt-ubuntu-18.04
@@ -27,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: prepare android ndk
+      - name: show info
         run: |
           echo "pwd: ${PWD}"
 
@@ -51,7 +52,11 @@ jobs:
 
       - name: clone wine source
         run: |
-          git clone https://github.com/wine-mirror/wine.git ${HOME}/wine-src
+          mkdir tmp ; cd tmp
+          wget -nv https://github.com/wine-mirror/wine/archive/refs/tags/wine-${{ env.wine_version }}.tar.gz -O wine.tar.xz
+          tar xf wine.tar.xz
+          mv wine-wine-${{ env.wine_version }} ${HOME}/wine-src
+          cd .. ; rm -r tmp
 
       - name: prepare wine tools
         run: |
@@ -59,9 +64,20 @@ jobs:
           ${HOME}/wine-src/configure --without-x --enable-win64
           make -j2 __tooldeps__
 
+      - name: archive log files
+        run: |
+          find ${HOME} -type f -iname '*.log' -print0 2>/dev/null | xargs -0 --no-run-if-empty 7z a -mx=9 logs.7z
+
       - name: archive
         run: |
           7z a -mx=9 build.7z build
+
+      - name: Store log file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: log
+          path: logs.7z
 
       - name: Store built file
         if: always()

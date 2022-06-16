@@ -144,7 +144,7 @@ jobs:
 
       - name: build openldap
         run: |
-          cp ${HOME}/build/gnutls/build-aux/ltmain.sh ${HOME}/build/gnutls/build-aux/config.guess ${HOME}/build/gnutls/build-aux/config.sub ${HOME}/src/openldap/build
+          cp ${HOME}/src/gnutls/build-aux/ltmain.sh ${HOME}/src/gnutls/build-aux/config.guess ${HOME}/src/gnutls/build-aux/config.sub ${HOME}/src/openldap/build
           cd ${HOME}/src/openldap
           aclocal && autoconf
 

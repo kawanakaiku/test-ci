@@ -65,10 +65,12 @@ jobs:
           make -j2 __tooldeps__
 
       - name: archive log files
+        if: always()
         run: |
           find ${HOME} -type f -iname '*.log' -print0 2>/dev/null | xargs -0 --no-run-if-empty 7z a -mx=9 logs.7z
 
       - name: archive
+        if: always()
         run: |
           7z a -mx=9 build.7z build
 

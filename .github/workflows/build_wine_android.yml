@@ -40,7 +40,7 @@ jobs:
           wget -nv https://dl.google.com/android/repository/${{ env.android_ndk }}-linux-x86_64.zip -O android_ndk.zip
           unzip -q android_ndk.zip
           mv ${{ env.android_ndk }} ${HOME}
-          # echo "CC=${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${{ env.android_api }}-clang" >> $GITHUB_ENV
+          # echo "CC=${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ env.host }}${{ env.android_api }}-clang" >> $GITHUB_ENV
           cd .. ; rm -r tmp
 
       - name: prepare llvm mingw
@@ -68,8 +68,9 @@ jobs:
 
       - name: set env
         run: |
-          echo "CC=${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${{ env.android_api }}-clang" >> $GITHUB_ENV
+          echo "CC=${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ env.host }}${{ env.android_api }}-clang" >> $GITHUB_ENV
           echo "PATH=${HOME}/${{ env.llvm_mingw }}/bin:${PATH}" >> $GITHUB_ENV
+          echo "CFLAGS=-pipe -s" >> $GITHUB_ENV
 
       - name: clone freetype source
         run: |
@@ -162,6 +163,10 @@ jobs:
             LDAP_CFLAGS="-I${HOME}/build/openldap/include" \
             LDAP_LIBS="-L${HOME}/build/openldap/libraries/liblber/.libs -L${HOME}/build/openldap/libraries/libldap_r/.libs -lldap_r-2.4 -llber-2.4" \
           make -j2
+
+      - name: strip built files
+        run: |
+          find ${HOME}/build -type f | xargs file | awk -F: '$2 ~ /not strip/ { print $1 }' | xargs ${HOME}/${{ env.android_ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ env.host }}-strip
 
       - name: archive build files
         if: always()

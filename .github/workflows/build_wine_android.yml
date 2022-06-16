@@ -130,7 +130,7 @@ jobs:
       - name: build gnutls
         run: |
           cd ${HOME}/src/gnutls
-          ./configure --prefix=${HOME}/build --host=${{ env.host }} --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
+          LIBS="-lgmp -lnettle -lhogweed" ./configure --prefix=${HOME}/build --host=${{ env.host }} --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
             --disable-maintainer-mode --disable-static --disable-doc --disable-tools --disable-tests \
             PKG_CONFIG=true
           make -j2

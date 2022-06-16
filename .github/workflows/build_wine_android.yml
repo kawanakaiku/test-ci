@@ -136,19 +136,30 @@ jobs:
         run: |
           mkdir tmp ; cd tmp
           wget -nv ftp://ftp.openldap.org/pub/OpenLDAP/openldap-release/${{ env.openldap }}.tgz -O openldap.tgz
-          tar xf gnutls.tar.gz
-          mv ${{ env.gnutls }} ${HOME}/src/gnutls
+          tar xf openldap.tgz
+          mv ${{ env.openldap }} ${HOME}/src/openldap
           cd .. ; rm -r tmp
 
       - name: build openldap
         run: |
-          mkdir ${HOME}/build/gnutls ; cd ${HOME}/build/gnutls
-          ${HOME}/src/gnutls/configure --without-p11-kit --without-idn --with-included-libtasn1 --with-included-unistring -disable-cxx \
-            --disable-maintainer-mode --disable-static --disable-doc --disable-tools --disable-tests \
-            PKG_CONFIG=true \
-            GMP_CFLAGS="-I${HOME}/build/gmp -L${HOME}/build/gmp/.libs -lgmp" GMP_LIBS=${HOME}/build/gmp/.libs/libgmp.so \
-            NETTLE_CFLAGS=-I${HOME}/build/nettle NETTLE_LIBS="-L${HOME}/build/nettle -lnettle" \
-            HOGWEED_CFLAGS=-I${HOME}/build/nettle HOGWEED_LIBS="-L${HOME}/build/nettle -lhogweed -lnettle ${HOME}/build/gmp/.libs/libgmp.so"
+          cp ${HOME}/build/gnutls/build-aux/ltmain.sh ${HOME}/build/gnutls/build-aux/config.guess ${HOME}/build/gnutls/build-aux/config.sub ${HOME}/src/openldap/build
+          cd ${HOME}/src/openldap
+          aclocal && autoconf
+
+          mkdir ${HOME}/build/openldap ; cd ${HOME}/build/openldap
+          ${HOME}/src/openldap/configure --with-yielding_select=yes --disable-bdb --disable-hdb ac_cv_func_memcmp_working=yes CPPFLAGS=-DANDROID
+          make -j2
+
+      - name: build wine
+        run: |
+          mkdir ${HOME}/build/wine ; cd ${HOME}/build/wine
+          ${HOME}/src/wine/configure --with-wine-tools=${HOME}/wine-tools \
+            FREETYPE_CFLAGS="-I${HOME}/build/freetype/include" \
+            FREETYPE_LIBS="-L${HOME}/build/freetype/objs/.libs -lfreetype" \
+            GNUTLS_CFLAGS="-I${HOME}/build/gnutls/lib/includes" \
+            GNUTLS_LIBS="-L${HOME}/build/gnutls/lib/.libs -lgnutls -L${HOME}/build/gmp/.libs -lgmp" \
+            LDAP_CFLAGS="-I${HOME}/build/openldap/include" \
+            LDAP_LIBS="-L${HOME}/build/openldap/libraries/liblber/.libs -L${HOME}/build/openldap/libraries/libldap_r/.libs -lldap_r-2.4 -llber-2.4" \
           make -j2
 
       - name: archive log files

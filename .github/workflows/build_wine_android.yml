@@ -157,11 +157,11 @@ jobs:
           mkdir ${HOME}/build/wine ; cd ${HOME}/build/wine
           ${HOME}/src/wine/configure --host=${{ env.host }} --with-wine-tools=${HOME}/wine-tools \
             FREETYPE_CFLAGS="-I${HOME}/build/freetype/include" \
-            FREETYPE_LIBS="-L${HOME}/build/freetype/objs/.libs -lfreetype" \
+            FREETYPE_LIBS="-l${HOME}/build/freetype/objs/.libs/libfreetype.so" \
             GNUTLS_CFLAGS="-I${HOME}/build/gnutls/lib/includes" \
-            GNUTLS_LIBS="-L${HOME}/build/gnutls/lib/.libs -lgnutls -L${HOME}/build/gmp/.libs -lgmp" \
+            GNUTLS_LIBS="-l${HOME}/build/gnutls/lib/.libs/libgnutls.so -l${HOME}/build/gmp/.libs/libgmp.so" \
             LDAP_CFLAGS="-I${HOME}/build/openldap/include" \
-            LDAP_LIBS="-L${HOME}/build/openldap/libraries/liblber/.libs -L${HOME}/build/openldap/libraries/libldap_r/.libs -lldap_r-2.4 -llber-2.4"
+            LDAP_LIBS="-l${HOME}/build/openldap/libraries/liblber/.libs/liblber-2.4.so -l${HOME}/build/openldap/libraries/libldap_r/.libs/libldap_r-2.4.so"
           make -j2
 
       - name: strip built files

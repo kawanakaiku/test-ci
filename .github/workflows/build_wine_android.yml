@@ -32,6 +32,7 @@ jobs:
       - name: prepare
         run: |
           echo "pwd: ${PWD}"
+          echo -n "bzip2: " ; which -a bzip2
           mkdir ${HOME}/src ${HOME}/build
 
       - name: prepare android ndk

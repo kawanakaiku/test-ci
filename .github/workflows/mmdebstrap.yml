@@ -33,7 +33,7 @@ jobs:
             rootfs="rootfs"
             dest="sid"
             keys="648ACFD622F3D138 0E98404D386FA1D9"
-            wget --no-check-certificate -qO - http://pkg.jenkins-ci.org/debian/jenkins-ci.org.key | sudo apt-key add -
+            for key in ${keys} ; do sudo apt-key adv --keyserver https://keyring.debian.org/ --recv-keys ${key} ; done
             sudo mmdebstrap --components=main,contrib,non-free --include=python3-numpy \
                 --variant=apt --architecture=amd64 \
                 --dpkgopt='path-exclude=/usr/share/man/*' \

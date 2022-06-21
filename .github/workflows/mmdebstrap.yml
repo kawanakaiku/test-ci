@@ -33,10 +33,9 @@ jobs:
             rootfs="rootfs"
             dest="sid"
             keys="648ACFD622F3D138 0E98404D386FA1D9"
-            # for key in ${keys} ; do sudo apt-key adv --keyserver https://keyring.debian.org/ --recv-keys ${key} ; done
+            for key in ${keys} ; do sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys ${key} ; done
             sudo mmdebstrap --components=main,contrib,non-free --include=python3-numpy \
                 --variant=apt --architecture=amd64 \
-                --aptopt='Acquire::AllowInsecureRepositories "1"' \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
                 --dpkgopt='path-exclude=/usr/share/locale/*' \

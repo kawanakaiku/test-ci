@@ -9,37 +9,49 @@ on:
  
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: bullseye
     name: Build on native aarch64
   
     steps:
       - uses: actions/checkout@v3
       
-      - name: download buildroot
+      - name: info
         run: |
-          pwd
-          mkdir -p buildroot
-          cd buildroot
+            pwd
+            df -h
+            
       - uses: uraimo/run-on-arch-action@v2
         id: aarch64-build-on-qemu-aarch64
         with:
           arch: aarch64
           distro: ubuntu20.04
           run: |
-            pwd
-            cd buildroot
-            make qemu_aarch64_virt_defconfig
-            make BR2_JLEVEL=`getconf _NPROCESSORS_ONLN`
-            ls -lha
+            rootfs="rootfs"
+            dest="sid"
+            apt-get update
+            apt-get install -y --no-install-recommends mmdebstrap
+            mmdebstrap --components=main,contrib,non-free --include=python3-numpy \
+                --variant=essential --architecture=amd64 \
+                --dpkgopt='path-exclude=/usr/share/man/*' \
+                --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
+                --dpkgopt='path-exclude=/usr/share/locale/*' \
+                --dpkgopt='path-exclude=/usr/share/doc/*' \
+                --dpkgopt='path-exclude=/etc/cron.d/*' \
+                --dpkgopt='path-exclude=/etc/cron.daily/*' \
+                --dpkgopt='path-exclude=/etc/cron.hourly/*' \
+                --dpkgopt='path-exclude=/etc/cron.monthly/*' \
+                --dpkgopt='path-exclude=/etc/cron.weekly/*' \
+                 ${dest} ${rootfs} http://deb.debian.org/debian/
             # find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
+            tar Jcf rootfs.tar.xz ${rootfs}
                     
       - name: built file info
         run: |
-          file built
-          sha256sum built
+          file rootfs.tar.xz
+          sha256sum rootfs.tar.xz
       - name: Store built file
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: built-artifact
-          path: built
+          path: rootfs.tar.xz

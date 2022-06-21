@@ -28,15 +28,16 @@ jobs:
           make BR2_JLEVEL=`getconf _NPROCESSORS_ONLN`
           ls -lha
           # find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
+          7z a -mx=9 ../built.7z output
           cd ..
                     
       - name: built file info
         run: |
-          file built
-          sha256sum built
+          file built.7z
+          sha256sum built.7z
       - name: Store built file
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: built-artifact
-          path: built
+          path: built.7z

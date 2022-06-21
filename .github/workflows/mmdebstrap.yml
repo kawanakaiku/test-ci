@@ -31,6 +31,7 @@ jobs:
           
       - name: install mmdebstrap
         run: |
+            echo apt:\  ;  which -a apt
             rootfs="rootfs"
             dest="sid"
             sudo mmdebstrap --components=main,contrib,non-free --include=python3-numpy \

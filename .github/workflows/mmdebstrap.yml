@@ -27,6 +27,12 @@ jobs:
             
       - uses: dbhi/qus/action@main
           
+      - name: link qemu static
+        run: |
+          for i in /qus/bin/qemu-*-static ; do
+            sudo ln -s ${i} ${i///qus}
+          done
+        
       - name: install mmdebstrap
         run: |
             echo apt:\  ;  which -a apt

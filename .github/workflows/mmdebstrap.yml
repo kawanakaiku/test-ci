@@ -47,7 +47,7 @@ jobs:
             # find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
             sudo tar Jcf rootfs.tar.xz ${rootfs}
             
-      - uses: dbhi/qus/action@main
+      # - uses: dbhi/qus/action@main
 
       - name: built file info
         run: |

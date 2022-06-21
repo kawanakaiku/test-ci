@@ -32,6 +32,9 @@ jobs:
             echo apt:\  ;  which -a apt
             rootfs="rootfs"
             dest="sid"
+            for key in 648ACFD622F3D138 0E98404D386FA1D9 ; do
+              sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys ${key}
+            done
             sudo mmdebstrap --components=main,contrib,non-free --include=python3-numpy \
                 --variant=apt --architecture=amd64 \
                 --dpkgopt='path-exclude=/usr/share/man/*' \

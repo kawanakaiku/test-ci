@@ -20,16 +20,17 @@ jobs:
             pwd
             df -h
             
-      - uses: uraimo/run-on-arch-action@v2
-        id: aarch64-build-on-qemu-aarch64
+      - name: install mmdebstrap
+        run: |
+            apt-get update
+            apt-get install -y --no-install-recommends mmdebstrap
+            
+      - uses: dbhi/qus/action@main
         with:
-          arch: aarch64
-          distro: bullseye
+          targets: aarch64
           run: |
             rootfs="rootfs"
             dest="sid"
-            apt-get update
-            apt-get install -y --no-install-recommends mmdebstrap
             mmdebstrap --components=main,contrib,non-free --include=python3-numpy \
                 --variant=essential --architecture=amd64 \
                 --dpkgopt='path-exclude=/usr/share/man/*' \

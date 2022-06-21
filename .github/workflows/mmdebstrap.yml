@@ -23,7 +23,7 @@ jobs:
       - name: install mmdebstrap
         run: |
             sudo apt-get update
-            sudo apt-get install -y --no-install-recommends mmdebstrap
+            sudo apt-get install -y --no-install-recommends mmdebstrap arch-test
             
       - uses: dbhi/qus/action@main
           

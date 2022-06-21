@@ -28,7 +28,9 @@ jobs:
       - uses: dbhi/qus/action@main
         with:
           targets: aarch64
-          run: |
+          
+      - name: install mmdebstrap
+        run: |
             rootfs="rootfs"
             dest="sid"
             sudo mmdebstrap --components=main,contrib,non-free --include=python3-numpy \
@@ -45,7 +47,7 @@ jobs:
                  ${dest} ${rootfs} http://deb.debian.org/debian/
             # find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
             sudo tar Jcf rootfs.tar.xz ${rootfs}
-                    
+
       - name: built file info
         run: |
           file rootfs.tar.xz

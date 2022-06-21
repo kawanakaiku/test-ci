@@ -24,16 +24,7 @@ jobs:
         run: |
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends mmdebstrap arch-test qemu-user-static
-            
-      - uses: dbhi/qus/action@main
-          
-      - name: link qemu static
-        run: |
-          for i in /qus/bin/qemu-*-static ; do
-            sudo ln -s ${i} ${i///qus//usr}
-          done
-          ls -lha /usr/bin/qemu-*-static
-        
+                    
       - name: install mmdebstrap
         run: |
             echo apt:\  ;  which -a apt
@@ -55,6 +46,8 @@ jobs:
                  ${dest} ${rootfs} https://deb.debian.org/debian/
             # find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
             sudo tar Jcf rootfs.tar.xz ${rootfs}
+            
+      - uses: dbhi/qus/action@main
 
       - name: built file info
         run: |

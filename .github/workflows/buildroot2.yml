@@ -20,7 +20,7 @@ jobs:
           pwd
           wget -nv https://buildroot.org/downloads/buildroot-2022.05.tar.xz -O buildroot.tar.xz
           mkdir -p buildroot
-          tar xf buildroot.tar.xz -C buildroot
+          tar xf buildroot.tar.xz --strip-components 1 -C buildroot
 
           pwd
           cd buildroot

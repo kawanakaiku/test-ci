@@ -32,11 +32,14 @@ jobs:
             echo apt:\  ;  which -a apt
             rootfs="rootfs"
             dest="sid"
-            for key in 648ACFD622F3D138 0E98404D386FA1D9 ; do
-              gpg --keyserver keyring.debian.org --recv-keys ${key} | sudo apt-key add -
+            keys="648ACFD622F3D138 0E98404D386FA1D9"
+            for key in ${keys} ; do
+              gpg --keyserver keyring.debian.org --recv-keys ${key}
+              gpg --export ${key} | sudo tee ${key}.gpg >/dev/null
             done
             sudo mmdebstrap --components=main,contrib,non-free --include=python3-numpy \
                 --variant=apt --architecture=amd64 \
+                `for key in ${keys} ; do echo "--keyring=${key}.gpg " ; done` \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
                 --dpkgopt='path-exclude=/usr/share/locale/*' \

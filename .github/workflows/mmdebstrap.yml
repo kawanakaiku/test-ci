@@ -31,7 +31,7 @@ jobs:
         run: |
             echo apt:\  ;  which -a apt
             rootfs="rootfs"
-            dest="sid"
+            dest="bullseye"
             keys="648ACFD622F3D138 0E98404D386FA1D9"
             for key in ${keys} ; do sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys ${key} ; done
             sudo mmdebstrap --components=main,contrib,non-free --include=python3-numpy \

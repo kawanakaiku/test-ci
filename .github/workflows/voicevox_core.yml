@@ -1,0 +1,49 @@
+name: voicevox_core
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/voicevox_core.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    name: Build on native aarch64
+  
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: apt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          
+      - name: build
+        run: |
+          srcdir="voicevox_core"
+          builddir="build"
+          
+          export CC=`which aarch64-linux-gnu-gcc`
+          export CXX=`which aarch64-linux-gnu-g++`
+          export STRIP=`which aarch64-linux-gnu-strip`
+          
+          git clone --depth 1 --recursive https://github.com/VOICEVOX/voicevox_core.git ${srcdir}
+          
+          mkdir ${builddir} ; cd ${builddir}
+          cmake ${srcdir}
+          cmake --build . --config Release
+          find . -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs ${STRIP} --strip-all --verbose
+          cd ..
+                    
+      - name: built file info
+        run: |
+          file built
+          sha256sum built
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: built-artifact
+          path: built

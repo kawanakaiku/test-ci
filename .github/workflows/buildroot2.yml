@@ -24,6 +24,11 @@ jobs:
 
           pwd
           cd buildroot
+          cd configs
+          echo '# Architecture' > qemu_aarch64_virt_defconfig
+          echo 'BR2_aarch64=y' >> qemu_aarch64_virt_defconfig
+          echo 'BR2_cortex_a53=y' >> qemu_aarch64_virt_defconfig
+          cd ..
           make qemu_aarch64_virt_defconfig
           make BR2_JLEVEL=`getconf _NPROCESSORS_ONLN`
           ls -lha

@@ -22,8 +22,8 @@ jobs:
             
       - name: install mmdebstrap
         run: |
-            apt-get update
-            apt-get install -y --no-install-recommends mmdebstrap
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends mmdebstrap
             
       - uses: dbhi/qus/action@main
         with:
@@ -31,7 +31,7 @@ jobs:
           run: |
             rootfs="rootfs"
             dest="sid"
-            mmdebstrap --components=main,contrib,non-free --include=python3-numpy \
+            sudo mmdebstrap --components=main,contrib,non-free --include=python3-numpy \
                 --variant=essential --architecture=amd64 \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
@@ -44,7 +44,7 @@ jobs:
                 --dpkgopt='path-exclude=/etc/cron.weekly/*' \
                  ${dest} ${rootfs} http://deb.debian.org/debian/
             # find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
-            tar Jcf rootfs.tar.xz ${rootfs}
+            sudo tar Jcf rootfs.tar.xz ${rootfs}
                     
       - name: built file info
         run: |

@@ -9,7 +9,7 @@ on:
  
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     name: Build on native aarch64
   
     steps:
@@ -32,8 +32,8 @@ jobs:
             echo apt:\  ;  which -a apt
             rootfs="rootfs"
             dest="sid"
-            sudo mmdebstrap --debug --components=main,contrib,non-free --include=python3-numpy \
-                --variant=essential --architecture=amd64 \
+            sudo mmdebstrap --components=main,contrib,non-free --include=python3-numpy \
+                --variant=apt --architecture=amd64 \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
                 --dpkgopt='path-exclude=/usr/share/locale/*' \

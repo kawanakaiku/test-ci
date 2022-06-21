@@ -30,8 +30,9 @@ jobs:
       - name: link qemu static
         run: |
           for i in /qus/bin/qemu-*-static ; do
-            sudo ln -s ${i} ${i///qus}
+            sudo ln -s ${i} ${i///qus//usr}
           done
+          ls -lha /usr/bin/qemu-*-static
         
       - name: install mmdebstrap
         run: |

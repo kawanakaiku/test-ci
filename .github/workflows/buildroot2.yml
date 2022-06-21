@@ -1,0 +1,42 @@
+name: buildroot2
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/buildroot2.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    name: Build on native aarch64
+  
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: download buildroot
+        run: |
+          pwd
+          wget -nv https://buildroot.org/downloads/buildroot-2022.05.tar.xz -O buildroot.tar.xz
+          mkdir -p buildroot
+          tar xf buildroot.tar.xz -C buildroot
+
+          pwd
+          cd buildroot
+          make qemu_aarch64_virt_defconfig
+          make BR2_JLEVEL=`getconf _NPROCESSORS_ONLN`
+          ls -lha
+          # find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
+          cd ..
+                    
+      - name: built file info
+        run: |
+          file built
+          sha256sum built
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: built-artifact
+          path: built

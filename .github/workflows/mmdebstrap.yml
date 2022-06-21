@@ -26,8 +26,6 @@ jobs:
             sudo apt-get install -y --no-install-recommends mmdebstrap
             
       - uses: dbhi/qus/action@main
-        with:
-          targets: aarch64
           
       - name: install mmdebstrap
         run: |

@@ -116,7 +116,7 @@ jobs:
               --no-prefer-source-code \
               ./voicevox_engine/run.py
           
-            find ./voicevox_engine_build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
+            find ./voicevox_engine_build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose || true
             
             chmod +x ./voicevox_engine_build/run.dist/run
             

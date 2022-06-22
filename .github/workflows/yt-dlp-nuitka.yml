@@ -17,9 +17,12 @@ jobs:
         run: |
           python3.exe -m pip install -U nuitka yt-dlp
           python3.exe -c 'import yt_dlp as y;print(y)'
-      - name: Store log files
+          python3.exe -m nuitka --onefile --follow-imports C:\hostedtoolcache\windows\Python\3.7.9\x64\lib\site-packages\yt_dlp\__main__.py
+          7z.exe a -mx=9 built.7z .
+          
+      - name: Store built files
         if: always()
         uses: actions/upload-artifact@v3
         with:
-          name: logs
-          path: C:/logs.zip
+          name: built
+          path: built.7z

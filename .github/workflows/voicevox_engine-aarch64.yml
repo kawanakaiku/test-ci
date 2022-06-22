@@ -95,7 +95,7 @@ jobs:
                 exit "$EXIT_CODE"
             fi
             
-            ./python/python3 -m nuitka \
+            ./python/bin/python3 -m nuitka \
               --output-dir=./voicevox_engine_build \
               --standalone \
               --plugin-enable=numpy \

@@ -56,14 +56,14 @@ jobs:
               file
           
             PREFIX=/tmp/python-build ./pyenv/plugins/python-build/install.sh
-            /tmp/python-build/bin/python-build -v 3.8.10 ./Python-3.8.10
+            /tmp/python-build/bin/python-build -v 3.8.10 ./python
             rm -rf /tmp/python-build ./pyenv
             
-            find ./Python-3.8.10 -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
+            find ./python -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
             
       - name: host
         run: |
-          tar Jcf built.tar.xz ./Python-3.8.10
+          tar Jcf built.tar.xz ./python
                     
       - name: built file info
         run: |

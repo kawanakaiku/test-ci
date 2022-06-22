@@ -17,26 +17,26 @@ jobs:
       
       - name: host prepare
         run: |
-          git clone -b master https://github.com/pyenv/pyenv.git /tmp/.pyenv
-          # git clone https://github.com/VOICEVOX/voicevox_core.git /opt/voicevox_core
-          git clone https://github.com/VOICEVOX/voicevox_engine.git /opt/voicevox_engine
+          git clone -b master https://github.com/pyenv/pyenv.git ./pyenv
+          # git clone https://github.com/VOICEVOX/voicevox_core.git ./voicevox_core
+          git clone https://github.com/VOICEVOX/voicevox_engine.git ./voicevox_engine
           
           rm -rf /opt/voicevox_engine/speaker_info
           mkdir tmp ; pushd tmp
           wget -nv https://github.com/VOICEVOX/voicevox/releases/download/0.12.3/voicevox-linux-cpu-0.12.3.tar.gz -O voicevox.tar.gz
           tar xf voicevox.tar.gz --strip-components 1
-          mv speaker_info /opt/voicevox_engine/speaker_info
+          mv speaker_info ../voicevox_engine/speaker_info
           popd ; rm -r tmp
           
           wget -nv https://github.com/microsoft/onnxruntime/releases/download/v1.10.0/onnxruntime-linux-aarch64-1.10.0.tgz -O onnxruntime.tgz
-          mkdir /opt/onnxruntime
-          tar xf onnxruntime.tgz -C /opt/onnxruntime --strip-components 1
+          mkdir ./onnxruntime
+          tar xf onnxruntime.tgz -C ./onnxruntime --strip-components 1
           rm onnxruntime.tgz
           
-          mkdir tmp ;  pushd tmp
+          mkdir tmp ; pushd tmp
           wget -nv https://github.com/VOICEVOX/voicevox_core/releases/download/0.12.3/voicevox_core-linux-arm64-cpu-0.12.3.zip -O voicevox_core.zip
           unzip -q voicevox_core.zip ; rm voicevox_core.zip
-          mv * /opt/voicevox_core
+          mv * ../voicevox_core
           popd ; rm -r tmp
           
           
@@ -46,6 +46,8 @@ jobs:
           arch: aarch64
           distro: ubuntu20.04
           run: |
+            PREFIX=/tmp/python-build ./pyenv/plugins/python-build/install.sh
+            
             export DEBIAN_FRONTEND=noninteractive
             apt-get update
             apt-get install -y \
@@ -76,9 +78,9 @@ jobs:
               binutils \
               file
           
-            PREFIX=/tmp/python-build /tmp/.pyenv/plugins/python-build/install.sh
+            PREFIX=/tmp/python-build ./pyenv/plugins/python-build/install.sh
             /tmp/python-build/bin/python-build -v 3.8.10 /opt/python
-            rm -rf /tmp/python-build /tmp/.pyenv
+            rm -rf /tmp/python-build ./pyenv
             
             /opt/python/bin/python3 -m pip install --upgrade pip setuptools==60.6.0 wheel
             /opt/python/bin/pip3 install -r /tmp/voicevox_engine/requirements.txt

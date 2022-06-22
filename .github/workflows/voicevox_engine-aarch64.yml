@@ -45,12 +45,10 @@ jobs:
         with:
           arch: aarch64
           distro: ubuntu20.04
-          run: |
-            PREFIX=/tmp/python-build ./pyenv/plugins/python-build/install.sh
-            
+          run: |            
             export DEBIAN_FRONTEND=noninteractive
             apt-get update
-            apt-get install -y \
+            apt-get -qq install -y \
               build-essential \
               libssl-dev \
               zlib1g-dev \
@@ -83,11 +81,11 @@ jobs:
             rm -rf /tmp/python-build ./pyenv
             
             /opt/python/bin/python3 -m pip install --upgrade pip setuptools==60.6.0 wheel
-            /opt/python/bin/pip3 install -r /tmp/voicevox_engine/requirements.txt
-            /opt/python/bin/pip3 install -r /tmp/voicevox_engine/requirements-dev.txt
+            /opt/python/bin/pip3 install -r ./voicevox_engine/requirements.txt
+            /opt/python/bin/pip3 install -r ./voicevox_engine/requirements-dev.txt
             
             /opt/python/bin/python3 -m nuitka \
-              --output-dir=/opt/voicevox_engine_build \
+              --output-dir=./voicevox_engine_build \
               --standalone \
               --plugin-enable=numpy \
               --plugin-enable=multiprocessing \
@@ -97,23 +95,23 @@ jobs:
               --include-package=anyio \
               --include-package-data=pyopenjtalk \
               --include-package-data=scipy \
-              --include-data-file=/opt/voicevox_engine/presets.yaml=./ \
-              --include-data-file=/opt/voicevox_engine/default.csv=./ \
-              --include-data-file=/opt/voicevox_core/*.so=./ \
-              --include-data-file=/opt/onnxruntime/lib/libonnxruntime.so=./ \
-              --include-data-dir=/opt/voicevox_engine/speaker_info=./speaker_info \
-              --include-data-dir=/opt/voicevox_engine/manifest_assets=./manifest_assets \
+              --include-data-file=./voicevox_engine/presets.yaml=./ \
+              --include-data-file=./voicevox_engine/default.csv=./ \
+              --include-data-file=./voicevox_core/*.so=./ \
+              --include-data-file=./onnxruntime/lib/libonnxruntime.so=./ \
+              --include-data-dir=./voicevox_engine/speaker_info=./speaker_info \
+              --include-data-dir=./voicevox_engine/manifest_assets=./manifest_assets \
               --follow-imports \
               --no-prefer-source-code \
               /opt/voicevox_engine/run.py
           
-            find /opt/voicevox_engine_build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
+            find ./voicevox_engine_build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
             
-            chmod +x /opt/voicevox_engine_build/run.dist/run
+            chmod +x ./voicevox_engine_build/run.dist/run
             
       - name: host
         run: |
-          tar Jcf built.tar.xz /opt/voicevox_engine_build
+          tar Jcf built.tar.xz ./voicevox_engine_build
                     
       - name: built file info
         run: |

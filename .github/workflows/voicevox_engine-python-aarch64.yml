@@ -1,0 +1,78 @@
+name: voicevox_engine-python-aarch64
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/voicevox_engine-python-aarch64.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    name: Build
+  
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: host prepare
+        run: |
+          git clone -b master https://github.com/pyenv/pyenv.git ./pyenv
+          
+      - uses: uraimo/run-on-arch-action@v2
+        id: aarch64-build-on-qemu-aarch64
+        with:
+          arch: aarch64
+          distro: ubuntu20.04
+          run: |            
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get -qq -o=Dpkg::Use-Pty=0 install -y \
+              build-essential \
+              libssl-dev \
+              zlib1g-dev \
+              libbz2-dev \
+              libreadline-dev \
+              libsqlite3-dev \
+              wget \
+              curl \
+              llvm \
+              libncurses5-dev \
+              libncursesw5-dev \
+              xz-utils \
+              tk-dev \
+              libffi-dev \
+              liblzma-dev \
+              python-openssl \
+              git \
+              cmake \
+              libsndfile1 \
+              ca-certificates \
+              gosu \
+              ccache \
+              chrpath \
+              patchelf \
+              binutils \
+              file
+          
+            PREFIX=/tmp/python-build ./pyenv/plugins/python-build/install.sh
+            /tmp/python-build/bin/python-build -v 3.8.10 ./Python-3.8.10
+            rm -rf /tmp/python-build ./pyenv
+            
+            find ./Python-3.8.10 -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
+            
+      - name: host
+        run: |
+          tar Jcf built.tar.xz ./Python-3.8.10
+                    
+      - name: built file info
+        run: |
+          file built.tar.xz
+          sha256sum built.tar.xz
+          
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: built-artifact
+          path: built.tar.xz

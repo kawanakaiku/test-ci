@@ -46,6 +46,8 @@ jobs:
                  ${dest} ${rootfs} https://deb.debian.org/debian/
             cd ${rootfs}
             sudo rm -rf var/cache/* var/log/*
+            echo -n '' | sudo tee etc/motd >/dev/null
+            echo 'nameserver 8.8.8.8' | sudo tee etc/resolv.conf >/dev/null
             cd ..
             # find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
             sudo tar Jcf rootfs.tar.xz ${rootfs}

@@ -114,7 +114,7 @@ jobs:
               --include-data-dir=./voicevox_engine/manifest_assets=./manifest_assets \
               --follow-imports \
               --no-prefer-source-code \
-              /opt/voicevox_engine/run.py
+              ./voicevox_engine/run.py
           
             find ./voicevox_engine_build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
             

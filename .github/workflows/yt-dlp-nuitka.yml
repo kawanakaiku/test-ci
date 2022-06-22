@@ -1,0 +1,25 @@
+name: yt-dlp-nuitka
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/yt-dlp-nuitka.yml'
+
+jobs:
+  build:
+    runs-on: windows-2019
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run a build script
+        run: |
+          python3.exe -m pip install -U nuitka yt-dlp
+          python3.exe -c 'import yt_dlp as y;print(y)'
+      - name: Store log files
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: logs
+          path: C:/logs.zip

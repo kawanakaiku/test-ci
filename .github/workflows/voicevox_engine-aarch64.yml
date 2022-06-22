@@ -39,7 +39,7 @@ jobs:
           mv * ../voicevox_core
           popd ; rm -r tmp
           
-          wget -nv -O python.tar.xz
+          wget -nv https://github.com/kawanakaiku/test-ci/releases/download/python/python-3.8.10-aarch64.tar.xz -O python.tar.xz
           tar xf python.tar.xz
           rm python.tar.xz
           

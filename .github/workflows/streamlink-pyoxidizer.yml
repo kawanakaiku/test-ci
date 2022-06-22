@@ -1,0 +1,31 @@
+name: streamlink-pyoxidizer
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/streamlink-pyoxidizer.yml'
+
+jobs:
+  build:
+    runs-on: windows-2019
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run a build script
+        run: |
+          cargpo install pyoxidizer
+          
+          mkdir build ; cd build
+          
+          cd ..
+          
+          7z.exe a -mx=9 built.7z build
+          
+      - name: Store built files
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: built
+          path: built.7z

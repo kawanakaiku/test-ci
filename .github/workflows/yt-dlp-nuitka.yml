@@ -15,7 +15,7 @@ jobs:
 
       - name: Run a build script
         run: |
-          python3.exe -m pip install -U nuitka yt-dlp
+          python3.exe -m pip install -U nuitka ordered-set yt-dlp
           python3.exe -c 'import yt_dlp as y;print(y)'
           python3.exe -m nuitka --onefile --follow-imports C:\hostedtoolcache\windows\Python\3.7.9\x64\lib\site-packages\yt_dlp\__main__.py
           7z.exe a -mx=9 built.7z .

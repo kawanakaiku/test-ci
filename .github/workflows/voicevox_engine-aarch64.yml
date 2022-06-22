@@ -17,7 +17,7 @@ jobs:
       
       - name: host prepare
         run: |
-          git clone -b master https://github.com/pyenv/pyenv.git ./pyenv
+          # git clone -b master https://github.com/pyenv/pyenv.git ./pyenv
           # git clone https://github.com/VOICEVOX/voicevox_core.git ./voicevox_core
           git clone https://github.com/VOICEVOX/voicevox_engine.git ./voicevox_engine
           
@@ -39,6 +39,9 @@ jobs:
           mv * ../voicevox_core
           popd ; rm -r tmp
           
+          wget -nv -O python.tar.xz
+          tar xf python.tar.xz
+          rm python.tar.xz
           
       - uses: uraimo/run-on-arch-action@v2
         id: aarch64-build-on-qemu-aarch64
@@ -48,7 +51,7 @@ jobs:
           run: |            
             export DEBIAN_FRONTEND=noninteractive
             apt-get update
-            apt-get -qq install -y \
+            apt-get -qq -o=Dpkg::Use-Pty=0 install -y \
               build-essential \
               libssl-dev \
               zlib1g-dev \
@@ -75,16 +78,24 @@ jobs:
               patchelf \
               binutils \
               file
-          
-            PREFIX=/tmp/python-build ./pyenv/plugins/python-build/install.sh
-            /tmp/python-build/bin/python-build -v 3.8.10 /opt/python
-            rm -rf /tmp/python-build ./pyenv
             
-            /opt/python/bin/python3 -m pip install --upgrade pip setuptools==60.6.0 wheel
-            /opt/python/bin/pip3 install -r ./voicevox_engine/requirements.txt
-            /opt/python/bin/pip3 install -r ./voicevox_engine/requirements-dev.txt
+            ./python/bin/python3 -m pip install --upgrade pip setuptools==60.6.0 wheel
+            ./python/bin/python3 -m pip install -r ./voicevox_engine/requirements.txt
+            ./python/bin/python3 -m pip install -r ./voicevox_engine/requirements-dev.txt
             
-            /opt/python/bin/python3 -m nuitka \
+            for i in $(seq 5); do
+                EXIT_CODE=0
+                gosu user ./python/bin/python3 -c "import pyopenjtalk; pyopenjtalk._lazy_init()" || EXIT_CODE=$?
+                if [ "$EXIT_CODE" = "0" ]; then
+                    break
+                fi
+                sleep 5
+            done
+            if [ "$EXIT_CODE" != "0" ]; then
+                exit "$EXIT_CODE"
+            fi
+            
+            ./python/python3 -m nuitka \
               --output-dir=./voicevox_engine_build \
               --standalone \
               --plugin-enable=numpy \

@@ -1,0 +1,126 @@
+name: voicevox_engine-aarch64
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/voicevox_engine-aarch64.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    name: Build on native aarch64
+  
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: host prepare
+        run: |
+          git clone -b master https://github.com/pyenv/pyenv.git /tmp/.pyenv
+          # git clone https://github.com/VOICEVOX/voicevox_core.git /opt/voicevox_core
+          git clone https://github.com/VOICEVOX/voicevox_engine.git /opt/voicevox_engine
+          
+          rm -rf /opt/voicevox_engine/speaker_info
+          mkdir tmp ; pushd tmp
+          wget -nv https://github.com/VOICEVOX/voicevox/releases/download/0.12.3/voicevox-linux-cpu-0.12.3.tar.gz -O voicevox.tar.gz
+          tar xf voicevox.tar.gz --strip-components 1
+          mv speaker_info /opt/voicevox_engine/speaker_info
+          popd ; rm -r tmp
+          
+          wget -nv https://github.com/microsoft/onnxruntime/releases/download/v1.10.0/onnxruntime-linux-aarch64-1.10.0.tgz -O onnxruntime.tgz
+          mkdir /opt/onnxruntime
+          tar xf onnxruntime.tgz -C /opt/onnxruntime --strip-components 1
+          rm onnxruntime.tgz
+          
+          mkdir tmp ;  pushd tmp
+          wget -nv https://github.com/VOICEVOX/voicevox_core/releases/download/0.12.3/voicevox_core-linux-arm64-cpu-0.12.3.zip -O voicevox_core.zip
+          unzip -q voicevox_core.zip ; rm voicevox_core.zip
+          mv * /opt/voicevox_core
+          popd ; rm -r tmp
+          
+          
+      - uses: uraimo/run-on-arch-action@v2
+        id: aarch64-build-on-qemu-aarch64
+        with:
+          arch: aarch64
+          distro: ubuntu20.04
+          run: |
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y \
+              build-essential \
+              libssl-dev \
+              zlib1g-dev \
+              libbz2-dev \
+              libreadline-dev \
+              libsqlite3-dev \
+              wget \
+              curl \
+              llvm \
+              libncurses5-dev \
+              libncursesw5-dev \
+              xz-utils \
+              tk-dev \
+              libffi-dev \
+              liblzma-dev \
+              python-openssl \
+              git \
+              cmake \
+              libsndfile1 \
+              ca-certificates \
+              gosu \
+              ccache \
+              chrpath \
+              patchelf \
+              binutils \
+              file
+          
+            PREFIX=/tmp/python-build /tmp/.pyenv/plugins/python-build/install.sh
+            /tmp/python-build/bin/python-build -v master /opt/python
+            rm -rf /tmp/python-build /tmp/.pyenv
+            
+            /opt/python/bin/python3 -m pip install --upgrade pip setuptools==60.6.0 wheel
+            /opt/python/bin/pip3 install -r /tmp/voicevox_engine/requirements.txt
+            /opt/python/bin/pip3 install -r /tmp/voicevox_engine/requirements-dev.txt
+            
+            /opt/python/bin/python3 -m nuitka \
+              --output-dir=/opt/voicevox_engine_build \
+              --standalone \
+              --plugin-enable=numpy \
+              --plugin-enable=multiprocessing \
+              --follow-import-to=numpy \
+              --follow-import-to=aiofiles \
+              --include-package=uvicorn \
+              --include-package=anyio \
+              --include-package-data=pyopenjtalk \
+              --include-package-data=scipy \
+              --include-data-file=/opt/voicevox_engine/presets.yaml=./ \
+              --include-data-file=/opt/voicevox_engine/default.csv=./ \
+              --include-data-file=/opt/voicevox_core/*.so=./ \
+              --include-data-file=/opt/onnxruntime/lib/libonnxruntime.so=./ \
+              --include-data-dir=/opt/voicevox_engine/speaker_info=./speaker_info \
+              --include-data-dir=/opt/voicevox_engine/manifest_assets=./manifest_assets \
+              --follow-imports \
+              --no-prefer-source-code \
+              /opt/voicevox_engine/run.py
+          
+            find /opt/voicevox_engine_build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
+            
+            chmod +x /opt/voicevox_engine_build/run.dist/run
+            
+      - name: host
+        run: |
+          tar Jcf built.tar.xz /opt/voicevox_engine_build
+                    
+      - name: built file info
+        run: |
+          file built.tar.xz
+          sha256sum built.tar.xz
+          
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: built-artifact
+          path: built.tar.xz

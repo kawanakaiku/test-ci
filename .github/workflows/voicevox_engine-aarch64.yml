@@ -77,7 +77,7 @@ jobs:
               file
           
             PREFIX=/tmp/python-build /tmp/.pyenv/plugins/python-build/install.sh
-            /tmp/python-build/bin/python-build -v master /opt/python
+            /tmp/python-build/bin/python-build -v 3.8.10 /opt/python
             rm -rf /tmp/python-build /tmp/.pyenv
             
             /opt/python/bin/python3 -m pip install --upgrade pip setuptools==60.6.0 wheel

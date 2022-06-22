@@ -18,7 +18,7 @@ jobs:
           mkdir build ; cd build
           python3.exe -m pip install -U nuitka ordered-set streamlink
           # python3.exe -m nuitka --standalone --onefile --follow-imports --prefer-source-code C:\hostedtoolcache\windows\Python\3.7.9\x64\lib\site-packages\streamlink_cli\__main__.py
-          python3.exe -m nuitka --standalone --onefile --follow-imports --prefer-source-code ..\qemu\build.py
+          python3.exe -m nuitka --standalone --onefile --follow-imports --prefer-source-code --assume-yes-for-downloads ..\qemu\build.py
           cd ..
           7z.exe a -mx=9 built.7z build
           

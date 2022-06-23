@@ -38,7 +38,7 @@ jobs:
         run: |
             sudo mmdebstrap --components="main restricted universe multiverse"  \
                 --architecture=arm64 \
-                --include=ca-certificates,lightdm,xubuntu-core,network-manager,sudo,locales,wpasupplicant,nano,wget,curl,python3-dev,gnupg \
+                --include=ca-certificates,lightdm,xubuntu-core,network-manager,sudo,locales,wpasupplicant,dhcpcd5,nano,wget,curl,python3-dev,gnupg \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/doc/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*' \
@@ -111,7 +111,7 @@ jobs:
             echo -e 'fs.suid_dumpable=0\nkernel.core_pattern=|/bin/false' | sudo tee /etc/sysctl.d/9999-disable-core-dump.conf >/dev/null
             
             ## enable services
-            systemctl enable NetworkManger.service lightdm.service
+            systemctl enable lightdm.service
             
             ## install packages for jetson nano
             ##   https://zenn.dev/marbocub/articles/2fa02378030759

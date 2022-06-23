@@ -54,6 +54,7 @@ jobs:
                  
             sudo cp -a nbd0p1/etc/nv_boot_control.conf rootfs/etc/
             sudo cp -a nbd0p1/etc/apt/sources.list.d/nvidia-l4t-apt-source.list rootfs/etc/apt/sources.list.d/
+            sudo sed -i -e 's/<SOC>/t210/g' rootfs/etc/apt/sources.list.d/nvidia-l4t-apt-source.list
             sudo cp -a nbd0p1/boot/extlinux /mnt/boot/
   
             sudo mount -t proc none rootfs/proc

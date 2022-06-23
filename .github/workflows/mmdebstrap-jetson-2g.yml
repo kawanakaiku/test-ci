@@ -31,10 +31,10 @@ jobs:
             sudo modprobe nbd max_part=63
             
             sudo qemu-nbd -c /dev/nbd0 --format=raw sd-blob.img
-            mkdir 1 rootfs
-            sudo mount /dev/nbd0p1 -t ext4 -o noatime,nobarrier 1
+            mkdir nbd0p1 rootfs
+            sudo mount /dev/nbd0p1 -t ext4 -o noatime,nobarrier nbd0p1
                     
-      - name: install mmdebstrap
+      - name: Create rootfs
         run: |
             echo ok > rootfs/test.txt
             exit 0
@@ -66,7 +66,7 @@ jobs:
             
       - name: Disk modify
         run: |
-            sudo umount 1
+            sudo umount nbd0p1
             sudo qemu-nbd --disconnect /dev/nbd0 
             sudo killall --wait qemu-nbd || true
         
@@ -82,12 +82,12 @@ jobs:
             
             sudo qemu-nbd -c /dev/nbd0 --format=raw sd-blob.img
             sudo mkfs.ext4 -O ^has_journal,^64bit,^metadata_csum -E root_owner=0:0 -m 0 /dev/nbd0p1
-            sudo mount /dev/nbd0p1 -t ext4 -o noatime,nobarrier 1
-            df -h ./1
+            sudo mount /dev/nbd0p1 -t ext4 -o noatime,nobarrier nbd0p1
+            df -h ./nbd0p1
             
-            sudo cp -a rootfs/. 1
+            sudo cp -a rootfs/. nbd0p1
             
-            sudo umount 1
+            sudo umount nbd0p1
             sudo qemu-nbd --disconnect /dev/nbd0 
             sudo killall --wait qemu-nbd || true
             

@@ -8,17 +8,18 @@ on:
 
 jobs:
   build:
-    runs-on: windows-2019
+    runs-on: windows-2022
 
     steps:
       - uses: actions/checkout@v3
 
       - name: Run a build script
         run: |
+          mkdir build ; cd build
           python3.exe -m pip install -U nuitka ordered-set yt-dlp
-          python3.exe -c 'import yt_dlp as y;print(y)'
-          python3.exe -m nuitka --onefile --follow-imports C:\hostedtoolcache\windows\Python\3.7.9\x64\lib\site-packages\yt_dlp\__main__.py
-          7z.exe a -mx=9 built.7z .
+          python3.exe -m nuitka --standalone --follow-imports --prefer-source-code --assume-yes-for-downloads c:\hostedtoolcache\windows\python\3.9.13\x64\lib\site-packages\yt_dlp\__main__.py
+          cd ..
+          7z.exe a -mx=9 built.7z build
           
       - name: Store built files
         if: always()

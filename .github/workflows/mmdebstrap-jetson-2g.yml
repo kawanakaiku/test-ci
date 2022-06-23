@@ -63,8 +63,10 @@ jobs:
             sudo mount -t devpts pts rootfs/dev/pts
             sudo mount -t sysfs none rootfs/sys
             
-            sudo 7z x proc_device-tree.7z -orootfs/proc
-            
+            sudo mkdir rootfs/proc/device-tree
+            7z x proc_device-tree.7z
+            sudo mount --bind device-tree rootfs/proc/device-tree
+
             sudo chroot rootfs bash <<'chroot_end'
             
             set -eu
@@ -170,7 +172,7 @@ jobs:
             
             chroot_end
             
-            sudo umount -lf rootfs/sys rootfs/dev/pts rootfs/dev rootfs/proc
+            sudo umount -lf rootfs/proc/device-tree rootfs/sys rootfs/dev/pts rootfs/dev rootfs/proc
             
             
       - name: Disk modify

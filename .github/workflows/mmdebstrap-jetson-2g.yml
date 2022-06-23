@@ -71,6 +71,7 @@ jobs:
             sudo killall --wait qemu-nbd || true
         
             dir_size_gb=`du --summarize rootfs | awk '{print int($1/1024/1024/1024)+1}'`
+            echo "dir_size_gb=${dir_size_gb}"
             
             sgdisk --delete=1 sd-blob.img
             truncate -s ${dir_size_gb}G sd-blob.img
@@ -82,6 +83,7 @@ jobs:
             sudo qemu-nbd -c /dev/nbd0 --format=raw sd-blob.img
             sudo mkfs.ext4 -O ^has_journal,^64bit,^metadata_csum -E root_owner=0:0 -m 0 /dev/nbd0p1
             sudo mount /dev/nbd0p1 -t ext4 -o noatime,nobarrier 1
+            df -h ./1
             
             sudo cp -a rootfs/. 1
             

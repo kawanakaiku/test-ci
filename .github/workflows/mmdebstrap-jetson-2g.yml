@@ -36,33 +36,29 @@ jobs:
                     
       - name: Create rootfs
         run: |
-            echo ok > rootfs/test.txt
-            exit 0
-        
-            echo apt:\  ;  which -a apt
-            rootfs="rootfs"
-            dest="bullseye"
-            keys="648ACFD622F3D138 0E98404D386FA1D9"
-            for key in ${keys} ; do sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys ${key} ; done
-            sudo mmdebstrap --components=main,contrib,non-free --include=python3-numpy,libsndfile1 \
+            sudo mmdebstrap --components="main restricted universe multiverse" focal /mnt  \
                 --variant=apt --architecture=arm64 \
+                --include="xfce4" \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
-                --dpkgopt='path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo' \
-                --dpkgopt='path-exclude=/usr/share/locale/*' \
                 --dpkgopt='path-exclude=/usr/share/doc/*' \
+                --dpkgopt='path-exclude=/usr/share/locale/*' \
+                --dpkgopt='path-include=/usr/share/locale/en/*' \
+                --dpkgopt='path-include=/usr/share/locale/ja/*' \
                 --dpkgopt='path-exclude=/etc/cron.d/*' \
                 --dpkgopt='path-exclude=/etc/cron.daily/*' \
                 --dpkgopt='path-exclude=/etc/cron.hourly/*' \
                 --dpkgopt='path-exclude=/etc/cron.monthly/*' \
                 --dpkgopt='path-exclude=/etc/cron.weekly/*' \
-                 ${dest} ${rootfs} https://deb.debian.org/debian/
-            cd ${rootfs}
-            sudo rm -rf var/cache/* var/log/*
-            echo -n '' | sudo tee etc/motd >/dev/null
-            echo 'nameserver 8.8.8.8' | sudo tee etc/resolv.conf >/dev/null
-            cd ..
-            # find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
-            sudo tar Jcf rootfs.tar.xz ${rootfs}
+                 jammy rootfs http://ports.ubuntu.com/ubuntu-ports
+                 
+            sudo cp -a nbd0p1/etc/nv_boot_control.conf rootfs/etc/
+            sudo cp -a nbd0p1/etc/apt/sources.list.d/nvidia-l4t-apt-source.list rootfs/etc/apt/sources.list.d/
+            sudo cp -a nbd0p1/boot/extlinux /mnt/boot/
+  
+            echo "deb http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse" | sudo tee rootfs/etc/apt/sources.list >/dev/null
+            echo "/dev/root / ext4 defaults,noatime,nobarrier,commit=60 0 1" | sudo tee rootfs/etc/fstab >/dev/null
+            echo "jetson-nano-2g" | sudo tee rootfs/etc/hostname >/dev/null            
+            echo "Asia/Tokyo" | sudo tee rootfs/etc/timezone >/dev/null
             
       - name: Disk modify
         run: |
@@ -70,11 +66,11 @@ jobs:
             sudo qemu-nbd --disconnect /dev/nbd0 
             sudo killall --wait qemu-nbd || true
         
-            dir_size_gb=`du --summarize rootfs | awk '{print int($1/1024/1024/1024)+1}'`
-            echo "dir_size_gb=${dir_size_gb}"
+            dir_size_mb=`du --summarize rootfs | awk '{print int($1/1024/1024)+100}'`
+            echo "dir_size_mb=${dir_size_mb}"
             
             sgdisk --delete=1 sd-blob.img
-            truncate -s ${dir_size_gb}G sd-blob.img
+            truncate -s ${dir_size_mb}M sd-blob.img
             echo -e "w\ny" | gdisk sd-blob.img
             sgdisk --new=1:: sd-blob.img
             echo 'name 1 APP' | parted sd-blob.img

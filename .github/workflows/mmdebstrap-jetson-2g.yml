@@ -97,6 +97,7 @@ jobs:
             
             ## disable all cron entries
             for i in /etc/crontab /etc/anacrontab ; do
+              continue
               sed -i -E 's@^([0-9\*])@# \1@g' $i
             done
             

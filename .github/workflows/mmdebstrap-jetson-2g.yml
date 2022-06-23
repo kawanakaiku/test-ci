@@ -38,7 +38,7 @@ jobs:
         run: |
             sudo mmdebstrap --components="main restricted universe multiverse"  \
                 --architecture=arm64 \
-                --include=ca-certificates,lightdm,xubuntu-core,network-manager,sudo,locales,wpa_supplicant,nano,wget,curl,python3-dev,gnupg \
+                --include=ca-certificates,lightdm,xubuntu-core,network-manager,sudo,locales,wpasupplicant,nano,wget,curl,python3-dev,gnupg \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/doc/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*' \

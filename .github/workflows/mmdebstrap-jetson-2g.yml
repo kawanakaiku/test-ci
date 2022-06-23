@@ -89,7 +89,8 @@ jobs:
             sudo qemu-nbd --disconnect /dev/nbd0 
             sudo killall --wait qemu-nbd || true
             
-            7z a root.tar.xz sd-blob.img
+            echo archiving built file
+            7z a rootfs.tar.xz sd-blob.img
 
       - name: built file info
         run: |

@@ -73,9 +73,11 @@ jobs:
             dir_size_gb=`du --summarize rootfs | awk '{print int($1/1024/1024/1024)+1}'`
             
             sgdisk --delete=1 sd-blob.img
+            sgdisk --print sd-blob.img
             truncate -s ${dir_size_gb}G sd-blob.img
             sgdisk --new=1:: sd-blob.img
             echo 'name 1 APP' | parted sd-blob.img
+            sgdisk --print sd-blob.img
             
             sudo qemu-nbd -c /dev/nbd0 --format=raw sd-blob.img
             sudo mkfs.ext4 -O ^has_journal,^64bit,^metadata_csum /dev/nbd0p1

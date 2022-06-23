@@ -24,7 +24,6 @@ jobs:
       - name: Extract base image
         run: |
             unzip image.zip  # extracts "sd-blob.img"
-            sudo 7z x proc_device-tree.7z -o/proc/
             
       - name: Install mmdebstrap
         run: |
@@ -63,6 +62,8 @@ jobs:
             sudo mount -t devtmpfs none rootfs/dev
             sudo mount -t devpts pts rootfs/dev/pts
             sudo mount -t sysfs none rootfs/sys
+            
+            sudo 7z x proc_device-tree.7z -orootfs/proc
             
             sudo chroot rootfs bash <<'chroot_end'
             

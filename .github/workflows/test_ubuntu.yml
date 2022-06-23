@@ -26,6 +26,10 @@ jobs:
             # 7z a -mx=9 ubuntu-22.04.ncdu.7z ubuntu-22.04.ncdu
             bash test_ubuntu/main.sh
             
+            bash <<'EOF'
+            ls
+            EOF
+            
       - name: Store log files
         if: always()
         uses: actions/upload-artifact@v3

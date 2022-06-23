@@ -36,9 +36,9 @@ jobs:
                     
       - name: Create rootfs
         run: |
-            sudo mmdebstrap --components="main restricted universe multiverse" focal /mnt  \
-                --variant=apt --architecture=arm64 \
-                --include="xfce4" \
+            sudo mmdebstrap --components="main restricted universe multiverse"  \
+                --architecture=arm64 \
+                --include=ca-certificates,lightdm,xubuntu-core,network-manager,sudo,locales,wpa_supplicant,dhcpcd,nano,wget,curl,python3-dev,gnupg \
                 --dpkgopt='path-exclude=/usr/share/man/*' \
                 --dpkgopt='path-exclude=/usr/share/doc/*' \
                 --dpkgopt='path-exclude=/usr/share/locale/*' \
@@ -49,16 +49,124 @@ jobs:
                 --dpkgopt='path-exclude=/etc/cron.hourly/*' \
                 --dpkgopt='path-exclude=/etc/cron.monthly/*' \
                 --dpkgopt='path-exclude=/etc/cron.weekly/*' \
-                 jammy rootfs http://ports.ubuntu.com/ubuntu-ports
+                --dpkgopt='path-exclude=/usr/share/apport/*' \
+                 jammy ./rootfs http://ports.ubuntu.com/ubuntu-ports
                  
             sudo cp -a nbd0p1/etc/nv_boot_control.conf rootfs/etc/
             sudo cp -a nbd0p1/etc/apt/sources.list.d/nvidia-l4t-apt-source.list rootfs/etc/apt/sources.list.d/
             sudo cp -a nbd0p1/boot/extlinux /mnt/boot/
   
-            echo "deb http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse" | sudo tee rootfs/etc/apt/sources.list >/dev/null
-            echo "/dev/root / ext4 defaults,noatime,nobarrier,commit=60 0 1" | sudo tee rootfs/etc/fstab >/dev/null
-            echo "jetson-nano-2g" | sudo tee rootfs/etc/hostname >/dev/null            
-            echo "Asia/Tokyo" | sudo tee rootfs/etc/timezone >/dev/null
+            sudo mount -t proc none rootfs/proc
+            sudo mount -t devtmpfs none rootfs/dev
+            sudo mount -t devpts pts rootfs/dev/pts
+            sudo mount -t sysfs none rootfs/sys
+            
+            sudo chroot rootfs bash <<'chroot_end'
+            
+            set -eu
+            
+            ## set apt repos
+            echo "deb http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse" | tee /etc/apt/sources.list >/dev/null
+            
+            ## set fstab
+            echo "/dev/root / ext4 defaults,noatime,nobarrier,commit=600 0 1" | tee /etc/fstab >/dev/null
+            
+            ## set hostname
+            echo -n "jetson-nano-2g" | tee /etc/hostname >/dev/null            
+            
+            ## set locales
+            echo -n "Asia/Tokyo" | tee /etc/timezone >/dev/null
+            ln -sf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime
+            sed -i -E 's/^# ((ja_JP|en_US)\.UTF-8 UTF-8)/\1/g' /etc/locale.gen
+            locale-gen
+            
+            ## apt settings
+            echo 'Acquire::Languages "none";' | tee /etc/apt/apt.conf.d/9999_translations >/dev/null
+            for i in 'path-exclude=/usr/share/man/*' 'path-exclude=/usr/share/doc/*' 'path-exclude=/usr/share/locale/*' 'path-include=/usr/share/locale/en/*' 'path-include=/usr/share/locale/ja/*' 'path-exclude=/etc/cron.d/*' 'path-exclude=/etc/cron.daily/*' 'path-exclude=/etc/cron.hourly/*' 'path-exclude=/etc/cron.monthly/*' 'path-exclude=/etc/cron.weekly/*' 'path-exclude=/usr/share/apport/*' ; do
+              echo "$i" | tee -a /etc/dpkg/dpkg.cfg.d/9999_nodoc >/dev/null
+            done
+            
+            ## remove password for root
+            passwd --delete root
+            
+            ## disable apport
+            echo 'enabled=0' | tee ${rofs}/etc/default/apport
+            
+            ## disable upgrade notify
+            echo -e '[DEFAULT]\nPrompt=never' | sudo tee ${rofs}/etc/update-manager/release-upgrades
+            
+            ## disable all cron entries
+            for i in /etc/crontab /etc/anacrontab ; do
+              sed -i -E 's@^([0-9\*])@# \1@g' $i
+            done
+            
+            ## disable apt periodic
+            sed -i -E 's@^(APT::Periodic::Update-Package-Lists) "1"@\1 "0"@' /etc/apt/apt.conf.d/10periodic
+            
+            ## disable anti aliasing
+            sed -i -e 's/true/false/' /etc/fonts/conf.d/10-antialias.conf
+            
+            ## disable core dumps
+            echo -e 'fs.suid_dumpable=0\nkernel.core_pattern=|/bin/false' | sudo tee /etc/sysctl.d/9999-disable-core-dump.conf >/dev/null
+            
+            ## enable services
+            systemctl enable NetworkManger.service lightdm.service
+            
+            ## install packages for jetson nano
+            ##   https://zenn.dev/marbocub/articles/2fa02378030759
+            apt-key adv --fetch-key http://repo.download.nvidia.com/jetson/jetson-ota-public.asc
+            apt-get update
+            wget -nv http://ports.ubuntu.com/pool/main/libf/libffi/libffi6_3.2.1-8_arm64.deb
+            apt-get install -y ./*.deb
+            rm ./*.deb
+            apt-get install -y i2c-tools
+            apt-get -o Dpkg::Options::="--force-confnew" install -y nvidia-l4t-apt-source
+            apt-get -o Dpkg::Options::="--force-overwrite" install -y nvidia-l4t-init
+            apt-get install -y \
+              jetson-gpio-common \
+              nvidia-l4t-3d-core \
+              nvidia-l4t-apt-source \
+              nvidia-l4t-bootloader \
+              nvidia-l4t-camera \
+              nvidia-l4t-configs \
+              nvidia-l4t-core \
+              nvidia-l4t-cuda \
+              nvidia-l4t-firmware \
+              nvidia-l4t-graphics-demos \
+              nvidia-l4t-gstreamer \
+              nvidia-l4t-init \
+              nvidia-l4t-initrd \
+              nvidia-l4t-jetson-io \
+              nvidia-l4t-jetson-multimedia-api \
+              nvidia-l4t-kernel \
+              nvidia-l4t-kernel-dtbs \
+              nvidia-l4t-kernel-headers \
+              nvidia-l4t-multimedia \
+              nvidia-l4t-multimedia-utils \
+              nvidia-l4t-oem-config \
+              nvidia-l4t-tools \
+              nvidia-l4t-wayland \
+              nvidia-l4t-weston \
+              nvidia-l4t-x11 \
+              nvidia-l4t-xusb-firmware \
+              python-jetson-gpio \
+              python3-jetson-gpio
+            apt-get install -y libdrm-tegra0
+            apt-get install -y language-pack-ja language-pack-en
+            apt-get install -y nvidia-cuda nvidia-cudnn8
+            apt-get install -y nvidia-visionworks
+            apt-get purge --auto-remove
+            
+            ## set desktop
+            usermod -aG video root
+            usermod -aG audio root
+            usermod -aG video lightdm
+            usermod -aG lightdm root
+            
+            chroot_end
+            
+            sudo umount -lf rootfs/sys rootfs/dev/pts rootfs/dev rootfs/proc
+            
             
       - name: Disk modify
         run: |

@@ -102,7 +102,7 @@ jobs:
             done
             
             ## disable apt periodic
-            sed -i -E 's@^(APT::Periodic::Update-Package-Lists) "1"@\1 "0"@' /etc/apt/apt.conf.d/10periodic
+            # sed -i -E 's@^(APT::Periodic::Update-Package-Lists) "1"@\1 "0"@' /etc/apt/apt.conf.d/10periodic
             
             ## disable anti aliasing
             sed -i -e 's/true/false/' /etc/fonts/conf.d/10-antialias.conf

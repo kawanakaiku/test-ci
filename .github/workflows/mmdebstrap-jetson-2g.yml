@@ -90,10 +90,10 @@ jobs:
             passwd --delete root
             
             ## disable apport
-            echo 'enabled=0' | tee ${rofs}/etc/default/apport
+            echo 'enabled=0' | tee /etc/default/apport
             
             ## disable upgrade notify
-            echo -e '[DEFAULT]\nPrompt=never' | sudo tee ${rofs}/etc/update-manager/release-upgrades
+            echo -e '[DEFAULT]\nPrompt=never' | sudo tee /etc/update-manager/release-upgrades
             
             ## disable all cron entries
             for i in /etc/crontab /etc/anacrontab ; do

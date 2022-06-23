@@ -73,8 +73,8 @@ jobs:
             dir_size_gb=`du --summarize rootfs | awk '{print int($1/1024/1024/1024)+1}'`
             
             sgdisk --delete=1 sd-blob.img
-            sgdisk --print sd-blob.img
             truncate -s ${dir_size_gb}G sd-blob.img
+            echo -e "w\ny" | gdisk sd-blob.img
             sgdisk --new=1:: sd-blob.img
             echo 'name 1 APP' | parted sd-blob.img
             sgdisk --print sd-blob.img

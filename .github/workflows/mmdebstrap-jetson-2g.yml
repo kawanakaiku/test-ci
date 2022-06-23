@@ -129,6 +129,7 @@ jobs:
             apt-get install -y i2c-tools
             apt-get -o Dpkg::Options::="--force-confnew" install -y nvidia-l4t-apt-source
             apt-get -o Dpkg::Options::="--force-overwrite" install -y nvidia-l4t-init
+            <<'comment'
             apt-get install -y \
               jetson-gpio-common \
               nvidia-l4t-3d-core \
@@ -158,10 +159,11 @@ jobs:
               nvidia-l4t-xusb-firmware \
               python-jetson-gpio \
               python3-jetson-gpio
-            apt-get install -y libdrm-tegra0
+            comment
+            # apt-get install -y libdrm-tegra0
             apt-get install -y language-pack-ja language-pack-en
-            apt-get install -y nvidia-cuda nvidia-cudnn8
-            apt-get install -y nvidia-visionworks
+            # apt-get install -y nvidia-cuda nvidia-cudnn8
+            # apt-get install -y nvidia-visionworks
             apt-get purge --auto-remove
             
             ## set desktop

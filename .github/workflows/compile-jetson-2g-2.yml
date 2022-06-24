@@ -59,27 +59,26 @@ jobs:
 
       - name: Install packages
         run: |
-          host_packages="apt-transport-https build-essential ca-certificates
-              cmake curl git ninja-build
-              python3.8-dev software-properties-common sudo
-              unzip virtualenv wget"
-          guest_packages="apt-transport-https build-essential ca-certificates
-              cmake curl git
-              libatlas-base-dev libcurl4-openssl-dev libjemalloc-dev
-              liblapack-dev libopencv-dev
-              libzmq3-dev ninja-build
-              python3.8-dev software-properties-common sudo
-              unzip virtualenv wget
-              libjpeg-dev libopenblas-dev libopenmpi-dev libomp-dev"
-      
-          sudo apt-get install -y ${host_packages}
+          sudo apt-get install -y \
+            apt-transport-https build-essential ca-certificates \
+            cmake curl git ninja-build \
+            python3.8-dev software-properties-common sudo \
+            unzip virtualenv wget
 
           cd mnt
           
           sudo rm etc/apt/apt.conf.d/50appstream  # no icons update
           sudo chroot . /bin/bash <<chroot_end
             apt-get -o Acquire::Languages=none update
-            apt-get install --download-only -y ${guest_packages}
+            apt-get install --download-only -y \
+              apt-transport-https build-essential ca-certificates \
+              cmake curl git \
+              libatlas-base-dev libcurl4-openssl-dev libjemalloc-dev \
+              liblapack-dev libopencv-dev \
+              libzmq3-dev ninja-build \
+              python3.8-dev software-properties-common sudo \
+              unzip virtualenv wget \
+              libjpeg-dev libopenblas-dev libopenmpi-dev libomp-dev
           chroot_end
           
           # apt in chroot hungs

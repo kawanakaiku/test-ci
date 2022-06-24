@@ -127,9 +127,9 @@ jobs:
             apt-get install -y ./*.deb
             rm ./*.deb
             apt-get install -y i2c-tools
+            <<'comment'
             apt-get -o Dpkg::Options::="--force-confnew" install -y nvidia-l4t-apt-source
             apt-get -o Dpkg::Options::="--force-overwrite" install -y nvidia-l4t-init
-            <<'comment'
             apt-get install -y \
               jetson-gpio-common \
               nvidia-l4t-3d-core \

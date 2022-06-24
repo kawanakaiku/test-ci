@@ -1,0 +1,74 @@
+name: compile-jetson-2g
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/compile-jetson-2g.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-18.04
+    name: Build on native aarch64
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download base image
+        run: |
+          wget -nv https://developer.nvidia.com/embedded/l4t/r32_release_v7.1/jp_4.6.1_b110_sd_card/jetson_nano_2gb/jetson-nano-2gb-jp461-sd-card-image.zip -O image.zip
+
+      - name: Extract base image
+        run: |
+          unzip image.zip  # extracts "sd-blob.img"
+          rm image.zip
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends arch-test qemu-user-static
+
+      - name: Mount
+        run: |
+          offset=`sgdisk --print sd-blob.img | awk '{if($1==1){print $2*512}}'`
+
+          mkdir -p overlay/{lower,upper,work} mnt
+          sudo mount -t ext4 -o loop,offset=${offset},ro sd-blob.img overlay/lower
+          sudo mount -t overlay -o lowerdir=overlay/lower,upperdir=overlay/upper,workdir=overlay/work overlay mnt
+
+          sudo mount -t proc /proc mnt/proc
+          sudo mount -t sysfs /sys mnt/sys
+          sudo mount -o bind /dev mnt/dev
+  	      sudo mount -o bind /run mnt/run
+
+      - name: Chroot
+        run: |
+          sudo chroot mnt <<'EOF'
+          ls -lha /
+          df -h
+          EOF
+
+      - name: Unmount
+        run: |
+          sudo umount -lf mnt/run
+          sudo umount -lf mnt/dev
+          sudo umount -lf mnt/sys
+          sudo umount -lf mnt/proc
+          sudo umount -lf mnt
+          sudo umount -lf overlay/lower
+
+      - name: Disk modify
+        run: |
+          7z a build.tar.xz build
+
+      - name: built file info
+        run: |
+          file build.tar.xz
+          sha256sum build.tar.xz
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: built-artifact
+          path: build.tar.xz

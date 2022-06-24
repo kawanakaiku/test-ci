@@ -174,7 +174,7 @@ jobs:
             
             chroot_end
             
-            sudo umount -lf rootfs/proc/device-tree rootfs/sys rootfs/dev/pts rootfs/dev rootfs/proc
+            sudo umount -lf rootfs/sys rootfs/dev/pts rootfs/dev rootfs/proc
             
             
       - name: Disk modify

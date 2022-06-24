@@ -33,7 +33,7 @@ jobs:
           rm gcc-4.8.5-aarch64.tar.gz
           comment
           
-          sudo apt install -y gcc-8-aarch64-linux-gnu g++-8-aarch64-linux-gnu
+          sudo apt install -y gcc-8-aarch64-linux-gnu g++-8-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
       - name: Install QEMU
         run: |
@@ -129,6 +129,13 @@ jobs:
           export RANLIB=${CROSS_COMPILE}/aarch64-unknown-linux-gnu-ranlib
           comment
           
+          export CC=/usr/bin/aarch64-linux-gnu-gcc
+          export CXX=/usr/bin/aarch64-linux-gnu-g++
+          export LD=/usr/bin/aarch64-linux-gnu-ld
+          export AR=/usr/bin/aarch64-linux-gnu-ar
+          export AS=/usr/bin/aarch64-linux-gnu-as
+          export RANLIB=/usr/bin/aarch64-linux-gnu-ranlib
+          
           export NVCC=${CROSS_ROOT}/usr/local/cuda/bin/nvcc
 
           export LDFLAGS+=" -L${CROSS_ROOT}/lib -L${CROSS_ROOT}/usr/local/cuda/lib64 -L${CROSS_ROOT}/usr/lib -L${CROSS_ROOT}/usr/lib/aarch64-linux-gnu -L${CROSS_ROOT}/lib/aarch64-linux-gnu"
@@ -137,6 +144,9 @@ jobs:
           export USE_OPENCV=1 USE_BLAS=openblas USE_CUDA=1 USE_CUDA_PATH=/usr/local/cuda USE_CUDNN=1
 
           python3.8 -m crossenv ${CROSS_ROOT}/usr/bin/python3.8 venv . venv/bin/activate
+            --cc ${CC} \
+            --cxx ${CXX} \
+            --ar ${AR}
           
           pip install -U pip
           pip install -U setuptools wheel Cython

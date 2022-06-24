@@ -44,10 +44,14 @@ jobs:
 
       - name: Chroot
         run: |
+          sudo cp /usr/bin/qemu-aarch64-static mnt/usr/bin/qemu-aarch64-static
+          
           sudo chroot mnt <<'EOF'
           ls -lha /
           df -h
           EOF
+
+          sudo rm mnt/usr/bin/qemu-aarch64-static
 
       - name: Unmount
         run: |
@@ -62,10 +66,11 @@ jobs:
         run: |
           7z a build.tar.xz build
 
-      - name: built file info
+      - name: Info
         run: |
           file build.tar.xz
           sha256sum build.tar.xz
+
       - name: Store built file
         if: always()
         uses: actions/upload-artifact@v3

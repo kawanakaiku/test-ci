@@ -158,13 +158,13 @@ jobs:
           cd mnt/src
 
           build-pip install -r requirements.txt
-          pip install -r requirements.txt
+          # pip install -r requirements.txt
 
           mkdir build
           cd build
 
           pip wheel ..
-          pip wheel --requirement ../requirements.txt  # store depending wheels
+          pip wheel --requirement ../requirements.txt || true  # store depending wheels (throws errors for numpy, psutils)
 
       - name: Collect built file
         run: |

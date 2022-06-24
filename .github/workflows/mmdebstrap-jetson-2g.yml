@@ -183,7 +183,7 @@ jobs:
             sudo qemu-nbd --disconnect /dev/nbd0 
             sudo killall --wait qemu-nbd || true
         
-            dir_size_mb=`sudo du --summarize --block-size=1M rootfs | awk '{print $1}'`
+            dir_size_mb=`sudo du --summarize --block-size=1M rootfs | awk '{print $1+300}'`
             echo "dir_size_mb=${dir_size_mb}"
             
             sgdisk --delete=1 sd-blob.img

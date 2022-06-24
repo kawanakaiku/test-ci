@@ -106,11 +106,13 @@ jobs:
           sudo python3.8 -m pip install -U pip
           sudo python3.8 -m pip install -U setuptools wheel Cython crossenv
 
+          <<'comment'
           sudo chroot . /bin/bash <<'chroot_end'
             python3.8 /get-pip.py
             python3.8 -m pip install -U pip
             python3.8 -m pip install -U setuptools wheel Cython
           chroot_end
+          comment
 
           sudo rm get-pip.py
 
@@ -154,8 +156,8 @@ jobs:
           
           . venv/bin/activate
           
-          pip install -U pip
-          pip install -U setuptools wheel Cython
+          # pip install -U pip
+          # pip install -U setuptools wheel Cython
           build-pip install -U pip
           build-pip install -U setuptools wheel Cython
 

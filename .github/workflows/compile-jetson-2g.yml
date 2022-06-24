@@ -24,6 +24,10 @@ jobs:
           unzip image.zip  # extracts "sd-blob.img"
           rm image.zip
 
+      - name: Download base image
+        run: |
+          # wget -nv https://developer.nvidia.com/embedded/dlc/l4t-gcc-toolchain-64-bit-28-3 -O gcc-4.8.5-aarch64.tar.gz
+
       - name: Install QEMU
         run: |
           sudo apt-get update
@@ -42,46 +46,92 @@ jobs:
           sudo mount -o bind /dev mnt/dev
           sudo mount -o bind /run mnt/run
 
+          sudo cp /usr/bin/qemu-aarch64-static mnt/usr/bin/qemu-aarch64-static
+
       - name: Install packages
         run: |
+          <<'comment'
           sudo apt-get install -y \
             apt-transport-https build-essential ca-certificates \
             cmake curl git \
             libatlas-base-dev libcurl4-openssl-dev libjemalloc-dev \
-            liblapack-dev libopenblas-dev libopencv-dev \
-            libzmq3-dev ninja-build python-dev \
-            python3-dev software-properties-common sudo \
-            unzip virtualenv wget
+            liblapack-dev libopencv-dev \
+            libzmq3-dev ninja-build \
+            python3.8-dev software-properties-common sudo \
+            unzip virtualenv wget \
+            libjpeg-dev libopenblas-dev libopenmpi-dev libomp-dev
+          comment
 
-          sudo chroot mnt <<'chroot_end'
-          apt-get update
-          apt-get install -y \
-            apt-transport-https build-essential ca-certificates \
-            cmake curl git \
-            libatlas-base-dev libcurl4-openssl-dev libjemalloc-dev \
-            liblapack-dev libopenblas-dev libopencv-dev \
-            libzmq3-dev ninja-build python-dev \
-            python3-dev software-properties-common sudo \
-            unzip virtualenv wget
+          sudo chroot mnt /bin/bash <<'chroot_end'
+            apt-get update
+            apt-get install -y \
+              apt-transport-https build-essential ca-certificates \
+              cmake curl git \
+              libatlas-base-dev libcurl4-openssl-dev libjemalloc-dev \
+              liblapack-dev libopencv-dev \
+              libzmq3-dev ninja-build \
+              python3.8-dev software-properties-common sudo \
+              unzip virtualenv wget \
+              libjpeg-dev libopenblas-dev libopenmpi-dev libomp-dev
           chroot_end
 
       - name: Clone source code
         run: |
-          git clone --depth=1 https://github.com/dmlc/mxnet.git src
+          git clone --depth=1 --recursive --branch=v1.11.0 https://github.com/pytorch/pytorch.git mnt/src
 
-      - name: Build
+      - name: Install pip
         run: |
-          sudo cp /usr/bin/qemu-aarch64-static mnt/usr/bin/qemu-aarch64-static
+          cd mnt
 
-          sudo chroot mnt <<'chroot_end'
-          ls -lha /
-          df -h
+          sudo wget -nv https://bootstrap.pypa.io/get-pip.py
+
+          <<'comment'
+          sudo python3.8 get-pip.py
+          sudo python3.8 -m pip install -U pip
+          sudo python3.8 -m pip install -U setuptools wheel Cython
+          comment
+
+          sudo chroot . /bin/bash <<'chroot_end'
+            python3.8 /get-pip.py
+            python3.8 -m pip install -U pip
+            python3.8 -m pip install -U setuptools wheel Cython
           chroot_end
 
-          sudo rm mnt/usr/bin/qemu-aarch64-static
+          sudo rm get-pip.py
+
+      - name: Install pip requirements
+        run: |
+          # sudo python3.8 -m pip install --requirement mnt/src/requirements.txt
+
+          sudo chroot mnt /bin/bash <<'chroot_end'
+            python3.8 -m pip install --requirement /src/requirements.txt
+          chroot_end
+
+      - name: Build under chroot
+        run: |
+          sudo chroot mnt /bin/bash <<'chroot_end'
+
+            cd /src
+
+            export USE_OPENCV=1 USE_BLAS=openblas USE_CUDA=1 USE_CUDA_PATH=/usr/local/cuda USE_CUDNN=1
+            export NVCC=/usr/local/cuda/bin/nvcc
+
+            python3.8 setup.py bdist_wheel  # build main wheel
+
+            cd dist
+
+            python3.8 -m pip wheel *.whl  # store depending wheels
+
+          chroot_end
+
+      - name: Collect built file
+        run: |
+          sudo mv mnt/src/dist build
 
       - name: Unmount
         run: |
+          sudo rm mnt/usr/bin/qemu-aarch64-static
+
           sudo umount -lf mnt/run
           sudo umount -lf mnt/dev
           sudo umount -lf mnt/sys

@@ -74,10 +74,17 @@ jobs:
       
           sudo apt-get install -y ${host_packages}
 
-          sudo chroot mnt /bin/bash <<chroot_end
+          cd mnt
+          
+          sudo rm etc/apt/apt.conf.d/50appstream  # no icons update
+          sudo chroot . /bin/bash <<chroot_end
             apt-get -o Acquire::Languages=none update
-            apt-get install -y ${guest_packages}
+            apt-get install --download-only -y ${guest_packages}
           chroot_end
+          
+          # apt in chroot hungs
+          for deb in var/cache/apt/archives/*.deb ; do
+            sudo dpkg --extract $i .
 
       - name: Clone source code
         run: |

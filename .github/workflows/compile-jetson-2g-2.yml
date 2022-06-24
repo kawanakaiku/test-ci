@@ -114,14 +114,6 @@ jobs:
 
           sudo rm get-pip.py
 
-      - name: Install pip requirements
-        run: |
-          # sudo python3.8 -m pip install --requirement mnt/src/requirements.txt
-
-          sudo chroot mnt /bin/bash <<'chroot_end'
-            python3.8 -m pip install --requirement /src/requirements.txt
-          chroot_end
-
       - name: Cross compile
         run: |
           CROSS_ROOT=${PWD}/mnt

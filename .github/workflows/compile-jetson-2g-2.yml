@@ -68,7 +68,7 @@ jobs:
           cd mnt
           
           sudo rm etc/apt/apt.conf.d/50appstream  # no icons update
-          sudo chroot . /bin/bash <<chroot_end
+          sudo chroot . /bin/bash <<'chroot_end'
             apt-get -o Acquire::Languages=none update
             apt-get install --download-only -y \
               apt-transport-https build-essential ca-certificates \
@@ -84,6 +84,7 @@ jobs:
           # apt in chroot hungs
           for deb in var/cache/apt/archives/*.deb ; do
             sudo dpkg --extract $i .
+          done
 
       - name: Clone source code
         run: |

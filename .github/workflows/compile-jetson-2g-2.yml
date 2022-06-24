@@ -35,7 +35,7 @@ jobs:
 
       - name: Install QEMU
         run: |
-          sudo apt-get update
+          sudo apt-get -o Acquire::Languages=none update
           sudo apt-get install -y --no-install-recommends arch-test qemu-user-static
 
       - name: Mount
@@ -75,7 +75,7 @@ jobs:
           sudo apt-get install -y ${host_packages}
 
           sudo chroot mnt /bin/bash <<chroot_end
-            apt-get update
+            apt-get -o Acquire::Languages=none update
             apt-get install -y ${guest_packages}
           chroot_end
 

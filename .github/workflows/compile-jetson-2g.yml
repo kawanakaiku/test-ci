@@ -47,7 +47,7 @@ jobs:
           sudo mount -o bind /run mnt/run
 
           sudo cp /usr/bin/qemu-aarch64-static mnt/usr/bin/qemu-aarch64-static
-          sudo cp /etc/resolv.conf mnt/etc/resolv.conf
+          sudo cp --remove-destination /etc/resolv.conf mnt/etc/resolv.conf
 
       - name: Install packages
         run: |
@@ -131,7 +131,6 @@ jobs:
 
       - name: Unmount
         run: |
-          sudo rm mnt/etc/resolv.conf
           sudo rm mnt/usr/bin/qemu-aarch64-static
 
           sudo umount -lf mnt/run

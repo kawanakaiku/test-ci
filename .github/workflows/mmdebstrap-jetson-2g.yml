@@ -172,6 +172,8 @@ jobs:
             usermod -aG video lightdm
             usermod -aG lightdm root
             
+            apt clean
+            
             chroot_end
             
             sudo umount -lf rootfs/sys rootfs/dev/pts rootfs/dev rootfs/proc
@@ -199,6 +201,7 @@ jobs:
             df -h ./nbd0p1
             
             sudo cp -a rootfs/. nbd0p1
+            df -h ./nbd0p1
             
             sudo umount nbd0p1
             sudo qemu-nbd --disconnect /dev/nbd0 

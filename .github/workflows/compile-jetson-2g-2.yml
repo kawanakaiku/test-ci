@@ -64,7 +64,7 @@ jobs:
           sudo apt-get install -y \
             apt-transport-https build-essential ca-certificates \
             cmake curl git ninja-build \
-            python3.8-dev software-properties-common sudo \
+            python3.8-dev python3.8-venv software-properties-common sudo \
             unzip virtualenv wget
 
           cd mnt

@@ -142,7 +142,12 @@ jobs:
           export CFLAGS+=" -I${CROSS_ROOT}/include -I${CROSS_ROOT}/usr/local/cuda/include -I${CROSS_ROOT}/usr/include -I${CROSS_ROOT}/usr/include/aarch64-linux-gnu"
           
           export USE_OPENCV=1 USE_BLAS=openblas USE_CUDA=1 USE_CUDA_PATH=/usr/local/cuda USE_CUDNN=1
-          export USE_CUDA=1 CUDA_TOOLKIT_ROOT_DIR=${CROSS_ROOT}/usr/local/cuda
+          export USE_CUDA=1 CUDA_TOOLKIT_ROOT_DIR=${CROSS_ROOT}/usr/local/cuda/targets/aarch64-linux
+          
+          # fix absolute link
+          sudo rm ${CROSS_ROOT}/usr/local/cuda ${CROSS_ROOT}/usr/local/cuda-10
+          sudo ln -s ${CROSS_ROOT}/usr/local/cuda-10{.2,}
+          sudo ln -s ${CROSS_ROOT}/usr/local/cuda{-10,}
 
           python3.8 -m crossenv ${CROSS_ROOT}/usr/bin/python3.8 venv \
             --cc ${CC} \

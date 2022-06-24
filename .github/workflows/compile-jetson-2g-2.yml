@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-18.04
     name: Build on native aarch64
 
     steps:
@@ -142,7 +142,7 @@ jobs:
           export CFLAGS+=" -I${CROSS_ROOT}/include -I${CROSS_ROOT}/usr/local/cuda/include -I${CROSS_ROOT}/usr/include -I${CROSS_ROOT}/usr/include/aarch64-linux-gnu"
           
           export USE_OPENCV=1 USE_BLAS=openblas USE_CUDA=1 USE_CUDA_PATH=/usr/local/cuda USE_CUDNN=1
-          export USE_CUDA=1 CUDA_TOOLKIT_ROOT_DIR=${CROSS_ROOT}/usr/local/cuda/targets/aarch64-linux
+          export CUDA_TOOLKIT_ROOT_DIR=${CROSS_ROOT}/usr/local/cuda/targets/aarch64-linux
           
           # fix absolute link
           sudo rm ${CROSS_ROOT}/usr/local/cuda ${CROSS_ROOT}/usr/local/cuda-10
@@ -187,7 +187,7 @@ jobs:
           sudo umount -lf mnt
           sudo umount -lf overlay/lower
 
-      - name: Disk modify
+      - name: Archive
         run: |
           7z a build.tar.xz build
 

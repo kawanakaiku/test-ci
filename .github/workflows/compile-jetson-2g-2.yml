@@ -129,12 +129,12 @@ jobs:
           export RANLIB=${CROSS_COMPILE}/aarch64-unknown-linux-gnu-ranlib
           comment
           
-          export CC=/usr/bin/aarch64-linux-gnu-gcc
-          export CXX=/usr/bin/aarch64-linux-gnu-g++
+          export CC=/usr/bin/aarch64-linux-gnu-gcc-8
+          export CXX=/usr/bin/aarch64-linux-gnu-g++-8
           export LD=/usr/bin/aarch64-linux-gnu-ld
-          export AR=/usr/bin/aarch64-linux-gnu-ar
+          export AR=/usr/bin/aarch64-linux-gnu-ar-8
           export AS=/usr/bin/aarch64-linux-gnu-as
-          export RANLIB=/usr/bin/aarch64-linux-gnu-ranlib
+          export RANLIB=/usr/bin/aarch64-linux-gnu-ranlib-8
           
           export NVCC=${CROSS_ROOT}/usr/local/cuda/bin/nvcc
 

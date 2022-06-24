@@ -42,14 +42,41 @@ jobs:
           sudo mount -o bind /dev mnt/dev
           sudo mount -o bind /run mnt/run
 
-      - name: Chroot
+      - name: Install packages
+        run: |
+          sudo apt-get install -y \
+            apt-transport-https build-essential ca-certificates \
+            cmake curl git \
+            libatlas-base-dev libcurl4-openssl-dev libjemalloc-dev \
+            liblapack-dev libopenblas-dev libopencv-dev \
+            libzmq3-dev ninja-build python-dev \
+            python3-dev software-properties-common sudo \
+            unzip virtualenv wget
+
+          sudo chroot mnt <<'chroot_end'
+          apt-get update
+          apt-get install -y \
+            apt-transport-https build-essential ca-certificates \
+            cmake curl git \
+            libatlas-base-dev libcurl4-openssl-dev libjemalloc-dev \
+            liblapack-dev libopenblas-dev libopencv-dev \
+            libzmq3-dev ninja-build python-dev \
+            python3-dev software-properties-common sudo \
+            unzip virtualenv wget
+          chroot_end
+
+      - name: Clone source code
+        run: |
+          git clone --depth=1 https://github.com/dmlc/mxnet.git src
+
+      - name: Build
         run: |
           sudo cp /usr/bin/qemu-aarch64-static mnt/usr/bin/qemu-aarch64-static
-          
-          sudo chroot mnt <<'EOF'
+
+          sudo chroot mnt <<'chroot_end'
           ls -lha /
           df -h
-          EOF
+          chroot_end
 
           sudo rm mnt/usr/bin/qemu-aarch64-static
 

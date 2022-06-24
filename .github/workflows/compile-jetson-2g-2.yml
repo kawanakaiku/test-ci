@@ -19,19 +19,16 @@ jobs:
         run: |
           wget -nv https://developer.nvidia.com/embedded/l4t/r32_release_v7.1/jp_4.6.1_b110_sd_card/jetson_nano_2gb/jetson-nano-2gb-jp461-sd-card-image.zip -O image.zip
 
-      - name: Extract base image
+      - name: Setup cross compiler
         run: |
-          unzip image.zip  # extracts "sd-blob.img"
-          rm image.zip
-
-      - name: Download cross compiler
-        run: |
+          <<'comment'
           wget -nv https://developer.nvidia.com/embedded/dlc/l4t-gcc-toolchain-64-bit-28-3 -O gcc-4.8.5-aarch64.tar.gz
-
-      - name: Extract cross compiler
-        run: |
           tar xf gcc-4.8.5-aarch64.tar.gz
           mv install toolchain
+          rm gcc-4.8.5-aarch64.tar.gz
+          comment
+          
+          sudo apt install -y gcc-8-aarch64-linux-gnu g++-8-aarch64-linux-gnu
 
       - name: Install QEMU
         run: |
@@ -117,6 +114,7 @@ jobs:
       - name: Cross compile
         run: |
           CROSS_ROOT=${PWD}/mnt
+          <<'comment'
           CROSS_COMPILE=${PWD}/toolchain/bin
           export CC=${CROSS_COMPILE}/aarch64-unknown-linux-gnu-gcc
           export CXX=${CROSS_COMPILE}/aarch64-unknown-linux-gnu-g++
@@ -124,6 +122,8 @@ jobs:
           export AR=${CROSS_COMPILE}/aarch64-unknown-linux-gnu-ar
           export AS=${CROSS_COMPILE}/aarch64-unknown-linux-gnu-as
           export RANLIB=${CROSS_COMPILE}/aarch64-unknown-linux-gnu-ranlib
+          comment
+          
           export NVCC=${CROSS_ROOT}/usr/local/cuda/bin/nvcc
 
           export LDFLAGS+=" -L${CROSS_ROOT}/lib -L${CROSS_ROOT}/usr/local/cuda/lib64 -L${CROSS_ROOT}/usr/lib -L${CROSS_ROOT}/usr/lib/aarch64-linux-gnu -L${CROSS_ROOT}/lib/aarch64-linux-gnu"

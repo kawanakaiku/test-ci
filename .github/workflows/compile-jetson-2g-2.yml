@@ -168,7 +168,7 @@ jobs:
 
       - name: Collect built file
         run: |
-          sudo mv mnt/src/buikd build
+          sudo mv mnt/src/build build
 
       - name: Unmount
         run: |

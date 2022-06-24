@@ -139,6 +139,8 @@ jobs:
           
           pip install -U pip
           pip install -U setuptools wheel Cython
+          build-pip install -U pip
+          build-pip install -U setuptools wheel Cython
 
           cd mnt/src
 

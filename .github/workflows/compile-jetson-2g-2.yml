@@ -136,6 +136,9 @@ jobs:
             --cxx ${CXX} \
             --ar ${AR}
           . venv/bin/activate
+          
+          pip install -U pip
+          pip install -U setuptools wheel Cython
 
           cd mnt/src
 

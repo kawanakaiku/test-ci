@@ -84,8 +84,8 @@ jobs:
           # apt in chroot hungs
           for deb in var/cache/apt/archives/*.deb ; do
             echo "extracting $deb ..."
-            ar x $i . data.tar.xz
-            tar -xf data.tar.xz --no-overwrite-dir -C .
+            ar x $i data.tar.xz
+            tar -xf data.tar.xz --no-overwrite-dir -C ./
             rm data.tar.xz
           done
 

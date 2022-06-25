@@ -161,7 +161,15 @@ jobs:
           sed -i -e 's@NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten"@False@g' mnt/src/third_party/cpuinfo/CMakeLists.txt
           
           # patch main
-          sed -i -e '1e\set(CMAKE_SYSTEM_PROCESSOR aarch64)' mnt/src/CMakeLists.txt
+          #sed -i -e '1e\set(CMAKE_SYSTEM_PROCESSOR aarch64)' mnt/src/CMakeLists.txt
+          
+          # mod cmake
+          sudo mv /usr/local/bin/cmake{,_}
+          sudo tee /usr/local/bin/cmake <<'CMAKE'
+          #!/usr/bin/sh
+          exec /usr/local/bin/cmake_ "$@" -DCMAKE_SYSTEM_PROCESSOR=aarch64
+          CMAKE
+          sudo chmod +x /usr/local/bin/cmake
                     
           # fix absolute link
           sudo rm ${CROSS_ROOT}/usr/local/cuda ${CROSS_ROOT}/usr/local/cuda-10

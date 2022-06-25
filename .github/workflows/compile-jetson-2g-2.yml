@@ -150,6 +150,7 @@ jobs:
           export CMAKE_C_COMPILER=${CC}
           #export CMAKE_CROSSCOMPILING=True
           export BUILD_PYTORCH_MOBILE_WITH_HOST_TOOLCHAIN=True
+          export USE_SYSTEM_BENCHMARK=True
           
           # fix absolute link
           sudo rm ${CROSS_ROOT}/usr/local/cuda ${CROSS_ROOT}/usr/local/cuda-10

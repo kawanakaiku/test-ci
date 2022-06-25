@@ -154,10 +154,12 @@ jobs:
           sudo ln -s ${CROSS_ROOT}/usr/local/cuda{-10,}
           
           # lib dir link
-          sudo mv /lib/aarch64-linux-gnu{,.bak}
-          sudo ln -s ${CROSS_ROOT}/lib/aarch64-linux-gnu /lib/aarch64-linux-gnu
-          sudo mv /usr/lib/aarch64-linux-gnu{,.bak}
-          sudo ln -s ${CROSS_ROOT}/usr/lib/aarch64-linux-gnu /usr/lib/aarch64-linux-gnu
+          #sudo mv /lib/aarch64-linux-gnu{,.bak}
+          #sudo ln -s ${CROSS_ROOT}/lib/aarch64-linux-gnu /lib/aarch64-linux-gnu
+          #sudo mv /usr/lib/aarch64-linux-gnu{,.bak}
+          #sudo ln -s ${CROSS_ROOT}/usr/lib/aarch64-linux-gnu /usr/lib/aarch64-linux-gnu
+          mkdir -p overlay_lib/{upper,work}
+          sudo mount -t overlay -o lowerdir=${CROSS_ROOT}/lib/aarch64-linux-gnu:${CROSS_ROOT}/usr/lib/aarch64-linux-gnu,upperdir=overlay_lib/upper,workdir=overlay_lib/work overlay /lib/aarch64-linux-gnu
 
           python3 -m crossenv ${CROSS_ROOT}/usr/bin/python3.8 venv \
             --cc ${CC} \

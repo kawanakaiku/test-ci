@@ -154,9 +154,9 @@ jobs:
           sudo ln -s ${CROSS_ROOT}/usr/local/cuda{-10,}
           
           # lib dir link
-          sudo mv ${CROSS_ROOT}/lib/aarch64-linux-gnu{,.bak}
+          sudo mv /lib/aarch64-linux-gnu{,.bak}
           sudo ln -s ${CROSS_ROOT}/lib/aarch64-linux-gnu /lib/aarch64-linux-gnu
-          sudo mv ${CROSS_ROOT}/usr/lib/aarch64-linux-gnu{,.bak}
+          sudo mv /usr/lib/aarch64-linux-gnu{,.bak}
           sudo ln -s ${CROSS_ROOT}/usr/lib/aarch64-linux-gnu /usr/lib/aarch64-linux-gnu
 
           python3 -m crossenv ${CROSS_ROOT}/usr/bin/python3.8 venv \

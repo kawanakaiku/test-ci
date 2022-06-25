@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     name: Build on native aarch64
 
     steps:
@@ -64,7 +64,7 @@ jobs:
           sudo apt-get install -y \
             apt-transport-https build-essential ca-certificates \
             cmake curl git ninja-build \
-            python3.8-dev python3.8-venv software-properties-common sudo \
+            python3-dev python3-pip python3-venv software-properties-common sudo \
             unzip virtualenv wget
 
           cd mnt
@@ -102,9 +102,9 @@ jobs:
 
           sudo wget -nv https://bootstrap.pypa.io/get-pip.py
 
-          sudo python3.8 get-pip.py
-          sudo python3.8 -m pip install -U pip
-          sudo python3.8 -m pip install -U setuptools wheel Cython crossenv
+          # sudo python3.8 get-pip.py
+          sudo python3 -m pip install -U pip
+          sudo python3 -m pip install -U setuptools wheel Cython crossenv
 
           # <<'comment'
           sudo chroot . /bin/bash <<'chroot_end'
@@ -149,7 +149,7 @@ jobs:
           sudo ln -s ${CROSS_ROOT}/usr/local/cuda-10{.2,}
           sudo ln -s ${CROSS_ROOT}/usr/local/cuda{-10,}
 
-          python3.8 -m crossenv ${CROSS_ROOT}/usr/bin/python3.8 venv \
+          python3 -m crossenv ${CROSS_ROOT}/usr/bin/python3.8 venv \
             --cc ${CC} \
             --cxx ${CXX} \
             --ar ${AR}
@@ -164,13 +164,13 @@ jobs:
           cd mnt/src
 
           build-pip install -r requirements.txt
-          # pip install -r requirements.txt
+          # cross-pip install -r requirements.txt
 
           mkdir build
           cd build
 
-          pip wheel ..
-          pip wheel --requirement ../requirements.txt || true  # store depending wheels (throws errors for numpy, psutils)
+          cross-pip wheel ..
+          cross-pip wheel --requirement ../requirements.txt || true  # store depending wheels (throws errors for numpy, psutils)
 
       - name: Collect built file
         run: |

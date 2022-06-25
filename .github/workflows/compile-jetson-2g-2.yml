@@ -162,14 +162,23 @@ jobs:
           
           # patch main
           #sed -i -e '1e\set(CMAKE_SYSTEM_PROCESSOR aarch64)' mnt/src/CMakeLists.txt
+          find mnt/src -type f 2>/dev/null | grep -e '/CMakeLists.txt$' -e '.cmake$' |
+          while read cmake ; do
+            echo "set(CMAKE_SYSTEM_PROCESSOR aarch64)" > cmake_tmp
+            cat "${cmake}" >> cmake_tmp
+            cat cmake_tmp | sudo tee "${cmake}"
+            rm cmake_tmp
+          done
           
           # mod cmake
+          <<'comment'
           sudo mv /usr/local/bin/cmake{,_}
           sudo tee /usr/local/bin/cmake <<'CMAKE'
           #!/usr/bin/sh
           exec /usr/local/bin/cmake_ "$@" -DCMAKE_SYSTEM_PROCESSOR=aarch64
           CMAKE
           sudo chmod +x /usr/local/bin/cmake
+          comment
                     
           # fix absolute link
           sudo rm ${CROSS_ROOT}/usr/local/cuda ${CROSS_ROOT}/usr/local/cuda-10

@@ -1,0 +1,159 @@
+name: compile-jetson-2g-3
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/compile-jetson-2g-3.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    name: Build on native aarch64
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download base image
+        run: |
+          wget -nv https://developer.nvidia.com/embedded/l4t/r32_release_v7.1/jp_4.6.1_b110_sd_card/jetson_nano_2gb/jetson-nano-2gb-jp461-sd-card-image.zip -O image.zip
+          
+      - name: Extract base image
+        run: |
+          unzip image.zip  # extracts "sd-blob.img"
+          rm image.zip
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get -o Acquire::Languages=none update
+          sudo apt-get install -y --no-install-recommends arch-test qemu-user-static
+
+      - name: Mount
+        run: |
+          offset=`sgdisk --print sd-blob.img | awk '{if($1==1){print $2*512}}'`
+
+          mkdir -p overlay/{lower,upper,work} mnt
+          sudo mount -t ext4 -o loop,offset=${offset},ro sd-blob.img overlay/lower
+          sudo mount -t overlay -o lowerdir=overlay/lower,upperdir=overlay/upper,workdir=overlay/work overlay mnt
+
+          sudo mount -t proc /proc mnt/proc
+          sudo mount -t sysfs /sys mnt/sys
+          sudo mount -o bind /dev mnt/dev
+          sudo mount -o bind /run mnt/run
+
+      - name: Settings
+        run: |
+          sudo cp /usr/bin/qemu-aarch64-static mnt/usr/bin/qemu-aarch64-static
+          sudo cp --remove-destination /etc/resolv.conf mnt/etc/resolv.conf
+          sudo sed -i -e 's/<SOC>/t210/g' mnt/etc/apt/sources.list.d/nvidia-l4t-apt-source.list
+          sudo rm etc/apt/apt.conf.d/50appstream  # no icons update
+
+      - name: Install packages
+        run: |
+          cd mnt
+          
+          sudo chroot . /bin/bash <<'chroot_end'
+            apt-get -o Acquire::Languages=none update
+            apt-get install --download-only -y \
+              apt-transport-https build-essential ca-certificates \
+              cmake curl git \
+              libatlas-base-dev libcurl4-openssl-dev libjemalloc-dev \
+              liblapack-dev libopencv-dev \
+              libzmq3-dev ninja-build \
+              python3.8-dev software-properties-common sudo \
+              unzip virtualenv wget \
+              libjpeg-dev libopenblas-dev libopenmpi-dev libomp-dev ccache
+          chroot_end
+          
+          # apt in chroot hungs
+          for deb in var/cache/apt/archives/*.deb ; do
+            echo "extracting $deb ..."
+            ar x $deb data.tar.xz
+            [ -f data.tar.xz ] || continue
+            sudo tar -xf data.tar.xz --no-overwrite-dir -C ./
+            rm data.tar.xz
+          done
+
+      - name: Clone source code
+        run: |
+          git clone --depth=1 --recursive --branch=v1.11.0 https://github.com/pytorch/pytorch.git mnt/src
+
+      - name: Install pip
+        run: |
+          cd mnt
+
+          sudo wget -nv https://bootstrap.pypa.io/get-pip.py
+
+          sudo chroot . /bin/bash <<'chroot_end'
+            python3.8 /get-pip.py
+            python3.8 -m pip install -U pip
+            python3.8 -m pip install -U setuptools wheel Cython
+          chroot_end
+
+          sudo rm get-pip.py
+
+      - name: Cross compile
+        run: |
+          sudo chroot mnt /bin/bash <<'chroot_end'
+
+          export NVCC=/usr/local/cuda/bin/nvcc
+
+          export LDFLAGS+=" -L/lib -L/usr/local/cuda/lib64 -L/usr/lib -L/usr/lib/aarch64-linux-gnu -L/lib/aarch64-linux-gnu"
+          export CFLAGS+=" -I/include -I/usr/local/cuda/include -I/usr/include -I/usr/include/aarch64-linux-gnu"
+
+          export USE_OPENCV=1 USE_BLAS=openblas USE_CUDA=1 USE_CUDA_PATH=/usr/local/cuda USE_CUDNN=1
+          export CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda/targets/aarch64-linux
+
+          cd /src
+
+          python3.8 -m pip install -r requirements.txt
+
+          mkdir build
+          cd build
+
+          python3.8 -m pip wheel ..
+          python3.8 -m pip wheel --requirement ../requirements.txt
+
+          chroot_end
+
+      - name: Collect built file
+        run: |
+          sudo mv mnt/src/build build
+
+      - name: Unmount
+        run: |
+          sudo rm mnt/usr/bin/qemu-aarch64-static
+
+          sudo umount -lf mnt/run
+          sudo umount -lf mnt/dev
+          sudo umount -lf mnt/sys
+          sudo umount -lf mnt/proc
+          sudo umount -lf mnt
+          sudo umount -lf overlay/lower
+
+      - name: Archive
+        run: |
+          7z a build.tar.xz build
+
+      - name: Info
+        run: |
+          file build.tar.xz
+          sha256sum build.tar.xz
+
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: built-artifact
+          path: build.tar.xz
+
+      - name: Install apt-file
+        if: failure()
+        run: |
+          sudo apt-get install -y apt-file
+          sudo apt-file update
+        
+      - name: Waiting for debugger
+        if: failure()
+        uses: mxschmitt/action-tmate@v3

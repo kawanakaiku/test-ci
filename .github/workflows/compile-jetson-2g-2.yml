@@ -163,8 +163,8 @@ jobs:
 
           cd mnt/src
 
+          cross-pip install -r requirements.txt || true
           build-pip install -r requirements.txt
-          # cross-pip install -r requirements.txt
 
           mkdir build
           cd build

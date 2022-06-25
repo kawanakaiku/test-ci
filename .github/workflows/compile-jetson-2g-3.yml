@@ -109,13 +109,14 @@ jobs:
 
           cd /src
 
+          python3.8 -m pip install -r ../requirements.txt
+          python3.8 -m pip install .
+
           mkdir build
           cd build
-          
-          python3.8 -m pip install -r ../requirements.txt
 
+          python3.8 -m pip wheel -r ../requirements.txt
           python3.8 -m pip wheel ..
-          python3.8 -m pip wheel --requirement ../requirements.txt
           
           python3.8 -m pip wheel -U pip setuptools wheel Cython cmake
 

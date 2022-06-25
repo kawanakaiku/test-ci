@@ -77,7 +77,7 @@ jobs:
 
       - name: Clone source code
         run: |
-          git clone --depth=1 --recursive --branch=v1.11.0 https://github.com/pytorch/pytorch.git mnt/src
+          sudo git clone --depth=1 --recursive --branch=v1.11.0 https://github.com/pytorch/pytorch.git mnt/src  # should be owned by root
 
       - name: Install pip
         run: |
@@ -107,19 +107,15 @@ jobs:
 
           cd /src
 
-          python3.8 -m pip install -r requirements.txt
-
           mkdir build
           cd build
+          
+          python3.8 -m pip install -r ../requirements.txt
 
           python3.8 -m pip wheel ..
           python3.8 -m pip wheel --requirement ../requirements.txt
 
           chroot_end
-
-      - name: Collect built file
-        run: |
-          sudo mv mnt/src/build build
 
       - name: Unmount
         run: |
@@ -132,21 +128,17 @@ jobs:
           sudo umount -lf mnt
           sudo umount -lf overlay/lower
 
-      - name: Archive
+      - name: Collect built file
+        if: always()
         run: |
-          7z a build.tar.xz build
-
-      - name: Info
-        run: |
-          file build.tar.xz
-          sha256sum build.tar.xz
-
+          sudo mv mnt/src/build build
+          
       - name: Store built file
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: built-artifact
-          path: build.tar.xz
+          path: build
 
       - name: Install apt-file
         if: failure()

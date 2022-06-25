@@ -150,7 +150,10 @@ jobs:
           export CMAKE_C_COMPILER=${CC}
           #export CMAKE_CROSSCOMPILING=True
           export BUILD_PYTORCH_MOBILE_WITH_HOST_TOOLCHAIN=True
-          export USE_SYSTEM_BENCHMARK=True
+          #export USE_SYSTEM_BENCHMARK=True
+          
+          # patch benchmark
+          sed -i -e 's@RUN_${FEATURE} EQUAL 0@RUN_${FEATURE} EQUAL 0 OR COMPILE_${FEATURE}@g' mnt/src/third_party/benchmark/cmake/CXXFeatureCheck.cmake
           
           # fix absolute link
           sudo rm ${CROSS_ROOT}/usr/local/cuda ${CROSS_ROOT}/usr/local/cuda-10

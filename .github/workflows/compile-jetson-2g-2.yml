@@ -65,7 +65,8 @@ jobs:
             apt-transport-https build-essential ca-certificates \
             cmake curl git ninja-build \
             python3-dev python3-pip python3-venv software-properties-common sudo \
-            unzip virtualenv wget
+            unzip virtualenv wget \
+            ccache
 
           cd mnt
           
@@ -147,6 +148,7 @@ jobs:
           # export CMAKE_SYSROOT=${CROSS_ROOT}
           export CMAKE_CXX_COMPILER=${CXX}
           export CMAKE_C_COMPILER=${CC}
+          export CMAKE_CROSSCOMPILING=True
           
           # fix absolute link
           sudo rm ${CROSS_ROOT}/usr/local/cuda ${CROSS_ROOT}/usr/local/cuda-10

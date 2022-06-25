@@ -158,6 +158,7 @@ jobs:
           
           # patch cpuinfo
           sed -i -e 's@build.target.is_x86@False@g ; s@build.target.is_x86_64@False@g' mnt/src/third_party/cpuinfo/configure.py
+          sed -i -e 's@NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten"@False@g' mnt/src/third_party/cpuinfo/CMakeLists.txt
           
           # fix absolute link
           sudo rm ${CROSS_ROOT}/usr/local/cuda ${CROSS_ROOT}/usr/local/cuda-10

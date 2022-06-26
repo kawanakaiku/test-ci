@@ -111,7 +111,7 @@ jobs:
           cd /src
 
           python3.8 -m pip install -r requirements.txt
-          python3.8 -m pip build .
+          python3.8 -m pip -vvv build .
 
           mkdir build
           cd build

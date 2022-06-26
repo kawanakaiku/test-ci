@@ -110,7 +110,7 @@ jobs:
           cd /src
 
           python3.8 -m pip install -r requirements.txt
-          python3.8 -m pip install .
+          python3.8 -m pip --no-cache-dir install .
 
           mkdir build
           cd build

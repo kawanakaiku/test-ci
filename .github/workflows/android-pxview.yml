@@ -22,6 +22,7 @@ jobs:
 
           # https://zenn.dev/aryzae/articles/80ec1fe9d72db3  
           sed -i -e "s@com.android.tools.build:gradle:3.5.3@com.android.tools.build:gradle:4.2.1@g" android/build.gradle
+          sed -i -e "s@6.2@6.7.1@g" android/gradle/wrapper/gradle-wrapper.properties
        
           # disable googleservices
           sed -i -E "s@^(apply plugin: 'com\.google\.)@// \1@g" android/app/build.gradle

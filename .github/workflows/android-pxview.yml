@@ -23,7 +23,7 @@ jobs:
           cd android
           
           # https://stackoverflow.com/questions/51807028/package-android-support-annotation-does-not-exist
-          yarn add jetifier
+          yarn add --dev jetifier
           yarn run jetify
           
           # https://stackoverflow.com/questions/62769564/error-unable-to-resolve-module-react-native-community-toolbar-android

@@ -1,0 +1,49 @@
+	name: android-pxview
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/android-pxview.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+  
+    steps:
+      - name: clone
+        run: |
+          git clone https://github.com/kawanakaiku/pxview.git .
+
+      - name: build
+        run: |
+          npm install
+          
+          # https://stackoverflow.com/questions/51807028/package-android-support-annotation-does-not-exist
+          # yarn add --dev jetifier
+          # yarn run jetify
+          
+          # https://stackoverflow.com/questions/62769564/error-unable-to-resolve-module-react-native-community-toolbar-android
+          # yarn add @react-native-community/toolbar-android
+          
+          cd android
+  
+          # disable googleservices
+          sed -i -E "s@^(apply plugin: 'com.google.)@// \1@g" android/app/build.gradle
+
+          # put key
+          echo "${{ secrets.KEY_JKS_BASE64 }}" | base64 -d > key.jks
+          
+          ./gradlew assembleRelease \
+            -PPXVIEWR_RELEASE_STORE_FILE="./key.jks" \
+            -PPXVIEWR_RELEASE_STORE_PASSWORD="${{ secrets.PASSWORD }}" \
+            -PPXVIEWR_RELEASE_KEY_ALIAS="key" \
+            -PPXVIEWR_RELEASE_KEY_PASSWORD="${{ secrets.PASSWORD }}"
+          
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: andorid/app/build/outputs/apk

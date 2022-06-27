@@ -21,7 +21,7 @@ jobs:
           # put key
           # echo "${{ secrets.KEY_JKS_BASE64 }}" | base64 -d > ${HOME}/key.jks
           
-          for gradlew in */gradlew ; do
+          for gradlew in $(ls */gradlew) ; do
           
             pushd $(dirname ${gradlew})
 

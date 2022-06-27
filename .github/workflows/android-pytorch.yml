@@ -1,0 +1,29 @@
+name: android-pytorch
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/android-pytorch.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: macos-latest
+  
+    steps:
+      - name: clone
+        run: |
+          git clone --recursive -b v1.11.0 https://github.com/pytorch/pytorch.git pytorch
+          
+      - name: build
+        run: |
+          export ANDROID_ABI=arm64-v8a
+          find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
+          
+      - name: store
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: android-box86
+          path: box86/build/box86

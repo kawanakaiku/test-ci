@@ -49,7 +49,7 @@ jobs:
             -PPXVIEWR_RELEASE_STORE_PASSWORD="${{ secrets.PASSWORD }}" \
             -PPXVIEWR_RELEASE_KEY_ALIAS="key" \
             -PPXVIEWR_RELEASE_KEY_PASSWORD="${{ secrets.PASSWORD }}"
-          https://github.com/yamill/react-native-orientation/issues/396
+          # https://github.com/yamill/react-native-orientation/issues/396
             
           popd
           

@@ -28,7 +28,8 @@ jobs:
           # sed -i -e "s@6.2@6.9@g" android/gradle/wrapper/gradle-wrapper.properties
        
           # disable googleservices
-          sed -i -E "s@^(apply plugin: 'com\.google\.)@// \1@g" android/app/build.gradle
+          # sed -i -E "s@^(apply plugin: 'com\.google\.)@// \1@g" android/app/build.gradle
+          sed -i -e "s@^apply plugin: 'com.google.@// @g" android/app/build.gradle
           
           # ERROR:/home/runner/.gradle/caches/transforms-3/e7832e2a7b23290ed97a51474f1d95d0/transformed/appcompat-1.0.2/res/values-v26/values-v26.xml:5:5-8:13: AAPT: error: resource android:attr/colorError not found.
           # https://github.com/luggit/react-native-config/issues/299

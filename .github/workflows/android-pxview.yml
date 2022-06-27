@@ -9,7 +9,7 @@ on:
  
 jobs:
   build:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
   
     steps:
       - name: clone
@@ -21,7 +21,7 @@ jobs:
           yarn install
           
           # https://stackoverflow.com/questions/51807028/package-android-support-annotation-does-not-exist
-          yarn add --dev jetifier
+          yarn add jetifier
           yarn run jetify
           
           # https://stackoverflow.com/questions/62769564/error-unable-to-resolve-module-react-native-community-toolbar-android

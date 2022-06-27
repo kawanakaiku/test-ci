@@ -110,15 +110,15 @@ jobs:
 
           cd /src
 
-          python3.8 -m pip install -r requirements.txt
-          python3.8 -m pip -vvv build .
-
           mkdir build
           cd build
+          
+          python3.8 -m pip install -r ../requirements.txt
+          cmake --build ../ --config Release -- -j 1
+          python3.8 -m pip -vvv install ../
 
           python3.8 -m pip wheel -r ../requirements.txt
           python3.8 -m pip wheel ..
-          
           python3.8 -m pip wheel -U pip setuptools wheel Cython cmake
 
           chroot_end

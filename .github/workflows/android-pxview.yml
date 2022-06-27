@@ -30,14 +30,14 @@ jobs:
           # https://stackoverflow.com/questions/51807028/package-android-support-annotation-does-not-exist
           yarn add --dev jetifier
           yarn run jetify
+          
+          # put key
+          echo "${{ secrets.KEY_JKS_BASE64 }}" | base64 -d > ${HOME}/key.jks
                     
           pushd android
-
-          # put key
-          echo "${{ secrets.KEY_JKS_BASE64 }}" | base64 -d > key.jks
           
           ./gradlew assembleRelease \
-            -PPXVIEWR_RELEASE_STORE_FILE="./key.jks" \
+            -PPXVIEWR_RELEASE_STORE_FILE="${HOME}/key.jks" \
             -PPXVIEWR_RELEASE_STORE_PASSWORD="${{ secrets.PASSWORD }}" \
             -PPXVIEWR_RELEASE_KEY_ALIAS="key" \
             -PPXVIEWR_RELEASE_KEY_PASSWORD="${{ secrets.PASSWORD }}"

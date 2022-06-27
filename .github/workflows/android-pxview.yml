@@ -19,19 +19,19 @@ jobs:
       - name: build
         run: |
           yarn install
-                    
-          cd android
+
+  
+          # disable googleservices
+          sed -i -E "s@^(apply plugin: 'com.google.)@// \1@g" android/app/build.gradle
+          
+          # https://stackoverflow.com/questions/62769564/error-unable-to-resolve-module-react-native-community-toolbar-android
+          yarn add @react-native-community/toolbar-android
           
           # https://stackoverflow.com/questions/51807028/package-android-support-annotation-does-not-exist
           yarn add --dev jetifier
           yarn run jetify
-          
-          # https://stackoverflow.com/questions/62769564/error-unable-to-resolve-module-react-native-community-toolbar-android
-          yarn add @react-native-community/toolbar-android
-
-  
-          # disable googleservices
-          sed -i -E "s@^(apply plugin: 'com.google.)@// \1@g" app/build.gradle
+                    
+          pushd android
 
           # put key
           echo "${{ secrets.KEY_JKS_BASE64 }}" | base64 -d > key.jks
@@ -41,6 +41,8 @@ jobs:
             -PPXVIEWR_RELEASE_STORE_PASSWORD="${{ secrets.PASSWORD }}" \
             -PPXVIEWR_RELEASE_KEY_ALIAS="key" \
             -PPXVIEWR_RELEASE_KEY_PASSWORD="${{ secrets.PASSWORD }}"
+            
+          popd
           
       - name: Store built file
         if: always()

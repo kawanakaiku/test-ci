@@ -10,6 +10,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 1440
     name: Build on native aarch64
 
     steps:
@@ -108,7 +109,7 @@ jobs:
           export CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda/targets/aarch64-linux
           export CUDA_HOME=/usr/local/cuda
           
-          export MAX_JOBS=1
+          export MAX_JOBS=4
 
           cd /src
 

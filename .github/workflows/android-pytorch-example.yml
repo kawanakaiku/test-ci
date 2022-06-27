@@ -1,0 +1,42 @@
+name: android-pytorch-example
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/android-pytorch-example.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: macos-12
+  
+    steps:
+      - name: clone
+        run: |
+          git clone https://github.com/pytorch/android-demo-app.git .
+
+      - name: build
+        run: |
+          # put key
+          # echo "${{ secrets.KEY_JKS_BASE64 }}" | base64 -d > ${HOME}/key.jks
+          
+          for gradlew in */gradlew ; do
+          
+            pushd $(dirname ${gradlew})
+
+            ./gradlew assembleRelease
+
+            popd
+            
+          done
+          
+          mkdir build
+          find . -name "*.apk" -print0 | xargs -0 -I@ cp --verbose @ build
+          
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: build

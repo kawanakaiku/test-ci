@@ -19,6 +19,8 @@ jobs:
       - name: build
         run: |
           yarn install
+                    
+          cd android
           
           # https://stackoverflow.com/questions/51807028/package-android-support-annotation-does-not-exist
           yarn add jetifier
@@ -26,8 +28,7 @@ jobs:
           
           # https://stackoverflow.com/questions/62769564/error-unable-to-resolve-module-react-native-community-toolbar-android
           yarn add @react-native-community/toolbar-android
-          
-          cd android
+
   
           # disable googleservices
           sed -i -E "s@^(apply plugin: 'com.google.)@// \1@g" app/build.gradle

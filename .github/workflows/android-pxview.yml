@@ -53,9 +53,12 @@ jobs:
             
           popd
           
+          mkdir build
+          find . -name "*.apk" -print0 | xargs -0 -I@ cp --verbose @ build
+          
       - name: Store built file
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: build
-          path: andorid/app/build/outputs/apk
+          path: build

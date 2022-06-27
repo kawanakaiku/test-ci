@@ -20,7 +20,8 @@ jobs:
         run: |
           yarn install
           
-          cp pxview/PXWebView.js src/components/PXWebView.js
+          wget https://raw.githubusercontent.com/kawanakaiku/test-ci/main/pxview/PXWebView.js
+          mv PXWebView.js src/components/PXWebView.js
 
           # https://zenn.dev/aryzae/articles/80ec1fe9d72db3  
           # sed -i -e "s@com.android.tools.build:gradle:3.5.3@com.android.tools.build:gradle:4.2.1@g" android/build.gradle

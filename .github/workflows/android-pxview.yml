@@ -9,7 +9,7 @@ on:
  
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-18.04
   
     steps:
       - name: clone
@@ -18,7 +18,7 @@ jobs:
 
       - name: build
         run: |
-          npm install
+          yarn install
           
           # https://stackoverflow.com/questions/51807028/package-android-support-annotation-does-not-exist
           yarn add --dev jetifier

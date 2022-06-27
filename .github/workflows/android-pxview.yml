@@ -20,9 +20,11 @@ jobs:
         run: |
           yarn install
 
-  
+          # https://zenn.dev/aryzae/articles/80ec1fe9d72db3  
+          sed -i -e "s@com.android.tools.build:gradle:3.5.3@com.android.tools.build:gradle:4.2.1@g" android/build.gradle
+       
           # disable googleservices
-          sed -i -E "s@^(apply plugin: 'com.google.)@// \1@g" android/app/build.gradle
+          sed -i -E "s@^(apply plugin: 'com\.google\.)@// \1@g" android/app/build.gradle
           
           # https://stackoverflow.com/questions/62769564/error-unable-to-resolve-module-react-native-community-toolbar-android
           yarn add @react-native-community/toolbar-android

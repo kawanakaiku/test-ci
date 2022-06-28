@@ -75,6 +75,7 @@ jobs:
           
   build2:
     runs-on: ubuntu-22.04
+    needs: [build1]
 
     steps:
       - uses: actions/checkout@v3

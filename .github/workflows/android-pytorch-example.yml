@@ -30,7 +30,7 @@ jobs:
           
             pushd $(dirname ${gradlew})
 
-            gradle assembleRelease
+            gradle assembleRelease || true
 
             popd
             

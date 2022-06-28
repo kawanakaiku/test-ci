@@ -15,7 +15,6 @@ env:
 jobs:
   build1:
     runs-on: ubuntu-22.04
-    name: Build
 
     steps:
       - uses: actions/checkout@v3
@@ -50,7 +49,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ./src_upper
-          key: ${{ runner.os }}_${{ github.workflow }}_${{ env.revision }}
+          key: ${{ github.sha }}
         
       - name: Clone source code
         run: |
@@ -70,6 +69,67 @@ jobs:
           bash ${{ env.dir }}/10-Collect.sh
 
       - name: Unmount
+        if: always()
+        run: |
+          bash ${{ env.dir }}/11-Umount.sh
+          
+  build2:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download base image
+        run: |
+          bash ${{ env.dir }}/timer_init.sh
+          bash ${{ env.dir }}/01-Download.sh
+          
+      - name: Extract base image
+        run: |
+          bash ${{ env.dir }}/02-Extract.sh
+          
+      - name: Install QEMU
+        run: |
+          bash ${{ env.dir }}/03-InstallQEMU.sh
+
+      - name: Mount
+        run: |
+          bash ${{ env.dir }}/04-Mount.sh
+
+      - name: Settings
+        run: |
+          bash ${{ env.dir }}/05-Settings.sh
+
+      - name: Install packages
+        run: |
+          bash ${{ env.dir }}/06-InstallDepedencies.sh
+          
+      - name: Cache build
+        id: cache-build
+        uses: actions/cache@v3
+        with:
+          path: ./src_upper
+          key: ${{ github.sha }}
+        
+      - name: Clone source code
+        run: |
+          bash ${{ env.dir }}/07-Clone.sh
+          
+      - name: Install pip
+        run: |
+          bash ${{ env.dir }}/08-Installpip.sh
+
+      - name: Cross compile
+        run: |
+          bash ${{ env.dir }}/timer_main.sh bash ${{ env.dir }}/09-Compile.sh
+
+      - name: Collect built file
+        if: always()
+        run: |
+          bash ${{ env.dir }}/10-Collect.sh
+
+      - name: Unmount
+        if: always()
         run: |
           bash ${{ env.dir }}/11-Umount.sh
           

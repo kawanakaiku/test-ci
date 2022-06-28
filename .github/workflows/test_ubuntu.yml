@@ -5,11 +5,13 @@ on:
       branches: [ main ]
       paths:
         - 'test_ubuntu/**'
+        - '.github/workflows/test_ubuntu.yml'
     workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 1
   
     steps:
       - uses: actions/checkout@v3
@@ -24,11 +26,27 @@ jobs:
             # sudo apt-get install -y --no-install-recommends ncdu
             # sudo ncdu -o ubuntu-22.04.ncdu /
             # 7z a -mx=9 ubuntu-22.04.ncdu.7z ubuntu-22.04.ncdu
-            bash test_ubuntu/main.sh
+            # bash test_ubuntu/main.sh
             
             bash <<'EOF'
             ls
             EOF
+            
+      - name: bash
+        if: always()
+        run: |
+          while true; do
+              date +%F_%T
+              sleep 1
+          done
+            
+      - name: bash
+        if: always()
+        run: |
+          while true; do
+              date +%F_%T
+              sleep 1
+          done
             
       - name: Store log files
         if: always()

@@ -6,171 +6,71 @@ on:
     paths:
       - '.github/workflows/compile-jetson-2g-3.yml'
   workflow_dispatch:
-
+  
+env:
+  dir: compile-jetson-2g
+  revision: 1
+      
 jobs:
-  build:
+  build1:
     runs-on: ubuntu-22.04
-    name: Build on native aarch64
+    name: Build
 
     steps:
       - uses: actions/checkout@v3
 
       - name: Download base image
         run: |
-          wget -nv https://developer.nvidia.com/embedded/l4t/r32_release_v7.1/jp_4.6.1_b110_sd_card/jetson_nano_2gb/jetson-nano-2gb-jp461-sd-card-image.zip -O image.zip
+          bash ${{ env.dir }}/timer_init.sh
+          bash ${{ env.dir }}/01-Download.sh
           
       - name: Extract base image
         run: |
-          unzip image.zip  # extracts "sd-blob.img"
-          rm image.zip
-
+          bash ${{ env.dir }}/02-Extract.sh
+          
       - name: Install QEMU
         run: |
-          sudo apt-get -o Acquire::Languages=none update
-          sudo apt-get install -y --no-install-recommends arch-test qemu-user-static
+          bash ${{ env.dir }}/03-InstallQEMU.sh
 
       - name: Mount
         run: |
-          offset=`sgdisk --print sd-blob.img | awk '{if($1==1){print $2*512}}'`
-
-          mkdir -p overlay/{lower,upper,work} mnt
-          sudo mount -t ext4 -o loop,offset=${offset},ro sd-blob.img overlay/lower
-          sudo mount -t overlay -o lowerdir=overlay/lower,upperdir=overlay/upper,workdir=overlay/work overlay mnt
-
-          sudo mount -t proc /proc mnt/proc
-          sudo mount -t sysfs /sys mnt/sys
-          sudo mount -o bind /dev mnt/dev
-          sudo mount -o bind /run mnt/run
+          bash ${{ env.dir }}/04-Mount.sh
 
       - name: Settings
         run: |
-          sudo cp /usr/bin/qemu-aarch64-static mnt/usr/bin/qemu-aarch64-static
-          sudo cp --remove-destination /etc/resolv.conf mnt/etc/resolv.conf
-          sudo sed -i -e 's/<SOC>/t210/g' mnt/etc/apt/sources.list.d/nvidia-l4t-apt-source.list
-          sudo rm mnt/etc/apt/apt.conf.d/50appstream  # no icons update
+          bash ${{ env.dir }}/05-Settings.sh
 
       - name: Install packages
         run: |
-          cd mnt
+          bash ${{ env.dir }}/06-InstallDepedencies.sh
           
-          sudo chroot . /bin/bash <<'chroot_end'
-            apt-get -o Acquire::Languages=none update
-            apt-get install --download-only -y \
-              apt-transport-https build-essential ca-certificates \
-              cmake curl git \
-              libatlas-base-dev libcurl4-openssl-dev libjemalloc-dev \
-              liblapack-dev libopencv-dev \
-              libzmq3-dev ninja-build \
-              python3.8-dev software-properties-common sudo \
-              unzip virtualenv wget \
-              libjpeg-dev libopenblas-dev libopenmpi-dev libomp-dev ccache
-          chroot_end
-          
-          # apt in chroot hungs
-          for deb in var/cache/apt/archives/*.deb ; do
-            echo "extracting $deb ..."
-            ar x $deb data.tar.xz
-            [ -f data.tar.xz ] || continue
-            sudo tar -xf data.tar.xz --no-overwrite-dir -C ./
-            rm data.tar.xz
-          done
-
+      - name: Cache build
+        id: cache-build
+        uses: actions/cache@v3
+        with:
+          path: ./src_upper
+          key: ${{ runner.os }}_${{ github.workflow }}_${{ env.revision }}
+        
       - name: Clone source code
         run: |
-          sudo git clone --depth=1 --recursive --branch=v1.11.0 https://github.com/pytorch/pytorch.git mnt/src  # should be owned by root
-
+          bash ${{ env.dir }}/07-Clone.sh
+          
       - name: Install pip
         run: |
-          cd mnt
-
-          sudo wget -nv https://bootstrap.pypa.io/get-pip.py
-
-          sudo chroot . /bin/bash <<'chroot_end'
-            python3.8 /get-pip.py
-            python3.8 -m pip install -U pip
-            python3.8 -m pip install -U setuptools wheel Cython cmake
-          chroot_end
-
-          sudo rm get-pip.py
+          bash ${{ env.dir }}/08-Installpip.sh
 
       - name: Cross compile
         run: |
-          sudo chroot mnt /bin/bash <<'chroot_end'
-
-          export LDFLAGS+=" -L/lib -L/usr/local/cuda/lib64 -L/usr/lib -L/usr/lib/aarch64-linux-gnu -L/lib/aarch64-linux-gnu"
-          export CFLAGS+=" -I/include -I/usr/local/cuda/include -I/usr/include -I/usr/include/aarch64-linux-gnu"
-          export MAKEFLAGS=-j1
-
-          export NVCC=/usr/local/cuda/bin/nvcc
-          export CUDACXX=/usr/local/cuda/bin/nvcc
-          
-          export USE_OPENCV=1 USE_BLAS=openblas USE_CUDA=1 USE_CUDA_PATH=/usr/local/cuda USE_CUDNN=1
-          export CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda/targets/aarch64-linux
-          export CUDA_HOME=/usr/local/cuda
-          
-          export MAX_JOBS=8
-
-          cd /src
-
-          mkdir build
-          cd build
-          
-          python3.8 -m pip install -r ../requirements.txt
-          python3.8 -m pip -vvv install ../
-
-          python3.8 -m pip wheel -r ../requirements.txt
-          python3.8 -m pip wheel ..
-          python3.8 -m pip wheel pip setuptools wheel Cython cmake
-
-          chroot_end
-
-      - name: Ensure cross compile
-        if: always()
-        run: |
-          sudo chroot mnt /bin/bash <<'chroot_end'
-
-          export LDFLAGS+=" -L/lib -L/usr/local/cuda/lib64 -L/usr/lib -L/usr/lib/aarch64-linux-gnu -L/lib/aarch64-linux-gnu"
-          export CFLAGS+=" -I/include -I/usr/local/cuda/include -I/usr/include -I/usr/include/aarch64-linux-gnu"
-          export MAKEFLAGS=-j1
-
-          export NVCC=/usr/local/cuda/bin/nvcc
-          export CUDACXX=/usr/local/cuda/bin/nvcc
-          
-          export USE_OPENCV=1 USE_BLAS=openblas USE_CUDA=1 USE_CUDA_PATH=/usr/local/cuda USE_CUDNN=1
-          export CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda/targets/aarch64-linux
-          export CUDA_HOME=/usr/local/cuda
-          
-          export MAX_JOBS=8
-
-          cd /src
-
-          mkdir build
-          cd build
-          
-          python3.8 -m pip install -r ../requirements.txt
-          python3.8 -m pip -vvv install ../
-
-          python3.8 -m pip wheel -r ../requirements.txt
-          python3.8 -m pip wheel ..
-          python3.8 -m pip wheel pip setuptools wheel Cython cmake
-
-          chroot_end
+          bash ${{ env.dir }}/timer_main.sh bash ${{ env.dir }}/09-Compile.sh
 
       - name: Collect built file
         if: always()
         run: |
-          sudo mv mnt/src/build build
+          bash ${{ env.dir }}/10-Collect.sh
 
       - name: Unmount
         run: |
-          sudo rm mnt/usr/bin/qemu-aarch64-static
-
-          sudo umount -lf mnt/run
-          sudo umount -lf mnt/dev
-          sudo umount -lf mnt/sys
-          sudo umount -lf mnt/proc
-          sudo umount -lf mnt
-          sudo umount -lf overlay/lower
+          bash ${{ env.dir }}/11-Umount.sh
           
       - name: Store built file
         if: always()
@@ -178,14 +78,3 @@ jobs:
         with:
           name: built-artifact
           path: build
-
-      - name: Install apt-file
-        if: failure()
-        run: |
-          sudo apt-get install -y apt-file
-          sudo apt-file update
-        
-      - name: Waiting for debugger
-        if: failure()
-        uses: mxschmitt/action-tmate@v3
-

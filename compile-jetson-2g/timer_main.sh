@@ -10,7 +10,7 @@ remaining_time=$(perl -e "print $end - $start")
 
 duration=$(perl -e "print $remaining_time - 10*60")
 
-duration=600
+# duration=600
 
 if [ $duration -gt 0 ]; then
     echo "killing in ${duration}"

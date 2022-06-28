@@ -20,7 +20,8 @@ jobs:
         run: |
           for gradle in */build.gradle ; do
           
-            sed -i -E 's@(com\.android\.tools\.build:gradle:)[0-9\.]+@\17.2.1@g' ${gradle}
+            # sed -i -E 's@(com\.android\.tools\.build:gradle:)[0-9\.]+@\17.2.1@g' ${gradle}
+            continue
             
           done
         
@@ -29,7 +30,7 @@ jobs:
           
             pushd $(dirname ${gradlew})
 
-            ./gradlew assembleRelease
+            gradle assembleRelease
 
             popd
             

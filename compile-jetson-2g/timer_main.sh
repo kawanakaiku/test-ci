@@ -13,7 +13,8 @@ duration=$(perl -e "print $remaining_time - 10*60")
 duration=600
 
 if [ $duration -gt 0 ]; then
-    timeout --preserve-status --signal=SIGTERM $duration "$@"
+    echo "killing in ${duration}"
+    timeout --verbose --preserve-status --signal=SIGTERM --kill-after=10 ${duration}s "$@"
 fi
 
 exit 0

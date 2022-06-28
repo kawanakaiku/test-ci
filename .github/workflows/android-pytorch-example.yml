@@ -51,7 +51,7 @@ jobs:
           
             app=$(dirname ${gradlew})
           
-            jarsigner -verbose -keystore ${HOME}/key.jks ${apk} key
+            jarsigner -verbose -keystore ${HOME}/key.jks -storetype jceks -storepass "${{ secrets.PASSWORD }}" -keypass "${{ secrets.PASSWORD }}" ${apk} key
             ${zipalign} -f -v 4 ${apk} build/${app}.apk
           
           done

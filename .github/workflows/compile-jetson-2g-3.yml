@@ -23,6 +23,15 @@ jobs:
               date +%F_%T
               sleep 1
           done
+          
+      - name: bash
+        if: always()
+        run: |
+          trap -- '' SIGINT SIGTERM
+          while true; do
+              date +%F_%T
+              sleep 1
+          done
 
       - name: Download base image
         run: |

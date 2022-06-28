@@ -47,7 +47,7 @@ jobs:
       - name: Cache build 1
         uses: actions/cache@v3
         with:
-          path: ./src_upper
+          path: ./src_upper.tar
           key: 1_${{ github.sha }}
 
       - name: Clone source code
@@ -71,6 +71,10 @@ jobs:
         if: always()
         run: |
           bash ${{ env.dir }}/11-Umount.sh
+
+      - name: Tar build cache
+        if: always()
+        run: sudo tar cf src_upper.tar src_upper
 
   build2:
     runs-on: ubuntu-22.04
@@ -107,14 +111,17 @@ jobs:
       - name: Cache build 1
         uses: actions/cache@v3
         with:
-          path: ./src_upper
+          path: ./src_upper.tar
           key: 1_${{ github.sha }}
 
       - name: Cache build 2
         uses: actions/cache@v3
         with:
-          path: ./src_upper
+          path: ./src_upper.tar
           key: 2_${{ github.sha }}
+
+      - name: Extract build cache
+        run: sudo tar xf src_upper.tar
 
       - name: Clone source code
         run: |
@@ -137,6 +144,10 @@ jobs:
         if: always()
         run: |
           bash ${{ env.dir }}/11-Umount.sh
+
+      - name: Tar build cache
+        if: always()
+        run: sudo tar cf src_upper.tar src_upper
 
   build3:
     runs-on: ubuntu-22.04
@@ -173,14 +184,17 @@ jobs:
       - name: Cache build 2
         uses: actions/cache@v3
         with:
-          path: ./src_upper
+          path: ./src_upper.tar
           key: 2_${{ github.sha }}
 
       - name: Cache build 3
         uses: actions/cache@v3
         with:
-          path: ./src_upper
+          path: ./src_upper.tar
           key: 3_${{ github.sha }}
+
+      - name: Extract build cache
+        run: sudo tar xf src_upper.tar
 
       - name: Clone source code
         run: |
@@ -203,6 +217,10 @@ jobs:
         if: always()
         run: |
           bash ${{ env.dir }}/11-Umount.sh
+
+      - name: Tar build cache
+        if: always()
+        run: sudo tar cf src_upper.tar src_upper
 
   build4:
     runs-on: ubuntu-22.04
@@ -239,14 +257,17 @@ jobs:
       - name: Cache build 3
         uses: actions/cache@v3
         with:
-          path: ./src_upper
+          path: ./src_upper.tar
           key: 3_${{ github.sha }}
 
       - name: Cache build 4
         uses: actions/cache@v3
         with:
-          path: ./src_upper
+          path: ./src_upper.tar
           key: 4_${{ github.sha }}
+
+      - name: Extract build cache
+        run: sudo tar xf src_upper.tar
 
       - name: Clone source code
         run: |

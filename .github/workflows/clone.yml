@@ -23,7 +23,7 @@ jobs:
       
       - name: clone
         run: |
-          sudo git clone --recursive -b ${{ env.version }} ${{ env.git }} ./${{ env.name }}
+          sudo git clone --recursive --depth=1 --branch=${{ env.version }} ${{ env.git }} ./${{ env.name }}
           
       - name: archive
         run: |

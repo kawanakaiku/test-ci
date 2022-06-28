@@ -1,7 +1,7 @@
 sudo chroot mnt /bin/bash <<'chroot_end'
 
 export LDFLAGS+=" -L/lib -L/usr/local/cuda/lib64 -L/usr/lib -L/usr/lib/aarch64-linux-gnu -L/lib/aarch64-linux-gnu"
-export CFLAGS+=" -I/include -I/usr/local/cuda/include -I/usr/include -I/usr/include/aarch64-linux-gnu"
+export CFLAGS+=" -mcpu=cortex-a57 -I/include -I/usr/local/cuda/include -I/usr/include -I/usr/include/aarch64-linux-gnu"
 export MAKEFLAGS=-j1
 
 export NVCC=/usr/local/cuda/bin/nvcc

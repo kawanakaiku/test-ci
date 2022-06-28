@@ -36,10 +36,24 @@ jobs:
 
             gradle assembleRelease || true
             
-            find . -name "*.apk" -print0 | xargs -0 -I@ cp --verbose @ ../build/${app}.apk
+            # find . -name "*.apk" -print0 | xargs -0 -I@ cp --verbose @ ../build/${app}.apk
 
             popd
             
+          done
+          
+          # put key
+          echo "${{ secrets.KEY_JKS_BASE64 }}" | base64 -d > ${HOME}/key.jks
+          
+          zipalign=$(ls ${ANDROID_SDK_ROOT}/build-tools/*/zipalign | tail -1)
+          
+          for apk in */app/build/outputs/apk/release/app-release-unsigned.apk ; do
+          
+            app=$(dirname ${gradlew})
+          
+            jarsigner -verbose -keystore ${HOME}/key.jks ${apk} key
+            ${zipalign} -f -v 4 ${apk} build/${app}.apk
+          
           done
           
       - name: Store built file

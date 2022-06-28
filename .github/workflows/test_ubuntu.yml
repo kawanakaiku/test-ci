@@ -36,13 +36,13 @@ jobs:
         id: cache-build
         uses: actions/cache@v3
         with:
-          path: ./test
+          path: ./test1
           key: test1
           
       - name: Run a multi-line script
         run: |
-            test -f test && cat test
-            echo ok | sudo tee test
+            test -f test1 && cat test1
+            echo ok | sudo tee test1
             
       - name: Store log files
         if: always()

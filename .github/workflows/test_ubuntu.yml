@@ -32,20 +32,17 @@ jobs:
             ls
             EOF
             
-      - name: bash
+      - name: Cache build
+        id: cache-build
+        uses: actions/cache@v3
+        with:
+          path: ./test
+          key: test1
+          
+      - name: Run a multi-line script
         run: |
-          while true; do
-              date +%F_%T
-              sleep 1
-          done
-            
-      - name: bash
-        if: always()
-        run: |
-          while true; do
-              date +%F_%T
-              sleep 1
-          done
+            test -f test && cat test
+            echo ok | sudo tee test
             
       - name: Store log files
         if: always()

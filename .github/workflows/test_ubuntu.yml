@@ -33,7 +33,6 @@ jobs:
             EOF
             
       - name: bash
-        if: always()
         run: |
           while true; do
               date +%F_%T

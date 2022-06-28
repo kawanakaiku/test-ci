@@ -291,6 +291,10 @@ jobs:
         run: |
           bash ${{ env.dir }}/11-Umount.sh
 
+      - name: Tar build cache
+        if: always()
+        run: sudo tar cf src_upper.tar src_upper
+
       - name: Store built file
         if: always()
         uses: actions/upload-artifact@v3

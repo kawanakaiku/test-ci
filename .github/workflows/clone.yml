@@ -24,6 +24,7 @@ jobs:
       - name: clone
         run: |
           sudo git clone --recursive --depth=1 --branch=${{ env.version }} ${{ env.git }} ./${{ env.name }}
+          sudo rm -r ./${{ env.name }}/.git
           
       - name: archive
         run: |

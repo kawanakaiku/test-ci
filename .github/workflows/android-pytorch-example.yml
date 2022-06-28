@@ -34,7 +34,7 @@ jobs:
           
             pushd ${app}
 
-            gradle assembleRelease || true
+            ./gradlew assembleRelease || true
             
             # find . -name "*.apk" -print0 | xargs -0 -I@ cp --verbose @ ../build/${app}.apk
 
@@ -45,13 +45,15 @@ jobs:
           # put key
           echo "${{ secrets.KEY_JKS_BASE64 }}" | base64 -d > ${HOME}/key.jks
           
+          apksigner=$(ls ${ANDROID_SDK_ROOT}/build-tools/*/apksigner | tail -1)
           zipalign=$(ls ${ANDROID_SDK_ROOT}/build-tools/*/zipalign | tail -1)
           
           for apk in */app/build/outputs/apk/release/app-release-unsigned.apk ; do
           
             app=$(dirname ${gradlew})
           
-            jarsigner -verbose -keystore ${HOME}/key.jks -storetype jceks -storepass "${{ secrets.PASSWORD }}" -keypass "${{ secrets.PASSWORD }}" ${apk} key
+            ${apksigner} sign --ks ${HOME}/key.jks -v --v2-signing-enabled true --ks-key-alias key --ks-pass pass:${{ secrets.PASSWORD }} ${apk}
+
             ${zipalign} -f -v 4 ${apk} build/${app}.apk
           
           done

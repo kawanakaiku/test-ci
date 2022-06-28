@@ -19,7 +19,10 @@ jobs:
       - name: build
         run: |
           for gradle in */build.gradle ; do
+          
             sed -i -E 's@(com\.android\.tools\.build:gradle:)[0-9\.]+@\17.2.1@g'
+            
+          done
         
         
           for gradlew in */gradlew ; do

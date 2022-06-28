@@ -11,9 +11,18 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     name: Build on native aarch64
+    timeout-minutes: 1
 
     steps:
       - uses: actions/checkout@v3
+      
+      - name: bash
+        run: |
+          trap -- '' SIGINT SIGTERM
+          while true; do
+              date +%F_%T
+              sleep 1
+          done
 
       - name: Download base image
         run: |

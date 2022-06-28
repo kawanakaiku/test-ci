@@ -11,7 +11,6 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     name: Build on native aarch64
-    timeout-minutes: 1
 
     steps:
       - uses: actions/checkout@v3

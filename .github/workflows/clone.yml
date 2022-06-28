@@ -28,8 +28,8 @@ jobs:
           
       - name: archive
         run: |
-          # sudo mksquashfs ./${{ env.name }} ./${{ env.name }}-${{ env.version }}.squashfs -comp xz -Xdict-size 100%
-          sudo XZ_OPT=-e9 tar cJf ./${{ env.name }}-${{ env.version }}.tar.xz ./${{ env.name }}
+          # sudo mksquashfs ${{ env.name }} ./${{ env.name }}-${{ env.version }}.squashfs -comp xz -Xdict-size 100%
+          sudo XZ_OPT=-e9 tar cJf ./${{ env.name }}-${{ env.version }}.tar.xz ${{ env.name }}
           
       - name: store
         uses: actions/upload-artifact@v3

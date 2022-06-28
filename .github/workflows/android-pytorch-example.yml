@@ -26,8 +26,13 @@ jobs:
             continue
             
           done
-        
-        
+          
+          for abi in ${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/*/*-linux-android* ; do
+          
+            ln -s ${abi} ${ANDROID_NDK_ROOT}/toolchains
+          
+          done
+
           for gradlew in */gradlew ; do
           
             app=$(dirname ${gradlew})

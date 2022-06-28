@@ -9,7 +9,7 @@ on:
  
 jobs:
   build:
-    runs-on: macos-12
+    runs-on: ubuntu-22.04
   
     steps:
       - name: clone
@@ -21,7 +21,7 @@ jobs:
           # put key
           # echo "${{ secrets.KEY_JKS_BASE64 }}" | base64 -d > ${HOME}/key.jks
           
-          for gradlew in $(ls */gradlew) ; do
+          for gradlew in */gradlew ; do
           
             pushd $(dirname ${gradlew})
 

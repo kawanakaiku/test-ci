@@ -9,15 +9,6 @@ jobs:
   
     steps:
       - uses: actions/checkout@v3
-
-      - name: get storage info
-        run: |
-            free -h
-            df -h
-            
-      - name: Run a multi-line script
-        run: |
-            
            
             
       - name: Waiting for debugger

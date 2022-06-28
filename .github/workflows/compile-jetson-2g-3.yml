@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths:
       - '.github/workflows/compile-jetson-2g-3.yml'
+      - 'compile-jetson-2g/**'
   workflow_dispatch:
   
 env:

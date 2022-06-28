@@ -1,10 +1,10 @@
-name: android-pytorch
+name: clone
 
 on:
     push:
       branches: [ main ]
       paths:
-        - '.github/workflows/android-pytorch.yml'
+        - '.github/workflows/clone.yml'
     workflow_dispatch:
     
 env:

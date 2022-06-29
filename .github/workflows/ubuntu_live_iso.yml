@@ -106,7 +106,7 @@ jobs:
 
           apt-get install -y --no-install-recommends linux-generic
 
-          apt-get install -y --no-install-recommends ubuntu-gnome-desktop
+          apt-get install -y ubuntu-gnome-desktop
 
           apt-get install -y \
             curl \
@@ -130,7 +130,14 @@ jobs:
             apparmor.service \
             ModemManager.service \
             cron.service anacron.service \
-            casper-md5check.service
+            casper-md5check.service casper.service \
+            apt-daily.service apt-daily.timer apt-daily-upgrade.service apt-daily-upgrade.timer \
+            man-db.timer motd-news.service motd-news.timer update-notifier-download.service update-notifier-download.timer \
+            gpu-manager.service \
+            e2scrub_all.service e2scrub_reap.service \
+            ua-timer.service \
+            packagekit-offline-update.service packagekit.service \
+            snapd.service
           do
             file=/usr/lib/systemd/system/${service}
             test -f ${file} || continue

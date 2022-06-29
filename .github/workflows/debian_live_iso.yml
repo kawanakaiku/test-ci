@@ -55,7 +55,7 @@ jobs:
           sources_list
 
           # use cat as zstd for disabling initramfs compress since zstd is not installed
-          ln -s /usr/cat /usr/zstd
+          ln -s /bin/cat /bin/zstd
 
           apt-get update
 

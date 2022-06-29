@@ -54,13 +54,6 @@ jobs:
           deb http://deb.debian.org/debian/ sid main contrib non-free
           sources_list
 
-          # use cat as zstd for disabling initramfs compress since zstd is not installed
-          /bin/cat >/bin/zstd <<'ZSTD'
-          #!/usr/bin/sh
-          exec /bin/cat
-          ZSTD
-          chmod +x /bin/zstd
-
           apt-get update
 
           apt-get install -y libterm-readline-gnu-perl systemd-sysv
@@ -86,7 +79,8 @@ jobs:
             grub-common \
             grub-pc \
             grub-pc-bin \
-            grub2-common
+            grub2-common \
+            zstd
 
           apt-get install -y --no-install-recommends linux-image-amd64
 
@@ -100,6 +94,10 @@ jobs:
           apt-get purge --auto-remove -y
 
           truncate -s 0 /etc/machine-id
+          
+          ###### customize ######
+          timedatectl set-local-rtc true
+          #######################
 
           rm /sbin/initctl
           dpkg-divert --rename --remove /sbin/initctl
@@ -108,8 +106,6 @@ jobs:
           
           rm -rf /var/lib/apt/lists/*
           rm -rf /tmp/* ~/.bash_history
-
-          rm /bin/zstd
           
           umount /proc
           umount /sys

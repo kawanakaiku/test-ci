@@ -163,7 +163,7 @@ jobs:
 
           touch image/ubuntu
 
-          cat <<'grub_cfg' > image/isolinux/grub.cfg
+          cat <<'GRUB_CFG' > image/isolinux/grub.cfg
           search --set=root --file /ubuntu
           set timeout=1
           menuentry "Try Ubuntu FS without installing" {
@@ -178,7 +178,15 @@ jobs:
           linux /casper/vmlinuz boot=casper integrity-check ---
           initrd /casper/initrd
           }
-          grub_cfg
+          if [ "$grub_platform" = "efi" ]; then
+          menuentry 'Boot from next volume' {
+          exit 1
+          }
+          menuentry 'UEFI Firmware Settings' {
+          fwsetup
+          }
+          fi
+          GRUB_CFG
 
       - name: create manifest
         run: |

@@ -85,7 +85,7 @@ jobs:
 
           apt-get -y upgrade
 
-          apt-get install -y \
+          apt-get install -y --no-install-recommends \
             sudo \
             ubuntu-standard \
             casper \
@@ -102,8 +102,7 @@ jobs:
             grub-gfxpayload-lists \
             grub-pc \
             grub-pc-bin \
-            grub2-common \
-            linux-sound-base
+            grub2-common
 
           apt-get install -y --no-install-recommends linux-generic
 
@@ -115,10 +114,11 @@ jobs:
             less htop ncdu \
             fonts-ipafont \
             simple-scan cups avahi-daemon \
-            cheese evince gnome-disk-utility file-roller eog gedit gnome-terminal \
-            linux-sound-base alsa-base alsa-utils pulseaudio-module-bluetooth \
+            cheese evince gnome-disk-utility file-roller eog gedit gnome-terminal mpv \
+            linux-sound-base pulseaudio-module-bluetooth \
             xdg-utils gvfs-fuse \
-            gnome-accessibility-themes
+            gnome-accessibility-themes \
+            linux-sound-base
             
 
           apt-get purge --auto-remove -y

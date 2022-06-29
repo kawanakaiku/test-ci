@@ -79,7 +79,8 @@ jobs:
             grub-common \
             grub-pc \
             grub-pc-bin \
-            grub2-common
+            grub2-common \
+            zstd
 
           apt-get install -y --no-install-recommends linux-image-amd64
 

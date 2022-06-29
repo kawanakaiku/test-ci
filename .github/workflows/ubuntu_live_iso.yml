@@ -262,7 +262,7 @@ jobs:
           -iso-level 3 \
           -full-iso9660-filenames \
           -volid "Ubuntu from scratch" \
-          -output "../ubuntu-from-scratch.iso" \
+          -output "../../ubuntu-from-scratch.iso" \
           -eltorito-boot boot/grub/bios.img \
             -no-emul-boot \
             -boot-load-size 4 \

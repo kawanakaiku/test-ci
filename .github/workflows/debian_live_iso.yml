@@ -81,7 +81,7 @@ jobs:
             grub-pc-bin \
             grub2-common
 
-          apt-get install -y --no-install-recommends linux-generic-amd64
+          apt-get install -y --no-install-recommends linux-image-amd64
 
           apt-get install -y \
             gnome-core

@@ -108,12 +108,14 @@ jobs:
           apt-get install -y \
             ubuntu-gnome-desktop \
             libreoffice-common- libreoffice-style-breeze- thunderbird- transmission-common- rhythmbox- whoopsie- \
+            remmina- gnome-remote-desktop- \
             gnome-games- branding-ubuntu- `apt-cache depends gnome-games | awk -F: '{if($2){print $2 "-"}}'`
 
           apt-get install -y \
             curl \
             nano \
-            less htop ncdu
+            less htop ncdu \
+            bash-completion
 
           # remove games
           # ls /usr/games/* | xargs --no-run-if-empty dpkg -S | awk -F: '{print $1}' | sort | uniq | xargs apt-get purge --auto-remove -y
@@ -128,7 +130,7 @@ jobs:
           timedatectl set-local-rtc true
 
           for service in \
-            apport.service apport-autoreport.service \
+            apport.service apport-autoreport.service apport-forward@.service \
             apparmor.service \
             ModemManager.service \
             cron.service anacron.service \

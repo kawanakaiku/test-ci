@@ -37,7 +37,7 @@ jobs:
 
       - name: chroot
         run: |
-          sudo chroot live-ubuntu-from-scratch/chroot /usr/bin/bash <<'chroot'
+          sudo chroot live-ubuntu-from-scratch/chroot /bin/bash <<'chroot'
 
           set -eu
 

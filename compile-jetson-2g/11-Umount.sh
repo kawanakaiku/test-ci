@@ -1,6 +1,8 @@
 sudo rm mnt/usr/bin/qemu-aarch64-static
 
 sudo umount -lf mnt/src
+sudo umount -lf src
+sudo umount -lf src_lower
 
 sudo umount -lf mnt/run
 sudo umount -lf mnt/dev

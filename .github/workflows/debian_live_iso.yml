@@ -54,6 +54,9 @@ jobs:
           deb http://deb.debian.org/debian/ sid main contrib non-free
           sources_list
 
+          # use cat as zstd for disabling initramfs compress since zstd is not installed
+          ln -s /usr/bin/cat /usr/bin/zstd
+
           apt-get update
 
           apt-get install -y libterm-readline-gnu-perl systemd-sysv
@@ -79,8 +82,7 @@ jobs:
             grub-common \
             grub-pc \
             grub-pc-bin \
-            grub2-common \
-            zstd
+            grub2-common
 
           apt-get install -y --no-install-recommends linux-image-amd64
 
@@ -102,6 +104,8 @@ jobs:
           
           rm -rf /var/lib/apt/lists/*
           rm -rf /tmp/* ~/.bash_history
+
+          rm /usr/bin/zstd
           
           umount /proc
           umount /sys
@@ -121,8 +125,8 @@ jobs:
 
           mkdir -p image/{casper,isolinux,install}
 
-          sudo cp chroot/boot/vmlinuz-**-**-generic image/casper/vmlinuz
-          sudo cp chroot/boot/initrd.img-**-**-generic image/casper/initrd
+          sudo cp chroot/boot/vmlinuz-**-amd64 image/casper/vmlinuz
+          sudo cp chroot/boot/initrd.img-**-amd64 image/casper/initrd
 
           # sudo cp chroot/boot/memtest86+.bin image/install/memtest86+
 

@@ -105,20 +105,20 @@ jobs:
 
           apt-get install -y --no-install-recommends linux-generic
 
-          apt-get install -y ubuntu-gnome-desktop
-          
-          # remove games
-          for game in /usr/games/* ; do
-            packages=$(dpkg -S ${game} | awk -F: '{print $1}')  # comma seperated
-            packages=(${packages//,/})
-            apt-get purge --auto-remove -y ${packages[@]}
-          done
+          apt-get install -y
+            ubuntu-gnome-desktop \
+            libreoffice-common- libreoffice-style-breeze- thunderbird- transmission-common- rhythmbox- whoopsie- \
+            gnome-mahjongg- gnome-mines- gnome-sudoku- aisleriot- branding-ubuntu-
 
           apt-get install -y \
             curl \
             nano \
             less htop ncdu
 
+          # remove games
+          # ls /usr/games/* | xargs --no-run-if-empty dpkg -S | awk -F: '{print $1}' | sort | uniq | xargs apt-get purge --auto-remove -y
+          
+          # remove others
           apt-get purge --auto-remove -y
 
           truncate -s 0 /etc/machine-id

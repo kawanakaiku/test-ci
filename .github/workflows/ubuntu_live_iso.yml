@@ -32,13 +32,13 @@ jobs:
             live-ubuntu-from-scratch/chroot \
             http://archive.ubuntu.com/ubuntu/
 
-       - name: mount
-         run: |
+      - name: mount
+        run: |
           sudo mount --bind /dev live-ubuntu-from-scratch/chroot/dev
           sudo mount --bind /run live-ubuntu-from-scratch/chroot/run
 
-       - name: chroot
-         run: |
+      - name: chroot
+        run: |
           sudo chroot live-ubuntu-from-scratch/chroot /usr/bin/bash <<'chroot'
 
           set -eu
@@ -126,13 +126,13 @@ jobs:
 
           chroot
 
-       - name: unmount
-         run: |
+      - name: unmount
+        run: |
           sudo umount live-ubuntu-from-scratch/chroot/run
           sudo umount live-ubuntu-from-scratch/chroot/dev
 
-       - name: create cd image
-         run: |
+      - name: create cd image
+        run: |
           cd live-ubuntu-from-scratch
 
           mkdir -p image/{casper,isolinux,install}
@@ -146,8 +146,8 @@ jobs:
           unzip -p image/install/memtest86-usb.zip memtest86-usb.img > image/install/memtest86
           rm -f image/install/memtest86-usb.zip
 
-       - name: configure grub
-         run: |
+      - name: configure grub
+        run: |
           cd live-ubuntu-from-scratch
 
           touch image/ubuntu

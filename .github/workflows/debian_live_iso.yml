@@ -68,7 +68,6 @@ jobs:
 
           apt-get install -y \
             sudo \
-            ubuntu-standard \
             casper \
             discover \
             laptop-detect \

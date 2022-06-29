@@ -105,10 +105,10 @@ jobs:
 
           apt-get install -y --no-install-recommends linux-generic
 
-          apt-get install -y
+          apt-get install -y \
             ubuntu-gnome-desktop \
             libreoffice-common- libreoffice-style-breeze- thunderbird- transmission-common- rhythmbox- whoopsie- \
-            gnome-mahjongg- gnome-mines- gnome-sudoku- aisleriot- branding-ubuntu-
+            gnome-games- branding-ubuntu- `apt-cache depends gnome-games | awk -F: '{if($2){print $2 "-"}}'`
 
           apt-get install -y \
             curl \

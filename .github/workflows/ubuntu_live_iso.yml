@@ -144,7 +144,7 @@ jobs:
             snapd.service
           do
             file=/usr/lib/systemd/system/${service}
-            test -f ${file} || continue
+            test -f ${file} || echo "W:${file} not found"
                 rm ${file}
                 ln -s /dev/null ${file}
           done
@@ -154,7 +154,7 @@ jobs:
             update-notifier-crash.service update-notifier-livepatch.service update-notifier-release.service
           do
             file=/usr/lib/systemd/user/${service}
-            test -f ${file} || continue
+            test -f ${file} || echo "W:${file} not found"
             rm ${file}
             ln -s /dev/null ${file}
           done

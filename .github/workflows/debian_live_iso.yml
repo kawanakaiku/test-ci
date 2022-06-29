@@ -185,7 +185,7 @@ jobs:
         run: |
           cd live-ubuntu-from-scratch
 
-          sudo mksquashfs chroot image/casper/filesystem.squashfs -comp xz -b 1048576 -Xdict-size 100% -wildcards -e 'chroot/boot/*'
+          sudo mksquashfs chroot image/casper/filesystem.squashfs -comp xz -b 1048576 -Xdict-size 100% -wildcards -e 'boot/*'
 
           printf $(sudo du -sx --block-size=1 chroot | cut -f1) > image/casper/filesystem.size
 

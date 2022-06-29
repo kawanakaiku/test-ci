@@ -51,14 +51,7 @@ jobs:
           echo "ubuntu-fs-live" > /etc/hostname
 
           cat <<'sources_list' > /etc/apt/sources.list
-          deb http://archive.ubuntu.com/ubuntu/ kinetic main restricted universe multiverse
-          # deb-src http://archive.ubuntu.com/ubuntu/ kinetic main restricted universe multiverse
-
-          deb http://archive.ubuntu.com/ubuntu/ kinetic-security main restricted universe multiverse
-          # deb-src http://archive.ubuntu.com/ubuntu/ kinetic-security main restricted universe multiverse
-
-          deb http://archive.ubuntu.com/ubuntu/ kinetic-updates main restricted universe multiverse
-          # deb-src http://archive.ubuntu.com/ubuntu/ kinetic-updates main restricted universe multiverse
+          deb http://deb.debian.org/debian/ sid main contrib non-free
           sources_list
 
           apt-get update

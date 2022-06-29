@@ -102,20 +102,24 @@ jobs:
             grub-gfxpayload-lists \
             grub-pc \
             grub-pc-bin \
-            grub2-common
+            grub2-common \
+            linux-sound-base
 
           apt-get install -y --no-install-recommends linux-generic
 
-          apt-get install -y ubuntu-gnome-desktop
+          apt-get install -y --no-install-recommends ubuntu-gnome-desktop
 
           apt-get install -y \
             curl \
             nano \
             less htop ncdu \
-            fonts-takao \
-            cheese \
-            simple-scan \
-            evince
+            fonts-ipafont \
+            simple-scan cups avahi-daemon \
+            cheese evince gnome-disk-utility file-roller eog gedit gnome-terminal \
+            linux-sound-base alsa-base alsa-utils pulseaudio-module-bluetooth \
+            xdg-utils gvfs-fuse \
+            gnome-accessibility-themes
+            
 
           apt-get purge --auto-remove -y
 

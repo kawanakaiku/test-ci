@@ -106,20 +106,48 @@ jobs:
 
           apt-get install -y --no-install-recommends linux-generic
 
-          apt-get install -y \
-            gnome-core
+          apt-get install -y --no-install-recommends ubuntu-gnome-desktop
 
           apt-get install -y \
             curl \
             nano \
-            less htop ncdu
-
+            less htop ncdu \
+            fonts-takao 
+            cheese \
+            simple-scan \
+            evince
+            
           apt-get purge --auto-remove -y
 
           truncate -s 0 /etc/machine-id
 
           ###### customize ######
+          
           timedatectl set-local-rtc true
+          
+          for service in \
+            apport.service apport-autoreport.service \
+            apparmor.service \
+            ModemManager.service \
+            cron.service anacron.service \
+            casper-md5check.service
+          do
+            file=/usr/lib/systemd/system/${service}
+            test -f ${file} || continue
+                rm ${file}
+                ln -s /dev/null ${file}
+          done
+
+          for service in \
+            tracker-extract-3.service tracker-miner-fs-3.service tracker-miner-fs-control-3.service tracker-writeback-3.service tracker-xdg-portal-3.service \
+            update-notifier-crash.service update-notifier-livepatch.service update-notifier-release.service
+          do
+            file=/usr/lib/systemd/user/${service}
+            test -f ${file} || continue
+            rm ${file}
+            ln -s /dev/null ${file}
+          done
+          
           #######################
           
           rm /sbin/initctl

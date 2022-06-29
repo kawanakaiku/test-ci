@@ -62,7 +62,7 @@ jobs:
           deb http://archive.ubuntu.com/ubuntu/ kinetic-updates main restricted universe multiverse
           # deb-src http://archive.ubuntu.com/ubuntu/ kinetic-updates main restricted universe multiverse
           sources_list
-          
+
           cat <<'tweak' > /etc/apt/apt.conf.d/99cutsom
           # disable languages update
           Acquire::Languages "none";
@@ -112,19 +112,19 @@ jobs:
             curl \
             nano \
             less htop ncdu \
-            fonts-takao \ 
+            fonts-takao \
             cheese \
             simple-scan \
             evince
-            
+
           apt-get purge --auto-remove -y
 
           truncate -s 0 /etc/machine-id
 
           ###### customize ######
-          
+
           timedatectl set-local-rtc true
-          
+
           for service in \
             apport.service apport-autoreport.service \
             apparmor.service \
@@ -147,17 +147,17 @@ jobs:
             rm ${file}
             ln -s /dev/null ${file}
           done
-          
+
           #######################
-          
+
           rm /sbin/initctl
           dpkg-divert --rename --remove /sbin/initctl
 
           apt-get clean
-          
+
           rm -rf /var/lib/apt/lists/*
           rm -rf /tmp/* ~/.bash_history
-          
+
           umount /proc
           umount /sys
           umount /dev/pts

@@ -28,7 +28,7 @@ jobs:
           sudo debootstrap \
             --arch=amd64 \
             --variant=minbase \
-            devel \
+            kinetic \
             live-ubuntu-from-scratch/chroot \
             http://archive.ubuntu.com/ubuntu/
 
@@ -53,14 +53,14 @@ jobs:
           echo "ubuntu-fs-live" > /etc/hostname
 
           cat <<'sources_list' > /etc/apt/sources.list
-          deb http://archive.ubuntu.com/ubuntu/ devel main restricted universe multiverse
-          # deb-src http://archive.ubuntu.com/ubuntu/ devel main restricted universe multiverse
+          deb http://archive.ubuntu.com/ubuntu/ kinetic main restricted universe multiverse
+          # deb-src http://archive.ubuntu.com/ubuntu/ kinetic main restricted universe multiverse
 
-          deb http://archive.ubuntu.com/ubuntu/ devel-security main restricted universe multiverse
-          # deb-src http://archive.ubuntu.com/ubuntu/ devel-security main restricted universe multiverse
+          deb http://archive.ubuntu.com/ubuntu/ kinetic-security main restricted universe multiverse
+          # deb-src http://archive.ubuntu.com/ubuntu/ kinetic-security main restricted universe multiverse
 
-          deb http://archive.ubuntu.com/ubuntu/ devel-updates main restricted universe multiverse
-          # deb-src http://archive.ubuntu.com/ubuntu/ devel-updates main restricted universe multiverse
+          deb http://archive.ubuntu.com/ubuntu/ kinetic-updates main restricted universe multiverse
+          # deb-src http://archive.ubuntu.com/ubuntu/ kinetic-updates main restricted universe multiverse
           sources_list
 
           apt-get update

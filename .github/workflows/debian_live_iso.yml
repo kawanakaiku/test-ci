@@ -54,6 +54,16 @@ jobs:
           deb http://deb.debian.org/debian/ sid main contrib non-free
           sources_list
 
+          cat <<'tweak' > /etc/apt/apt.conf.d/99cutsom
+          # disable languages update
+          Acquire::Languages "none";
+          # disable auto update
+          APT::Periodic::Update-Package-Lists "0";
+          APT::Periodic::Download-Upgradeable-Packages "0";
+          APT::Periodic::AutocleanInterval "0";
+          APT::Periodic::Unattended-Upgrade "0";
+          tweak
+
           apt-get update
 
           apt-get install -y libterm-readline-gnu-perl systemd-sysv

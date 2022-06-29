@@ -68,7 +68,6 @@ jobs:
 
           apt-get install -y \
             sudo \
-            casper \
             discover \
             laptop-detect \
             os-prober \
@@ -78,7 +77,6 @@ jobs:
             wpagui \
             locales \
             grub-common \
-            grub-gfxpayload-lists \
             grub-pc \
             grub-pc-bin \
             grub2-common

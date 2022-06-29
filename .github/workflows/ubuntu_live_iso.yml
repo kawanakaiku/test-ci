@@ -103,7 +103,7 @@ jobs:
             grub-pc-bin \
             grub2-common
 
-          apt-get install -y --no-install-recommends linux-generic
+          apt-get install -y --no-install-recommends linux-generic firmware-sof-signed
 
           apt-get install -y \
             ubuntu-gnome-desktop \

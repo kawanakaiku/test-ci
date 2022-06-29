@@ -116,8 +116,10 @@ jobs:
           dpkg-divert --rename --remove /sbin/initctl
 
           apt-get clean
-
+          
+          rm -rf /var/lib/apt/lists/*
           rm -rf /tmp/* ~/.bash_history
+          
           umount /proc
           umount /sys
           umount /dev/pts

@@ -24,11 +24,11 @@ jobs:
 
       - name: bootstrap
         run: |
-          # mkdir live-ubuntu-from-scratch
+          mkdir live-ubuntu-from-scratch
           for i in 648ACFD622F3D138 0E98404D386FA1D9 ; do sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $i ; done
           sudo mmdebstrap --components=main,contrib,non-free \
             --variant=apt --architecture=amd64 \
-            sid ./live-ubuntu-from-scratch http://deb.debian.org/debian/
+            sid ./live-ubuntu-from-scratch/chroot http://deb.debian.org/debian/
 
       - name: mount
         run: |

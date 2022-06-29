@@ -112,7 +112,7 @@ jobs:
             curl \
             nano \
             less htop ncdu \
-            fonts-takao 
+            fonts-takao \ 
             cheese \
             simple-scan \
             evince

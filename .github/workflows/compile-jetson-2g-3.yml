@@ -62,11 +62,6 @@ jobs:
         run: |
           bash ${{ env.dir }}/timer_main.sh bash ${{ env.dir }}/09-Compile.sh
 
-      - name: Collect built file
-        if: always()
-        run: |
-          bash ${{ env.dir }}/10-Collect.sh
-
       - name: Unmount
         if: always()
         run: |
@@ -74,7 +69,7 @@ jobs:
 
       - name: Tar build cache
         if: always()
-        run: sudo tar cf src_upper.tar src_upper
+        run: sudo tar cf src_upper.tar src_upper && ls -lha
 
   build2:
     runs-on: ubuntu-22.04
@@ -135,11 +130,6 @@ jobs:
         run: |
           bash ${{ env.dir }}/timer_main.sh bash ${{ env.dir }}/09-Compile.sh
 
-      - name: Collect built file
-        if: always()
-        run: |
-          bash ${{ env.dir }}/10-Collect.sh
-
       - name: Unmount
         if: always()
         run: |
@@ -147,7 +137,7 @@ jobs:
 
       - name: Tar build cache
         if: always()
-        run: sudo tar cf src_upper.tar src_upper
+        run: sudo tar cf src_upper.tar src_upper && ls -lha
 
   build3:
     runs-on: ubuntu-22.04
@@ -208,11 +198,6 @@ jobs:
         run: |
           bash ${{ env.dir }}/timer_main.sh bash ${{ env.dir }}/09-Compile.sh
 
-      - name: Collect built file
-        if: always()
-        run: |
-          bash ${{ env.dir }}/10-Collect.sh
-
       - name: Unmount
         if: always()
         run: |
@@ -220,7 +205,7 @@ jobs:
 
       - name: Tar build cache
         if: always()
-        run: sudo tar cf src_upper.tar src_upper
+        run: sudo tar cf src_upper.tar src_upper && ls -lha
 
   build4:
     runs-on: ubuntu-22.04
@@ -293,7 +278,7 @@ jobs:
 
       - name: Tar build cache
         if: always()
-        run: sudo tar cf src_upper.tar src_upper
+        run: sudo tar cf src_upper.tar src_upper && ls -lha
 
       - name: Store built file
         if: always()

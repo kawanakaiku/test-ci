@@ -118,7 +118,7 @@ jobs:
             linux-sound-base pulseaudio-module-bluetooth \
             xdg-utils gvfs-fuse \
             gnome-accessibility-themes \
-            linux-sound-base
+            xserver-xorg-video-intel
             
 
           apt-get purge --auto-remove -y

@@ -109,7 +109,8 @@ jobs:
             ubuntu-gnome-desktop \
             libreoffice-common- libreoffice-style-breeze- thunderbird- transmission-common- rhythmbox- whoopsie- \
             remmina- gnome-remote-desktop- \
-            gnome-games- branding-ubuntu- `apt-cache depends gnome-games | awk -F: '{if($2){print $2 "-"}}'`
+            gnome-games- branding-ubuntu- `apt-cache depends gnome-games | awk -F: '{if($2){print $2 "-"}}'` \
+            gnome-todo- gnome-calendar- gnome-accessibility-themes-
 
           apt-get install -y \
             curl \
@@ -141,22 +142,18 @@ jobs:
             e2scrub_all.service e2scrub_reap.service \
             ua-timer.service \
             packagekit-offline-update.service packagekit.service \
-            snapd.service
+            snapd.service snapd.apparmor.service snapd.socket snapd.system-shutdown.service snapd.snap-repair.timer snapd.seeded.service snapd.recovery-chooser-trigger.service
           do
-            file=/usr/lib/systemd/system/${service}
-            test -f ${file} || echo "W:${file} not found"
-                rm ${file}
-                ln -s /dev/null ${file}
+            file=/etc/systemd/system/${service}
+            ln -sf /dev/null ${file}
           done
 
           for service in \
             tracker-extract-3.service tracker-miner-fs-3.service tracker-miner-fs-control-3.service tracker-writeback-3.service tracker-xdg-portal-3.service \
             update-notifier-crash.service update-notifier-livepatch.service update-notifier-release.service
           do
-            file=/usr/lib/systemd/user/${service}
-            test -f ${file} || echo "W:${file} not found"
-            rm ${file}
-            ln -s /dev/null ${file}
+            file=/etc/systemd/user/${service}
+            ln -sf /dev/null ${file}
           done
 
           #######################

@@ -164,6 +164,7 @@ jobs:
           touch image/ubuntu
 
           cat <<'grub_cfg' > image/isolinux/grub.cfg
+          search --set=root --file /ubuntu
           set timeout=1
           menuentry "Try Ubuntu FS without installing" {
           linux /casper/vmlinuz boot=casper mitigations=off fsck.mode=skip nowatchdog selinux=0 apparmor=0 lsm= ---

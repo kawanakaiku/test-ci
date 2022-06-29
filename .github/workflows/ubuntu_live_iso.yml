@@ -117,6 +117,24 @@ jobs:
             nano \
             less htop ncdu \
             bash-completion
+            
+          # vscode
+          curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg
+          install -o root -g root -m 644 microsoft.gpg /etc/apt/trusted.gpg.d/
+          echo "deb [arch=amd64] https://packages.microsoft.com/repos/vscode stable main" > /etc/apt/sources.list.d/vscode.list
+          rm microsoft.gpg
+          
+          apt-get update
+          apt-get install -y code
+          
+          # chrome
+          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list
+          
+          apt-get update
+          apt-get install google-chrome-stable
+          
+          ln -sf /opt/google/chrome/google-chrome /etc/alternatives/x-www-browser
 
           # remove games
           # ls /usr/games/* | xargs --no-run-if-empty dpkg -S | awk -F: '{print $1}' | sort | uniq | xargs apt-get purge --auto-remove -y

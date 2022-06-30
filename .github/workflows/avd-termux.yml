@@ -16,8 +16,10 @@ jobs:
 
       - name: info
         run: |
-          echo which java
+          echo 'which java'
           which java
+          echo 'echo "$PATH"'
+          echo "$PATH"
           
       - name: download termux
         run: |

@@ -29,13 +29,27 @@ jobs:
         run: |
           ${ANDROID_HOME}/emulator/emulator -avd testAVD &>avd.log &
           sleep 100
-          ps aux | grep emulator
+  
+          ${ANDROID_HOME}/platform-tools/adb root
           ${ANDROID_HOME}/platform-tools/adb devices
           ${ANDROID_HOME}/platform-tools/adb install termux.apk
           
           # start app
-          adb shell am start -n com.termux/com.termux.app.TermuxActivity
+          ${ANDROID_HOME}/platform-tools/adb shell am start -n com.termux/com.termux.app.TermuxActivity
           sleep 30
+          
+          # chroot termux
+          ${ANDROID_HOME}/platform-tools/adb shell <<'ADB'
+          su $(stat -c %u /data/data/com.termux)
+          export PREFIX='/data/data/com.termux/files/usr'
+          export HOME='/data/data/com.termux/files/home'
+          export LD_LIBRARY_PATH='/data/data/com.termux/files/usr/lib'
+          export PATH="/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr/bin/applets:$PATH"
+          export LANG='en_US.UTF-8'
+          export SHELL='/data/data/com.termux/files/usr/bin/bash'
+          cd "$HOME"
+          exec "$SHELL" -l ls -lha
+          ADB
 
       - name: cat log
         if: always()

@@ -25,7 +25,7 @@ jobs:
 
       - name: main
         run: |
-          nohup ${ANDROID_HOME}/emulator/emulator -avd testAVD &>/dev/null &
+          nohup ${ANDROID_HOME}/emulator/emulator -avd testAVD &>avd.log &
           sleep 1m
           ps aux | grep emulator
           ${ANDROID_HOME}/platform-tools/adb devices
@@ -35,6 +35,11 @@ jobs:
           adb shell am start -n com.termux/com.termux.app.TermuxActivity
           sleep 1m
 
+      - name: cat log
+        if: always()
+        run: |
+          cat avd.log
+          
       - name: Store built file
         if: always()
         uses: actions/upload-artifact@v3

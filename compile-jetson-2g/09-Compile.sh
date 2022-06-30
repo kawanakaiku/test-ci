@@ -12,7 +12,7 @@ export USE_OPENCV=1 USE_BLAS=openblas USE_CUDA=1 USE_CUDA_PATH=/usr/local/cuda U
 export CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda/targets/aarch64-linux
 export CUDA_HOME=/usr/local/cuda
 
-export MAX_JOBS=8
+export MAX_JOBS=2
 
 cd /src
 

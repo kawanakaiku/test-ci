@@ -28,7 +28,7 @@ jobs:
       - name: main
         run: |
           ${ANDROID_HOME}/emulator/emulator -avd testAVD &>avd.log &
-          sleep 60
+          sleep 100
           ps aux | grep emulator
           ${ANDROID_HOME}/platform-tools/adb devices
           ${ANDROID_HOME}/platform-tools/adb install termux.apk

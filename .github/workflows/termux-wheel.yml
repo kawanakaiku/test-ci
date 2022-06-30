@@ -48,10 +48,15 @@ jobs:
           # for numpy
           export MATHLIB=m
           
+          # for pandas
+          export CFLAGS+=" -Wno-deprecated-declarations -Wno-unreachable-code"
+          
           . venv/bin/activate
           
           mkdir -p build
           cd build
+          
+          build-pip install numpy
           cross-pip wheel --no-binary :all: numpy
                     
       - name: files

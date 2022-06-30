@@ -31,12 +31,12 @@ jobs:
           
       - name: setup crossenv
         run: |
+          echo $PATH
           python3.10 -m pip install crossenv
           python3.10 -m crossenv /data/data/com.termux/files/usr/bin/python3.10 venv
            
       - name: build
         run: |
-          echo $PATH
           . venv/bin/activate
           mkdir -p build
           cd build

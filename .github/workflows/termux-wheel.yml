@@ -23,6 +23,8 @@ jobs:
           
       - name: add NDK to PATH
         run: |
+          sudo ln -s ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android{24,}-clang
+          sudo ln -s ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android{24,}-clang++
           cat <<'BASHRC' >>${HOME}/.bashrc
           PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
           BASHRC

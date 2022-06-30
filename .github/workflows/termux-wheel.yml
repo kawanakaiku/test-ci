@@ -62,6 +62,10 @@ jobs:
           # for pandas
           export CFLAGS+=" -Wno-deprecated-declarations -Wno-unreachable-code"
           
+          # for fortran source
+          export F77=aarch64-linux-android-gfortran
+          export F90=aarch64-linux-android-gfortran
+          
           . venv/bin/activate
           
           mkdir -p build

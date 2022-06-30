@@ -21,6 +21,12 @@ jobs:
           sudo tar -xf data.tar.xz --no-overwrite-dir -C /
           rm data.tar.xz python.deb
           
+      - name: add NDK to PATH
+        run: |
+          cat <<'BASHRC' >>${HOME}/.bashrc
+          PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
+          BASHRC
+          
       - name: setup crossenv
         run: |
           python3.10 -m pip install crossenv

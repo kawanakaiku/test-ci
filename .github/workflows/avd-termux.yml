@@ -21,6 +21,10 @@ jobs:
           echo 'echo "$PATH"'
           echo "$PATH"
           
+      - name: cat bashrc
+        run: |
+          cat ${HOME}/.bashrc
+          
       - name: download termux
         run: |
           source ${HOME}/.bashrc

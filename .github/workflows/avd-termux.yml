@@ -1,4 +1,4 @@
-	name: avd-termux
+name: avd-termux
 
 on:
     push:

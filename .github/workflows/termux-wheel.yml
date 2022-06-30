@@ -36,6 +36,7 @@ jobs:
            
       - name: build
         run: |
+          echo $PATH
           . venv/bin/activate
           mkdir -p build
           cd build

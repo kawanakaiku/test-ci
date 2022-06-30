@@ -23,17 +23,21 @@ jobs:
           
       - name: download termux
         run: |
+          source ${HOME}/.bashrc
+          
           wget -nc -nv https://github.com/termux/termux-app/releases/download/v0.118.0/termux-app_v0.118.0+github-debug_x86.apk -O termux.apk
 
       - name: setup avd
         run: |
-          /bin/bash <<'BASH'
+          source ${HOME}/.bashrc
+          
           ${ANDROID_HOME}/tools/bin/sdkmanager 'system-images;android-29;default;x86'
           echo no | ${ANDROID_HOME}/tools/bin/avdmanager create avd --force --name testAVD --package 'system-images;android-29;default;x86'
-          BASH
 
       - name: main
         run: |
+          source ${HOME}/.bashrc
+          
           nohup ${ANDROID_HOME}/emulator/emulator -avd testAVD &>avd.log &
           sleep 1m
           ps aux | grep emulator

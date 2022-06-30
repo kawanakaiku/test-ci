@@ -61,7 +61,7 @@ jobs:
           export MATHLIB=m
           
           # for pandas
-          export CFLAGS+=" -Wno-deprecated-declarations -Wno-unreachable-code"
+          # export CFLAGS+=" -Wno-deprecated-declarations -Wno-unreachable-code"
           
           # for fortran source
           export F77=/gcc-aarch64/bin/aarch64-linux-android-gfortran

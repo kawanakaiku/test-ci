@@ -37,8 +37,8 @@ jobs:
           
           . venv/bin/activate
           
-          cross-pip install pip wheel setuptools cmake Cython
-          build-pip install pip wheel setuptools cmake Cython
+          cross-pip install pip wheel setuptools Cython
+          build-pip install pip wheel setuptools cmake Cython ninja
            
       - name: build
         run: |
@@ -49,7 +49,7 @@ jobs:
           
           mkdir -p build
           cd build
-          cross-pip wheel --no-binary :all: yt-dlp pip wheel setuptools cmake Cython
+          cross-pip wheel --no-binary :all: yt-dlp pip wheel setuptools Cython
                     
       - name: files
         run: |

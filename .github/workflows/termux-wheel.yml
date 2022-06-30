@@ -43,7 +43,7 @@ jobs:
       - name: build
         run: |
           export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
-          export LDFLAGS="-L/data/data/com.termux/files/usr/lib"
+          export LDFLAGS="-s -L/data/data/com.termux/files/usr/lib"
           
           . venv/bin/activate
           

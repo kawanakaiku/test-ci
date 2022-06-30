@@ -44,11 +44,20 @@ jobs:
         run: |
           bash ${{ env.dir }}/06-InstallDepedencies.sh
 
+      - name: Cache build 0
+        uses: actions/cache@v3
+        with:
+          path: ./src_upper.tar
+          key: 3_2581493246
+
       - name: Cache build 1
         uses: actions/cache@v3
         with:
           path: ./src_upper.tar
           key: 1_${{ github.sha }}
+
+      - name: Extract build cache
+        run: test -f src_upper.tar && sudo tar xf src_upper.tar
 
       - name: Clone source code
         run: |
@@ -116,7 +125,7 @@ jobs:
           key: 2_${{ github.sha }}
 
       - name: Extract build cache
-        run: sudo tar xf src_upper.tar
+        run: test -f src_upper.tar && sudo tar xf src_upper.tar
 
       - name: Clone source code
         run: |
@@ -184,7 +193,7 @@ jobs:
           key: 3_${{ github.sha }}
 
       - name: Extract build cache
-        run: sudo tar xf src_upper.tar
+        run: test -f src_upper.tar && sudo tar xf src_upper.tar
 
       - name: Clone source code
         run: |
@@ -252,7 +261,7 @@ jobs:
           key: 4_${{ github.sha }}
 
       - name: Extract build cache
-        run: sudo tar xf src_upper.tar
+        run: test -f src_upper.tar && sudo tar xf src_upper.tar
 
       - name: Clone source code
         run: |

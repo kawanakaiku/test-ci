@@ -45,6 +45,9 @@ jobs:
           export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
           export LDFLAGS="-s -L/data/data/com.termux/files/usr/lib"
           
+          # for numpy
+          export MATHLIB=m
+          
           . venv/bin/activate
           
           mkdir -p build

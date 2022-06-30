@@ -1,0 +1,42 @@
+name: termux-wheel
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/termux-wheel.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+  
+    steps:
+      - uses: actions/checkout@v3
+          
+      - name: setup termux python
+        run: |
+          wget -nc -nv https://packages-cf.termux.org/apt/termux-main/pool/main/p/python/python_3.10.5_aarch64.deb -O python.deb
+          ar x python.deb data.tar.xz
+          sudo tar -xf data.tar.xz --no-overwrite-dir -C ./
+          rm data.tar.xz python.deb
+          
+      - name: setup crossenv
+        run: |
+          python3.10 -m pip install crossenv
+          python3.10 -m crossenv /data/data/com.termux/files/usr/bin/python3.10 venv
+           
+      - name: build
+        run: |
+          . venv/bin/activate
+          mkdir -p build
+          cd build
+          cross-pip wheel yt-dlp
+          
+      - name: store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: build
+          

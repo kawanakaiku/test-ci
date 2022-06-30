@@ -20,8 +20,10 @@ jobs:
 
       - name: setup avd
         run: |
-          ${ANDROID_HOME}/tools/bin/sdkmanager 'system-images;android-29;default;x86' 2>/dev/null
-          echo no | ${ANDROID_HOME}/tools/bin/avdmanager create avd --force --name testAVD --package 'system-images;android-29;default;x86' 2>/dev/null || true
+          /bin/bash <<'BASH'
+          ${ANDROID_HOME}/tools/bin/sdkmanager 'system-images;android-29;default;x86'
+          echo no | ${ANDROID_HOME}/tools/bin/avdmanager create avd --force --name testAVD --package 'system-images;android-29;default;x86'
+          BASH
 
       - name: main
         run: |

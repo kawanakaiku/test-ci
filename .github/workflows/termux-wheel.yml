@@ -27,8 +27,8 @@ jobs:
           done
       - name: setup NDK
         run: |
-          # sudo ln -s ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android{24,}-clang
-          # sudo ln -s ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android{24,}-clang++
+          sudo ln -s ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android{24,}-clang
+          sudo ln -s ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android{24,}-clang++
           
           # with gfortran
           wget -nc -nv https://github.com/mzakharo/android-gfortran/releases/download/r21e/gcc-arm64-linux-x86_64.tar.bz2
@@ -37,14 +37,11 @@ jobs:
           
       - name: setup crossenv
         run: |
-          # export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
-          export PATH="/gcc-aarch64/bin:${PATH}"
+          export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
+          #export PATH="/gcc-aarch64/bin:${PATH}"
 
           python3.10 -m pip install crossenv
-          python3.10 -m crossenv /data/data/com.termux/files/usr/bin/python3.10 venv \
-            --cc aarch64-linux-android-gcc \
-            --cxx aarch64-linux-android-g++ \
-            --ar aarch64-linux-android-ar
+          python3.10 -m crossenv /data/data/com.termux/files/usr/bin/python3.10 venv
           
           . venv/bin/activate
           
@@ -53,11 +50,11 @@ jobs:
            
       - name: build
         run: |
-          # export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
-          export PATH="/gcc-aarch64/bin:${PATH}"
+          export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
+          #export PATH="/gcc-aarch64/bin:${PATH}"
           
-          export CFLAGS="-I/data/data/com.termux/files/usr/include"
-          export CFLAGS+=" -I${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/aarch64-linux-android"
+          #export CFLAGS="-I/data/data/com.termux/files/usr/include"
+          #export CFLAGS+=" -I${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/aarch64-linux-android"
           export LDFLAGS="-s -L/data/data/com.termux/files/usr/lib"
           
           # for numpy
@@ -67,15 +64,15 @@ jobs:
           export CFLAGS+=" -Wno-deprecated-declarations -Wno-unreachable-code"
           
           # for fortran source
-          export F77=aarch64-linux-android-gfortran
-          export F90=aarch64-linux-android-gfortran
+          export F77=/gcc-aarch64/bin/aarch64-linux-android-gfortran
+          export F90=/gcc-aarch64/bin/aarch64-linux-android-gfortran
           
           . venv/bin/activate
           
           mkdir -p build
           cd build
           
-          build-pip install numpy
+          #build-pip install numpy
           cross-pip wheel --no-binary :all: numpy
                     
       - name: files

@@ -28,14 +28,14 @@ jobs:
       - name: main
         run: |
           ${ANDROID_HOME}/emulator/emulator -avd testAVD &>avd.log &
-          sleep 1m
+          sleep 30
           ps aux | grep emulator
           ${ANDROID_HOME}/platform-tools/adb devices
           ${ANDROID_HOME}/platform-tools/adb install termux.apk
           
           # start app
           adb shell am start -n com.termux/com.termux.app.TermuxActivity
-          sleep 1m
+          sleep 30
 
       - name: cat log
         if: always()

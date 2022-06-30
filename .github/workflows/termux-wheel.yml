@@ -25,18 +25,18 @@ jobs:
         run: |
           sudo ln -s ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android{24,}-clang
           sudo ln -s ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android{24,}-clang++
-          cat <<'BASHRC' >>${HOME}/.bashrc
-          export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
-          BASHRC
           
       - name: setup crossenv
         run: |
-          echo $PATH
+          export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
+
           python3.10 -m pip install crossenv
           python3.10 -m crossenv /data/data/com.termux/files/usr/bin/python3.10 venv
            
       - name: build
         run: |
+          export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
+          
           . venv/bin/activate
           mkdir -p build
           cd build

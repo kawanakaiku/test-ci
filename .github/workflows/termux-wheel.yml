@@ -16,10 +16,12 @@ jobs:
           
       - name: setup termux python
         run: |
-          wget -nc -nv https://packages-cf.termux.org/apt/termux-main/pool/main/p/python/python_3.10.5_aarch64.deb -O python.deb
-          ar x python.deb data.tar.xz
-          sudo tar -xf data.tar.xz --no-overwrite-dir -C /
-          rm data.tar.xz python.deb
+          wget -nc -nv https://packages-cf.termux.org/apt/termux-main/pool/main/p/python/python_3.10.5_aarch64.deb
+          wget -nc -nv https://packages-cf.termux.org/apt/termux-main/pool/main/liba/libandroid-support/libandroid-support_28-2_aarch64.deb
+          for deb in *.deb ; do
+            ar x ${deb} data.tar.xz
+            sudo tar -xf data.tar.xz --no-overwrite-dir -C /
+            rm data.tar.xz ${deb}
           
       - name: add NDK to PATH
         run: |
@@ -41,6 +43,7 @@ jobs:
       - name: build
         run: |
           export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
+          export LDFLAGS="-L/data/data/com.termux/files/usr/lib"
           
           . venv/bin/activate
           

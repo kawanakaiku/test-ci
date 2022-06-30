@@ -32,12 +32,18 @@ jobs:
 
           python3.10 -m pip install crossenv
           python3.10 -m crossenv /data/data/com.termux/files/usr/bin/python3.10 venv
+          
+          . venv/bin/activate
+          
+          cross-pip install pip wheel setuptools
+          build-pip install pip wheel setuptools
            
       - name: build
         run: |
           export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
           
           . venv/bin/activate
+          
           mkdir -p build
           cd build
           cross-pip wheel yt-dlp

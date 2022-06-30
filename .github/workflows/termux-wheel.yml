@@ -23,14 +23,20 @@ jobs:
             sudo tar -xf data.tar.xz --no-overwrite-dir -C /
             rm data.tar.xz ${deb}
           done
-      - name: add NDK to PATH
+      - name: setup NDK
         run: |
-          sudo ln -s ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android{24,}-clang
-          sudo ln -s ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android{24,}-clang++
+          # sudo ln -s ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android{24,}-clang
+          # sudo ln -s ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android{24,}-clang++
+          
+          # with gfortran
+          wget -nc -nv https://github.com/mzakharo/android-gfortran/releases/download/r21e/gcc-arm64-linux-x86_64.tar.bz2
+          sudo mkdir /gcc-aarch64
+          sudo tar xf gcc-arm64-linux-x86_64.tar.bz2 -C /gcc-aarch64 --strip-components=1
           
       - name: setup crossenv
         run: |
-          export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
+          # export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
+          export PATH="/gcc-aarch64/bin:${PATH}"
 
           python3.10 -m pip install crossenv
           python3.10 -m crossenv /data/data/com.termux/files/usr/bin/python3.10 venv
@@ -42,7 +48,9 @@ jobs:
            
       - name: build
         run: |
-          export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
+          # export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
+          export PATH="/gcc-aarch64/bin:${PATH}"
+          
           export LDFLAGS="-s -L/data/data/com.termux/files/usr/lib"
           
           # for numpy

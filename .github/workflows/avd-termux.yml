@@ -16,7 +16,7 @@ jobs:
 
       - name: download termux
         run: |
-          wget -nc -nv https://github.com/termux/termux-app/releases/download/v0.118.0/termux-app_v0.118.0+github-debug_x86.apk
+          wget -nc -nv https://github.com/termux/termux-app/releases/download/v0.118.0/termux-app_v0.118.0+github-debug_x86.apk -O termux.apk
 
       - name: setup avd
         run: |
@@ -27,6 +27,7 @@ jobs:
           ${ANDROID_HOME}/emulator/emulator -avd testAVD &>/dev/null &
           sleep 1m
           ${ANDROID_HOME}/platform-tools/adb devices
+          ${ANDROID_HOME}/platform-tools/adb install termux.apk
 
       - name: Store built file
         if: always()

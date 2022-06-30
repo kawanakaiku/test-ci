@@ -16,8 +16,10 @@ jobs:
           
       - name: setup termux python
         run: |
-          wget -nc -nv https://packages-cf.termux.org/apt/termux-main/pool/main/p/python/python_3.10.5_aarch64.deb
-          wget -nc -nv https://packages-cf.termux.org/apt/termux-main/pool/main/liba/libandroid-support/libandroid-support_28-2_aarch64.deb
+          wget -nc -nv \
+            https://packages-cf.termux.org/apt/termux-main/pool/main/p/python/python_3.10.5_aarch64.deb \
+            https://packages-cf.termux.org/apt/termux-main/pool/main/liba/libandroid-support/libandroid-support_28-2_aarch64.deb \
+            https://packages-cf.termux.dev/apt/termux-main/pool/main/n/ndk-sysroot/ndk-sysroot_23c_aarch64.deb
           for deb in *.deb ; do
             ar x ${deb} data.tar.xz
             sudo tar -xf data.tar.xz --no-overwrite-dir -C /
@@ -54,6 +56,7 @@ jobs:
           # export PATH="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${PATH}"
           export PATH="/gcc-aarch64/bin:${PATH}"
           
+          export CFLAGS="-I/data/data/com.termux/files/usr/include"
           export LDFLAGS="-s -L/data/data/com.termux/files/usr/lib"
           
           # for numpy

@@ -57,6 +57,7 @@ jobs:
           export PATH="/gcc-aarch64/bin:${PATH}"
           
           export CFLAGS="-I/data/data/com.termux/files/usr/include"
+          export CFLAGS+=" -I${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/aarch64-linux-android"
           export LDFLAGS="-s -L/data/data/com.termux/files/usr/lib"
           
           # for numpy

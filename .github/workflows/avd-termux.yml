@@ -28,7 +28,7 @@ jobs:
       - name: main
         run: |
           ${ANDROID_HOME}/emulator/emulator -avd testAVD &>avd.log &
-          sleep 100
+          sleep 180
   
           ${ANDROID_HOME}/platform-tools/adb root
           ${ANDROID_HOME}/platform-tools/adb devices
@@ -36,7 +36,7 @@ jobs:
           
           # start app
           ${ANDROID_HOME}/platform-tools/adb shell am start -n com.termux/com.termux.app.TermuxActivity
-          sleep 100
+          sleep 180
           
           # chroot termux
           ${ANDROID_HOME}/platform-tools/adb shell <<'ADB'

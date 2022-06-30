@@ -22,7 +22,7 @@ jobs:
             ar x ${deb} data.tar.xz
             sudo tar -xf data.tar.xz --no-overwrite-dir -C /
             rm data.tar.xz ${deb}
-          
+          done
       - name: add NDK to PATH
         run: |
           sudo ln -s ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android{24,}-clang

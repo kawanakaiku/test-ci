@@ -57,7 +57,7 @@ jobs:
           key: 1_${{ github.sha }}
 
       - name: Extract build cache
-        run: test -f src_upper.tar && sudo tar xf src_upper.tar
+        run: test -f src_upper.tar && sudo tar xf src_upper.tar || true
 
       - name: Clone source code
         run: |
@@ -125,7 +125,7 @@ jobs:
           key: 2_${{ github.sha }}
 
       - name: Extract build cache
-        run: test -f src_upper.tar && sudo tar xf src_upper.tar
+        run: test -f src_upper.tar && sudo tar xf src_upper.tar || true
 
       - name: Clone source code
         run: |
@@ -193,7 +193,7 @@ jobs:
           key: 3_${{ github.sha }}
 
       - name: Extract build cache
-        run: test -f src_upper.tar && sudo tar xf src_upper.tar
+        run: test -f src_upper.tar && sudo tar xf src_upper.tar || true
 
       - name: Clone source code
         run: |
@@ -261,7 +261,7 @@ jobs:
           key: 4_${{ github.sha }}
 
       - name: Extract build cache
-        run: test -f src_upper.tar && sudo tar xf src_upper.tar
+        run: test -f src_upper.tar && sudo tar xf src_upper.tar || true
 
       - name: Clone source code
         run: |

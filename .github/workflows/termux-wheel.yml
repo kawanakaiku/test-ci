@@ -39,7 +39,10 @@ jobs:
           export PATH="/gcc-aarch64/bin:${PATH}"
 
           python3.10 -m pip install crossenv
-          python3.10 -m crossenv /data/data/com.termux/files/usr/bin/python3.10 venv
+          python3.10 -m crossenv /data/data/com.termux/files/usr/bin/python3.10 venv \
+            --cc aarch64-linux-android-gcc \
+            --cxx aarch64-linux-android-g++ \
+            --ar aarch64-linux-android-ar
           
           . venv/bin/activate
           

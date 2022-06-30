@@ -9,26 +9,13 @@ on:
  
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-12
   
     steps:
       - uses: actions/checkout@v3
-
-      - name: info
-        run: |
-          echo 'which java'
-          which java
-          echo 'echo "$PATH"'
-          echo "$PATH"
-          
-      - name: cat bashrc
-        run: |
-          cat ${HOME}/.bashrc
           
       - name: download termux
         run: |
-          source ${HOME}/.bashrc
-          
           wget -nc -nv https://github.com/termux/termux-app/releases/download/v0.118.0/termux-app_v0.118.0+github-debug_x86.apk -O termux.apk
 
       - name: setup avd
@@ -40,9 +27,7 @@ jobs:
 
       - name: main
         run: |
-          source ${HOME}/.bashrc
-          
-          nohup ${ANDROID_HOME}/emulator/emulator -avd testAVD &>avd.log &
+          ${ANDROID_HOME}/emulator/emulator -avd testAVD &>avd.log &
           sleep 1m
           ps aux | grep emulator
           ${ANDROID_HOME}/platform-tools/adb devices

@@ -50,7 +50,11 @@ jobs:
           mkdir -p build
           cd build
           cross-pip wheel --no-binary :all: yt-dlp
-          
+                    
+      - name: files
+        run: |
+          ls -lha build
+
       - name: store built file
         if: always()
         uses: actions/upload-artifact@v3

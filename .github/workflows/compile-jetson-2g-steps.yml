@@ -1,0 +1,92 @@
+name: compile-jetson-2g-steps
+
+env:
+  dir: compile-jetson-2g
+
+inputs:
+  cache1:
+    required: true
+    type: string
+  cache2:
+    required: true
+    type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download base image
+        run: |
+          bash ${{ env.dir }}/timer_init.sh
+          bash ${{ env.dir }}/01-Download.sh
+
+      - name: Extract base image
+        run: |
+          bash ${{ env.dir }}/02-Extract.sh
+
+      - name: Install QEMU
+        run: |
+          bash ${{ env.dir }}/03-InstallQEMU.sh
+
+      - name: Mount
+        run: |
+          bash ${{ env.dir }}/04-Mount.sh
+
+      - name: Settings
+        run: |
+          bash ${{ env.dir }}/05-Settings.sh
+
+      - name: Install packages
+        run: |
+          bash ${{ env.dir }}/06-InstallDepedencies.sh
+
+      - name: Cache build 1
+        uses: actions/cache@v3
+        with:
+          path: ./src_upper.tar
+          key: ${{ inputs.cache1 }}
+
+      - name: Cache build 2
+        uses: actions/cache@v3
+        with:
+          path: ./src_upper.tar
+          key: ${{ inputs.cache2 }}
+
+      - name: Extract build cache
+        run: test -f src_upper.tar && sudo tar xf src_upper.tar || true
+
+      - name: Clone source code
+        run: |
+          bash ${{ env.dir }}/07-Clone.sh
+
+      - name: Install pip
+        run: |
+          bash ${{ env.dir }}/08-Installpip.sh
+
+      - name: Cross compile
+        run: |
+          bash ${{ env.dir }}/timer_main.sh bash ${{ env.dir }}/09-Compile.sh
+
+      - name: Collect built file
+        if: always()
+        run: |
+          bash ${{ env.dir }}/10-Collect.sh
+
+      - name: Unmount
+        if: always()
+        run: |
+          bash ${{ env.dir }}/11-Umount.sh
+
+      - name: Tar build cache
+        if: always()
+        run: sudo tar cf src_upper.tar src_upper && ls -lha
+
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: built-artifact
+          path: build

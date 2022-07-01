@@ -1,0 +1,42 @@
+	name: android_example_build
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/android_example_build.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    
+    steps:
+      - name: clone
+        run: |
+          git clone https://github.com/googlesamples/android-vulkan-tutorials/tree/master/tutorial01_load_vulkan.git
+          
+      - name: build
+        run: |
+          build_dir=${PWD}/build
+          mkdir ${build_dir}
+          
+          for gradlew in */gradlew ; do
+          
+            app=$(dirname ${gradlew})
+          
+            pushd ${app}
+            ./gradlew assembleRelease || true
+            
+            find . -name "*.apk" -print0 | xargs -0 -I@ cp --verbose @ ${build_dir}/${app}.apk
+            
+            popd
+            
+          done
+          
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: build

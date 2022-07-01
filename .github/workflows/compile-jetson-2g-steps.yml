@@ -1,5 +1,8 @@
 name: compile-jetson-2g-steps
 
+on:
+  workflow_call:
+
 env:
   dir: compile-jetson-2g
 

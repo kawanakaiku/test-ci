@@ -19,8 +19,8 @@ cd /src
 python3.8 -m pip install -r ./requirements.txt
 python3.8 -m pip -vvv install ./
 
-mkdir build
-cd build
+mkdir build_wheel
+cd build_wheel
 
 python3.8 -m pip wheel -r ../requirements.txt
 python3.8 -m pip wheel ..

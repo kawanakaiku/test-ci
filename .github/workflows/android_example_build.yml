@@ -26,7 +26,8 @@ jobs:
             app=$(dirname ${gradlew})
           
             pushd ${app}
-            ./gradlew assemble || true
+            #./gradlew assemble || true
+            gradle assemble || true
             
             find . -name "*.apk" -print0 | xargs -0 -I@ cp --verbose @ ${build_dir}/${app}.apk
             

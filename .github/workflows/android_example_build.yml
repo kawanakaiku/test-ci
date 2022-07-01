@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: clone
         run: |
-          git clone https://github.com/googlesamples/android-vulkan-tutorials/tree/master/tutorial01_load_vulkan.git .
+          git clone https://github.com/googlesamples/android-vulkan-tutorials.git .
           
       - name: build
         run: |

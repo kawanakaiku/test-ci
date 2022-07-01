@@ -85,7 +85,7 @@ jobs:
         run: sudo tar cf src_upper.tar src_upper && ls -lha
 
       - name: Store built file
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v3
         with:
           name: built-artifact

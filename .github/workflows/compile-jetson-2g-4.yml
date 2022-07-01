@@ -10,19 +10,14 @@ on:
 
 jobs:
   build1:
-    - uses: ./.github/actions/compile-jetson-2g-steps
+      uses: ./.github/actions/compile-jetson-2g-steps.yml
       with:
         cache1: 1_929c4dd2c2ffda560c0dcd8f20edb23e646f44ce
         cache2: 1_${{ github.sha }}
-
+        
   build2:
-    - uses: ./.github/actions/compile-jetson-2g-steps
+      uses: ./.github/actions/compile-jetson-2g-steps.yml
       with:
         cache1: 1_${{ github.sha }}
         cache2: 2_${{ github.sha }}
-
-  build3:
-    - uses: ./.github/actions/compile-jetson-2g-steps
-      with:
-        cache1: 2_${{ github.sha }}
-        cache2: 3_${{ github.sha }}
+        

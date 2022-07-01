@@ -8,9 +8,9 @@ on:
     workflow_dispatch:
     
 env:
-  name: "pytorch"
-  git: "https://github.com/pytorch/pytorch.git"
-  version: "v1.11.0"
+  name: "wine"
+  git: "https://github.com/wine-mirror/wine.git"
+  version: "wine-7.10"
  
 jobs:
   build:

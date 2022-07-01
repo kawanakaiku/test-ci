@@ -1,18 +1,17 @@
 name: compile-jetson-2g-steps
 
-on:
-  workflow_call:
-
 env:
   dir: compile-jetson-2g
 
-inputs:
-  cache1:
-    required: true
-    type: string
-  cache2:
-    required: true
-    type: string
+on:
+  workflow_call:
+    inputs:
+      cache1:
+        required: true
+        type: string
+      cache2:
+        required: true
+        type: string
 
 jobs:
   build:

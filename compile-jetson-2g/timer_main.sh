@@ -14,7 +14,7 @@ duration=$(perl -e "print $remaining_time - 10*60")
 
 if [ $duration -gt 0 ]; then
     echo "killing in ${duration}"
-    timeout --verbose --preserve-status --signal=SIGTERM --kill-after=10 ${duration}s "$@"
+    # timeout --verbose --preserve-status --signal=SIGTERM --kill-after=10 ${duration}s "$@"
+    # exit with error when build finished
+    ! timeout --verbose --signal=SIGTERM --kill-after=10 ${duration}s "$@"
 fi
-
-exit 0

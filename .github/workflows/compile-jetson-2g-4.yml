@@ -17,7 +17,64 @@ jobs:
         
   build2:
       uses: ./.github/workflows/compile-jetson-2g-steps.yml
+      needs: build1
       with:
         cache1: 1_${{ github.sha }}
         cache2: 2_${{ github.sha }}
+        
+  build3:
+      uses: ./.github/workflows/compile-jetson-2g-steps.yml
+      needs: build2
+      with:
+        cache1: 2_${{ github.sha }}
+        cache2: 3_${{ github.sha }}
+        
+  build4:
+      uses: ./.github/workflows/compile-jetson-2g-steps.yml
+      needs: build3
+      with:
+        cache1: 3_${{ github.sha }}
+        cache2: 4_${{ github.sha }}
+        
+  build5:
+      uses: ./.github/workflows/compile-jetson-2g-steps.yml
+      needs: build4
+      with:
+        cache1: 4_${{ github.sha }}
+        cache2: 5_${{ github.sha }}
+        
+  build6:
+      uses: ./.github/workflows/compile-jetson-2g-steps.yml
+      needs: build5
+      with:
+        cache1: 5_${{ github.sha }}
+        cache2: 6_${{ github.sha }}
+        
+  build7:
+      uses: ./.github/workflows/compile-jetson-2g-steps.yml
+      needs: build6
+      with:
+        cache1: 6_${{ github.sha }}
+        cache2: 7_${{ github.sha }}
+        
+  build8:
+      uses: ./.github/workflows/compile-jetson-2g-steps.yml
+      needs: build7
+      with:
+        cache1: 7_${{ github.sha }}
+        cache2: 8_${{ github.sha }}
+        
+  build9:
+      uses: ./.github/workflows/compile-jetson-2g-steps.yml
+      needs: build8
+      with:
+        cache1: 8_${{ github.sha }}
+        cache2: 9_${{ github.sha }}
+        
+  build10:
+      uses: ./.github/workflows/compile-jetson-2g-steps.yml
+      needs: build9
+      with:
+        cache1: 9_${{ github.sha }}
+        cache2: 10_${{ github.sha }}
         

@@ -73,7 +73,7 @@ jobs:
           bash ${{ env.dir }}/timer_main.sh bash ${{ env.dir }}/09-Compile.sh
 
       - name: Collect built file
-        if: always()
+        if: failure()
         run: |
           bash ${{ env.dir }}/10-Collect.sh
 

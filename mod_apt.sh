@@ -7,6 +7,9 @@ echo 'Acquire::Languages "none";' | sudo tee /etc/apt/apt.conf.d/99_translations
 
 sudo rm -f /etc/apt/sources.list.d/*
 
+# extract dists
+# curl --silent http://azure.archive.ubuntu.com/ubuntu/dists/ | perl -ne 'print "$1\n" if /<a href="(.*?)\/">/'
+
 cat <<LIST | sudo tee /etc/apt/sources.list >/dev/null
 $(
   for dist in ${VERSION_CODENAME}{,-{backports,security,updates}} ; do

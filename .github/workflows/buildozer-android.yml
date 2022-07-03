@@ -37,7 +37,7 @@ jobs:
 
       - name: patch
         run: |
-          sed -i -e 's@if auto_accept_license@if True@' $HOME/.local/lib/python3.8/site-packages/buildozer/targets/android.py
+          sed -i -e 's@if auto_accept_license@if True@' `python3 -m site --user-site`/buildozer/targets/android.py
           
       - name: python script
         run: |

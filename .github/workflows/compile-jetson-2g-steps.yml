@@ -92,3 +92,7 @@ jobs:
         with:
           name: built-artifact
           path: build
+
+      - name: Waiting for debugger
+        if: failure()
+        uses: mxschmitt/action-tmate@v3

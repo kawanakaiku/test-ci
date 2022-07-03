@@ -2,8 +2,8 @@ VERSION_CODENAME=$( . /etc/os-release ; echo $VERSION_CODENAME )
 
 sudo rm -f /etc/apt/apt.conf.d/*
 
-echo 'path-exclude=/usr/share/man/*' | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
-echo 'Acquire::Languages "none";' | sudo tee /etc/apt/apt.conf.d/99_translations
+echo 'path-exclude=/usr/share/man/*' | sudo tee /etc/dpkg/dpkg.cfg.d/99_nodoc >/dev/null
+echo 'Acquire::Languages "none";' | sudo tee /etc/apt/apt.conf.d/99_translations >/dev/null
 
 sudo rm -f /etc/apt/sources.list.d/*
 

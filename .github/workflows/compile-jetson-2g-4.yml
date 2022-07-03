@@ -12,7 +12,7 @@ jobs:
   build1:
       uses: ./.github/workflows/compile-jetson-2g-steps.yml
       with:
-        cache1: 1_929c4dd2c2ffda560c0dcd8f20edb23e646f44ce
+        cache1: 6_efb3495b9b4ee2117793b858449146a342e61c3e
         cache2: 1_${{ github.sha }}
         
   build2:

@@ -50,7 +50,7 @@ jobs:
           
       - name: buildozer
         run: |
-          buildozer init
+          yes | buildozer init
           buildozer -v android debug
 
       - name: Store built file

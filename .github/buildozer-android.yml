@@ -1,0 +1,63 @@
+name: buildozer-android
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/buildozer-android.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+  
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: python version
+        run: |
+          python3 --version
+      
+      - name: append PATH
+        run: |
+          cat >>"$HOME/.bashrc" <<'BASHRC'
+          export PATH="$PATH:$HOME/.bashrc"
+          BASHRC
+
+      - name: apt install
+        run: |
+          . mod_apt.sh
+          sudo apt update
+          sudo apt install -y git zip unzip openjdk-13-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
+          
+      - name: pip install
+        run: |
+          python3 -m pip install --user --upgrade pip
+          python3 -m pip install --user --upgrade buildozer
+          python3 -m pip install --user --upgrade Cython==0.29.19 virtualenv
+          
+      - name: python script
+        run: |
+          cat >main.py <<MAIN
+          from kivy.app import App
+          from kivy.uix.button import Button
+
+          class TestApp(App):
+              def build(self):
+                  return Button(text='Hello World')
+
+          TestApp().run()
+          MAIN
+          
+      - name: buildozer
+        run: |
+          buildozer init
+          buildozer -v android debug
+
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: bin
+          

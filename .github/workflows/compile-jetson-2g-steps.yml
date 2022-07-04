@@ -79,12 +79,12 @@ jobs:
           bash ${{ env.dir }}/10-Collect.sh
 
       - name: Unmount
-        if: always()
+        if: success()
         run: |
           bash ${{ env.dir }}/11-Umount.sh
 
       - name: Tar build cache
-        if: always()
+        if: success()
         run: sudo tar cf src_upper.tar src_upper && ls -lha
 
       - name: Store built file

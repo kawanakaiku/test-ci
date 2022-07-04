@@ -2,7 +2,7 @@
 
 init=$(cd /tmp ; cat timer ; rm -f timer)
 
-end=$(perl -e "print $init + 1*60*60")
+end=$(perl -e "print $init + 6*60*60")
 
 start=$(date +%s)
 

@@ -70,6 +70,7 @@ jobs:
 
       - name: Cross compile
         run: |
+          false
           bash ${{ env.dir }}/timer_main.sh bash ${{ env.dir }}/09-Compile.sh
 
       - name: Collect built file

@@ -16,7 +16,7 @@ jobs:
 
       - name: Go Mobile install
         run: |
-          go get golang.org/x/mobile/cmd/gomobile
+          go install golang.org/x/mobile/cmd/gomobile@latest
 
       - name: Go Mobile setup
         run: |

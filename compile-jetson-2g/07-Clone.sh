@@ -13,5 +13,12 @@ fi
 mkdir -p src src_upper src_work
 sudo mount -t overlay overlay -o lowerdir=src_lower,upperdir=src_upper,workdir=src_work src
 
+(
+  cd src
+  sudo git config --global user.name "xxxx"
+  sudo git config --global user.email "xxxxxx@gmail.com"
+  sudo git init
+)
+
 sudo mkdir -p mnt/src
 sudo mount -o bind src mnt/src

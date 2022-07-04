@@ -1,0 +1,36 @@
+name: android-go
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/android-go.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+  
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Go Mobile install
+        run: |
+          go get golang.org/x/mobile/cmd/gomobile
+
+      - name: Go Mobile setup
+        run: |
+          gomobile init -v
+
+      - name: Go Mobile build
+        run: |
+          gomobile build golang.org/x/mobile/example/basic
+
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: basic.apk
+
+          

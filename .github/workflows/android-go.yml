@@ -20,11 +20,11 @@ jobs:
 
       - name: Go Mobile setup
         run: |
-          gomobile init -v
+          $HOME/go/bin/gomobile init -v
 
       - name: Go Mobile build
         run: |
-          gomobile build golang.org/x/mobile/example/basic
+          $HOME/go/bin/gomobile build golang.org/x/mobile/example/basic
 
       - name: Store built file
         if: always()

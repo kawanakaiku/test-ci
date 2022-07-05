@@ -1,6 +1,6 @@
 if true ; then
 
-git clone --depth=1 --recursive --branch=v1.11.0 https://github.com/pytorch/pytorch.git src_lower  # should be owned by root
+sudo git clone --depth=1 --recursive --branch=v1.11.0 https://github.com/pytorch/pytorch.git src_lower  # should be owned by root
 
 else
 

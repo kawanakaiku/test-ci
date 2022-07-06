@@ -21,4 +21,8 @@ sudo chroot mnt /bin/bash <<'chroot_end'
 git config --global user.name "xxxx"
 git config --global user.email "xxxxxx@gmail.com"
 git config --global --add safe.directory /src
+
+cd /src
+git reset
+git init
 chroot_end

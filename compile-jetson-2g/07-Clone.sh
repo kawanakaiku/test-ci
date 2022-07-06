@@ -1,6 +1,7 @@
-if false ; then
+if true ; then
 
-sudo git clone --depth=1 --recursive --branch=v1.11.0 https://github.com/pytorch/pytorch.git src_lower  # should be owned by root
+# sudo git clone --depth=1 --recursive --branch=v1.11.0 https://github.com/pytorch/pytorch.git src_lower  # should be owned by root
+sudo git clone --recursive --branch=v1.11.0 https://github.com/pytorch/pytorch.git src_lower
 
 else
 
@@ -10,7 +11,7 @@ sudo mount -t squashfs pytorch-v1.11.0.squashfs ./src_lower
 
 fi
 
-mkdir -p src src_upper src_work
+sudo mkdir -p src src_upper src_work
 sudo mount -t overlay overlay -o lowerdir=src_lower,upperdir=src_upper,workdir=src_work src
 
 sudo mkdir -p mnt/src
@@ -21,8 +22,4 @@ sudo chroot mnt /bin/bash <<'chroot_end'
 git config --global user.name "xxxx"
 git config --global user.email "xxxxxx@gmail.com"
 git config --global --add safe.directory /src
-
-cd /src
-git reset
-git init
 chroot_end

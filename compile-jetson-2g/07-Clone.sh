@@ -19,6 +19,8 @@ sudo mount -o bind src mnt/src
 
 
 sudo chroot mnt /bin/bash <<'chroot_end'
+cd /src
+
 git config --global user.name "xxxx"
 git config --global user.email "xxxxxx@gmail.com"
 git config --global --add safe.directory /src

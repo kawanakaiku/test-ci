@@ -27,4 +27,6 @@ git config --global --add safe.directory /src
 
 git reset
 git init
+
+git commit --allow-empty -n -m "Initial commit."
 chroot_end

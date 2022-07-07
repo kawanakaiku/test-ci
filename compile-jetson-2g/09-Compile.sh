@@ -17,13 +17,15 @@ export MAX_JOBS=2
 cd /src
 
 python3.8 -m pip install -r ./requirements.txt
-python3.8 -m pip -vvv install ./
+# python3.8 -m pip -vvv install ./
+python3.8 setup.py install
 
 mkdir build_wheel
 cd build_wheel
 
 python3.8 -m pip wheel -r ../requirements.txt
-python3.8 -m pip wheel ..
+# python3.8 -m pip wheel ..
+python3.8 ../setup.py bdist_wheel
 python3.8 -m pip wheel pip setuptools wheel Cython cmake
 
 chroot_end

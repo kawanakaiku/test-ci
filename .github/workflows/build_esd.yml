@@ -37,26 +37,25 @@ jobs:
           
       - name: Update
         shell: bash
-        run: |
-          ### install updates
-          package_url_list=()
-
-          # 2022-06x64 ベース システム用 Windows 10 Version 21H2 の累積更新プログラム (KB5014666)
-          package_url_list+=('https://catalog.s.download.windowsupdate.com/c/msdownload/update/software/updt/2022/06/windows10.0-kb5014666-x64_25099fa863a0479051f049e6908473f1c0526258.msu')
-
-          # NET Framework 3.5 および 4.8 の累積的な更新プログラム (x64 向け Windows 10 Version 21H2 用) (KB5013887)
-          package_url_list+=('https://catalog.s.download.windowsupdate.com/d/msdownload/update/software/updt/2022/04/windows10.0-kb5013887-x64-ndp48_cee9944aef2e07c7ca85b5ca1d9d67ecdf7a9abf.msu')
-
-          for package_url in "${package_url_list[@]}" ; do
-            package_file="$(basename "${package_url}")"
-            
+        run: |      
           python.exe -u <<PYTHON
           from urllib.request import urlretrieve
-          urlretrieve("${package_url}", "${package_file}")
+
+          ### install updates
+          package_url_list = []
+
+          # 2022-06x64 ベース システム用 Windows 10 Version 21H2 の累積更新プログラム (KB5014666)
+          package_url_list += ['https://catalog.s.download.windowsupdate.com/c/msdownload/update/software/updt/2022/06/windows10.0-kb5014666-x64_25099fa863a0479051f049e6908473f1c0526258.msu']
+
+          # NET Framework 3.5 および 4.8 の累積的な更新プログラム (x64 向け Windows 10 Version 21H2 用) (KB5013887)
+          package_url_list += ['https://catalog.s.download.windowsupdate.com/d/msdownload/update/software/updt/2022/04/windows10.0-kb5013887-x64-ndp48_cee9944aef2e07c7ca85b5ca1d9d67ecdf7a9abf.msu']
+
+          for package_url in package_url_list:
+            package_file = package_url.rsplit('/', 1)[-1]
+            urlretrieve("${package_url}", "${package_file}")
           PYTHON
             
-            Dism.exe -Image:"mnt" -Add-Package -PackagePath="${package_file}"
-          done
+          Dism.exe -Image:"mnt" -Add-Package `for msu in *.msu ; do printf " -PackagePath=${msu}" ; done`
 
       - name: Optimize
         shell: powershell

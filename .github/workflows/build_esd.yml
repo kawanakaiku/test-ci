@@ -19,7 +19,7 @@ jobs:
         run: |
           test -f install.wim && exit || true
           
-          python.exe <<'PYTHON'
+          python.exe -u <<'PYTHON'
           from urllib.request import urlopen
           with open('install.wim', 'wb') as f:
             for i in ['aa', 'ab', 'ac', 'ad', 'ae']:

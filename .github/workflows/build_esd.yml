@@ -18,7 +18,16 @@ jobs:
         shell: bash
         run: |
           test -f install.wim && exit || true
-          curl -vsL -o - https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_a{a..e} > install.wim
+          
+          python.exe <<'PYTHON'
+          from urllib.request import urlopen
+          with open('install.wim', 'wb') as f:
+            for i in ['aa', 'ab', 'ac', 'ad', 'ae']:
+              url = 'https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_'+i
+              print(url)
+              part = urlopen(url).read()
+              f.write(part)
+          PYTHON
           
       - name: Mount wim
         shell: bash

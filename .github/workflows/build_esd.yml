@@ -18,11 +18,7 @@ jobs:
         shell: bash
         run: |
           test -f install.wim && exit || true
-          (
-          for i in aa ab ac ad ae ; do
-            wget -nv -O - https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_${i}
-          done
-          ) > install.wim
+          curl -vs -o - https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_a{a..e} > install.wim
           
       - name: Mount wim
         shell: bash

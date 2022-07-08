@@ -1,49 +1,65 @@
-# This is a basic workflow to help you get started with Actions
-
 name: build_esd
 
-# Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the main branch
   push:
     branches: [ main ]
     paths:
       - 'build_esd/**'
   workflow_dispatch:
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
   build:
-    # The type of runner that the job will run on
     runs-on: windows-2019
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v3
       
-      - name: download source
-        shell: python
+      - name: Download source
+        shell: bash
         run: |
+          python.exe <<'PYTHON'
           from urllib.request import urlopen
-          with open('Win10_21H2_Japanese_x64.wim', 'wb') as f:
+          with open('install.wim', 'wb') as f:
             for i in ['aa', 'ab', 'ac', 'ad', 'ae']:
               print(i)
               part = urlopen('https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_'+i).read()
               f.write(part)
-
-      # Runs a set of commands using the runners shell
-      - name: Run a build script
+          PYTHON
+          
+      - name: Mount wim
+        shell: bash
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Unrestricted ".\build_esd\build_esd.ps1"
+          mkdir -p mnt
+          Dism.exe /Mount-image /imagefile:install.wim /Index:1 /MountDir:mnt
+          
+      - name: Update
+        shell: bash
+        run: |
+          a
+          
+      - name: Optimize
+        shell: bash
+        run: |
+          DISM /Mount-image /imagefile:install.wim /Index:1 /MountDir:mnt
+
+      - name: Unmount wim
+        shell: bash
+        run: |
+          Dism.exe /Commit-Image /MountDir:mnt
+          Dism.exe /Unmount-image /MountDir:mnt /Commit
+          
+      - name: Create esd
+        run: |
+          Dism.exe /Export-Image /SourceImageFile:install.wim /SourceIndex:1 /DestinationImageFile:install.esd /Compress:Recovery /CheckIntegrity
 
       - name: Store log files
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: logs
-          path: logs.zip
+          path: |
+            **/*.log
+          
       - name: Store esd files
         if: always()
         uses: actions/upload-artifact@v3

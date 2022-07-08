@@ -33,7 +33,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p mnt
-          Dism.exe -Mount-image -imagefile:"install.wim" -Index:1 -MountDir:"mnt"
+          Dism.exe -Mount-image -imagefile:"install.wim" -Index:1 -MountDir:"mnt" -LogPath:"01-mount.log"
           
       - name: Update
         shell: bash
@@ -45,17 +45,18 @@ jobs:
           package_url_list = []
 
           # 2022-06x64 ベース システム用 Windows 10 Version 21H2 の累積更新プログラム (KB5014666)
-          package_url_list += ['https://catalog.s.download.windowsupdate.com/c/msdownload/update/software/updt/2022/06/windows10.0-kb5014666-x64_25099fa863a0479051f049e6908473f1c0526258.msu']
+          # package_url_list += ['https://catalog.s.download.windowsupdate.com/c/msdownload/update/software/updt/2022/06/windows10.0-kb5014666-x64_25099fa863a0479051f049e6908473f1c0526258.msu']
 
           # NET Framework 3.5 および 4.8 の累積的な更新プログラム (x64 向け Windows 10 Version 21H2 用) (KB5013887)
           package_url_list += ['https://catalog.s.download.windowsupdate.com/d/msdownload/update/software/updt/2022/04/windows10.0-kb5013887-x64-ndp48_cee9944aef2e07c7ca85b5ca1d9d67ecdf7a9abf.msu']
 
           for package_url in package_url_list:
+            print(package_url)
             package_file = package_url.rsplit('/', 1)[-1]
             urlretrieve(package_url, package_file)
           PYTHON
             
-          Dism.exe -Image:"mnt" -Add-Package `for msu in *.msu ; do printf " -PackagePath=${msu}" ; done`
+          Dism.exe -Image:"mnt" -LogPath:"02-update.log" -Add-Package `for msu in *.msu ; do printf " -PackagePath=${msu}" ; done`
 
       - name: Optimize
         shell: powershell
@@ -72,12 +73,11 @@ jobs:
       - name: Unmount wim
         shell: bash
         run: |
-          Dism.exe -Commit-Image -MountDir:"mnt"
-          Dism.exe -Unmount-image -MountDir:"mnt" -Commit
+          Dism.exe -Unmount-image -MountDir:"mnt" -LogPath:"04-unmount.log" -Commit
           
       - name: Create esd
         run: |
-          Dism.exe -Export-Image -SourceImageFile:"install.wim" -SourceIndex:1 -DestinationImageFile:"install.esd" -Compress:Recovery -CheckIntegrity
+          Dism.exe -Export-Image -SourceImageFile:"install.wim" -SourceIndex:1 -DestinationImageFile:"install.esd" -Compress:Recovery -CheckIntegrity -LogPath:"05-esd.log"
 
       - name: Store log files
         if: always()
@@ -85,7 +85,7 @@ jobs:
         with:
           name: logs
           path: |
-            **/*.log
+            *.log
           
       - name: Store esd files
         if: always()

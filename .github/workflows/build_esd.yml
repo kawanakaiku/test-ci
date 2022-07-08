@@ -52,7 +52,7 @@ jobs:
 
           for package_url in package_url_list:
             package_file = package_url.rsplit('/', 1)[-1]
-            urlretrieve("${package_url}", "${package_file}")
+            urlretrieve(package_url, package_file)
           PYTHON
             
           Dism.exe -Image:"mnt" -Add-Package `for msu in *.msu ; do printf " -PackagePath=${msu}" ; done`

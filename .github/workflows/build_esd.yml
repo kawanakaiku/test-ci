@@ -17,40 +17,38 @@ jobs:
       - name: Download source
         shell: bash
         run: |
-          python.exe <<'PYTHON'
-          from urllib.request import urlopen
-          with open('install.wim', 'wb') as f:
-            for i in ['aa', 'ab', 'ac', 'ad', 'ae']:
-              print(i)
-              part = urlopen('https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_'+i).read()
-              f.write(part)
-          PYTHON
+          test -f install.wim && exit || true
+          (
+          for i in aa ab ac ad ae ; do
+            wget -nv -O - https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_${i}
+          done
+          ) > install.wim
           
       - name: Mount wim
         shell: bash
         run: |
           mkdir -p mnt
-          Dism.exe /Mount-image /imagefile:install.wim /Index:1 /MountDir:mnt
+          Dism.exe -Mount-image -imagefile:install.wim -Index:1 -MountDir:mnt
           
       - name: Update
         shell: bash
         run: |
-          a
+          true
           
       - name: Optimize
         shell: bash
         run: |
-          DISM /Mount-image /imagefile:install.wim /Index:1 /MountDir:mnt
+          true
 
       - name: Unmount wim
         shell: bash
         run: |
-          Dism.exe /Commit-Image /MountDir:mnt
-          Dism.exe /Unmount-image /MountDir:mnt /Commit
+          Dism.exe -Commit-Image -MountDir:mnt
+          Dism.exe -Unmount-image -MountDir:mnt -Commit
           
       - name: Create esd
         run: |
-          Dism.exe /Export-Image /SourceImageFile:install.wim /SourceIndex:1 /DestinationImageFile:install.esd /Compress:Recovery /CheckIntegrity
+          Dism.exe -Export-Image -SourceImageFile:install.wim -SourceIndex:1 -DestinationImageFile:install.esd -Compress:Recovery -CheckIntegrity
 
       - name: Store log files
         if: always()

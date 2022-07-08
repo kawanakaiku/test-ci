@@ -50,7 +50,7 @@ jobs:
           for package_url in "${package_url_list[@]}" ; do
             package_file="$(basename "${package_url}")"
             
-            python.exe -u <<PYTHON
+            python.exe -u <<-PYTHON
             from urllib.request import urlretrieve
             urlretrieve("${package_url}", "${package_file}")
             PYTHON

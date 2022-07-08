@@ -21,6 +21,10 @@ jobs:
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v3
+      
+      - name: download source
+        run: |
+          python.exe -c "from urllib.request import urlopen;f=open('Win10_21H2_Japanese_x64.wim', 'wb');[[print(i), f.write(urlopen('https://github.com/kawanakaiku/test-ci/releases/download/win10/Win10_21H2_Japanese_x64.wim_'+i).read())] for i in ['aa', 'ab', 'ac', 'ad', 'ae']];f.close()"
 
       # Runs a set of commands using the runners shell
       - name: Run a build script

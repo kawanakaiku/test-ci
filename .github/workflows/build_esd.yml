@@ -64,7 +64,11 @@ jobs:
         run: |
           ### precompile
           $mountdir = $PWD.PATH + '\mnt'
+
           $env:SystemRoot = $mountdir + '\Windows'
+          $env:ProgramFiles = $mountdir + '\Program Files'
+          $env:ProgramFiles(x86) = $mountdir + '\Program Files (x86)'
+
           $ngen_exe_list = ( Resolve-Path ( $env:SystemRoot + "\Microsoft.NET\Framework*\*\ngen.exe" ) | Select -ExpandProperty Path )
           foreach ($ngen_exe in $ngen_exe_list){
             & $ngen_exe update

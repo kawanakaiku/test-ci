@@ -69,9 +69,15 @@ jobs:
           ### precompile
           $mountdir = 'E:\'
 
-          $env:SystemRoot = $mountdir + '\Windows'
-          $env:ProgramFiles = $mountdir + '\Program Files'
-          ${env:ProgramFiles(x86)} = $mountdir + '\Program Files (x86)'
+          $env:ALLUSERSPROFILE = $mountdir + 'ProgramData'
+          $env:CommonProgramFiles = $mountdir + 'Program Files\Common Files'
+          ${env:CommonProgramFiles(x86)} = $mountdir + 'Program Files (x86)\Common Files'
+          $env:CommonProgramW6432 = $mountdir + 'Program Files\Common Files'
+          $env:ProgramFiles = $mountdir + 'Program Files'
+          ${env:ProgramFiles(x86)} = $mountdir + 'Program Files (x86)'
+          $env:ProgramW6432 = $mountdir + 'Program Files'
+          $env:SystemRoot = $mountdir + 'Windows'
+          $env:windir = $mountdir + 'windows'
 
           $ngen_exe_list = ( Resolve-Path ( $env:SystemRoot + "\Microsoft.NET\Framework*\*\ngen.exe" ) | Select -ExpandProperty Path )
           foreach ($ngen_exe in $ngen_exe_list){

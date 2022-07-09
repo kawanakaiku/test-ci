@@ -37,7 +37,8 @@ jobs:
           
       - name: Update
         shell: bash
-        run: |      
+        run: |
+          exit 0
           python.exe -u <<PYTHON
           from urllib.request import urlretrieve
 

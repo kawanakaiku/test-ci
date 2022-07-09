@@ -65,7 +65,7 @@ jobs:
           ### precompile
           $mountdir = $PWD.PATH + '\mnt'
           $env:SystemRoot = $mountdir + '\Windows'
-          $ngen_exe_list = ( Resolve-Path $env:SystemRoot + "\Microsoft.NET\Framework*\*\ngen.exe" | Select -ExpandProperty Path )
+          $ngen_exe_list = ( Resolve-Path ( $env:SystemRoot + "\Microsoft.NET\Framework*\*\ngen.exe" ) | Select -ExpandProperty Path )
           foreach ($ngen_exe in $ngen_exe_list){
             & $ngen_exe update
             & $ngen_exe executequeueditems

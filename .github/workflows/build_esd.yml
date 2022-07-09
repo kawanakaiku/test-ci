@@ -94,7 +94,7 @@ jobs:
       - name: Clean up
         shell: bash
         run: |
-          Dism.exe -Image:'E:\' -LogPath:"04-cleanup.log" -Cleanup-Image -StartComponentCleanup -ResetBase -SPSuperseded
+          Dism.exe -Image:'E:\' -LogPath:"04-cleanup.log" -Cleanup-Image -StartComponentCleanup -ResetBase
 
       - name: Unregister drive
         run: |

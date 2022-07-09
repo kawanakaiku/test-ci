@@ -32,7 +32,12 @@ jobs:
       - name: Mount wim
         shell: bash
         run: |
-          Dism.exe -Mount-image -imagefile:"install.wim" -Index:1 -MountDir:'E:\' -LogPath:"01-mount.log"
+          mkdir -p mnt_wim
+          Dism.exe -Mount-image -imagefile:"install.wim" -Index:1 -MountDir:'mnt_wim' -LogPath:"01-mount.log"
+          
+      - name: Register drive
+        run: |
+          subst.exe E: mnt_wim
           
       - name: Update
         shell: bash
@@ -79,6 +84,10 @@ jobs:
         run: |
           Dism.exe -Image:'E:\' -LogPath:"04-cleanup.log" -Cleanup-Image -StartComponentCleanup -ResetBase -SPSuperseded
 
+      - name: Unregister drive
+        run: |
+          subst.exe E: /D
+          
       - name: Unmount wim
         shell: bash
         run: |

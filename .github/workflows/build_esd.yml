@@ -75,10 +75,15 @@ jobs:
             & $ngen_exe executequeueditems
           }
 
+      - name: Clean up
+        shell: bash
+        run: |
+          Dism.exe -Image:"mnt" -LogPath:"04-cleanup.log" -Cleanup-Image -StartComponentCleanup -ResetBase -SPSuperseded
+
       - name: Unmount wim
         shell: bash
         run: |
-          Dism.exe -Unmount-image -MountDir:"mnt" -LogPath:"04-unmount.log" -Commit
+          Dism.exe -Unmount-image -MountDir:"mnt" -LogPath:"05-unmount.log" -Commit
           
       - name: Create esd
         run: |

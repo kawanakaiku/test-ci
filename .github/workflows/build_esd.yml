@@ -97,7 +97,7 @@ jobs:
       - name: Unmount wim
         shell: bash
         run: |
-          Dism.exe -Unmount-image -MountDir:'E:\' -LogPath:"05-unmount.log" -Commit
+          Dism.exe -Unmount-image -MountDir:'mnt_wim' -LogPath:"05-unmount.log" -Commit
           
       - name: Create esd
         run: |

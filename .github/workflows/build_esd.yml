@@ -72,6 +72,8 @@ jobs:
           ### precompile
           $HOMEDRIVE = 'E:'
           $mountdir = $HOMEDRIVE + '\'
+          
+          cd $mountdir
 
           $env:ALLUSERSPROFILE = $mountdir + 'ProgramData'
           $env:CommonProgramFiles = $mountdir + 'Program Files\Common Files'

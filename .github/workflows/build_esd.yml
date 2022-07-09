@@ -32,8 +32,7 @@ jobs:
       - name: Mount wim
         shell: bash
         run: |
-          mkdir -p mnt
-          Dism.exe -Mount-image -imagefile:"install.wim" -Index:1 -MountDir:"mnt" -LogPath:"01-mount.log"
+          Dism.exe -Mount-image -imagefile:"install.wim" -Index:1 -MountDir:'E:\' -LogPath:"01-mount.log"
           
       - name: Update
         shell: bash
@@ -57,13 +56,13 @@ jobs:
             urlretrieve(package_url, package_file)
           PYTHON
             
-          Dism.exe -Image:"mnt" -LogPath:"02-update.log" -Add-Package `for msu in *.msu ; do printf " -PackagePath=${msu}" ; done`
+          Dism.exe -Image:'E:\' -LogPath:"02-update.log" -Add-Package `for msu in *.msu ; do printf " -PackagePath=${msu}" ; done`
 
       - name: Optimize
         shell: powershell
         run: |
           ### precompile
-          $mountdir = $PWD.PATH + '\mnt'
+          $mountdir = 'E:\'
 
           $env:SystemRoot = $mountdir + '\Windows'
           $env:ProgramFiles = $mountdir + '\Program Files'
@@ -78,12 +77,12 @@ jobs:
       - name: Clean up
         shell: bash
         run: |
-          Dism.exe -Image:"mnt" -LogPath:"04-cleanup.log" -Cleanup-Image -StartComponentCleanup -ResetBase -SPSuperseded
+          Dism.exe -Image:'E:\' -LogPath:"04-cleanup.log" -Cleanup-Image -StartComponentCleanup -ResetBase -SPSuperseded
 
       - name: Unmount wim
         shell: bash
         run: |
-          Dism.exe -Unmount-image -MountDir:"mnt" -LogPath:"05-unmount.log" -Commit
+          Dism.exe -Unmount-image -MountDir:'E:\' -LogPath:"05-unmount.log" -Commit
           
       - name: Create esd
         run: |

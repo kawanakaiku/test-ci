@@ -82,6 +82,8 @@ jobs:
           $env:SYSTEMDRIVE = $HOMEDRIVE
           $env:SystemRoot = $mountdir + 'Windows'
           $env:windir = $mountdir + 'windows'
+          
+          $env:PATH = ''
 
           $ngen_exe_list = ( Resolve-Path ( $env:SystemRoot + "\Microsoft.NET\Framework*\*\ngen.exe" ) | Select -ExpandProperty Path )
           foreach ($ngen_exe in $ngen_exe_list){

@@ -67,15 +67,19 @@ jobs:
         shell: powershell
         run: |
           ### precompile
-          $mountdir = 'E:\'
+          $HOMEDRIVE = 'E:'
+          $mountdir = $HOMEDRIVE + '\'
 
           $env:ALLUSERSPROFILE = $mountdir + 'ProgramData'
           $env:CommonProgramFiles = $mountdir + 'Program Files\Common Files'
           ${env:CommonProgramFiles(x86)} = $mountdir + 'Program Files (x86)\Common Files'
           $env:CommonProgramW6432 = $mountdir + 'Program Files\Common Files'
+          $env:HOMEDRIVE = $HOMEDRIVE
+          $env:ProgramData = $mountdir + 'ProgramData'
           $env:ProgramFiles = $mountdir + 'Program Files'
           ${env:ProgramFiles(x86)} = $mountdir + 'Program Files (x86)'
           $env:ProgramW6432 = $mountdir + 'Program Files'
+          $env:SYSTEMDRIVE = $HOMEDRIVE
           $env:SystemRoot = $mountdir + 'Windows'
           $env:windir = $mountdir + 'windows'
 

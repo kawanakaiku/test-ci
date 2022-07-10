@@ -12,6 +12,10 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+      - name: Init
+        run: |
+          date +%s > /tmp/timer
+          
       - name: Download base image
         run: |
           wget -nv https://developer.nvidia.com/embedded/l4t/r32_release_v7.1/jp_4.6.1_b110_sd_card/jetson_nano_2gb/jetson-nano-2gb-jp461-sd-card-image.zip -O image.zip
@@ -112,7 +116,21 @@ jobs:
 
       - name: Cross compile
         run: |
-          sudo chroot mnt /bin/bash <<'chroot_end'
+          duration = (
+          	init=$(cd /tmp ; cat timer ; rm -f timer)
+            end=$(perl -e "print $init + 6*60*60")
+            start=$(date +%s)
+            remaining_time=$(perl -e "print $end - $start")
+            duration=$(perl -e "print $remaining_time - 10*60")
+            echo ${duration}
+          )
+          
+          echo "killing in ${duration}"
+        
+          ! \
+          sudo \
+          timeout --verbose --signal=SIGTERM --kill-after=10 ${duration}s \
+          chroot mnt /bin/bash <<'chroot_end'
 
           cd /src
 
@@ -156,12 +174,9 @@ jobs:
         run: sudo tar cf src_upper.tar src_upper && ls -lha
           
       - name: Store built file
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v3
         with:
           name: built-artifact
           path: build
-
-      - name: Waiting for debugger
-        if: failure()
-        uses: mxschmitt/action-tmate@v3
+          

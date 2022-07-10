@@ -20,7 +20,7 @@ python3.8 -m pip install -r ./requirements.txt
 # python3.8 -m pip -vvv install ./
 python3.8 setup.py bdist_wheel
 
-mkdir build_wheel
+mkdir -p build_wheel
 cd build_wheel
 
 python3.8 -m pip wheel -r ../requirements.txt

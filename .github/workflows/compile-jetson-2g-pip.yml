@@ -113,10 +113,6 @@ jobs:
         run: |
           sudo rm mnt/usr/bin/qemu-aarch64-static
 
-          sudo umount -lf mnt/src
-          sudo umount -lf src
-          sudo umount -lf src_lower
-
           sudo umount -lf mnt/run
           sudo umount -lf mnt/dev
           sudo umount -lf mnt/sys
@@ -125,10 +121,12 @@ jobs:
           sudo umount -lf overlay/lower
           
       - name: Store built file
+        if: always()
         uses: actions/upload-artifact@v3
         with:
           name: built-artifact
           path: build
 
       - name: Waiting for debugger
+        if: failure()
         uses: mxschmitt/action-tmate@v3

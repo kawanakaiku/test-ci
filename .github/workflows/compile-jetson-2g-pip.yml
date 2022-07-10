@@ -92,7 +92,7 @@ jobs:
           sudo mkdir -p src src_lower src_upper src_work
           
           wget -nv https://files.pythonhosted.org/packages/b0/4d/80d65c37ee60a479d338d27a2895fb15bbba27a3e6bb5b6d72bb28246e99/wxPython-4.1.1.tar.gz
-          tar xf wxPython-4.1.1.tar.gz -C src_lower --strip-components 1
+          sudo tar xf wxPython-4.1.1.tar.gz -C src_lower --strip-components 1
           rm wxPython-4.1.1.tar.gz
           
           sudo mount -t overlay overlay -o lowerdir=src_lower,upperdir=src_upper,workdir=src_work src

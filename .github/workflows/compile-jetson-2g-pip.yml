@@ -71,10 +71,30 @@ jobs:
             sudo tar -xf data.tar.xz --no-overwrite-dir -C ./
             rm data.tar.xz
           done
+          
+      - name: Cache build 1
+        uses: actions/cache@v3
+        with:
+          path: src_upper.tar
+          key: 1_${{ github.sha }}
+          restore-keys: |
+            compile-jetson-2g-pip-wxPython-4.1.1
+
+      - name: Extract build cache
+        run: test -f src_upper.tar && sudo tar xf src_upper.tar || true
 
       - name: Clone source code
         run: |
+          sudo mkdir -p src src_lower src_upper src_work
+          
+          wget -nv https://files.pythonhosted.org/packages/b0/4d/80d65c37ee60a479d338d27a2895fb15bbba27a3e6bb5b6d72bb28246e99/wxPython-4.1.1.tar.gz
+          tar xf wxPython-4.1.1.tar.gz -C src_lower --strip-components 1
+          rm wxPython-4.1.1.tar.gz
+          
+          sudo mount -t overlay overlay -o lowerdir=src_lower,upperdir=src_upper,workdir=src_work src
+
           sudo mkdir -p mnt/src
+          sudo mount -o bind src mnt/src
           
       - name: Install pip
         run: |
@@ -109,12 +129,18 @@ jobs:
           chroot_end
 
       - name: Collect built file
+        if: failure()
         run: |
           sudo mv src/build_wheel build
           
       - name: Unmount
+        if: success()
         run: |
           sudo rm mnt/usr/bin/qemu-aarch64-static
+          
+          sudo umount -lf mnt/src
+          sudo umount -lf src
+          sudo umount -lf src_lower
 
           sudo umount -lf mnt/run
           sudo umount -lf mnt/dev
@@ -124,6 +150,10 @@ jobs:
           sudo umount -lf mnt
           
           sudo umount -lf overlay/lower
+          
+      - name: Tar build cache
+        if: success()
+        run: sudo tar cf src_upper.tar src_upper && ls -lha
           
       - name: Store built file
         if: always()

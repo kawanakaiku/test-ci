@@ -102,7 +102,7 @@ jobs:
           # python3.8 -m pip wheel ..
           # python3.8 ../setup.py bdist_wheel
           # cp -a -v ../dist/*.whl .
-          python3.8 -m pip wheel wxPython
+          python3.8 -m pip -vvv wheel wxPython
           # python3.8 -m pip wheel pip setuptools wheel Cython cmake
 
           chroot_end

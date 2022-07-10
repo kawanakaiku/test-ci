@@ -59,6 +59,7 @@ jobs:
               unzip virtualenv wget \
               ccache pkg-config \
               libgtk2.0-dev libgtk-3-dev
+            apt-get clean
           chroot_end
 
           # apt in chroot hungs

@@ -52,7 +52,7 @@ jobs:
 
           sudo chroot . /bin/bash <<'chroot_end'
             apt-get -o Acquire::Languages=none update
-            apt-get install --download-only -y \
+            apt-get install -y \
               apt-transport-https build-essential ca-certificates \
               cmake curl git ninja-build \
               python3.8-dev software-properties-common sudo \
@@ -62,6 +62,7 @@ jobs:
           chroot_end
 
           # apt in chroot hungs
+          shopt -s nullglob
           for deb in var/cache/apt/archives/*.deb ; do
             echo "extracting $deb ..."
             ar x $deb data.tar.xz

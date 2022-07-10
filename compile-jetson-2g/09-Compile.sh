@@ -26,7 +26,7 @@ cd build_wheel
 python3.8 -m pip wheel -r ../requirements.txt
 # python3.8 -m pip wheel ..
 # python3.8 ../setup.py bdist_wheel
-mv ../*.whl .
+cp -a ../dist/*.whl .
 python3.8 -m pip wheel pip setuptools wheel Cython cmake
 
 chroot_end

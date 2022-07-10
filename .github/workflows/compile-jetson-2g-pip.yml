@@ -1,0 +1,134 @@
+name: compile-jetson-2g-pip
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/compile-jetson-2g-pip.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Download base image
+        run: |
+          wget -nv https://developer.nvidia.com/embedded/l4t/r32_release_v7.1/jp_4.6.1_b110_sd_card/jetson_nano_2gb/jetson-nano-2gb-jp461-sd-card-image.zip -O image.zip
+          
+      - name: Extract base image
+        run: |
+          unzip image.zip  # extracts "sd-blob.img"
+          rm image.zip
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get -o Acquire::Languages=none update
+          sudo apt-get install -y --no-install-recommends arch-test qemu-user-static
+
+      - name: Mount
+        run: |
+          offset=`sgdisk --print sd-blob.img | awk '{if($1==1){print $2*512}}'`
+
+          mkdir -p overlay/{lower,upper,work} mnt
+          sudo mount -t ext4 -o loop,offset=${offset},ro sd-blob.img overlay/lower
+          sudo mount -t overlay -o lowerdir=overlay/lower,upperdir=overlay/upper,workdir=overlay/work overlay mnt
+
+          sudo mount -t proc /proc mnt/proc
+          sudo mount -t sysfs /sys mnt/sys
+          sudo mount -o bind /dev mnt/dev
+          sudo mount -o bind /run mnt/run
+
+      - name: Settings
+        run: |
+          sudo cp /usr/bin/qemu-aarch64-static mnt/usr/bin/qemu-aarch64-static
+          sudo cp --remove-destination /etc/resolv.conf mnt/etc/resolv.conf
+          sudo sed -i -e 's/<SOC>/t210/g' mnt/etc/apt/sources.list.d/nvidia-l4t-apt-source.list
+          sudo rm mnt/etc/apt/apt.conf.d/50appstream  # no icons update
+          
+      - name: Install packages
+        run: |
+          cd mnt
+
+          sudo chroot . /bin/bash <<'chroot_end'
+            apt-get -o Acquire::Languages=none update
+            apt-get install --download-only -y \
+              apt-transport-https build-essential ca-certificates \
+              cmake curl git ninja-build \
+              python3.8-dev software-properties-common sudo \
+              unzip virtualenv wget \
+              ccache
+          chroot_end
+
+          # apt in chroot hungs
+          for deb in var/cache/apt/archives/*.deb ; do
+            echo "extracting $deb ..."
+            ar x $deb data.tar.xz
+            [ -f data.tar.xz ] || continue
+            sudo tar -xf data.tar.xz --no-overwrite-dir -C ./
+            rm data.tar.xz
+          done
+
+      - name: Clone source code
+        run: |
+          sudo mkdir -p mnt/src
+          
+      - name: Install pip
+        run: |
+          cd mnt
+
+          sudo wget -nv https://bootstrap.pypa.io/get-pip.py
+
+          sudo chroot . /bin/bash <<'chroot_end'
+            python3.8 /get-pip.py
+            python3.8 -m pip install -U pip
+            python3.8 -m pip install -U setuptools wheel Cython cmake
+          chroot_end
+
+          sudo rm get-pip.py
+
+      - name: Cross compile
+        run: |
+          sudo chroot mnt /bin/bash <<'chroot_end'
+
+          cd /src
+
+          mkdir -p build_wheel
+          cd build_wheel
+
+          python3.8 -m pip wheel -r ../requirements.txt
+          # python3.8 -m pip wheel ..
+          # python3.8 ../setup.py bdist_wheel
+          # cp -a -v ../dist/*.whl .
+          python3.8 -m pip wheel wxPython
+          # python3.8 -m pip wheel pip setuptools wheel Cython cmake
+
+          chroot_end
+
+      - name: Collect built file
+        run: |
+          sudo mv src/build_wheel build
+          
+      - name: Unmount
+        run: |
+          sudo rm mnt/usr/bin/qemu-aarch64-static
+
+          sudo umount -lf mnt/src
+          sudo umount -lf src
+          sudo umount -lf src_lower
+
+          sudo umount -lf mnt/run
+          sudo umount -lf mnt/dev
+          sudo umount -lf mnt/sys
+          sudo umount -lf mnt/proc
+          sudo umount -lf mnt
+          sudo umount -lf overlay/lower
+          
+      - name: Store built file
+        uses: actions/upload-artifact@v3
+        with:
+          name: built-artifact
+          path: build
+
+      - name: Waiting for debugger
+        uses: mxschmitt/action-tmate@v3

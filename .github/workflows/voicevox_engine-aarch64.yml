@@ -81,7 +81,7 @@ jobs:
               python3.8-dev
               
             wget http://archive.ubuntu.com/ubuntu/pool/main/p/python3-stdlib-extensions/python3-distutils_3.8.10-0ubuntu1~20.04_all.deb
-            sudo dpkg-deb -x python3-distutils_3.8.10-0ubuntu1~20.04_all.deb /
+            dpkg-deb -x python3-distutils_3.8.10-0ubuntu1~20.04_all.deb /
             rm python3-distutils_3.8.10-0ubuntu1~20.04_all.deb
               
             curl -ksL https://bootstrap.pypa.io/get-pip.py | python3.8

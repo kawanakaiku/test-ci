@@ -47,7 +47,7 @@ jobs:
         id: aarch64-build-on-qemu-aarch64
         with:
           arch: aarch64
-          distro: ubuntu20.04
+          distro: ubuntu18.04
           run: |            
             export DEBIAN_FRONTEND=noninteractive
             apt-get update
@@ -122,7 +122,7 @@ jobs:
             
       - name: host
         run: |
-          tar Jcf built.tar.xz ./voicevox_engine_build
+          tar Jcf built.tar.xz voicevox_engine_build/run.dist
                     
       - name: built file info
         run: |

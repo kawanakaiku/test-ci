@@ -117,12 +117,16 @@ jobs:
               --include-data-file=./voicevox_engine/default.csv=./ \
               --include-data-file=./voicevox_core/*.so=./ \
               --include-data-file=./onnxruntime/lib/libonnxruntime.so=./ \
-              --include-data-dir=./voicevox_engine/speaker_info=./speaker_info \
-              --include-data-dir=./voicevox_engine/manifest_assets=./manifest_assets \
               --follow-imports \
               --no-prefer-source-code \
               ./voicevox_engine/run.py
-          
+
+            # --include-data-dir=./voicevox_engine/speaker_info=./speaker_info
+            # --include-data-dir=./voicevox_engine/manifest_assets=./manifest_assets
+            cp -a voicevox_engine/speaker_info voicevox_engine_build/run.dist/speaker_info
+            cp -a voicevox_engine/manifest_assets voicevox_engine_build/run.dist/manifest_assets
+
+
             find ./voicevox_engine_build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose || true
             
             chmod +x ./voicevox_engine_build/run.dist/run

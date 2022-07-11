@@ -116,7 +116,7 @@ jobs:
 
       - name: Cross compile
         run: |
-          duration = (
+          duration=$(
           	init=$(cd /tmp ; cat timer ; rm -f timer)
             end=$(perl -e "print $init + 6*60*60")
             start=$(date +%s)

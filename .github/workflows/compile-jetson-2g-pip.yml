@@ -134,14 +134,17 @@ jobs:
 
           cd /src
 
+          python3.8 -m pip install -r requirements.txt
+          python3.8 setup.py build_wheel
+
           mkdir -p build_wheel
           cd build_wheel
 
-          # python3.8 -m pip wheel -r ../requirements.txt
+          python3.8 -m pip wheel -r ../requirements.txt
           # python3.8 -m pip wheel ..
           # python3.8 ../setup.py bdist_wheel
-          # cp -a -v ../dist/*.whl .
-          python3.8 -m pip -vvv wheel wxPython
+          cp -a -v ../dist/*.whl .
+          # python3.8 -m pip -vvv wheel wxPython
           # python3.8 -m pip wheel pip setuptools wheel Cython cmake
 
           chroot_end

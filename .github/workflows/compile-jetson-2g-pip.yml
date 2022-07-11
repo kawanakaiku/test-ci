@@ -80,9 +80,9 @@ jobs:
         uses: actions/cache@v3
         with:
           path: src_upper.tar
-          key: 1_04d91ae7f60074fc92ad391b77d81fe6ff1a0fce
+          key: compile-jetson-2g-pip-wxPython-4.1.1_1_${{ github.sha }}
           restore-keys: |
-            compile-jetson-2g-pip-wxPython-4.1.1
+            compile-jetson-2g-pip-wxPython-4.1.1_
 
       - name: Extract build cache
         run: test -f src_upper.tar && sudo tar xf src_upper.tar || true

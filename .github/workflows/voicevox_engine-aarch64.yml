@@ -39,9 +39,9 @@ jobs:
           mv * ../voicevox_core
           popd ; rm -r tmp
           
-          wget -nv https://github.com/kawanakaiku/test-ci/releases/download/python/python-3.8.10-aarch64.tar.xz -O python.tar.xz
-          tar xf python.tar.xz
-          rm python.tar.xz
+          # wget -nv https://github.com/kawanakaiku/test-ci/releases/download/python/python-3.8.10-aarch64.tar.xz -O python.tar.xz
+          # tar xf python.tar.xz
+          # rm python.tar.xz
           
       - uses: uraimo/run-on-arch-action@v2
         id: aarch64-build-on-qemu-aarch64
@@ -77,10 +77,13 @@ jobs:
               chrpath \
               patchelf \
               binutils \
-              file
+              file \
+              python3.8-dev
+              
+            curl -ksL https://bootstrap.pypa.io/get-pip.py | python3.8
             
-            ./python/bin/python3 -m pip install --upgrade pip setuptools==60.6.0 wheel
-            ./python/bin/python3 -m pip install -r ./voicevox_engine/requirements.txt
+            python3.8 -m pip install --upgrade pip setuptools==60.6.0 wheel
+            python3.8 -m pip install -r ./voicevox_engine/requirements.txt
             ./python/bin/python3 -m pip install -r ./voicevox_engine/requirements-dev.txt
             
             for i in $(seq 5); do

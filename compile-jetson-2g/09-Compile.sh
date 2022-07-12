@@ -22,6 +22,7 @@ export USE_OPENCV=1 USE_BLAS=openblas USE_CUDA=1 USE_CUDA_PATH=/usr/local/cuda U
 export USE_NUMPY=1
 export CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda/targets/aarch64-linux
 export CUDA_HOME=/usr/local/cuda
+export TORCH_CUDA_ARCH_LIST="5.3;6.2;7.2;8.7"
 
 export MAX_JOBS=2
 

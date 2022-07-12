@@ -8,7 +8,7 @@ sudo chroot . /bin/bash <<'chroot_end'
     libatlas-base-dev libcurl4-openssl-dev libjemalloc-dev \
     liblapack-dev libopencv-dev \
     libzmq3-dev ninja-build \
-    python3.8-dev software-properties-common sudo \
+    python3.8-dev python3.8-venv software-properties-common sudo \
     unzip virtualenv wget \
     libjpeg-dev libopenblas-dev libopenmpi-dev libomp-dev ccache \
     libblas3 liblapack3

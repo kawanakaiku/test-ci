@@ -6,7 +6,9 @@ sudo mount -t ext4 -o loop,offset=${offset},ro sd-blob.img overlay/lower
 # create native ubuntu rootfs with cross compiler
 sudo mmdebstrap --components=main,multiverse,restricted,universe --include=gcc-7-aarch64-linux-gnu,g++-7-aarch64-linux-gnu --variant=essential --architecture=amd64 bionic bionic-amd64 http://archive.ubuntu.com/ubuntu
 
-sudo mount -t overlay -o lowerdir=overlay/lower:bionic-amd64,upperdir=overlay/upper,workdir=overlay/work overlay mnt
+sudo rm -rf bionic-amd64/etc
+
+sudo mount -t overlay -o lowerdir=bionic-amd64:overlay/lower,upperdir=overlay/upper,workdir=overlay/work overlay mnt
 
 sudo mount -t proc /proc mnt/proc
 sudo mount -t sysfs /sys mnt/sys

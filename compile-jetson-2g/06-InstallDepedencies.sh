@@ -2,7 +2,7 @@ cd mnt
 
 sudo chroot . /bin/bash <<'chroot_end'
   apt-get -o Acquire::Languages=none update
-  apt-get install --download-only -y \
+  apt-get install -y \
     apt-transport-https build-essential ca-certificates \
     cmake curl git \
     libatlas-base-dev libcurl4-openssl-dev libjemalloc-dev \

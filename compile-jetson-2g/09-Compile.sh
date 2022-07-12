@@ -5,7 +5,7 @@ source venv/bin/activate
 
 _CFLAGS=" -mtune=cortex-a57 -L/lib -L/usr/local/cuda-10.2/lib64 -L/usr/lib -L/usr/lib/aarch64-linux-gnu -L/lib/aarch64-linux-gnu -L/usr/lib/aarch64-linux-gnu/tegra -Wl,-rpath,/usr/lib/aarch64-linux-gnu/tegra"
 _CFLAGS+=" -I/usr/local/cuda-10.2/targets/aarch64-linux/include -L/usr/local/cuda-10.2/targets/aarch64-linux/lib"
-_CFLAGS+=" `pkg-config --cflags --libs python-3.8 libdrm_tegra $(pkg-config --list-all | awk '{print $1}' | grep -e '-10\.2$')`"
+_CFLAGS+=" `pkg-config --cflags --libs python-3.8 libdrm_tegra $(pkg-config --list-all | awk '{print $1}' | grep -e '-10\.2$' | grep -v -e '^nppi')`"
 export CFLAGS+="${_CFLAGS}"
 export CXXFLAGS+="${_CFLAGS}"
 #export MAKEFLAGS=-j1

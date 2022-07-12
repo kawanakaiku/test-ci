@@ -1,6 +1,7 @@
 sudo chroot mnt /bin/bash <<'chroot_end' || true
 
-_FLAGS=" -L/lib -L/usr/local/cuda/lib64 -L/usr/lib -L/usr/lib/aarch64-linux-gnu -L/lib/aarch64-linux-gnu -L/usr/lib/aarch64-linux-gnu/tegra -Wl,-rpath,/usr/lib/aarch64-linux-gnu/tegra"
+_FLAGS=" -mtune=cortex-a57 -L/lib -L/usr/local/cuda/lib64 -L/usr/lib -L/usr/lib/aarch64-linux-gnu -L/lib/aarch64-linux-gnu -L/usr/lib/aarch64-linux-gnu/tegra -Wl,-rpath,/usr/lib/aarch64-linux-gnu/tegra"
+_FLAGS+=" -I/usr/local/cuda/targets/aarch64-linux/include"
 export CFLAGS+="${_FLAGS}"
 export CXXFLAGS+="${_FLAGS}"
 #export MAKEFLAGS=-j1
@@ -9,6 +10,7 @@ export NVCC=/usr/local/cuda/bin/nvcc
 export CUDACXX=/usr/local/cuda/bin/nvcc
 
 export USE_OPENCV=1 USE_BLAS=openblas USE_CUDA=1 USE_CUDA_PATH=/usr/local/cuda USE_CUDNN=1
+export USE_NUMPY=1
 export CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda/targets/aarch64-linux
 export CUDA_HOME=/usr/local/cuda
 

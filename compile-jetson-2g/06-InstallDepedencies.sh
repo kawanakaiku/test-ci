@@ -10,10 +10,13 @@ sudo chroot . /bin/bash <<'chroot_end'
     libzmq3-dev ninja-build \
     python3.8-dev software-properties-common sudo \
     unzip virtualenv wget \
-    libjpeg-dev libopenblas-dev libopenmpi-dev libomp-dev ccache
+    libjpeg-dev libopenblas-dev libopenmpi-dev libomp-dev ccache \
+    libblas3 liblapack3
 chroot_end
 
+
 # apt in chroot hungs
+shopt -s nullglob
 for deb in var/cache/apt/archives/*.deb ; do
   echo "extracting $deb ..."
   ar x $deb data.tar.xz

@@ -2,7 +2,11 @@ offset=`sgdisk --print sd-blob.img | awk '{if($1==1){print $2*512}}'`
 
 mkdir -p overlay/{lower,upper,work} mnt
 sudo mount -t ext4 -o loop,offset=${offset},ro sd-blob.img overlay/lower
-sudo mount -t overlay -o lowerdir=overlay/lower,upperdir=overlay/upper,workdir=overlay/work overlay mnt
+
+# create native ubuntu rootfs with cross compiler
+sudo mmdebstrap --components=main,multiverse,restricted,universe --include=gcc-7-aarch64-linux-gnu,g++-7-aarch64-linux-gnu --variant=apt --architecture=amd64 bionic bionic-amd64 http://archive.ubuntu.com/ubuntu
+
+sudo mount -t overlay -o lowerdir=bionic-amd64:overlay/lower,upperdir=overlay/upper,workdir=overlay/work overlay mnt
 
 sudo mount -t proc /proc mnt/proc
 sudo mount -t sysfs /sys mnt/sys

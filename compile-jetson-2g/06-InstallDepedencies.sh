@@ -12,6 +12,7 @@ sudo chroot . /bin/bash <<'chroot_end'
     unzip virtualenv wget \
     libjpeg-dev libopenblas-dev libopenmpi-dev libomp-dev ccache \
     libblas3 liblapack3
+  apt-get clean
 chroot_end
 
 

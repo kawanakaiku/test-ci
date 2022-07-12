@@ -24,7 +24,7 @@ export CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda/targets/aarch64-linux
 export CUDA_HOME=/usr/local/cuda
 
 # https://qiita.com/tomoaki_teshima/items/294c9ffb03a3dcc4cfef
-export TORCH_CUDA_ARCH_LIST="3.2,5.3,6.2,7.2"
+export TORCH_CUDA_ARCH_LIST="3.2;5.3;6.2;7.2"
 
 export MAX_JOBS=2
 

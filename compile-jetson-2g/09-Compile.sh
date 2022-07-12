@@ -6,6 +6,11 @@ export CFLAGS+="${_FLAGS}"
 export CXXFLAGS+="${_FLAGS}"
 #export MAKEFLAGS=-j1
 
+# use native cross compiler
+export CC=/usr/bin/aarch64-linux-gnu-gcc-7
+export CXX=/usr/bin/aarch64-linux-gnu-g++-7
+export PATH="/usr/aarch64-linux-gnu/bin:${PATH}"
+
 export NVCC=/usr/local/cuda/bin/nvcc
 export CUDACXX=/usr/local/cuda/bin/nvcc
 

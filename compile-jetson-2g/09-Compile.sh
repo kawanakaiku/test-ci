@@ -24,6 +24,7 @@ export MAX_JOBS=2
 cd /src
 
 python3.8 -m pip install -U -r ./requirements.txt
+echo "testing numpy import" ; python3.8 -c 'import numpy;print(numpy)'
 # python3.8 -m pip -vvv install ./
 python3.8 setup.py bdist_wheel
 

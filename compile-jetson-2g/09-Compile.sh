@@ -3,10 +3,11 @@ sudo chroot mnt /bin/bash <<'chroot_end' || true
 python3.8 -m venv venv
 source venv/bin/activate
 
-_FLAGS=" -mtune=cortex-a57 -L/lib -L/usr/local/cuda/lib64 -L/usr/lib -L/usr/lib/aarch64-linux-gnu -L/lib/aarch64-linux-gnu -L/usr/lib/aarch64-linux-gnu/tegra -Wl,-rpath,/usr/lib/aarch64-linux-gnu/tegra"
-_FLAGS+=" -I/usr/local/cuda/targets/aarch64-linux/include"
-export CFLAGS+="${_FLAGS}"
-export CXXFLAGS+="${_FLAGS}"
+_CFLAGS=" -mtune=cortex-a57 -L/lib -L/usr/local/cuda-10.2/lib64 -L/usr/lib -L/usr/lib/aarch64-linux-gnu -L/lib/aarch64-linux-gnu -L/usr/lib/aarch64-linux-gnu/tegra -Wl,-rpath,/usr/lib/aarch64-linux-gnu/tegra"
+_CFLAGS+=" -I/usr/local/cuda-10.2/targets/aarch64-linux/include -L/usr/local/cuda-10.2/targets/aarch64-linux/lib"
+_CFLAGS+=" `pkg-config --cflags --libs python-3.8 libdrm_tegra $(pkg-config --list-all | awk '{print $1}' | grep -e '-10\.2$')`"
+export CFLAGS+="${_CFLAGS}"
+export CXXFLAGS+="${_CFLAGS}"
 #export MAKEFLAGS=-j1
 
 # use native cross compiler

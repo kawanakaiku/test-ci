@@ -46,10 +46,16 @@ jobs:
           
       - name: Mount
         run: |
-          mkdir -p overlay/{lower,upper,work} mnt
-          sudo mount -t ext4 -o ro img/1.img overlay/lower
-          sudo mount -t vfat -o ro img/0.fat overlay/lower/boot
-          sudo mount -t overlay -o lowerdir=overlay/lower,upperdir=overlay/upper,workdir=overlay/work overlay mnt
+          mkdir -p overlay0/{lower,upper,work,mnt}
+          mkdir -p overlay1/{lower,upper,work,mnt}
+          sudo mount -t vfat -o ro img/0.fat overlay0/lower
+          sudo mount -t ext4 -o ro img/1.img overlay1/lower
+          sudo mount -t overlay -o lowerdir=overlay0/lower,upperdir=overlay0/upper,workdir=overlay0/work overlay overlay0/mnt
+          sudo mount -t overlay -o lowerdir=overlay1/lower,upperdir=overlay1/upper,workdir=overlay1/work overlay overlay1/mnt
+          
+          mkdir mnt
+          sudo mount --bind overlay1/mnt mnt
+          sudo mount --bind overlay0/mnt mnt/boot
           
           sudo mount -t proc /proc mnt/proc
           sudo mount -t sysfs /sys mnt/sys
@@ -73,11 +79,8 @@ jobs:
           echo 'tmpfs /var/tmp tmpfs defaults,noatime' | sudo tee -a etc/fstab
           sudo sed -i -E 's/\s+/ /g' etc/fstab
           sudo sed -i -E 's/^(.*)[0-9]+/\10/g' etc/fstab
+          sudo sed -i -e 's/vfat defaults,flush/vfat defaults,noatime/g' etc/fstab
           sudo sed -i -E 's/(ext4 defaults,noatime)/\1,nobarrier,commit=600/g' etc/fstab
-          
-      - name: Waiting for debugger
-        if: always()
-        uses: mxschmitt/action-tmate@v3
           
       - name: apt update
         run: |
@@ -97,20 +100,29 @@ jobs:
       - name: pip update
         run: |
           sudo chroot mnt <<'CHROOT'
-          python3 -m pip list -o | tail -n +3 | awk '{ print $1 }' | xargs python3 -m pip install -U
+          # python3 -m pip list -o | tail -n +3 | awk '{ print $1 }' | xargs python3 -m pip install -U
           CHROOT
             
-      - name: Revert settings
+      - name: Revert settings and unbind
         run: |
           sudo rm mnt/usr/bin/qemu-aarch64-static
           sudo rm mnt/etc/resolv.conf
           sudo mv mnt/etc/resolv.conf{.bak,}
           
+          sudo umount -lf mnt/run
+          sudo umount -lf mnt/dev/pts
+          sudo umount -lf mnt/dev
+          sudo umount -lf mnt/sys
+          sudo umount -lf mnt/proc
+          
+          sudo umount -lf mnt/boot
+          sudo umount -lf mnt
+          
       - name: Disk modify
         run: |
-            part0_size_mb=`sudo du --summarize --block-size=1M mnt | awk '{print $1+100}'`
-            img_size_mb=`sudo du --summarize --block-size=1M mnt | awk '{print $1+200}'`
-            part1_size_mb=$(( ${img_size_mb} - ${part0_size_mb} ))
+            part0_size_mb=`sudo du --summarize --block-size=1M overlay0/mnt | awk '{print $1+100}'`
+            part1_size_mb=`sudo du --summarize --block-size=1M overlay1/mnt | awk '{print $1+100}'`
+            img_size_mb=$(( ${part0_size_mb} + ${part1_size_mb} ))
             
             echo "part0_size_mb=${part0_size_mb}"
             echo "part1_size_mb=${part1_size_mb}"
@@ -118,7 +130,7 @@ jobs:
             
             fallocate -l ${img_size_mb}M ${{ env.img_mod }}
             
-            echo -n "o,n,,,,+${part0_size_mb}M,t,0b,n,,,,,w," | sed -e 's/,/\n/g' | fdisk ${{ env.img_mod }} <<FDISK
+            echo -n "o,n,p,1,,+${part0_size_mb}M,t,c,n,p,2,,,w," | sed -e 's/,/\n/g' | fdisk ${{ env.img_mod }}
             
             PARTUUID=$( sfdisk --json 0.img | jq -r .partitiontable.id | tail -c+3 )
             
@@ -128,22 +140,44 @@ jobs:
             sed_cmd+="${PARTUUID}"
             sed_cmd+='@g'
             
-            sudo sed -i -E "${sed_cmd}" mnt/etc/fstab
-            sudo sed -i -E "${sed_cmd}" mnt/boot/cmdline.txt
+            sudo sed -i -E "${sed_cmd}" overlay1/mnt/etc/fstab
+            sudo sed -i -E "${sed_cmd}" overlay0/mnt/boot/cmdline.txt
+            
+            sudo modprobe nbd max_part=63
+            sudo qemu-nbd -c /dev/nbd0 ${{ env.img_mod }}
+            
+            sudo mkfs.fat -F 32 /dev/nbd0p1
+            sudo mkfs.ext4 -O ^has_journal,^64bit,^metadata_csum -m 0 /dev/nbd0p2
+            
+            UUID_EFI=`sudo blkid /dev/nbd0p1 | perl -n -e'/UUID="(.*?)"/ && print $1'`
+            UUID_ROOT=`sudo blkid /dev/nbd0p2 | perl -n -e'/UUID="(.*?)"/ && print $1'`
+            echo "UUID_PART_0=${UUID_EFI}"
+            echo "UUID_PART_1=${UUID_ROOT}"
+            
+            mkdir mod_part{0,1}
+            
+            sudo mount -t vfat -o noatime /dev/nbd0p1 mod_part0
+            sudo mount -t ext4 -o noatime,nobarrier,commit=600 /dev/nbd0p2 mod_part1
+            
+            sudo cp -a overlay0/mnt/. mod_part0/.
+            sudo cp -a overlay1/mnt/. mod_part1/.
+            
+            df -h
+            lsblk
+            
+            sudo umount mod_part{0,1}
+            rm -rf mod_part{0,1}
+            
+            sudo qemu-nbd --disconnect /dev/nbd0 
+            sudo killall --wait qemu-nbd || true
 
       - name: Unmount
         run: |
-          sudo umount -lf mnt/run
-          sudo umount -lf mnt/dev/pts
-          sudo umount -lf mnt/dev
-          sudo umount -lf mnt/sys
-          sudo umount -lf mnt/proc
-          
-          sudo umount -lf mnt
-          sudo umount -lf overlay/lower/boot
-          sudo umount -lf overlay/lower
-          
-          
+          sudo umount -lf overlay1/mnt
+          sudo umount -lf overlay0/mnt
+          sudo umount -lf overlay1/lower
+          sudo umount -lf overlay0/lower
+
       - name: Build file
         run: |
             xz -e9 ${{ env.img_mod }}  # creates ${{ env.img_mod }}.xz
@@ -151,6 +185,6 @@ jobs:
       - name: Store built file
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ env.img_mod }}
+          name: ${{ env.img_mod }}.xz
           path: ${{ env.img_mod }}.xz
           

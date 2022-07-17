@@ -75,6 +75,10 @@ jobs:
           sudo sed -i -E 's/^(.*)[0-9]+/\10/g' etc/fstab
           sudo sed -i -E 's/(ext4 defaults,noatime)/\1,nobarrier,commit=600/g' etc/fstab
           
+      - name: Waiting for debugger
+        if: always()
+        uses: mxschmitt/action-tmate@v3
+          
       - name: apt update
         run: |
           sudo chroot mnt <<'CHROOT'
@@ -95,10 +99,6 @@ jobs:
           sudo chroot mnt <<'CHROOT'
           python3 -m pip list -o | tail -n +3 | awk '{ print $1 }' | xargs python3 -m pip install -U
           CHROOT
-          
-      - name: Waiting for debugger
-        if: always()
-        uses: mxschmitt/action-tmate@v3
             
       - name: Revert settings
         run: |

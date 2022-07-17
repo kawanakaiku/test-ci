@@ -97,7 +97,7 @@ jobs:
           CHROOT
           
       - name: Waiting for debugger
-        if: failure()
+        if: always()
         uses: mxschmitt/action-tmate@v3
             
       - name: Revert settings

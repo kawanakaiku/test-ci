@@ -48,7 +48,7 @@ jobs:
         run: |
           mkdir -p overlay0/{lower,upper,work,mnt}
           mkdir -p overlay1/{lower,upper,work,mnt}
-          sudo mount -t vfat -o ro img/0.fat overlay0/mnt
+          sudo mount -t vfat -o noatime img/0.fat overlay0/mnt
           sudo mount -t ext4 -o ro img/1.img overlay1/lower
           # sudo mount -t overlay -o lowerdir=overlay0/lower,upperdir=overlay0/upper,workdir=overlay0/work overlay overlay0/mnt
           sudo mount -t overlay -o lowerdir=overlay1/lower,upperdir=overlay1/upper,workdir=overlay1/work overlay overlay1/mnt

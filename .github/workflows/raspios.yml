@@ -69,7 +69,7 @@ jobs:
         run: |
           sudo chroot mnt <<'CHROOT'
           apt-get update
-          CHROOT         
+          CHROOT
           
       - name: install
         run: |

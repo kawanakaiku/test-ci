@@ -86,7 +86,7 @@ jobs:
           sudo sed -i -E 's/\s+/ /g' etc/fstab
           sudo sed -i -E 's/^(.*)[0-9]+/\10/g' etc/fstab
           sudo sed -i -e 's/vfat defaults,flush/vfat defaults,noatime/g' etc/fstab
-          sudo sed -i -E 's/(ext4 defaults,noatime)/\1,nobarrier,commit=3600/g' etc/fstab
+          sudo sed -i -E 's/(ext4 defaults,noatime)/\1,nobarrier/g' etc/fstab
 
           sudo rm -rf home/pi/Bookshelf
 
@@ -172,7 +172,7 @@ jobs:
             mkdir mod_part{0,1}
             
             sudo mount -t vfat -o noatime /dev/nbd0p1 mod_part0
-            sudo mount -t ext4 -o noatime,nobarrier,commit=600 /dev/nbd0p2 mod_part1
+            sudo mount -t ext4 -o noatime,nobarrier /dev/nbd0p2 mod_part1
             
             sudo cp -a overlay0/mnt/. mod_part0/.
             sudo cp -a overlay1/mnt/. mod_part1/.

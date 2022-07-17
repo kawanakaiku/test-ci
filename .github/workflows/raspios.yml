@@ -26,7 +26,7 @@ jobs:
       - name: Download base image
         run: |
           wget -nc -nv -O - ${{ env.img_url }} |
-            unxz > raspi.img
+            unxz > ${{ env.img_orig }}
           
       - name: Extract base image
         run: |
@@ -37,7 +37,7 @@ jobs:
           disk_part_0_offset=$(( ${disk_sectorsize} * ${disk_part_0_start} ))
           disk_part_1_offset=$(( ${disk_sectorsize} * ${disk_part_1_start} ))
 
-          7z x raspi.img -Oimg
+          7z x ${{ env.img_orig }} -Oimg
           
       - name: Install QEMU
         run: |
@@ -57,6 +57,8 @@ jobs:
           sudo mount -o bind /dev/pts mnt/dev/pts
           sudo mount -o bind /run mnt/run
           
+      - name: Settings
+        run: |
           sudo cp /usr/bin/qemu-aarch64-static mnt/usr/bin/qemu-aarch64-static
           sudo mv mnt/etc/resolv.conf{,.bak}
           sudo cp /etc/resolv.conf mnt/etc/resolv.conf
@@ -64,15 +66,22 @@ jobs:
       - name: tweaks
         run: |
           cd mnt
+          
           echo 'Acquire::Languages "none";' | sudo tee etc/apt/apt.conf.d/9999translations
           
-      - name: update
+          echo 'tmpfs /tmp tmpfs defaults,noatime' | sudo tee -a etc/fstab
+          echo 'tmpfs /var/tmp tmpfs defaults,noatime' | sudo tee -a etc/fstab
+          sudo sed -i -E 's/\s+/ /g' etc/fstab
+          sudo sed -i -E 's/^(.*)[0-9]+/\10/g' etc/fstab
+          sudo sed -i -E 's/(ext4 defaults,noatime)/\1,nobarrier,commit=600/g' etc/fstab
+          
+      - name: apt update
         run: |
           sudo chroot mnt <<'CHROOT'
           apt-get update
           CHROOT
           
-      - name: install
+      - name: apt upgrade
         run: |
           sudo chroot mnt <<'CHROOT'
           apt-get update
@@ -81,16 +90,49 @@ jobs:
           apt-get clean
           CHROOT
           
+      - name: pip update
+        run: |
+          sudo chroot mnt <<'CHROOT'
+          python3 -m pip list -o | tail -n +3 | awk '{ print $1 }' | xargs python3 -m pip install -U
+          CHROOT
+          
       - name: Waiting for debugger
-        if: always()
+        if: failure()
         uses: mxschmitt/action-tmate@v3
-
-      - name: Unmount
+            
+      - name: Revert settings
         run: |
           sudo rm mnt/usr/bin/qemu-aarch64-static
           sudo rm mnt/etc/resolv.conf
           sudo mv mnt/etc/resolv.conf{.bak,}
+          
+      - name: Disk modify
+        run: |
+            part0_size_mb=`sudo du --summarize --block-size=1M mnt | awk '{print $1+100}'`
+            img_size_mb=`sudo du --summarize --block-size=1M mnt | awk '{print $1+200}'`
+            part1_size_mb=$(( ${img_size_mb} - ${part0_size_mb} ))
+            
+            echo "part0_size_mb=${part0_size_mb}"
+            echo "part1_size_mb=${part1_size_mb}"
+            echo "img_size_mb=${img_size_mb}"
+            
+            fallocate -l ${img_size_mb}M ${{ env.img_mod }}
+            
+            echo -n "o,n,,,,+${part0_size_mb}M,t,0b,n,,,,,w," | sed -e 's/,/\n/g' | fdisk ${{ env.img_mod }} <<FDISK
+            
+            PARTUUID=$( sfdisk --json 0.img | jq -r .partitiontable.id | tail -c+3 )
+            
+            echo "PARTUUID=${PARTUUID}"
+            
+            sed_cmd='s@(PARTUUID=)[^-]+@\1'
+            sed_cmd+="${PARTUUID}"
+            sed_cmd+='@g'
+            
+            sudo sed -i -E "${sed_cmd}" mnt/etc/fstab
+            sudo sed -i -E "${sed_cmd}" mnt/boot/cmdline.txt
 
+      - name: Unmount
+        run: |
           sudo umount -lf mnt/run
           sudo umount -lf mnt/dev/pts
           sudo umount -lf mnt/dev
@@ -100,10 +142,15 @@ jobs:
           sudo umount -lf mnt
           sudo umount -lf overlay/lower/boot
           sudo umount -lf overlay/lower
+          
+          
+      - name: Build file
+        run: |
+            xz -e9 ${{ env.img_mod }}  # creates ${{ env.img_mod }}.xz
 
       - name: Store built file
         uses: actions/upload-artifact@v3
         with:
           name: ${{ env.img_mod }}
-          path: ${{ env.img_mod }}
+          path: ${{ env.img_mod }}.xz
           

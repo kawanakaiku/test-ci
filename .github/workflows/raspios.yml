@@ -117,7 +117,10 @@ jobs:
       - name: tweaks
         run: |
           sudo chroot mnt <<'CHROOT'
-          systemd mask apt-daily-upgrade.service apt-daily-upgrade.timer apt-daily.service apt-daily.timer e2scrub@.service e2scrub_all.service e2scrub_all.timer e2scrub_fail@.service e2scrub_reap.service fstrim.service fstrim.timer logrotate.service logrotate.timer man-db.service man-db.timer
+          for service in apt-daily-upgrade.service apt-daily-upgrade.timer apt-daily.service apt-daily.timer e2scrub@.service e2scrub_all.service e2scrub_all.timer e2scrub_fail@.service e2scrub_reap.service fstrim.service fstrim.timer logrotate.service logrotate.timer man-db.service man-db.timer
+          do
+          systemd mask ${service}
+          done
           CHROOT
           
       - name: pip update

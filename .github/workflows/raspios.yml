@@ -76,7 +76,7 @@ jobs:
         run: |
           sudo chroot mnt <<'CHROOT'
           apt-get update
-          apt-get update -y
+          apt-get upgrade -y
           apt-get purge --auto-remove -y
           apt-get clean
           CHROOT

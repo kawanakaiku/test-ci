@@ -47,7 +47,7 @@ jobs:
           
       - name: Mount
         run: |
-          sudo qemu-nbd -c /dev/nbd1 --format=raw ${{ env.img_mod }}
+          sudo qemu-nbd -c /dev/nbd1 --format=raw ${{ env.img_orig }}
           
           mkdir -p overlay0/{lower,upper,work,mnt}
           mkdir -p overlay1/{lower,upper,work,mnt}

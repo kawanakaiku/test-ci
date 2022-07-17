@@ -108,7 +108,7 @@ jobs:
         run: |
           sudo chroot mnt <<'CHROOT'
           apt-get update
-          apt-get install -y wget ncdu htop
+          apt-get install -y wget ncdu htop pv
           apt-get upgrade -y
           apt-get purge --auto-remove -y
           apt-get clean
@@ -117,7 +117,11 @@ jobs:
       - name: tweaks
         run: |
           sudo chroot mnt <<'CHROOT'
-          for service in apt-daily-upgrade.service apt-daily-upgrade.timer apt-daily.service apt-daily.timer e2scrub@.service e2scrub_all.service e2scrub_all.timer e2scrub_fail@.service e2scrub_reap.service fstrim.service fstrim.timer logrotate.service logrotate.timer man-db.service man-db.timer
+          for service in apt-daily-upgrade.service apt-daily-upgrade.timer apt-daily.service apt-daily.timer e2scrub@.service e2scrub_all.service e2scrub_all.timer e2scrub_fail@.service e2scrub_reap.service fstrim.service fstrim.timer logrotate.service logrotate.timer man-db.service man-db.timer \
+            dphys-swapfile.service \
+            triggerhappy.service triggerhappy.socket \
+            plymouth-halt.service plymouth-kexec.service plymouth-poweroff.service plymouth-quit-wait.service plymouth-quit.service plymouth-read-write.service plymouth-reboot.service plymouth-start.service plymouth-switch-root.service \
+            hciuart.service	
           do
           systemctl mask ${service}
           done

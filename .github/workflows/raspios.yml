@@ -26,7 +26,7 @@ jobs:
       - name: Download base image
         run: |
           wget -nc -nv -O - ${{ env.img_url }} |
-            unxz > ${{ env.img_orig }}
+            unxz > raspi.img
           
       - name: Extract base image
         run: |

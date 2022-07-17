@@ -21,7 +21,7 @@ jobs:
           TZ: 'Asia/Tokyo'
         run: |
           echo "img_orig=${{ env.img_name }}.img" >> $GITHUB_ENV
-          echo "img_mod=${{ env.img_name }}_$(date +'%Y-%m-%d-%H:%M:%S').img" >> $GITHUB_ENV
+          echo "img_mod=${{ env.img_name }}_$(date +'%Y-%m-%d-%H-%M-%S').img" >> $GITHUB_ENV
         
       - name: Download base image
         run: |

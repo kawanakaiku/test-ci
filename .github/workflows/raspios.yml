@@ -82,8 +82,11 @@ jobs:
           sudo sed -i -e 's/vfat defaults,flush/vfat defaults,noatime/g' etc/fstab
           sudo sed -i -E 's/(ext4 defaults,noatime)/\1,nobarrier,commit=600/g' etc/fstab
 
+          sudo rm -rf home/pi/Bookshelf
+
             
       - name: Waiting for debugger
+        if: failure()
         uses: mxschmitt/action-tmate@v3
        
           

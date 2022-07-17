@@ -121,7 +121,7 @@ jobs:
             dphys-swapfile.service \
             triggerhappy.service triggerhappy.socket \
             plymouth-halt.service plymouth-kexec.service plymouth-poweroff.service plymouth-quit-wait.service plymouth-quit.service plymouth-read-write.service plymouth-reboot.service plymouth-start.service plymouth-switch-root.service \
-            hciuart.service	
+            
           do
           systemctl mask ${service}
           done

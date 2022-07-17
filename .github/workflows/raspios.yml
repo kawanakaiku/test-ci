@@ -65,9 +65,13 @@ jobs:
           
       - name: Settings
         run: |
-          sudo cp /usr/bin/qemu-aarch64-static mnt/usr/bin/qemu-aarch64-static
-          sudo mv mnt/etc/resolv.conf{,.bak}
-          sudo cp /etc/resolv.conf mnt/etc/resolv.conf
+          cd mnt
+        
+          sudo cp /usr/bin/qemu-aarch64-static usr/bin/qemu-aarch64-static
+          sudo mv etc/resolv.conf{,.bak}
+          sudo cp /etc/resolv.conf etc/resolv.conf
+          
+          sudo sed -i -E 's@^# (ja_JP\.UTF-8 UTF-8)@\1@g' etc/locale.gen
           
       - name: tweaks
         run: |

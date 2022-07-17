@@ -81,6 +81,11 @@ jobs:
           sudo sed -i -E 's/^(.*)[0-9]+/\10/g' etc/fstab
           sudo sed -i -e 's/vfat defaults,flush/vfat defaults,noatime/g' etc/fstab
           sudo sed -i -E 's/(ext4 defaults,noatime)/\1,nobarrier,commit=600/g' etc/fstab
+
+            
+      - name: Waiting for debugger
+        uses: mxschmitt/action-tmate@v3
+       
           
       - name: apt update
         run: |
@@ -92,6 +97,7 @@ jobs:
         run: |
           sudo chroot mnt <<'CHROOT'
           apt-get update
+          apt-get install -y wget ncdu htop
           apt-get upgrade -y
           apt-get purge --auto-remove -y
           apt-get clean

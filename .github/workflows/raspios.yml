@@ -108,7 +108,7 @@ jobs:
         run: |
           sudo chroot mnt <<'CHROOT'
           apt-get update
-          apt-get install -y wget ncdu htop pv
+          apt-get install -y wget ncdu htop pv xfwm4
           apt-get upgrade -y
           apt-get purge --auto-remove -y
           apt-get clean
@@ -116,7 +116,9 @@ jobs:
           
       - name: tweaks
         run: |
-          sudo chroot mnt <<'CHROOT'
+          cd mnt
+        
+          sudo chroot . <<'CHROOT'
           for service in apt-daily-upgrade.service apt-daily-upgrade.timer apt-daily.service apt-daily.timer e2scrub@.service e2scrub_all.service e2scrub_all.timer e2scrub_fail@.service e2scrub_reap.service fstrim.service fstrim.timer logrotate.service logrotate.timer man-db.service man-db.timer \
             dphys-swapfile.service \
             triggerhappy.service triggerhappy.socket \
@@ -126,6 +128,13 @@ jobs:
           systemctl mask ${service}
           done
           CHROOT
+          
+          sudo cp -a usr/bin/true usr/bin/xfwm4_
+          sudo tee usr/bin/xfwm4_ <<'XFWM' >/dev/null
+          #!/usr/bin/sh
+          exec /usr/bin/xfwm4 "$@" --compositor=off --vblank=off
+          XFWM
+          sudo sed -i -E 's@^(window_manager=).+@\1/usr/bin/xfwm4_@' /etc/xdg/lxsession/LXDE-pi/desktop.conf
           
       - name: pip update
         run: |

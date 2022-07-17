@@ -1,0 +1,107 @@
+name: raspios
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/raspios.yml'
+  workflow_dispatch:
+  
+env:
+  img_url: 'https://downloads.raspberrypi.org/raspios_arm64/images/raspios_arm64-2022-04-07/2022-04-04-raspios-bullseye-arm64.img.xz'
+  img_name: '2022-04-04-raspios-bullseye-arm64'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Set current datetime as env variable
+        env:
+          TZ: 'Asia/Tokyo'
+        run: |
+          echo "img_orig=${{ env.img_name }}.img" >> $GITHUB_ENV
+          echo "img_mod=${{ env.img_name }}_$(date +'%Y-%m-%d-%H:%M:%S').img" >> $GITHUB_ENV
+        
+      - name: Download base image
+        run: |
+          wget -nc -nv -O - ${{ env.img_url }} |
+            unxz > ${{ env.img_orig }}
+          
+      - name: Extract base image
+        run: |
+          disk_json="$( sfdisk --json ${{ env.img_orig }} | jq .partitiontable )"
+          disk_sectorsize=$( echo "${disk_json}" | jq --raw-output .sectorsize )
+          disk_part_0_start=$( echo "${disk_json}" | jq --raw-output .partitions[0].start )
+          disk_part_1_start=$( echo "${disk_json}" | jq --raw-output .partitions[1].start )
+          disk_part_0_offset=$(( ${disk_sectorsize} * ${disk_part_0_start} ))
+          disk_part_1_offset=$(( ${disk_sectorsize} * ${disk_part_1_start} ))
+
+          7z x raspi.img -Oimg
+          
+      - name: Install QEMU
+        run: |
+          sudo apt-get -o Acquire::Languages=none update
+          sudo apt-get install -y --no-install-recommends arch-test qemu-user-static
+          
+      - name: Mount
+        run: |
+          mkdir -p overlay/{lower,upper,work} mnt
+          sudo mount -t ext4 -o ro img/1.img overlay/lower
+          sudo mount -t vfat -o ro img/0.fat overlay/lower/boot
+          sudo mount -t overlay -o lowerdir=overlay/lower,upperdir=overlay/upper,workdir=overlay/work overlay mnt
+          
+          sudo mount -t proc /proc mnt/proc
+          sudo mount -t sysfs /sys mnt/sys
+          sudo mount -o bind /dev mnt/dev
+          sudo mount -o bind /run mnt/run
+          
+          sudo cp /usr/bin/qemu-aarch64-static mnt/usr/bin/qemu-aarch64-static
+          sudo mv mnt/etc/resolv.conf{,.bak}
+          sudo cp /etc/resolv.conf mnt/etc/resolv.conf
+          
+      - name: tweaks
+        run: |
+          cd mnt
+          echo 'Acquire::Languages "none";' | sudo tee etc/apt/apt.conf.d/9999translations
+          
+      - name: update
+        run: |
+          sudo chroot mnt <<'CHROOT'
+          apt-get update
+          CHROOT         
+          
+      - name: install
+        run: |
+          sudo chroot mnt <<'CHROOT'
+          apt-get update
+          apt-get update -y
+          apt-get purge --auto-remove -y
+          apt-get clean
+          CHROOT
+          
+      - name: Waiting for debugger
+        if: always()
+        uses: mxschmitt/action-tmate@v3
+
+      - name: Unmount
+        run: |
+          sudo rm mnt/usr/bin/qemu-aarch64-static
+          sudo rm mnt/etc/resolv.conf
+          sudo mv mnt/etc/resolv.conf{.bak,}
+
+          sudo umount -lf mnt/run
+          sudo umount -lf mnt/dev
+          sudo umount -lf mnt/sys
+          sudo umount -lf mnt/proc
+          
+          sudo umount -lf mnt
+          sudo umount -lf overlay/lower/boot
+          sudo umount -lf overlay/lower
+
+      - name: Store built file
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.img_mod }}
+          path: ${{ env.img_mod }}
+          

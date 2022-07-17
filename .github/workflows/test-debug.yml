@@ -22,7 +22,7 @@ jobs:
         run: |
             . mod_apt.sh
             cat <<'EOF'
-            ${{ env.env_1 }}
+            '${{ env.env_1 }}'
             EOF
            
             

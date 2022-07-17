@@ -134,7 +134,7 @@ jobs:
           #!/usr/bin/sh
           exec /usr/bin/xfwm4 "$@" --compositor=off --vblank=off
           XFWM
-          sudo sed -i -E 's@^(window_manager=).+@\1/usr/bin/xfwm4_@' /etc/xdg/lxsession/LXDE-pi/desktop.conf
+          sudo sed -i -E 's@^(window_manager=).+@\1/usr/bin/xfwm4_@' etc/xdg/lxsession/LXDE-pi/desktop.conf
           
       - name: pip update
         run: |

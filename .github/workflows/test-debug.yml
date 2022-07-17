@@ -2,7 +2,10 @@ name: test-debug
 
 on:
     workflow_dispatch:
-
+    
+env:
+  env_1 : test_inline
+  
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -18,6 +21,9 @@ jobs:
       - name: Run a multi-line script
         run: |
             . mod_apt.sh
+            cat <<'EOF'
+            ${{ env.env_1 }}
+            EOF
            
             
       - name: Waiting for debugger

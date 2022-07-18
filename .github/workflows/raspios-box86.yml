@@ -33,10 +33,6 @@ jobs:
 
       - name: "Build Box86"
         run: |
-          _CFLAGS=' -mlittle-endian -mabi=lp64 -march=armv8-a+crc -mtune=cortex-a72'
-          export CFLAGS+="${_CFLAGS}"
-          export CXXFLAGS+="${_CFLAGS}"
-        
           mkdir build
           cd build
           cmake .. -DCMAKE_C_COMPILER=${{ env.BOX86_COMPILER }}\

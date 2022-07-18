@@ -19,7 +19,7 @@ jobs:
           sudo apt-get -y install git cmake make python3
           sudo apt-get -y install gcc-arm-linux-gnueabihf
           echo "BOX86_COMPILER=arm-linux-gnueabihf-gcc" >> $GITHUB_ENV
-          echo "BOX86_PLATFORM_MARCRO=-D${{ matrix.platform }}=1" >> $GITHUB_ENV
+          echo "BOX86_PLATFORM_MARCRO=-DRPI4=1" >> $GITHUB_ENV
           
           echo BOX86_BUILD_TYPE=Release >> $GITHUB_ENV
           echo BOX86_HAVE_TRACE=0 >> $GITHUB_ENV

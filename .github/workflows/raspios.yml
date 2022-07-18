@@ -136,6 +136,35 @@ jobs:
           XFWM
           sudo sed -i -E 's@^(window_manager=).+@\1/usr/bin/xfwm4_@' etc/xdg/lxsession/LXDE-pi/desktop.conf
           
+          set_config() {
+            local conf="$1"
+            local attr="$2"
+            local key="$3"
+            local value="$4"
+            local tmp="/tmp/tmp_awk_${RANDOM}"
+            local awk_cmd=''
+            awk_cmd+='{'
+            awk_cmd+='  match($0, /^\[(.+)\]$/, arr)'
+            awk_cmd+='  if( arr[1] != "" ) { attr_next = arr[1] }'
+            awk_cmd+='  if( attr_cur == attr ) {'
+            awk_cmd+='    if ( $0 ~ "^\" key "=" ) { print key "=" value ; exit }'
+            awk_cmd+='    else if ( $0 == "" || $0 ~ /^\[(.+)\]$/ ) { print key "=" value ; print $0 ; exit }'
+            awk_cmd+='  }'
+            awk_cmd+='  attr_cur = attr_next'
+            awk_cmd+='}'
+            awk \
+              -v attr="${attr}" \
+              -v key="${key}" \
+              -v value="${value}" \
+              "${awk_cmd}" \
+              "${conf}" > "${tmp}"
+            sudo tee < "${tmp}" "${conf}" > /dev/null
+            rm "${tmp}"
+          }
+          
+          set_config etc/xdg/libfm/libfm.conf config use_trash 0
+          set_config etc/xdg/libfm/libfm.conf config quick_exec 1
+          
       - name: pip update
         run: |
           sudo chroot mnt <<'CHROOT'

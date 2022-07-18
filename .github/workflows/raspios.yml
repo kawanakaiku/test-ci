@@ -82,10 +82,10 @@ jobs:
           
           echo 'Acquire::Languages "none";' | sudo tee etc/apt/apt.conf.d/9999translations
           
-          echo 'tmpfs /tmp tmpfs defaults,noatime,mode=1777' | sudo tee -a etc/fstab
-          echo 'tmpfs /var/tmp tmpfs defaults,noatime,mode=1777' | sudo tee -a etc/fstab
-          echo 'tmpfs /var/log tmpfs defaults,noatime,mode=1777' | sudo tee -a etc/fstab
-          echo 'tmpfs /var/cache tmpfs defaults,noatime,mode=1777' | sudo tee -a etc/fstab
+          echo 'tmpfs /tmp tmpfs defaults,noatime,mode=1777 0 0' | sudo tee -a etc/fstab
+          echo 'tmpfs /var/tmp tmpfs defaults,noatime,mode=1777 0 0' | sudo tee -a etc/fstab
+          echo 'tmpfs /var/log tmpfs defaults,noatime,mode=1777 0 0' | sudo tee -a etc/fstab
+          echo 'tmpfs /var/cache tmpfs defaults,noatime,mode=1777 0 0' | sudo tee -a etc/fstab
           sudo sed -i -E 's/\s+/ /g' etc/fstab
           sudo sed -i -E 's/^(.*)[0-9]+/\10/g' etc/fstab
           sudo sed -i -e 's/vfat defaults,flush/vfat defaults,noatime/g' etc/fstab

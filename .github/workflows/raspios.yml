@@ -147,7 +147,7 @@ jobs:
               match($0, /^\[(.+)\]$/, arr)
               if( arr[1] != "" ) { attr_next = arr[1] }
               if( attr_cur == attr ) {
-                if ( $0 ~ "^\" key "=" ) { print key "=" value ; exit }
+                if ( $0 ~ "^" key "=" ) { print key "=" value ; exit }
                 else if ( $0 == "" || $0 ~ /^\[(.+)\]$/ ) { print key "=" value ; print $0 ; exit }
               }
               attr_cur = attr_next

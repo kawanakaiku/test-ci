@@ -1,5 +1,5 @@
 ### Auto build Box86 and release its binary with Github Action
-name: Build and Release Box86
+name: raspios-box86
 
 on:
   workflow_dispatch:

@@ -157,7 +157,11 @@ jobs:
               }
               else { print $0 }
               attr_cur = attr_next
-            }'
+            }
+            END {
+              if( done == 0 ) { print "[" attr "]" ; print key "=" value }
+            }
+            '
             awk \
               -v attr="${attr}" \
               -v key="${key}" \
@@ -170,6 +174,7 @@ jobs:
           
           set_config etc/xdg/libfm/libfm.conf config use_trash 0
           set_config etc/xdg/libfm/libfm.conf config quick_exec 1
+          set_config etc/xdg/pcmanfm/LXDE-pi/pcmanfm.conf ui view_mode list
           
       - name: pip update
         run: |

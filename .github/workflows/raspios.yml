@@ -222,7 +222,7 @@ jobs:
           sudo qemu-nbd -c /dev/nbd0 --format=raw ${{ env.img_mod }}
 
           sudo mkfs.fat -F 32 /dev/nbd0p1
-          sudo mkfs.ext4 -O ^has_journal,^64bit,^metadata_csum,^huge_file -E lazy_itable_init=1,lazy_journal_init=1 -m 0 /dev/nbd0p2
+          sudo mkfs.ext4 -O ^has_journal,^64bit,^metadata_csum,^huge_file -E lazy_itable_init=0,lazy_journal_init=0 -m 0 /dev/nbd0p2
 
           UUID_PART_0=`sudo blkid /dev/nbd0p1 | perl -n -e'/UUID="(.*?)"/ && print $1'`
           UUID_PART_1=`sudo blkid /dev/nbd0p2 | perl -n -e'/UUID="(.*?)"/ && print $1'`

@@ -9,7 +9,7 @@ on:
     workflow_dispatch:
 
 env:
-  wine_version: 6.0.4
+  wine_version: 7.13
  
 jobs:
   build:

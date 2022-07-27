@@ -41,11 +41,11 @@ jobs:
           # export WINDRES=/usr/bin/x86_64-w64-mingw32-windres
           mkdir ${HOME}/wine-build && cd ${HOME}/wine-build
           # export CFLAGS+=" -pipe -s "
-          ${HOME}/wine-src/configure --without-x --enable-win64
+          ${HOME}/wine-src/configure --without-x --enable-win64 --prefix=${HOME}/wine-prefix
           make -j2
           # find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
           # copy instead of link
-          find ${HOME}/wine-build -type l -print0 | xargs -0 -I@ bash -c 'link="$(readlink -f "@")" ; rm -rf "@" ; cp -a "${link}" "@"'
+          # find ${HOME}/wine-build -type l -print0 | xargs -0 -I@ bash -c 'link="$(readlink -f "@")" ; rm -rf "@" ; cp -a "${link}" "@"'
           cd ..
           
       - name: make install

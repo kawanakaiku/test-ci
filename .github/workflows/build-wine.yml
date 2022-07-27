@@ -9,7 +9,7 @@ on:
     workflow_dispatch:
 
 env:
-  wine_version: 6.0.4
+  wine_version: 7.13
  
 jobs:
   build:
@@ -29,8 +29,12 @@ jobs:
 
           mkdir ${HOME}/wine-src
           tar xf wine.tar.gz --strip-components 1 -C ${HOME}/wine-src
-          # sed -i -E 's/,?--no-wchar-size-warning//g' ${HOME}/wine-src/tools/winebuild/utils.c
-          # sed -i -E 's/,?--no-wchar-size-warning//g' ${HOME}/wine-src/tools/winegcc/winegcc.c
+          for i in \
+            ${HOME}/wine-src/tools/winebuild/utils.c \
+            ${HOME}/wine-src/tools/winegcc/winegcc.c
+          do
+            sed -i -E 's/,?--no-wchar-size-warning//g' "${i}"
+          done
           # export DLLTOOL=/usr/bin/x86_64-w64-mingw32-dlltool
           # export WINDRES=/usr/bin/x86_64-w64-mingw32-windres
           mkdir ${HOME}/wine-build && cd ${HOME}/wine-build

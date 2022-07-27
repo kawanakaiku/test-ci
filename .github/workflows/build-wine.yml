@@ -7,13 +7,14 @@ on:
         - 'wine/**'
         - '.github/workflows/build-wine.yml'
     workflow_dispatch:
-
-env:
-  wine_version: 6.0.4
  
 jobs:
   build:
     runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+          wine_version: [1.0.1, 2.0.5, 3.0.5, 4.0.4, 5.0.5, 6.0.4]
   
     steps:
       - uses: actions/checkout@v3
@@ -25,7 +26,7 @@ jobs:
           sudo apt-get -qq update
           sudo apt-get install --no-install-recommends -y gcc-multilib g++-multilib gcc-mingw-w64 libasound2-dev libpulse-dev libdbus-1-dev libfontconfig-dev libfreetype-dev libgnutls28-dev libpng-dev libtiff-dev libgl-dev libunwind-dev libxml2-dev libxslt1-dev libfaudio-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libmpg123-dev libosmesa6-dev libsdl2-dev libudev-dev libvkd3d-dev libvulkan-dev libcapi20-dev liblcms2-dev libcups2-dev libgphoto2-dev libsane-dev libgsm1-dev libkrb5-dev libldap2-dev samba-dev ocl-icd-opencl-dev libpcap-dev libusb-1.0-0-dev libv4l-dev  xorg-dev libx11-dev libx11-dev:i386 libfreetype6-dev:i386
           sudo apt-get install --no-install-recommends -y binutils-mingw-w64-x86-64
-          wget -nc -nv https://github.com/wine-mirror/wine/archive/refs/tags/wine-${{ env.wine_version }}.tar.gz -O wine.tar.gz
+          wget -nc -nv https://github.com/wine-mirror/wine/archive/refs/tags/wine-${{ matrix.wine_version }}.tar.gz -O wine.tar.gz
 
           mkdir ${HOME}/wine-src
           tar xf wine.tar.gz --strip-components 1 -C ${HOME}/wine-src
@@ -48,19 +49,14 @@ jobs:
           
       - name: archive built files
         run: |
-            XZ_OPT=-e9 tar -Jcf wine-${{ env.wine_version }}-amd64-build.tar.xz -C ${HOME} wine-build
-            sha256sum wine-${{ env.wine_version }}-amd64-build.tar.xz | tee -a checksums.txt
+            XZ_OPT=-e9 tar -Jcf wine-${{ matrix.wine_version }}-amd64-build.tar.xz -C ${HOME} wine-build
+            sha256sum wine-${{ matrix.wine_version }}-amd64-build.tar.xz | tee -a checksums-${{ matrix.wine_version }}.txt
           
       - name: Store built file
         if: always()
         uses: actions/upload-artifact@v3
         with:
-          name: wine-${{ env.wine_version }}-amd64-build
-          path: wine-${{ env.wine_version }}-amd64-build.tar.xz
-          
-      - name: Store checksum file
-        if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: checksums
-          path: checksums.txt
+          name: wine-${{ matrix.wine_version }}-amd64-build
+          path: |
+            wine-${{ matrix.wine_version }}-amd64-build.tar.xz
+            checksums-${{ matrix.wine_version }}.txt

@@ -1,0 +1,68 @@
+name: build_wine-test
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - 'wine/**'
+        - '.github/workflows/build-wine-test.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+          wine_version: [3.0.5, 4.0.4, 5.0.5, 6.0.4, 7.13]
+  
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run a multi-line script
+        run: |
+          echo "path-exclude=/usr/share/man/*" | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
+          sudo dpkg --add-architecture i386
+          sudo apt-get -qq update
+          sudo apt-get install --no-install-recommends -y gcc-multilib g++-multilib gcc-mingw-w64 libasound2-dev libpulse-dev libdbus-1-dev libfontconfig-dev libfreetype-dev libgnutls28-dev libpng-dev libtiff-dev libgl-dev libunwind-dev libxml2-dev libxslt1-dev libfaudio-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libmpg123-dev libosmesa6-dev libsdl2-dev libudev-dev libvkd3d-dev libvulkan-dev libcapi20-dev liblcms2-dev libcups2-dev libgphoto2-dev libsane-dev libgsm1-dev libkrb5-dev libldap2-dev samba-dev ocl-icd-opencl-dev libpcap-dev libusb-1.0-0-dev libv4l-dev  xorg-dev libx11-dev libx11-dev:i386 libfreetype6-dev:i386
+          sudo apt-get install --no-install-recommends -y binutils-mingw-w64-x86-64
+          wget -nc -nv https://github.com/wine-mirror/wine/archive/refs/tags/wine-${{ matrix.wine_version }}.tar.gz -O wine.tar.gz
+
+          mkdir ${HOME}/wine-src
+          tar xf wine.tar.gz --strip-components 1 -C ${HOME}/wine-src
+          for i in \
+            ${HOME}/wine-src/tools/winebuild/utils.c \
+            ${HOME}/wine-src/tools/winegcc/winegcc.c
+          do
+            sed -i -E 's/,?--no-wchar-size-warning//g' "${i}"
+          done
+          # export DLLTOOL=/usr/bin/x86_64-w64-mingw32-dlltool
+          # export WINDRES=/usr/bin/x86_64-w64-mingw32-windres
+          mkdir ${HOME}/wine-build && cd ${HOME}/wine-build
+          # export CFLAGS+=" -pipe -s "
+          ${HOME}/wine-src/configure --without-x --enable-win64
+          make -j2
+          # find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
+          # copy instead of link
+          find ${HOME}/wine-build -type l -print0 | xargs -0 -I@ bash -c 'link="$(readlink -f "@")" ; rm -rf "@" ; cp -a "${link}" "@"'
+          cd ..
+          
+      - name: make install
+        run: |
+            cd ${HOME}/wine-build
+            make install
+          
+      - name: archive built files
+        run: |
+            XZ_OPT=-e9 tar -Jcf wine-${{ matrix.wine_version }}-amd64-build.tar.xz -C ${HOME} wine-build
+            sha256sum wine-${{ matrix.wine_version }}-amd64-build.tar.xz | tee -a checksums-${{ matrix.wine_version }}.txt
+          
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: wine-${{ matrix.wine_version }}-amd64-build
+          path: |
+            wine-${{ matrix.wine_version }}-amd64-build.tar.xz
+            checksums-${{ matrix.wine_version }}.txt

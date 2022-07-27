@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-          wine_version: [3.0.5, 4.0.4, 5.0.5, 6.0.4]
+          wine_version: [3.0.5, 4.0.4, 5.0.5, 6.0.4, 7.13]
   
     steps:
       - uses: actions/checkout@v3

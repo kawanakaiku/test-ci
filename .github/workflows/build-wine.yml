@@ -39,7 +39,7 @@ jobs:
           make -j2
           # find ${HOME}/wine-build -type f | xargs file | awk -F: '$2 ~ /not stripped/ {print $1}' | xargs strip --strip-all --verbose
           # copy instead of link
-          find ${HOME}/wine-build -type l -print0 | xargs -0 -I@ bash -c 'rm -rf "@" ; cp -a "@" "$(readlink -f "@")"'
+          find ${HOME}/wine-build -type l -print0 | xargs -0 -I@ bash -c 'link="$(readlink -f "@")" ; rm -rf "@" ; cp -a "${link}" "@"'
           cd ..
           
       - name: archive built files

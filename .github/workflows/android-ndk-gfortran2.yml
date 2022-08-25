@@ -1,0 +1,54 @@
+name: android-ndk-gfortran2
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/android-ndk-gfortran2.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+  
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: prepare
+        run: |
+          echo "path-exclude=/usr/share/man/*" | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+          mkdir /tmp/prefix
+          
+      - name: clone
+        run: |
+          wget -nv http://ftp.gnu.org/gnu/binutils/binutils-2.39.tar.xz
+          tar xf binutils-2.39.tar.xz
+                    
+      - name: build
+        run: |
+          # https://www.kkaneko.jp/data/bigdata/andktools.html
+          
+          cd binutils-2.39
+          mkdir arm-linux-androideabi
+          cd arm-linux-androideabi
+          ../configure --prefix=/tmp/prefix --host=x86_64-pc-linux-gnu --with-cross-host=x86_64-pc-linux-gnu --target=arm-linux-androideabi \
+            --build=x86_64-pc-linux-gnu \
+            --enable-gnu-as --enable-gnu-ld --enable-multilib --enable-generated-files-in-srcdir --enable-version-specific-runtime-libs \
+            --disable-werror --enable-libtool --disable-nls --disable-shared \
+            --disable-threads --disable-clocale \
+            --with-sysroot=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot
+          make -j$(nproc)
+          make install
+                    
+      - name: archive
+        run: |
+          7z a build.7z /tmp/prefix
+          
+      - name: store
+        uses: actions/upload-artifact@v3
+        with:
+          name: android-ndk-gfortran
+          path: built.7z
+          

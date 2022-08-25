@@ -21,12 +21,12 @@ jobs:
           sudo apt-get install -y build-essential
           mkdir /tmp/prefix
           
-      - name: clone
+      - name: clone1
         run: |
           wget -nv http://ftp.gnu.org/gnu/binutils/binutils-2.39.tar.xz
           tar xf binutils-2.39.tar.xz
                     
-      - name: build
+      - name: build1
         run: |
           # https://www.kkaneko.jp/data/bigdata/andktools.html
           
@@ -38,6 +38,38 @@ jobs:
             --enable-gnu-as --enable-gnu-ld --enable-multilib --enable-generated-files-in-srcdir --enable-version-specific-runtime-libs \
             --disable-werror --enable-libtool --disable-nls --disable-shared \
             --disable-threads --disable-clocale \
+            --with-sysroot=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot
+          make -j$(nproc)
+          make install
+          
+      - name: clone2
+        run: |
+          wget -nv https://github.com/gcc-mirror/gcc/archive/refs/tags/releases/gcc-12.2.0.tar.gz
+          tar xf gcc-12.2.0.tar.gz
+                    
+      - name: build2
+        run: |
+          # https://www.kkaneko.jp/data/bigdata/andktools.html
+          
+          cd gcc-12.2.0
+          mkdir arm-linux-androideabi
+          cd arm-linux-androideabi
+          ../configure --prefix=/tmp/prefix --host=x86_64-pc-linux-gnu --with-cross-host=x86_64-pc-linux-gnu --target=arm-linux-androideabi \
+            --enable-languages=c,c++,fortran --disable-lto \
+            --build=x86_64-pc-linux-gnu \
+            --enable-gnu-as --enable-gnu-ld --enable-multilib --enable-generated-files-in-srcdir --enable-version-specific-runtime-libs \
+            --disable-werror --enable-libtool --disable-nls --disable-shared \
+            --disable-threads --disable-clocale \
+            --enable-interwork \
+            --enable-multiarch \
+            --with-arch=armv7-a --with-float=soft --with-float-abi=softfp --with-fpu=vfp \
+            --without-newlib --without-headers \
+            --disable-libstdcxx --disable-hosted-libstdcxx --disable-libstdcxx-threads \
+            --disable-werror \
+            --disable-checking \
+            --disable-ppl-version-check --disable-cloog-version-check \
+            --disable-libssp --disable-libmudflap --disable-libgomp --disable-sjlj-exceptions --disable-tls --disable-libitm --disable-libatomic \
+            --disable-bootstrap \
             --with-sysroot=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot
           make -j$(nproc)
           make install

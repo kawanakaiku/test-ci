@@ -50,5 +50,5 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: android-ndk-gfortran
-          path: built.7z
+          path: build.7z
           

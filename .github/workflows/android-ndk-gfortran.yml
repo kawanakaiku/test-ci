@@ -22,9 +22,9 @@ jobs:
           
       - name: clone
         run: |
-          repo init -u https://android.googlesource.com/platform/manifest -b gcc
+          repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b ndk-r25
           repo sync
-          repo forall -c git checkout ndk-r25-release || true
+          # repo forall -c git checkout ndk-r25-release || true
           
       - name: patch
         run: |

@@ -23,7 +23,11 @@ jobs:
       - name: clone
         run: |
           repo init -u https://android.googlesource.com/platform/manifest -b gcc
+          repo sync
           repo forall -c git checkout ndk-r25
+          
+      - name: patch
+        run: |
           perl -i -pe 's|\QENABLE_LANGUAGES="c,c++"\E|ENABLE_LANGUAGES="c,c++,fortran"|' toolchain/gcc/build-gcc.sh
                     
       - name: help

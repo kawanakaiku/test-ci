@@ -44,8 +44,8 @@ jobs:
           
       - name: clone2
         run: |
-          wget -nv https://github.com/gcc-mirror/gcc/archive/refs/tags/releases/gcc-12.2.0.tar.gz
-          tar xf gcc-12.2.0.tar.gz
+          wget -nv https://ftp.gnu.org/gnu/gcc/gcc-12.2.0/gcc-12.2.0.tar.xz
+          tar xf gcc-12.2.0.tar.xz
                     
       - name: build2
         run: |

@@ -24,8 +24,7 @@ jobs:
         run: |
           repo init -u https://android.googlesource.com/platform/manifest -b gcc
           repo sync
-          repo forall -c git checkout ndk-r25-release
-          exit 0
+          repo forall -c git checkout ndk-r25-release || true
           
       - name: patch
         run: |

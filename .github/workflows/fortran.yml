@@ -1,0 +1,37 @@
+name: fortran
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - 'test_ubuntu/**'
+        - '.github/workflows/fortran.yml'
+    workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    timeout-minutes: 1
+  
+    steps:
+      - uses: actions/checkout@v3
+            
+      - name: build
+        run: |
+            sudo apt update
+            sudo apt install -y gfortran-8-aarch64-linux-gnu
+            
+            cat <<'FORTRAN' >hello.f90
+            program hello
+              print *, 'Hello World!'
+            end program hello
+            FORTRAN
+            
+            aarch64-linux-gnu-gfortran-8 -static hello.f90 -o hello-8
+            
+      - name: Store
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: hello
+          path: hello*

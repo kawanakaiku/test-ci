@@ -1,0 +1,46 @@
+name: android-ndk-gfortran
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/android-ndk-gfortran.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+  
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: prepare
+        run: |
+          echo "path-exclude=/usr/share/man/*" | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
+          sudo apt-get update
+          sudo apt-get install -y git repo make gcc g++ m4 texinfo bison flex
+          
+      - name: clone
+        run: |
+          repo init -u https://android.googlesource.com/platform/manifest -b gcc
+          repo forall -c git checkout ndk-r25
+          perl -i -pe 's|\QENABLE_LANGUAGES="c,c++"\E|ENABLE_LANGUAGES="c,c++,fortran"|' toolchain/gcc/build-gcc.sh
+                    
+      - name: help
+        run: |
+          ./build.py -h
+                    
+      - name: build
+        run: |
+          ./build.py
+                    
+      - name: archive
+        run: |
+          7z a build.7z .
+          
+      - name: store
+        uses: actions/upload-artifact@v3
+        with:
+          name: android-ndk-gfortran
+          path: built.7z
+          

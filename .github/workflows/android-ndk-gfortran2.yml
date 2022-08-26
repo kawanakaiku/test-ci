@@ -27,7 +27,7 @@ jobs:
           
       - name: clone1
         run: |
-          wget -nv http://ftp.gnu.org/gnu/binutils/binutils-${binutils_version}.tar.xz
+          wget -nv http://ftp.gnu.org/gnu/binutils/binutils-${binutils_version}.tar.gz
           tar xf binutils-${binutils_version}.tar.xz
                     
       - name: build1
@@ -48,7 +48,7 @@ jobs:
           
       - name: clone2
         run: |
-          wget -nv https://ftp.gnu.org/gnu/gcc/gcc-${gcc_version}/gcc-${gcc_version}.tar.xz
+          wget -nv https://ftp.gnu.org/gnu/gcc/gcc-${gcc_version}/gcc-${gcc_version}.tar.gz
           tar xf gcc-${gcc_version}.tar.xz
                     
       - name: build2

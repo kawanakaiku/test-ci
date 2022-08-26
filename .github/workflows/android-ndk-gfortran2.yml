@@ -39,6 +39,7 @@ jobs:
           cd arm-linux-androideabi
           ../configure --prefix=/tmp/prefix --host=x86_64-pc-linux-gnu --with-cross-host=x86_64-pc-linux-gnu --target=arm-linux-androideabi \
             --build=x86_64-pc-linux-gnu \
+            --disable-bootstrap \
             --enable-gnu-as --enable-gnu-ld --enable-multilib --enable-generated-files-in-srcdir --enable-version-specific-runtime-libs \
             --disable-werror --enable-libtool --disable-nls --disable-shared \
             --disable-threads --disable-clocale \

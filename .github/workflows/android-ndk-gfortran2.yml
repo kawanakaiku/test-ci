@@ -8,8 +8,8 @@ on:
     workflow_dispatch:
     
 env:
-  binutils_version: 2.24
-  gcc_version: 4.8.2
+  binutils_version: 2.39
+  gcc_version: 4.8.5
  
 jobs:
   build:

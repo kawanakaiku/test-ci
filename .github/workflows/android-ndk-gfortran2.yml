@@ -37,7 +37,7 @@ jobs:
           cd binutils-${binutils_version}
           mkdir arm-linux-androideabi
           cd arm-linux-androideabi
-          ../configure --prefix=/tmp/prefix --host=x86_64-pc-linux-gnu --with-cross-host=x86_64-pc-linux-gnu --target=arm-linux-androideabi \
+          ../configure --prefix=/tmp/prefix --host=x86_64-linux-gnu --with-cross-host=x86_64-linux-gnu --target=arm-linux-androideabi \
             --build=x86_64-pc-linux-gnu \
             --disable-bootstrap \
             --enable-gnu-as --enable-gnu-ld --enable-multilib --enable-generated-files-in-srcdir --enable-version-specific-runtime-libs \
@@ -60,7 +60,7 @@ jobs:
           mkdir arm-linux-androideabi
           cd arm-linux-androideabi
           CFLAGS="-I/usr/include/x86_64-linux-gnu" \
-          ../configure --prefix=/tmp/prefix --host=x86_64-pc-linux-gnu --with-cross-host=x86_64-pc-linux-gnu --target=arm-linux-androideabi \
+          ../configure --prefix=/tmp/prefix --host=x86_64-linux-gnu --with-cross-host=x86_64-linux-gnu --target=arm-linux-androideabi \
             --enable-languages=c,c++,fortran --disable-lto \
             --build=x86_64-pc-linux-gnu \
             --enable-gnu-as --enable-gnu-ld --enable-multilib --enable-generated-files-in-srcdir --enable-version-specific-runtime-libs \

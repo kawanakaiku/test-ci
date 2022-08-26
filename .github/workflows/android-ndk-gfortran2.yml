@@ -6,6 +6,10 @@ on:
       paths:
         - '.github/workflows/android-ndk-gfortran2.yml'
     workflow_dispatch:
+    
+env:
+  binutils_version: 2.24
+  gcc_version: 4.8.2
  
 jobs:
   build:
@@ -23,14 +27,14 @@ jobs:
           
       - name: clone1
         run: |
-          wget -nv http://ftp.gnu.org/gnu/binutils/binutils-2.39.tar.xz
-          tar xf binutils-2.39.tar.xz
+          wget -nv http://ftp.gnu.org/gnu/binutils/binutils-${binutils_version}.tar.xz
+          tar xf binutils-${binutils_version}.tar.xz
                     
       - name: build1
         run: |
           # https://www.kkaneko.jp/data/bigdata/andktools.html
           
-          cd binutils-2.39
+          cd binutils-${binutils_version}
           mkdir arm-linux-androideabi
           cd arm-linux-androideabi
           ../configure --prefix=/tmp/prefix --host=x86_64-pc-linux-gnu --with-cross-host=x86_64-pc-linux-gnu --target=arm-linux-androideabi \
@@ -44,14 +48,14 @@ jobs:
           
       - name: clone2
         run: |
-          wget -nv https://ftp.gnu.org/gnu/gcc/gcc-12.2.0/gcc-12.2.0.tar.xz
-          tar xf gcc-12.2.0.tar.xz
+          wget -nv https://ftp.gnu.org/gnu/gcc/gcc-${gcc_version}/gcc-${gcc_version}.tar.xz
+          tar xf gcc-${gcc_version}.tar.xz
                     
       - name: build2
         run: |
           # https://www.kkaneko.jp/data/bigdata/andktools.html
           
-          cd gcc-12.2.0
+          cd gcc-${gcc_version}
           mkdir arm-linux-androideabi
           cd arm-linux-androideabi
           CFLAGS="-I/usr/include/x86_64-linux-gnu" \

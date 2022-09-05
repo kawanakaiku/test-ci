@@ -43,7 +43,7 @@ jobs:
           # set host file
           mkdir -p system/etc
           for host in pypi.python.org files.pythonhosted.org pypi.org; do
-            ( nslookup $host | awk '/^Address: / { print $2; exit }' ; echo " $host" ) >> system/etc/hosts
+            echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
           done
           
           cat <<SH > /tmp/chroot

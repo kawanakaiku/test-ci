@@ -95,7 +95,7 @@ jobs:
           python3 -m pip install *.whl
           python3 -m pip install -U pip wheel setuptools
           pushd torch
-          BUILD_TEST=0 python3 setup.py bdist_wheel
+          BUILD_TEST=0　USE_VULKAN python3 setup.py bdist_wheel
           popd
           CHROOT
   

@@ -41,7 +41,6 @@ jobs:
           
           sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin uname -a
           
-          
       - name: clone
         run: |
           cd termux-root
@@ -51,19 +50,16 @@ jobs:
           
       - name: build
         run: |
-          cd torch
+          cd termux-root
+          sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin bash <<CHROOT
+          cd /torch
+          python3 -m pip wheel -r requirements.txt
           python3 -m pip install -r requirements.txt
-          FILES="$(find . -type f,l)"
-          BUILD_TEST=0 python3 -m pip -v install . | tee pip-install.log
-          echo "$FILES" | xargs rm -rf
-          find . -type d -empty -delete
-          
-      - name: archive
-        run: |
-          XZ_OPT='-T0 -9' tar -cJf torch.tar.xz torch
+          BUILD_TEST=0 python3 -m pip -v wheel .
+          CHROOT
   
       - name: store
         uses: actions/upload-artifact@v3
         with:
           name: built
-          path: torch.tar.xz
+          path: termux-root/torch/*.whl

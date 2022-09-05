@@ -54,6 +54,7 @@ jobs:
           #!/usr/bin/sh
           sudo chroot ${PWD} ${TERMUX_PREFIX}/bin/env \
             PATH=${TERMUX_PREFIX}/bin \
+            LD_LIBRARY_PATH=${TERMUX_PREFIX}/lib \
             HOME=${TERMUX_HOME} \
             PIP_DISABLE_PIP_VERSION_CHECK=1 \
             "\$@"
@@ -88,8 +89,6 @@ jobs:
           export cmake_args="
           BUILD_PYTHON=1
           BUILD_TEST=0
-          USE_BLAS=1
-          BLAS=OpenBLAS
           USE_NNPACK=0
           USE_OPENMP=0
           USE_PYTORCH_QNNPACK=0

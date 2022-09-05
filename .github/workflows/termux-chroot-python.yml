@@ -60,8 +60,10 @@ jobs:
           SH
           chmod +x /tmp/chroot
           
-          /tmp/chroot uname -a
-          /tmp/chroot python3 -m pip list
+          /tmp/chroot bash <<BASH
+          apt update
+          apt upgrade -y libopenblas
+          BASH
           
       - name: clone
         run: |

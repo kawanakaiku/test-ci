@@ -70,6 +70,8 @@ jobs:
           wget -nv https://github.com/pytorch/pytorch/releases/download/v1.12.1/pytorch-v1.12.1.tar.gz
           tar xf pytorch-v1.12.1.tar.gz --strip-components=1 -C torch
           
+          exit
+          
           python3 -m pip download -d src --no-binary :all: -r torch/requirements.txt  # saves in src folder
           mkdir src_dirs
           cd src_dirs
@@ -91,11 +93,12 @@ jobs:
           cd termux-root
           /tmp/chroot bash <<CHROOT
           cd /python
-          python3 -m pip wheel src_dirs/*  # tar.gz files
+          python3 -m pip wheel -r torch/requirements.txt pip wheel setuptools
           python3 -m pip install *.whl
-          python3 -m pip install -U pip wheel setuptools
+          
           pushd torch
-          BUILD_TEST=0　USE_VULKAN python3 setup.py bdist_wheel
+          BUILD_TEST=0　USE_VULKAN=0 \
+            python3 setup.py bdist_wheel
           popd
           CHROOT
   

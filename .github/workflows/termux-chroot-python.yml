@@ -40,6 +40,12 @@ jobs:
           
           sudo cp /usr/bin/qemu-arm-static data/data/com.termux/files/usr/bin
           
+          # set host file
+          mkdir -p system/etc
+          for host in pypi.python.org files.pythonhosted.org pypi.org; do
+            nslookup $host | awk '/^Address: / { print $2; exit }' >> system/etc/hosts
+          done
+          
           cat <<SH > /tmp/chroot
           #!/usr/bin/sh
           sudo chroot ${PWD} ${TERMUX_PREFIX}/bin/env \

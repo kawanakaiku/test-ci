@@ -22,7 +22,7 @@ jobs:
         run: |
           cd torch
           FILES="$(find .)"
-          BUILD_TEST=0 pip -v install . | tee pip-install.log
+          BUILD_TEST=0 python3 -m pip -v install . | tee pip-install.log
           echo "$FILES" | xargs rm -rf
           find . -type d -empty -delete
   

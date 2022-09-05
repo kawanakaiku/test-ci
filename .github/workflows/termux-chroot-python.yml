@@ -76,6 +76,8 @@ jobs:
               * ) echo unknown archive "$f" ;;
             esac
           done
+          # already installed
+          rm -rf numpy-*
           
           # ERROR: No matching distribution found for setuptools
           #rm -v */pyproject.toml

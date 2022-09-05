@@ -21,7 +21,7 @@ jobs:
       - name: build
         run: |
           cd torch
-          FILES="$(find .)"
+          FILES="$(find -type f,l)"
           BUILD_TEST=0 python3 -m pip -v install . | tee pip-install.log
           echo "$FILES" | xargs rm -rf
           find . -type d -empty -delete

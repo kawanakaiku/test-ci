@@ -40,8 +40,17 @@ jobs:
           
           sudo cp /usr/bin/qemu-arm-static data/data/com.termux/files/usr/bin
           
-          sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin uname -a
-          sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin python3 -m pip list
+          cat <<SH > /tmp/chroot
+          #!/usr/bin/sh
+          sudo chroot ${PWD} ${TERMUX_PREFIX}/bin/env \
+            PATH=${TERMUX_PREFIX}/bin \
+            PIP_DISABLE_PIP_VERSION_CHECK=1 \
+            \"$@"
+          SH
+          chmod +x /tmp/chroot
+          
+          /tmp/chroot uname -a
+          /tmp/chroot python3 -m pip list
           
       - name: clone
         run: |
@@ -52,16 +61,25 @@ jobs:
           tar xf pytorch-v1.12.1.tar.gz --strip-components=1 -C torch
           
           python3 -m pip download -d src --no-binary :all: -r torch/requirements.txt  # saves in src folder
+          mkdir src_dirs
+          cd src_dirs
+          for f in ../src/*; do
+            case $f in
+              *.tar.* ) tar xf "$f"
+              *.zip ) unzip -q "$f"
+              * ) echo unknown archive "$f"
+            esac
+          done
+          
+          # ERROR: No matching distribution found for setuptools
+          rm -v */pyproject.toml
           
       - name: build
         run: |
           cd termux-root
-          sudo chroot . ${TERMUX_PREFIX}/bin/env \
-            PATH=${TERMUX_PREFIX}/bin \
-            PIP_DISABLE_PIP_VERSION_CHECK=1 \
-            bash <<CHROOT
+          /tmp/chroot bash <<CHROOT
           cd /python
-          python3 -m pip wheel --no-index src/*  # tar.gz files
+          python3 -m pip wheel --no-index src_dirs/*  # tar.gz files
           python3 -m pip install --no-index *.whl
           BUILD_TEST=0 python3 -m pip -v wheel --no-index torch
           CHROOT

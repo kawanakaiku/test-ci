@@ -21,6 +21,7 @@ jobs:
       - name: build
         run: |
           cd torch
+          python3 -m pip install -r requirements.txt
           FILES="$(find . -type f,l)"
           BUILD_TEST=0 python3 -m pip -v install . | tee pip-install.log
           echo "$FILES" | xargs rm -rf

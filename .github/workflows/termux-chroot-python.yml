@@ -1,0 +1,64 @@
+name: termux-chroot-python
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/termux-chroot-python.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+  
+    steps:
+      - name: get termux
+        run: |
+          mkdir termux-root
+          wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/termux-aarch64.tar.xz
+          tar xf termux-aarch64.tar.xz -C termux-root
+          
+      - name: apt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user-static
+          
+      - name: chroot termux
+        run: |
+          cd termux-root
+          mkdir -p proc dev dev/pts sys
+          
+          sudo mount -t proc proc proc
+          sudo mount -t devtmpfs udev dev
+          sudo mount -t devpts devpts dev/pts
+          sudo mount -t sysfs sysfs sys
+          
+          sudo cp /usr/bin/qemu-arm-static data/data/com.termux/files/usr/bin
+          
+          sudo chroot . uname -a
+          
+      - name: clone
+        run: |
+          cd termux-root
+          mkdir torch
+          wget -nv https://github.com/pytorch/pytorch/releases/download/v1.12.1/pytorch-v1.12.1.tar.gz
+          tar xf pytorch-v1.12.1.tar.gz --strip-components=1 -C torch
+          
+      - name: build
+        run: |
+          cd torch
+          python3 -m pip install -r requirements.txt
+          FILES="$(find . -type f,l)"
+          BUILD_TEST=0 python3 -m pip -v install . | tee pip-install.log
+          echo "$FILES" | xargs rm -rf
+          find . -type d -empty -delete
+          
+      - name: archive
+        run: |
+          XZ_OPT='-T0 -9' tar -cJf torch.tar.xz torch
+  
+      - name: store
+        uses: actions/upload-artifact@v3
+        with:
+          name: built
+          path: torch.tar.xz

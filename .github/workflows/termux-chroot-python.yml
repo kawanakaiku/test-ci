@@ -45,7 +45,7 @@ jobs:
           sudo chroot ${PWD} ${TERMUX_PREFIX}/bin/env \
             PATH=${TERMUX_PREFIX}/bin \
             PIP_DISABLE_PIP_VERSION_CHECK=1 \
-            \"$@"
+            "\$@"
           SH
           chmod +x /tmp/chroot
           

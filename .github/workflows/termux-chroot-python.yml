@@ -54,6 +54,7 @@ jobs:
           #!/usr/bin/sh
           sudo chroot ${PWD} ${TERMUX_PREFIX}/bin/env \
             PATH=${TERMUX_PREFIX}/bin \
+            HOME=${TERMUX_HOME} \
             PIP_DISABLE_PIP_VERSION_CHECK=1 \
             "\$@"
           SH

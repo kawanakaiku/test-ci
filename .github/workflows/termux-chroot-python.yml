@@ -70,23 +70,8 @@ jobs:
           wget -nv https://github.com/pytorch/pytorch/releases/download/v1.12.1/pytorch-v1.12.1.tar.gz
           tar xf pytorch-v1.12.1.tar.gz --strip-components=1 -C torch
           
-          exit
-          
-          python3 -m pip download -d src --no-binary :all: -r torch/requirements.txt  # saves in src folder
-          mkdir src_dirs
-          cd src_dirs
-          for f in ../src/*; do
-            case $f in
-              *.tar.* ) tar xf "$f" ;;
-              *.zip ) unzip -q "$f" ;;
-              * ) echo unknown archive "$f" ;;
-            esac
-          done
-          # already installed
-          rm -rf numpy-*
-          
-          # ERROR: No matching distribution found for setuptools
-          #rm -v */pyproject.toml
+          cd torch
+          sed -i -e 's/**build_options,/**build_options | {i: j for i, j in [i.strip().split("=", 1) for i in os.getenv("cmake_args").split(os.linesep) if "=" in i]},/' tools/setup_helpers/cmake.py
           
       - name: build
         run: |
@@ -97,6 +82,10 @@ jobs:
           python3 -m pip install *.whl
           
           pushd torch
+          export cmake_args="
+          BUILD_TEST=0
+          USE_VULKAN=0
+          "
           BUILD_TEST=0　USE_VULKAN=0 \
             python3 setup.py bdist_wheel
           popd

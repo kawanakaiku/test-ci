@@ -26,9 +26,13 @@ jobs:
           BUILD_TEST=0 python3 -m pip -v install . | tee pip-install.log
           echo "$FILES" | xargs rm -rf
           find . -type d -empty -delete
+          
+      - name: archive
+        run: |
+          XZ_OPT='-T0 -9' tar -cJf torch.tar.xz torch
   
       - name: store
         uses: actions/upload-artifact@v3
         with:
           name: built
-          path: torch
+          path: torch.tar.xz

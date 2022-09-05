@@ -78,7 +78,7 @@ jobs:
           done
           
           # ERROR: No matching distribution found for setuptools
-          rm -v */pyproject.toml
+          #rm -v */pyproject.toml
           
       - name: build
         run: |
@@ -87,7 +87,7 @@ jobs:
           cd /python
           python3 -m pip wheel --no-index src_dirs/*  # tar.gz files
           python3 -m pip install --no-index *.whl
-          BUILD_TEST=0 python3 -m pip -v wheel --no-index torch
+          BUILD_TEST=0 python3 -m pip -v wheel --no-index torch/
           CHROOT
   
       - name: store

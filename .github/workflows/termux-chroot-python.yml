@@ -10,6 +10,7 @@ on:
 env:
   TERMUX_PREFIX: /data/data/com.termux/files/usr
   TERMUX_HOME: /data/data/com.termux/files/home
+  PIP_DISABLE_PIP_VERSION_CHECK: 1
  
 jobs:
   build:
@@ -40,6 +41,7 @@ jobs:
           sudo cp /usr/bin/qemu-arm-static data/data/com.termux/files/usr/bin
           
           sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin uname -a
+          sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin python3 -m pip list
           
       - name: clone
         run: |
@@ -54,7 +56,10 @@ jobs:
       - name: build
         run: |
           cd termux-root
-          sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin bash <<CHROOT
+          sudo chroot . ${TERMUX_PREFIX}/bin/env \
+            PATH=${TERMUX_PREFIX}/bin \
+            PIP_DISABLE_PIP_VERSION_CHECK=1 \
+            bash <<CHROOT
           cd /python
           python3 -m pip wheel --no-index src/*  # tar.gz files
           python3 -m pip install --no-index *.whl

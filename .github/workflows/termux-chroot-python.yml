@@ -46,6 +46,10 @@ jobs:
             echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
           done
           
+          # suppress linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"
+          mkdir -p linkerconfig
+          touch linkerconfig/ld.config.txt
+          
           cat <<SH > /tmp/chroot
           #!/usr/bin/sh
           sudo chroot ${PWD} ${TERMUX_PREFIX}/bin/env \

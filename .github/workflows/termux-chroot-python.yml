@@ -62,8 +62,6 @@ jobs:
           chmod +x /tmp/chroot
           
           /tmp/chroot bash <<BASH
-          apt update
-          apt upgrade -y libopenblas
           BASH
           
       - name: clone

@@ -1,0 +1,33 @@
+name: android-pytorch
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/ubuntu-pytorch.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: macos-latest
+  
+    steps:
+      - name: clone
+        run: |
+          mkdir torch
+          wget -nv https://github.com/pytorch/pytorch/releases/download/v1.12.1/pytorch-v1.12.1.tar.gz
+          tar xf pytorch-v1.12.1.tar.gz --strip-components=1 -C torch
+          
+      - name: build
+        run: |
+          cd torch
+          FILES="$(find .)"
+          BUILD_TEST=0 pip install .
+          echo "$FILES" | xargs rm -rf
+          find . -type d -empty -delete
+	  
+      - name: store
+        uses: actions/upload-artifact@v3
+        with:
+          name: built
+          path: torch

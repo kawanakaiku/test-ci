@@ -25,7 +25,7 @@ jobs:
           BUILD_TEST=0 pip install .
           echo "$FILES" | xargs rm -rf
           find . -type d -empty -delete
-	  
+  
       - name: store
         uses: actions/upload-artifact@v3
         with:

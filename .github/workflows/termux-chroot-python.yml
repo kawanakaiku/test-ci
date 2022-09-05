@@ -85,9 +85,9 @@ jobs:
           cd termux-root
           /tmp/chroot bash <<CHROOT
           cd /python
-          python3 -m pip wheel --no-index src_dirs/*  # tar.gz files
-          python3 -m pip install --no-index *.whl
-          BUILD_TEST=0 python3 -m pip -v wheel --no-index torch/
+          python3 -m pip wheel src_dirs/*  # tar.gz files
+          python3 -m pip install *.whl
+          BUILD_TEST=0 python3 -m pip -v wheel torch/
           CHROOT
   
       - name: store

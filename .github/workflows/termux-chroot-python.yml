@@ -65,9 +65,9 @@ jobs:
           cd src_dirs
           for f in ../src/*; do
             case $f in
-              *.tar.* ) tar xf "$f"
-              *.zip ) unzip -q "$f"
-              * ) echo unknown archive "$f"
+              *.tar.* ) tar xf "$f" ;;
+              *.zip ) unzip -q "$f" ;;
+              * ) echo unknown archive "$f" ;;
             esac
           done
           

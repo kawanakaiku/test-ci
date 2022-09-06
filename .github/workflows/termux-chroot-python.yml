@@ -120,6 +120,7 @@ jobs:
             ANDROID_NO_TERMUX=0
             BUILD_TEST=0
           "
+          export MAX_JOBS=2
           python3 setup.py bdist_wheel
           popd
           CHROOT

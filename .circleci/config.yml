@@ -103,6 +103,8 @@ jobs:
               ANDROID_NO_TERMUX=0
               BUILD_TEST=0
             "
+            export CFLAGS="-fPIC"
+            export CXXFLAGS="-fPIC"
             export LDFLAGS="-llog"
             python3 setup.py bdist_wheel
             mv dist/*.whl ..

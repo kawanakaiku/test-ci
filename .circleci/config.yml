@@ -1,8 +1,123 @@
 jobs:
   build:
     machine:
-      image: ubuntu-2004:202101-01
+      image: ubuntu-2004:current
     resource_class: arm.medium
+    environment:
+      TERMUX_PREFIX: /data/data/com.termux/files/usr
+      TERMUX_HOME: /data/data/com.termux/files/home
+      PIP_DISABLE_PIP_VERSION_CHECK: 1
+      TERMUX_URL: https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/termux-aarch64.tar.xz
     steps:
-      - run: uname -a
-      - run: echo "Hello, Arm!"
+      - restore_cache:
+          name: Restore ccache Cache
+          keys:
+            - termux-ccache-aarch64-
+      - run:
+          name: get termux
+          command: |
+            mkdir -p archives; cd archives
+            wget -nv "${TERMUX_URL}"
+      - run:
+          name: extract termux
+          command: |
+            mkdir termux-root
+            for tar_xz in archives/*.tar.xz; do
+              tar xf "${tar_xz}" -C termux-root
+            done
+      - run:
+          name: chroot termux
+          command: |
+            cd termux-root
+            
+            mkdir -p proc dev dev/pts sys
+            sudo mount -t proc proc proc
+            sudo mount -t devtmpfs udev dev
+            sudo mount -t devpts devpts dev/pts
+            sudo mount -t sysfs sysfs sys
+            
+            # set host file
+            mkdir -p system/etc
+            for host in pypi.python.org files.pythonhosted.org pypi.org \
+              github.com objects.githubusercontent.com \
+              packages.termux.dev
+            do
+              echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
+            done
+            
+            # suppress linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"
+            mkdir -p linkerconfig
+            touch linkerconfig/ld.config.txt
+            
+            TERMUX_USER=$( sudo chroot . /system/bin/stat -c '%U' ${TERMUX_PREFIX}/bin/env )
+            TERMUX_GROUP=$( sudo chroot . /system/bin/stat -c '%G' ${TERMUX_PREFIX}/bin/env )
+          
+            sudo ls -lha data/data/com.termux/files/usr/bin/env
+            sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin ls -lha /data/data/com.termux/files/usr/bin/env
+            
+            cat <<SH > /tmp/chroot
+            #!/usr/bin/sh
+            exec sudo chroot ${PWD} \
+              ${TERMUX_PREFIX}/bin/su ${TERMUX_USER} \
+              ${TERMUX_PREFIX}/bin/env \
+              PATH=${TERMUX_PREFIX}/bin \
+              LD_LIBRARY_PATH=${TERMUX_PREFIX}/lib \
+              HOME=${TERMUX_HOME} \
+              PIP_DISABLE_PIP_VERSION_CHECK=1 \
+              "\$@"
+            SH
+            chmod +x /tmp/chroot
+
+            /tmp/chroot bash <<BASH
+            apt-get update
+            apt-get upgrade -y build-essential cmake ninja ccache libopenblas python-numpy
+            BASH
+      - run:
+          name: clone
+          command: |
+            # get src
+            mkdir termux-root/python
+            cd termux-root/python
+            mkdir torch
+            wget -nv https://github.com/pytorch/pytorch/releases/download/v1.12.1/pytorch-v1.12.1.tar.gz
+            tar xf pytorch-v1.12.1.tar.gz --strip-components=1 -C torch
+
+            # patch src
+            cd torch
+            sed -i -e 's/**build_options,/**build_options | {i: j for i, j in [i.strip().split("=", 1) for i in os.getenv("cmake_args").split(os.linesep) if "=" in i]},/' tools/setup_helpers/cmake.py
+            find . -name CMakeLists.txt -o -name '*.cmake' | \
+              xargs -n 1 sed -i \
+              -e 's/\([^A-Za-z0-9_]ANDROID\)\([^A-Za-z0-9_]\)/\1_NO_TERMUX\2/g' \
+              -e 's/\([^A-Za-z0-9_]ANDROID\)$/\1_NO_TERMUX/g'
+      - run:
+          name: build
+          command: |
+            cd termux-root
+            /tmp/chroot bash <<CHROOT || true
+            cd /python
+            python3 -m pip wheel -r <( grep -v -e numpy torch/requirements.txt ) pip wheel setuptools
+            python3 -m pip install *.whl
+
+            pushd torch
+            export cmake_args="
+              ANDROID_NO_TERMUX=0
+              BUILD_TEST=0
+            "
+            python3 setup.py bdist_wheel
+            popd
+            CHROOT
+      - run:
+          name: archive ccache
+          command: |
+            tar -c -I 'xz -T0' -f archives/ccache.tar.xz -C termux-root ${TERMUX_HOME}/.cache/ccache
+      - run:
+          name: archive wheels
+          command: |
+            zip built.zip termux-root/python/*.whl termux-root/python/torch/dist/*.whl
+      - save_cache:
+          key: "termux-ccache-aarch64-${CIRCLE_WORKFLOW_JOB_ID}"
+          paths:
+            - archives/ccache.tar.xz
+      - store_artifacts:
+          path: built.zip
+            

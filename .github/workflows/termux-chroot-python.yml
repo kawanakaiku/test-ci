@@ -88,8 +88,8 @@ jobs:
           chmod +x /tmp/chroot
           
           /tmp/chroot bash <<BASH
-          apt update
-          apt upgrade -y build-essential cmake ninja ccache libopenblas python-numpy
+          apt-get update
+          apt-get upgrade -y build-essential cmake ninja ccache libopenblas python-numpy
           BASH
           
       - name: clone

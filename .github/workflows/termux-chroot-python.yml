@@ -73,7 +73,7 @@ jobs:
           
           /tmp/chroot bash <<BASH
           apt update
-          apt upgrade -y ccache libopenblas
+          apt upgrade -y build-essential cmake ninja ccache libopenblas python-numpy
           BASH
           
       - name: clone

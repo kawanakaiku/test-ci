@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: apt
         run: |
-          sudo apt-get install -y --no-install-recommends ninja ccache
+          sudo apt-get install -y --no-install-recommends ninja-build ccache
           
       - name: clone
         run: |

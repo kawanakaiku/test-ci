@@ -46,7 +46,7 @@ jobs:
             github.com objects.githubusercontent.com \
             packages.termux.dev
           do
-            echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
+            echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" | sudo tee -a system/etc/hosts
           done
           
           # suppress linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"

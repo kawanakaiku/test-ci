@@ -53,7 +53,7 @@ jobs:
           mkdir -p linkerconfig
           touch linkerconfig/ld.config.txt
           
-          sudo chown system:system data/data/com.termux/files
+          sudo chroot .  /system/bin/chown -R system:system /data/data/com.termux/files
           
           sudo ls -lha data/data/com.termux/files/usr/bin/env
           sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin ls -lha /data/data/com.termux/files/usr/bin/env

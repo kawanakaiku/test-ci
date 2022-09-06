@@ -2,7 +2,7 @@ jobs:
   build:
     machine:
       image: ubuntu-2004:current
-    resource_class: arm.medium
+    resource_class: arm.large
     environment:
       TERMUX_PREFIX: /data/data/com.termux/files/usr
       TERMUX_HOME: /data/data/com.termux/files/home
@@ -93,7 +93,7 @@ jobs:
           name: build
           command: |
             cd termux-root
-            timeout --kill-after=0 --signal=SIGINT 270m /tmp/chroot bash <<CHROOT || true
+            timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash <<CHROOT || true
             cd /python
             python3 -m pip wheel -r <( grep -v -e numpy torch/requirements.txt ) pip wheel setuptools
             python3 -m pip install *.whl

@@ -74,6 +74,10 @@ jobs:
           
           cd torch
           sed -i -e 's/**build_options,/**build_options | {i: j for i, j in [i.strip().split("=", 1) for i in os.getenv("cmake_args").split(os.linesep) if "=" in i]},/' tools/setup_helpers/cmake.py
+          find . -name CMakeLists.txt -o -name '*.cmake' | \
+            xargs -n 1 sed -i \
+            -e 's/\([^A-Za-z0-9_]ANDROID\)\([^A-Za-z0-9_]\)/\1_NO_TERMUX\2/g' \
+            -e 's/\([^A-Za-z0-9_]ANDROID\)$/\1_NO_TERMUX/g'
           
       - name: build
         run: |
@@ -85,14 +89,9 @@ jobs:
           
           pushd torch
           export cmake_args="
-          ANDROID=0
-          BUILD_PYTHON=1
-          BUILD_TEST=0
-          USE_NNPACK=1
-          USE_OPENMP=1
-          USE_PYTORCH_QNNPACK=0
-          USE_XNNPACK=1
+          ANDROID_NO_TERMUX=0
           USE_VULKAN=0
+          BUILD_TEST=0
           "
           BUILD_TEST=0　USE_VULKAN=0 \
             python3 setup.py bdist_wheel

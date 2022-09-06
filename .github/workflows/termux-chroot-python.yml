@@ -11,17 +11,33 @@ env:
   TERMUX_PREFIX: /data/data/com.termux/files/usr
   TERMUX_HOME: /data/data/com.termux/files/home
   PIP_DISABLE_PIP_VERSION_CHECK: 1
+  TERMU_ARCH: aarch64
  
 jobs:
   build:
     runs-on: ubuntu-22.04
   
     steps:
+      - name: cache ccache
+        id: cache-primes
+        uses: actions/cache@v3
+        with:
+          path: archives/ccache.tar.xz
+          key: termux-ccache-${TERMU_ARCH}-${{ github.sha }}
+          restore-keys: |
+            termux-ccache-${TERMU_ARCH}-
+            
       - name: get termux
         run: |
-          mkdir termux-root
+          mkdir archives; cd archives
           wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/termux-aarch64.tar.xz
-          tar xf termux-aarch64.tar.xz -C termux-root
+          
+      - name: extract termux
+        run: |
+          mkdir termux-root
+          for tar_xz in archives/*.tar.xz; do
+            tar xf "${tar_xz}" -C termux-root
+          done
           
       - name: apt
         run: |
@@ -52,8 +68,8 @@ jobs:
           mkdir -p linkerconfig
           touch linkerconfig/ld.config.txt
           
-          TERMUX_USER=$( sudo chroot .  /system/bin/stat -c '%U' ${TERMUX_PREFIX}/bin/env )
-          TERMUX_GROUP=$( sudo chroot .  /system/bin/stat -c '%G' ${TERMUX_PREFIX}/bin/env )
+          TERMUX_USER=$( sudo chroot . /system/bin/stat -c '%U' ${TERMUX_PREFIX}/bin/env )
+          TERMUX_GROUP=$( sudo chroot . /system/bin/stat -c '%G' ${TERMUX_PREFIX}/bin/env )
           
           sudo ls -lha data/data/com.termux/files/usr/bin/env
           sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin ls -lha /data/data/com.termux/files/usr/bin/env
@@ -94,22 +110,25 @@ jobs:
       - name: build
         run: |
           cd termux-root
-          /tmp/chroot bash <<CHROOT
+          timeout --kill-after=0 --signal=SIGINT 300m /tmp/chroot bash <<CHROOT
           cd /python
           python3 -m pip wheel -r <( grep -v -e numpy torch/requirements.txt ) pip wheel setuptools
           python3 -m pip install *.whl
           
           pushd torch
           export cmake_args="
-          ANDROID_NO_TERMUX=0
-          USE_VULKAN=0
-          BUILD_TEST=0
+            ANDROID_NO_TERMUX=0
+            BUILD_TEST=0
           "
-          BUILD_TEST=0　USE_VULKAN=0 \
-            python3 setup.py bdist_wheel
+          python3 setup.py bdist_wheel
           popd
           CHROOT
-  
+          
+      - name: archive ccache
+        if: always()
+        run: |
+          tar -c -I 'xz -9 -T0' -f archives/ccache.tar.xz -C termux-root ${TERMUX_HOME}/.cache/ccache
+
       - name: store
         uses: actions/upload-artifact@v3
         with:

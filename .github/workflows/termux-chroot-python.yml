@@ -25,6 +25,10 @@ jobs:
           
       - name: apt
         run: |
+          wget -nv http://security.ubuntu.com/ubuntu/pool/universe/q/qemu/qemu-user-static_6.2+dfsg-2ubuntu6.2_amd64.deb
+          apt install ./*.deb
+          exit
+          
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-user-static
           
@@ -53,8 +57,8 @@ jobs:
           mkdir -p linkerconfig
           touch linkerconfig/ld.config.txt
           
-          TERMUX_USER=$( sudo chroot .  /system/bin/stat -c '%U' {TERMUX_PREFIX}/bin/env )
-          TERMUX_GROUP=$( sudo chroot .  /system/bin/stat -c '%G' {TERMUX_PREFIX}/bin/env )
+          TERMUX_USER=$( sudo chroot .  /system/bin/stat -c '%U' ${TERMUX_PREFIX}/bin/env )
+          TERMUX_GROUP=$( sudo chroot .  /system/bin/stat -c '%G' ${TERMUX_PREFIX}/bin/env )
           
           sudo ls -lha data/data/com.termux/files/usr/bin/env
           sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin ls -lha /data/data/com.termux/files/usr/bin/env

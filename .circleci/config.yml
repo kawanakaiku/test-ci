@@ -93,7 +93,7 @@ jobs:
           name: build
           command: |
             cd termux-root
-            /tmp/chroot bash <<CHROOT || true
+            timeout 300 /tmp/chroot bash <<CHROOT || true
             cd /python
             python3 -m pip wheel -r <( grep -v -e numpy torch/requirements.txt ) pip wheel setuptools
             python3 -m pip install *.whl
@@ -103,17 +103,19 @@ jobs:
               ANDROID_NO_TERMUX=0
               BUILD_TEST=0
             "
+            export LIBS="-llog"
             python3 setup.py bdist_wheel
+            mv dist/*.whl ..
             popd
             CHROOT
       - run:
           name: archive ccache
           command: |
-            tar -c -I 'xz -T0' -f archives/ccache.tar.xz -C termux-root ${TERMUX_HOME}/.cache/ccache
+            tar -c -I 'xz -T0' -f archives/ccache.tar.xz -C termux-root ${TERMUX_HOME:1}/.cache/ccache
       - run:
           name: archive wheels
           command: |
-            zip built.zip termux-root/python/*.whl termux-root/python/torch/dist/*.whl
+            zip built.zip termux-root/python/*.whl
       - save_cache:
           key: "termux-ccache-aarch64-${CIRCLE_WORKFLOW_JOB_ID}"
           paths:

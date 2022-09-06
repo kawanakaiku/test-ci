@@ -125,7 +125,6 @@ jobs:
           CHROOT
           
       - name: archive ccache
-        if: always()
         run: |
           tar -c -I 'xz -9 -T0' -f archives/ccache.tar.xz -C termux-root ${TERMUX_HOME}/.cache/ccache
 

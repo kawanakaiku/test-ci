@@ -7,7 +7,6 @@ jobs:
       TERMUX_PREFIX: /data/data/com.termux/files/usr
       TERMUX_HOME: /data/data/com.termux/files/home
       PIP_DISABLE_PIP_VERSION_CHECK: 1
-      TERMUX_URL: https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/termux-aarch64.tar.xz
     steps:
       - restore_cache:
           name: Restore ccache Cache
@@ -17,7 +16,7 @@ jobs:
           name: get termux
           command: |
             mkdir -p archives; cd archives
-            wget -nv "${TERMUX_URL}"
+            wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/termux-aarch64.tar.xz
       - run:
           name: extract termux
           command: |
@@ -89,6 +88,8 @@ jobs:
               xargs -n 1 sed -i \
               -e 's/\([^A-Za-z0-9_]ANDROID\)\([^A-Za-z0-9_]\)/\1_NO_TERMUX\2/g' \
               -e 's/\([^A-Za-z0-9_]ANDROID\)$/\1_NO_TERMUX/g'
+            curl -s https://raw.githubusercontent.com/kawanakaiku/termux-packages/master/packages/python-pkgs/torch.patch_python |
+            sed -e "s%\@TERMUX_PREFIX\@%${TERMUX_PREFIX}%g" | patch --silent -p1
       - run:
           name: build
           command: |

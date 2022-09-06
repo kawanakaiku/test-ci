@@ -93,7 +93,7 @@ jobs:
           name: build
           command: |
             cd termux-root
-            timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash <<CHROOT || true
+            timeout --kill-after=0 --signal=SIGINT 3m /tmp/chroot bash <<CHROOT || true
             cd /python
             python3 -m pip wheel -r <( grep -v -e numpy torch/requirements.txt ) pip wheel setuptools
             python3 -m pip install *.whl
@@ -117,7 +117,7 @@ jobs:
           command: |
             zip built.zip termux-root/python/*.whl
       - save_cache:
-          key: "termux-ccache-aarch64-${CIRCLE_WORKFLOW_JOB_ID}"
+          key: termux-ccache-aarch64-{{ CIRCLE_WORKFLOW_JOB_ID }}
           paths:
             - archives/ccache.tar.xz
       - store_artifacts:

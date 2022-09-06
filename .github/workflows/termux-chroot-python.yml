@@ -110,7 +110,7 @@ jobs:
       - name: build
         run: |
           cd termux-root
-          timeout --kill-after=0 --signal=SIGINT 300m /tmp/chroot bash <<CHROOT
+          timeout --kill-after=0 --signal=SIGINT 300m /tmp/chroot bash <<CHROOT || true
           cd /python
           python3 -m pip wheel -r <( grep -v -e numpy torch/requirements.txt ) pip wheel setuptools
           python3 -m pip install *.whl

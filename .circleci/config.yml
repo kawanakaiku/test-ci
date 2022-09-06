@@ -117,7 +117,7 @@ jobs:
           command: |
             zip built.zip termux-root/python/*.whl
       - save_cache:
-          key: termux-ccache-aarch64-{{ CIRCLE_WORKFLOW_JOB_ID }}
+          key: termux-ccache-aarch64-{{ checksum "archives/ccache.tar.xz" }}
           paths:
             - archives/ccache.tar.xz
       - store_artifacts:

@@ -23,9 +23,9 @@ jobs:
         uses: actions/cache@v3
         with:
           path: archives/ccache.tar.xz
-          key: termux-ccache-${TERMU_ARCH}-${{ github.sha }}
+          key: termux-ccache-${{ env.TERMU_ARCH }}-${{ github.sha }}
           restore-keys: |
-            termux-ccache-${TERMU_ARCH}-
+            termux-ccache-${{ env.TERMU_ARCH }}-
             
       - name: get termux
         run: |

@@ -21,7 +21,7 @@ jobs:
         run: |
           mkdir termux-root
           wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/termux-aarch64.tar.xz
-          sudo tar xf termux-aarch64.tar.xz -C termux-root
+          tar xf termux-aarch64.tar.xz -C termux-root
           
       - name: apt
         run: |
@@ -46,12 +46,14 @@ jobs:
             github.com objects.githubusercontent.com \
             packages.termux.dev
           do
-            echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" | sudo tee -a system/etc/hosts
+            echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
           done
           
           # suppress linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"
           mkdir -p linkerconfig
           touch linkerconfig/ld.config.txt
+          
+          sudo chown system:system data/data/com.termux/files
           
           sudo ls -lha data/data/com.termux/files/usr/bin/env
           sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin ls -lha /data/data/com.termux/files/usr/bin/env

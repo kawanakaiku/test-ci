@@ -42,7 +42,10 @@ jobs:
           
           # set host file
           mkdir -p system/etc
-          for host in pypi.python.org files.pythonhosted.org pypi.org github.com objects.githubusercontent.com; do
+          for host in pypi.python.org files.pythonhosted.org pypi.org \
+            github.com objects.githubusercontent.com \
+            packages.termux.dev \
+          do
             echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
           done
           
@@ -52,7 +55,9 @@ jobs:
           
           cat <<SH > /tmp/chroot
           #!/usr/bin/sh
-          sudo chroot ${PWD} ${TERMUX_PREFIX}/bin/env \
+          sudo chroot ${PWD} \
+            ${TERMUX_PREFIX}/bin/su system \
+            ${TERMUX_PREFIX}/bin/env \
             PATH=${TERMUX_PREFIX}/bin \
             LD_LIBRARY_PATH=${TERMUX_PREFIX}/lib \
             HOME=${TERMUX_HOME} \
@@ -62,6 +67,8 @@ jobs:
           chmod +x /tmp/chroot
           
           /tmp/chroot bash <<BASH
+          apt update
+          apt upgrade -y ccache libopenblas
           BASH
           
       - name: clone

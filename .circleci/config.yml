@@ -140,7 +140,6 @@ jobs:
       - run:
           name: save ccache cache
           command: |
-            mkdir -p archives; cd archives
             f=termux-ccache-aarch64-torch.tar.xz
             curl -X POST http://${MY_HOST}/upload -F files=@archives/ccache.tar.xz
       - run:

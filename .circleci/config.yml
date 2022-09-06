@@ -8,10 +8,12 @@ jobs:
       TERMUX_HOME: /data/data/com.termux/files/home
       PIP_DISABLE_PIP_VERSION_CHECK: 1
     steps:
-      - restore_cache:
+      - run:
           name: Restore ccache Cache
-          keys:
-            - termux-ccache-aarch64-torch-
+          command: |
+            mkdir -p archives; cd archives
+            f=ccache.tar.xz
+            curl --fail --output ${f} http://${MY_HOST}/${f} || true
       - run:
           name: get termux
           command: |
@@ -61,6 +63,7 @@ jobs:
               ${TERMUX_PREFIX}/bin/env \
               PATH=${TERMUX_PREFIX}/bin \
               HOME=${TERMUX_HOME} \
+              LANG=en_US.UTF-8 \
               PIP_DISABLE_PIP_VERSION_CHECK=1 \
               "\$@"
             SH
@@ -93,19 +96,34 @@ jobs:
           name: build
           command: |
             cd termux-root
-            timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash <<CHROOT || true
+            timeout --kill-after=0 --signal=SIGINT 3m /tmp/chroot bash <<CHROOT || true
             cd /python
             python3 -m pip wheel -r <( grep -v -e numpy torch/requirements.txt ) pip wheel setuptools
             python3 -m pip install *.whl
 
             pushd torch
+            
+            export AS=aarch64-linux-android-clang
+            export CC=aarch64-linux-android-clang
+            export CXX=aarch64-linux-android-clang++
+            export LD=ld.lld
+            export AR=llvm-ar
+            export NM=llvm-nm
+            export OBJCOPY=llvm-objcopy
+            export OBJDUMP=llvm-objdump
+            export RANLIB=llvm-ranlib
+            export READELF=llvm-readelf
+            export STRIP=llvm-strip
+            export CFLAGS=" -fstack-protector-strong -Oz"
+            export CXXFLAGS=" -fstack-protector-strong -Oz"
+            export CPPFLAGS=" -I/data/data/com.termux/files/usr/include"
+            export LDFLAGS="-L/data/data/com.termux/files/usr/lib -Wl,-rpath=/data/data/com.termux/files/usr/lib -fopenmp -static-openmp -Wl,--enable-new-dtags -Wl,--as-needed -Wl,-z,relro,-z,now"
+
             export cmake_args="
               ANDROID_NO_TERMUX=0
               BUILD_TEST=0
             "
-            export CFLAGS="-fPIC"
-            export CXXFLAGS="-fPIC"
-            export LDFLAGS="-llog"
+            export LDFLAGS+=" -llog"
             python3 setup.py bdist_wheel
             mv dist/*.whl ..
             popd
@@ -117,11 +135,16 @@ jobs:
       - run:
           name: archive wheels
           command: |
-            zip built.zip termux-root/python/*.whl
-      - save_cache:
-          key: termux-ccache-aarch64-torch-{{ checksum "archives/ccache.tar.xz" }}
-          paths:
-            - archives/ccache.tar.xz
-      - store_artifacts:
-          path: built.zip
+            mv termux-root/python/*.whl .
+            tar -c -I 'xz -T0' -f build.tar.xz *.whl
+      - run:
+          name: save ccache cache
+          command: |
+            mkdir -p archives; cd archives
+            f=termux-ccache-aarch64-torch.tar.xz
+            curl -X POST http://${MY_HOST}/upload -F files=@archives/ccache.tar.xz
+      - run:
+          name: save artifact
+          command: |
+            curl -X POST http://${MY_HOST}/upload -F files=@build.tar.xz
             

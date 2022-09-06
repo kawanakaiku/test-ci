@@ -21,7 +21,7 @@ jobs:
         run: |
           mkdir termux-root
           wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/termux-aarch64.tar.xz
-          tar xf termux-aarch64.tar.xz -C termux-root
+          sudo tar xf termux-aarch64.tar.xz -C termux-root
           
       - name: apt
         run: |

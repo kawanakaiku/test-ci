@@ -25,11 +25,6 @@ jobs:
           
       - name: apt
         run: |
-          wget -nv http://security.ubuntu.com/ubuntu/pool/universe/q/qemu/qemu-user-static_6.2+dfsg-2ubuntu6.2_amd64.deb
-          sudo apt-get install -y --no-install-recommends ./*.deb
-          exit
-          
-          sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-user-static
           
       - name: chroot termux

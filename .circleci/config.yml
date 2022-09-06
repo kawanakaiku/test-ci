@@ -124,7 +124,7 @@ jobs:
             "
             export LDFLAGS+=" -llog"
             export LDFLAGS+=" -lc -lm -lc++_shared"
-            export LDFLAGS+=" -lboost-python310 -lpython3.10"
+            export LDFLAGS+=" -lpython3.10"
             python3 setup.py bdist_wheel
             mv dist/*.whl ..
             popd

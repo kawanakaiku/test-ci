@@ -12,6 +12,10 @@ jobs:
     runs-on: ubuntu-22.04
   
     steps:
+      - name: apt
+        run: |
+          sudo apt-get install -y --no-install-recommends ninja ccache
+          
       - name: clone
         run: |
           mkdir torch

@@ -1,5 +1,5 @@
 jobs:
-  my-job:
+  build:
     machine:
       image: ubuntu-2004:202101-01
     resource_class: arm.medium

@@ -18,7 +18,7 @@ jobs:
           
       - name: archive
         run: |
-          tar -c -I 'xz -T0' -f torch.tar.xz torch
+          tar -c -I 'xz -9e -T0' -f torch.tar.xz torch
   
       - name: store
         uses: actions/upload-artifact@v3

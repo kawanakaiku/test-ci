@@ -16,6 +16,12 @@ jobs:
         run: |
           git clone --depth=1 --recursive --branch=v1.12.1 https://github.com/pytorch/pytorch torch
           
+      - name: delete
+        run: |
+          cd torch/.git
+          rm -rf modules objects
+          mkdir objects
+          
       - name: archive
         run: |
           tar -c -I 'xz -9e -T0' -f torch.tar.xz torch

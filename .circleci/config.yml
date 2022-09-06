@@ -123,7 +123,7 @@ jobs:
               BUILD_TEST=0
             "
             export LDFLAGS+=" -llog"
-            export LDFLAGS+=" -lc -lm -lc++_shared -landroid_support"
+            export LDFLAGS+=" -lc -lm -lc++_shared"
             python3 setup.py bdist_wheel
             mv dist/*.whl ..
             popd

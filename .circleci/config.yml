@@ -11,7 +11,7 @@ jobs:
       - restore_cache:
           name: Restore ccache Cache
           keys:
-            - termux-ccache-aarch64-
+            - termux-ccache-aarch64-torch-
       - run:
           name: get termux
           command: |
@@ -119,7 +119,7 @@ jobs:
           command: |
             zip built.zip termux-root/python/*.whl
       - save_cache:
-          key: termux-ccache-aarch64-{{ checksum "archives/ccache.tar.xz" }}
+          key: termux-ccache-aarch64-torch-{{ checksum "archives/ccache.tar.xz" }}
           paths:
             - archives/ccache.tar.xz
       - store_artifacts:

@@ -123,10 +123,15 @@ jobs:
               BUILD_TEST=0
             "
             export LDFLAGS+=" -llog"
+            export LDFLAGS+=" -lc -lm -lc++_shared -landroid_support"
             python3 setup.py bdist_wheel
             mv dist/*.whl ..
             popd
             CHROOT
+      - run:
+          name: post build
+          command: |
+            cd termux-root
       - run:
           name: archive ccache
           command: |

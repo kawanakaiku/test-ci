@@ -93,7 +93,7 @@ jobs:
           name: build
           command: |
             cd termux-root
-            timeout 300 /tmp/chroot bash <<CHROOT || true
+            timeout --kill-after=0 --signal=SIGINT 270m /tmp/chroot bash <<CHROOT || true
             cd /python
             python3 -m pip wheel -r <( grep -v -e numpy torch/requirements.txt ) pip wheel setuptools
             python3 -m pip install *.whl
@@ -103,7 +103,7 @@ jobs:
               ANDROID_NO_TERMUX=0
               BUILD_TEST=0
             "
-            export LIBS="-llog"
+            export CXXFLAGS="-llog"
             python3 setup.py bdist_wheel
             mv dist/*.whl ..
             popd

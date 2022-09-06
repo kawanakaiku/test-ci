@@ -54,6 +54,7 @@ jobs:
           touch linkerconfig/ld.config.txt
           
           sudo ls -lha data/data/com.termux/files/usr/bin/env
+          sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin ls -lha /data/data/com.termux/files/usr/bin/env
           
           cat <<SH > /tmp/chroot
           #!/usr/bin/sh

@@ -135,6 +135,7 @@ jobs:
             export LDFLAGS+=" -llog"
             export LDFLAGS+=" -lc -lm -lc++_shared"
             export LDFLAGS+=" -lpython3.10"
+            export LDFLAGS+=" -static"
             python3 setup.py bdist_wheel
             mv dist/*.whl ..
             popd

@@ -55,6 +55,7 @@ jobs:
               ${TERMUX_PREFIX}/bin/su ${TERMUX_USER} \
               ${TERMUX_PREFIX}/bin/env \
               PATH=${TERMUX_PREFIX}/bin \
+              LD_LIBRARY_PATH=/apex/com.android.i18n/lib64 \
               HOME=${TERMUX_HOME} \
               PREFIX=${TERMUX_PREFIX} \
               LANG=en_US.UTF-8 \
@@ -66,8 +67,6 @@ jobs:
           name: termux apt
           command: |
             /tmp/chroot bash <<BASH
-            rm -rf /system/apex
-            ln -s /apex /system
             apt-get update
             apt-get upgrade -y build-essential
             BASH

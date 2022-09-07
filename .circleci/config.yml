@@ -40,15 +40,13 @@ jobs:
             do
               echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
             done
+            cat <<CONF > system/etc/resolv.conf
+            nameserver 8.8.8.8
+            CONF
             
             # suppress linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"
             mkdir -p linkerconfig
             touch linkerconfig/ld.config.txt
-            
-            mkdir -p etc
-            cat <<CONF > etc/resolv.conf
-            nameserver 8.8.8.8
-            CONF
             
             TERMUX_USER=$( sudo chroot . /system/bin/stat -c '%U' ${TERMUX_PREFIX}/bin/env )
             TERMUX_GROUP=$( sudo chroot . /system/bin/stat -c '%G' ${TERMUX_PREFIX}/bin/env )

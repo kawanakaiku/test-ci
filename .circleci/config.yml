@@ -75,6 +75,7 @@ jobs:
           name: build
           command: |
             timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash <<CHROOT || true
+            cd /termux-packages
             ./build-package.sh code-server
             CHROOT
       - run:

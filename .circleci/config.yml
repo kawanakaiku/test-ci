@@ -93,6 +93,7 @@ jobs:
             curl -s https://raw.githubusercontent.com/kawanakaiku/termux-packages/master/packages/python-pkgs/torch.patch_python |
             sed -e "s%\@TERMUX_PREFIX\@%${TERMUX_PREFIX}%g" | patch --silent -p1
             #find . -type f -exec grep -Iq . {} \; -print | xargs -d'\n' sed -i -e 's|__APPLE__|__SKIP_APPLE__|g'
+            sed -i -e 's|BUILD_PYTHON|__IGNORE_BUILD_PYTHON|g' CMakeLists.txt
       - run:
           name: build
           command: |

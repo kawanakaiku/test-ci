@@ -123,7 +123,10 @@ jobs:
             export cmake_args="
               ANDROID_NO_TERMUX=0
               BUILD_TEST=0
+              INTERN_BUILD_MOBILE=1
+              BUILD_LAZY_TS_BACKEND=0
               C10_MOBILE=1
+              BUILD_CAFFE2_MOBILE=1
             "
             export LDFLAGS+=" -llog"
             export LDFLAGS+=" -lc -lm -lc++_shared"
@@ -138,7 +141,7 @@ jobs:
             /tmp/chroot bash <<CHROOT || true
             cd /python
             pip install torch-*.whl
-            ln -s ${PREFIX}/lib/python3.10/site-packages/torch/lib/*.so ${PREFIX}/lib
+            #ln -s ${PREFIX}/lib/python3.10/site-packages/torch/lib/*.so ${PREFIX}/lib
             python -c 'import torch'
             CHROOT
       - run:

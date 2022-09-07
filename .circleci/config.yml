@@ -65,8 +65,8 @@ jobs:
           name: termux apt
           command: |
             /tmp/chroot bash <<BASH
-            #apt-get update
-            #apt-get upgrade -y build-essential
+            apt-get update
+            apt-get upgrade -y build-essential jq
             BASH
       - run:
           name: clone

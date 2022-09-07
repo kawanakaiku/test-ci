@@ -68,9 +68,9 @@ jobs:
           name: termux apt
           command: |
             /tmp/chroot bash <<BASH
-            ip a
-            setprop net.dns1 8.8.8.8
-            setprop net.dns2 8.8.4.4
+            /system/bin/ip a
+            /system/bin/setprop net.dns1 8.8.8.8
+            /system/bin/setprop net.dns2 8.8.4.4
             apt-get update
             apt-get upgrade -y build-essential jq termux-exec python gnupg
             BASH

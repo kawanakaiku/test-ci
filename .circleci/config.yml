@@ -31,7 +31,6 @@ jobs:
             sudo mount -t devpts devpts dev/pts
             sudo mount -t sysfs sysfs sys
             
-            <<'COMMENT'
             # set host file
             mkdir -p system/etc
             for host in pypi.python.org files.pythonhosted.org pypi.org \
@@ -41,7 +40,6 @@ jobs:
             do
               echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
             done
-            COMMENT
             
             # suppress linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"
             mkdir -p linkerconfig
@@ -68,9 +66,6 @@ jobs:
           name: termux apt
           command: |
             /tmp/chroot bash <<BASH
-            /system/bin/ip a
-            /system/bin/setprop net.dns1 8.8.8.8
-            /system/bin/setprop net.dns2 8.8.4.4
             apt-get update
             apt-get upgrade -y build-essential jq termux-exec python gnupg
             BASH

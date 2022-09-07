@@ -84,8 +84,6 @@ jobs:
           command: |
             touch ${TERMUX_BUILD_TS_FILE}
             timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash <<CHROOT || true
-            cd /src
-            
             export AS=aarch64-linux-android-clang
             export CC=aarch64-linux-android-clang
             export CXX=aarch64-linux-android-clang++
@@ -102,9 +100,11 @@ jobs:
             export CPPFLAGS=" -I/data/data/com.termux/files/usr/include"
             export LDFLAGS="-L/data/data/com.termux/files/usr/lib -Wl,-rpath=/data/data/com.termux/files/usr/lib -fopenmp -static-openmp -Wl,--enable-new-dtags -Wl,--as-needed -Wl,-z,relro,-z,now"
 
+            pushd /src/wine
             ./configure
             make -j $(nproc)
             make install
+            popd
             CHROOT
       - run:
           name: archive build

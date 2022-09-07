@@ -23,7 +23,6 @@ jobs:
       - run:
           name: chroot termux
           command: |
-            set -x
             cd termux-root
             
             mkdir -p proc dev dev/pts sys
@@ -32,7 +31,7 @@ jobs:
             sudo mount -t devpts devpts dev/pts
             sudo mount -t sysfs sysfs sys
             
-            <<COMMENT
+            <<'COMMENT'
             # set host file
             mkdir -p system/etc
             for host in pypi.python.org files.pythonhosted.org pypi.org \

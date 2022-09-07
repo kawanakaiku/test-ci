@@ -36,7 +36,8 @@ jobs:
             mkdir -p system/etc
             for host in pypi.python.org files.pythonhosted.org pypi.org \
               github.com objects.githubusercontent.com \
-              packages.termux.dev
+              packages.termux.dev \
+              source.android.com
             do
               echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
             done

@@ -99,6 +99,8 @@ jobs:
             export LDFLAGS="-L/data/data/com.termux/files/usr/lib -Wl,-rpath=/data/data/com.termux/files/usr/lib -fopenmp -static-openmp -Wl,--enable-new-dtags -Wl,--as-needed -Wl,-z,relro,-z,now"
 
             pushd /src/wine
+            rm -r /bin
+            ln -s ${PREFIX}/bin /bin
             termux-fix-shebang configure
             ./configure
             make -j $(nproc)

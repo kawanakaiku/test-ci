@@ -1,0 +1,131 @@
+jobs:
+  build:
+    machine:
+      image: ubuntu-2004:current
+    resource_class: arm.large
+    environment:
+      TERMUX_PREFIX: /data/data/com.termux/files/usr
+      TERMUX_HOME: /data/data/com.termux/files/home
+      PIP_DISABLE_PIP_VERSION_CHECK: 1
+      TERMUX_BUILD_TS_FILE: /tmp/TERMUX_BUILD_TS_FILE
+    steps:
+      - run:
+          name: Restore ccache Cache
+          command: |
+            mkdir -p archives; cd archives
+            f=ccache.tar.xz
+            curl --fail --output ${f} http://${MY_HOST}/${f} || true
+      - run:
+          name: get termux
+          command: |
+            mkdir -p archives; cd archives
+            wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/termux-aarch64.tar.xz
+      - run:
+          name: extract termux
+          command: |
+            mkdir termux-root
+            for tar_xz in archives/*.tar.xz; do
+              tar xf "${tar_xz}" -C termux-root
+            done
+      - run:
+          name: chroot termux
+          command: |
+            cd termux-root
+            
+            mkdir -p proc dev dev/pts sys
+            sudo mount -t proc proc proc
+            sudo mount -t devtmpfs udev dev
+            sudo mount -t devpts devpts dev/pts
+            sudo mount -t sysfs sysfs sys
+            
+            # set host file
+            mkdir -p system/etc
+            for host in pypi.python.org files.pythonhosted.org pypi.org \
+              github.com objects.githubusercontent.com \
+              packages.termux.dev
+            do
+              echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
+            done
+            
+            # suppress linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"
+            mkdir -p linkerconfig
+            touch linkerconfig/ld.config.txt
+            
+            TERMUX_USER=$( sudo chroot . /system/bin/stat -c '%U' ${TERMUX_PREFIX}/bin/env )
+            TERMUX_GROUP=$( sudo chroot . /system/bin/stat -c '%G' ${TERMUX_PREFIX}/bin/env )
+          
+            sudo ls -lha data/data/com.termux/files/usr/bin/env
+            sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin ls -lha /data/data/com.termux/files/usr/bin/env
+            
+            cat <<SH > /tmp/chroot
+            #!/usr/bin/sh
+            exec sudo chroot ${PWD} \
+              ${TERMUX_PREFIX}/bin/su ${TERMUX_USER} \
+              ${TERMUX_PREFIX}/bin/env \
+              PATH=${TERMUX_PREFIX}/bin \
+              HOME=${TERMUX_HOME} \
+              PREFIX=${TERMUX_PREFIX} \
+              LANG=en_US.UTF-8 \
+              PIP_DISABLE_PIP_VERSION_CHECK=1 \
+              "\$@"
+            SH
+            chmod +x /tmp/chroot
+      - run:
+          name: termux apt
+          command: |
+            /tmp/chroot bash <<BASH
+            apt-get update
+            apt-get upgrade -y build-essential cmake ninja python openjdk-17 zip unzip
+            BASH
+      - run:
+          name: clone
+          command: |
+            # get src to termux-root/src
+            mkdir termux-root/src
+            cd termux-root/src
+            wget -nv -O bazel.zip https://github.com/bazelbuild/bazel/releases/download/5.3.0/bazel-5.3.0-dist.zip
+            unzip -q bazel.zip
+      - run:
+          name: build
+          command: |
+            touch ${TERMUX_BUILD_TS_FILE}
+            timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash <<CHROOT || true
+            cd /src
+            
+            export AS=aarch64-linux-android-clang
+            export CC=aarch64-linux-android-clang
+            export CXX=aarch64-linux-android-clang++
+            export LD=ld.lld
+            export AR=llvm-ar
+            export NM=llvm-nm
+            export OBJCOPY=llvm-objcopy
+            export OBJDUMP=llvm-objdump
+            export RANLIB=llvm-ranlib
+            export READELF=llvm-readelf
+            export STRIP=llvm-strip
+            export CFLAGS=" -fstack-protector-strong -Oz"
+            export CXXFLAGS=" -fstack-protector-strong -Oz"
+            export CPPFLAGS=" -I/data/data/com.termux/files/usr/include"
+            export LDFLAGS="-L/data/data/com.termux/files/usr/lib -Wl,-rpath=/data/data/com.termux/files/usr/lib -fopenmp -static-openmp -Wl,--enable-new-dtags -Wl,--as-needed -Wl,-z,relro,-z,now"
+
+            env EXTRA_BAZEL_ARGS="--tool_java_runtime_version=local_jdk" bash ./compile.sh
+            popd
+            CHROOT
+      - run:
+          name: archive build
+          command: |
+            tar -N ${TERMUX_BUILD_TS_FILE} \
+              -C termux-root/${TERMUX_PREFIX:1} \
+              -czf build-bazel.tar
+      - run:
+          name: post build
+          command: |
+            /tmp/chroot bash <<CHROOT || true
+            bazel --help
+            bazel --version
+            CHROOT
+      - run:
+          name: save artifact
+          command: |
+            curl -X POST http://${MY_HOST}/upload -F files=@build-bazel.tar
+            

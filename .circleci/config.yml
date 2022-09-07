@@ -49,9 +49,6 @@ jobs:
             TERMUX_USER=$( sudo chroot . /system/bin/stat -c '%U' ${TERMUX_PREFIX}/bin/env )
             TERMUX_GROUP=$( sudo chroot . /system/bin/stat -c '%G' ${TERMUX_PREFIX}/bin/env )
           
-            sudo ls -lha data/data/com.termux/files/usr/bin/env
-            sudo chroot . ${TERMUX_PREFIX}/bin/env PATH=${TERMUX_PREFIX}/bin ls -lha /data/data/com.termux/files/usr/bin/env
-            
             cat <<SH > /tmp/chroot
             #!/usr/bin/sh
             exec sudo chroot ${PWD} \
@@ -69,6 +66,8 @@ jobs:
           name: termux apt
           command: |
             /tmp/chroot bash <<BASH
+            rm -rf /system/apex
+            ln -s /apex /system
             apt-get update
             apt-get upgrade -y build-essential
             BASH

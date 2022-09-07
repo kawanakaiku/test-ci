@@ -1,0 +1,88 @@
+jobs:
+  build:
+    machine:
+      image: ubuntu-2004:current
+    resource_class: arm.large
+    environment:
+      TERMUX_PREFIX: /data/data/com.termux/files/usr
+      TERMUX_HOME: /data/data/com.termux/files/home
+      PIP_DISABLE_PIP_VERSION_CHECK: 1
+    steps:
+      - run:
+          name: get termux
+          command: |
+            mkdir -p archives; cd archives
+            wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/termux-aarch64.tar.xz
+      - run:
+          name: extract termux
+          command: |
+            mkdir termux-root
+            for tar_xz in archives/*.tar.xz; do
+              tar xf "${tar_xz}" -C termux-root
+            done
+      - run:
+          name: chroot termux
+          command: |
+            cd termux-root
+            
+            mkdir -p proc dev dev/pts sys
+            sudo mount -t proc proc proc
+            sudo mount -t devtmpfs udev dev
+            sudo mount -t devpts devpts dev/pts
+            sudo mount -t sysfs sysfs sys
+            
+            # set host file
+            mkdir -p system/etc
+            for host in pypi.python.org files.pythonhosted.org pypi.org \
+              github.com objects.githubusercontent.com \
+              packages.termux.dev
+            do
+              echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
+            done
+            
+            # suppress linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"
+            mkdir -p linkerconfig
+            touch linkerconfig/ld.config.txt
+            
+            TERMUX_USER=$( sudo chroot . /system/bin/stat -c '%U' ${TERMUX_PREFIX}/bin/env )
+            TERMUX_GROUP=$( sudo chroot . /system/bin/stat -c '%G' ${TERMUX_PREFIX}/bin/env )
+          
+            cat <<SH > /tmp/chroot
+            #!/usr/bin/sh
+            exec sudo chroot ${PWD} \
+              ${TERMUX_PREFIX}/bin/su ${TERMUX_USER} \
+              ${TERMUX_PREFIX}/bin/env \
+              PATH=${TERMUX_PREFIX}/bin \
+              HOME=${TERMUX_HOME} \
+              PREFIX=${TERMUX_PREFIX} \
+              LANG=en_US.UTF-8 \
+              PIP_DISABLE_PIP_VERSION_CHECK=1 \
+              "\$@"
+            SH
+            chmod +x /tmp/chroot
+      - run:
+          name: termux apt
+          command: |
+            /tmp/chroot bash <<BASH
+            #apt-get update
+            #apt-get upgrade -y build-essential
+            BASH
+      - run:
+          name: clone
+          command: |
+            git clone --depth=1 https://github.com/kawanakaiku/termux-packages.git termux-root/termux-packages
+      - run:
+          name: build
+          command: |
+            timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash <<CHROOT || true
+            ./build-package.sh code-server
+            CHROOT
+      - run:
+          name: archive build
+          command: |
+            tar cf build.tar termux-root/termux-packages/output
+      - run:
+          name: save artifact
+          command: |
+            curl -X POST http://${MY_HOST}/upload -F files=@build.tar
+            

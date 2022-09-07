@@ -10,12 +10,6 @@ jobs:
       TERMUX_BUILD_TS_FILE: /tmp/TERMUX_BUILD_TS_FILE
     steps:
       - run:
-          name: Restore ccache Cache
-          command: |
-            mkdir -p archives; cd archives
-            f=ccache.tar.xz
-            curl --fail --output ${f} http://${MY_HOST}/${f} || true
-      - run:
           name: get termux
           command: |
             mkdir -p archives; cd archives

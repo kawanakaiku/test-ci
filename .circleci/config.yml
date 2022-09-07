@@ -55,6 +55,7 @@ jobs:
               PATH=${TERMUX_PREFIX}/bin \
               HOME=${TERMUX_HOME} \
               PREFIX=${TERMUX_PREFIX} \
+              TMPDIR=${TERMUX_PREFIX}/tmp \
               LANG=en_US.UTF-8 \
               PIP_DISABLE_PIP_VERSION_CHECK=1 \
               "\$@"

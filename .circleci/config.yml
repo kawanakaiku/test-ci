@@ -36,7 +36,7 @@ jobs:
             for host in pypi.python.org files.pythonhosted.org pypi.org \
               github.com objects.githubusercontent.com \
               packages.termux.dev \
-              registry.yarnpkg.com
+              registry.yarnpkg.com nodejs.org
             do
               echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
             done

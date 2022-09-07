@@ -63,6 +63,7 @@ jobs:
               ${TERMUX_PREFIX}/bin/env \
               PATH=${TERMUX_PREFIX}/bin \
               HOME=${TERMUX_HOME} \
+              PREFIX=${TERMUX_PREFIX} \
               LANG=en_US.UTF-8 \
               PIP_DISABLE_PIP_VERSION_CHECK=1 \
               "\$@"
@@ -137,6 +138,7 @@ jobs:
             /tmp/chroot bash <<CHROOT || true
             cd /python
             pip install torch-*.whl
+            ln -s ${PREFIX}/lib/python3.10/site-packages/torch/lib/*.so ${PREFIX}/lib
             python -c 'import torch'
             CHROOT
       - run:

@@ -31,6 +31,7 @@ jobs:
             sudo mount -t devpts devpts dev/pts
             sudo mount -t sysfs sysfs sys
             
+            <<COMMENT
             # set host file
             mkdir -p system/etc
             for host in pypi.python.org files.pythonhosted.org pypi.org \
@@ -40,8 +41,11 @@ jobs:
             do
               echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
             done
-            cat <<CONF > system/etc/resolv.conf
-            nameserver 8.8.8.8
+            COMMENT
+            # https://forum.xda-developers.com/t/guide-how-to-change-dns-in-android-device-8-methods.3273769/
+            mkdir -p etc/dhcpcd/dhcpcd-hooks
+            cat <<CONF > etc/dhcpcd/dhcpcd-hooks/20-dns.conf
+            new_domain_name_servers="8.8.8.8 8.8.4.4"
             CONF
             
             # suppress linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"

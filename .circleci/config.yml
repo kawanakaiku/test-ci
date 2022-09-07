@@ -123,7 +123,7 @@ jobs:
 
             export cmake_args="
               ANDROID_NO_TERMUX=0
-              BUILD_TEST=0
+              BUILD_TEST=1
               BUILD_PYTHON=1
               BUILD_LAZY_TS_BACKEND=0
               C10_MOBILE=1
@@ -135,7 +135,7 @@ jobs:
             export LDFLAGS+=" -llog"
             export LDFLAGS+=" -lc -lm -lc++_shared"
             export LDFLAGS+=" -lpython3.10"
-            export LDFLAGS+=" -static"
+            #export LDFLAGS+=" -static"
             python3 setup.py bdist_wheel
             mv dist/*.whl ..
             popd

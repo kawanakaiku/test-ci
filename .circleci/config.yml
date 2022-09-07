@@ -77,7 +77,8 @@ jobs:
           command: |
             timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash <<CHROOT || true
             cd /termux-packages
-            bash build-package.sh code-server
+            export LD_PRELOAD=${TERMUX_PREFIX}/lib/libtermux-exec.so
+            ./build-package.sh code-server
             CHROOT
       - run:
           name: archive build

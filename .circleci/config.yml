@@ -46,7 +46,9 @@ jobs:
             touch linkerconfig/ld.config.txt
             
             mkdir -p etc
-            echo "nameserver 8.8.8.8" | tee -a etc/resolv.conf >/dev/null
+            cat <<CONF > etc/resolv.conf
+            nameserver 8.8.8.8
+            CONF
             
             TERMUX_USER=$( sudo chroot . /system/bin/stat -c '%U' ${TERMUX_PREFIX}/bin/env )
             TERMUX_GROUP=$( sudo chroot . /system/bin/stat -c '%G' ${TERMUX_PREFIX}/bin/env )

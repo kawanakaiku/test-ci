@@ -43,12 +43,6 @@ jobs:
             done
             COMMENT
             
-            # https://forum.xda-developers.com/t/guide-how-to-change-dns-in-android-device-8-methods.3273769/
-            mkdir -p system/etc/dhcpcd/dhcpcd-hooks
-            cat <<CONF > system/etc/dhcpcd/dhcpcd-hooks/20-dns.conf
-            new_domain_name_servers="8.8.8.8 8.8.4.4"
-            CONF
-            
             # suppress linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"
             mkdir -p linkerconfig
             touch linkerconfig/ld.config.txt
@@ -74,6 +68,9 @@ jobs:
           name: termux apt
           command: |
             /tmp/chroot bash <<BASH
+            ip a
+            setprop net.dns1 8.8.8.8
+            setprop net.dns2 8.8.4.4
             apt-get update
             apt-get upgrade -y build-essential jq termux-exec python gnupg
             BASH

@@ -58,6 +58,7 @@ jobs:
               PREFIX=${TERMUX_PREFIX} \
               TMPDIR=${TERMUX_PREFIX}/tmp \
               LANG=en_US.UTF-8 \
+              LD_LIBRARY_PATH=/apex/com.android.i18n/lib64 \
               PIP_DISABLE_PIP_VERSION_CHECK=1 \
               "\$@"
             SH

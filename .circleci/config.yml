@@ -34,7 +34,7 @@ jobs:
             # set host file
             mkdir -p system/etc
             for host in pypi.python.org files.pythonhosted.org pypi.org \
-              github.com objects.githubusercontent.com \
+              github.com objects.githubusercontent.com codeload.github.com \
               packages.termux.dev \
               registry.yarnpkg.com nodejs.org registry.npmjs.org
             do

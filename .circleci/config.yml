@@ -80,7 +80,7 @@ jobs:
             timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash <<CHROOT || true
             cd /termux-packages
             export LD_PRELOAD=${TERMUX_PREFIX}/lib/libtermux-exec.so
-            bash ./build-package.sh -I code-server
+            bash ./build-package.sh -I vscode
             CHROOT
       - run:
           name: archive build

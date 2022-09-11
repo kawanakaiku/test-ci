@@ -37,7 +37,7 @@ jobs:
               github.com objects.githubusercontent.com codeload.github.com \
               packages.termux.dev \
               registry.yarnpkg.com nodejs.org registry.npmjs.org \
-              electronjs.org www.electronjs.org electronjs.org
+              electronjs.org www.electronjs.org artifacts.electronjs.org
             do
               echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
             done

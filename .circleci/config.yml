@@ -97,4 +97,4 @@ jobs:
           name: save artifact
           command: |
             # curl -X POST http://${MY_HOST}/upload -F files=@build.tar
-            ~/bin/gdrive --service-account service-account.json upload - build-$(date '+%Y%m%d-%H%M%S').tar < build.tar
+            ~/bin/gdrive upload - build-$(date '+%Y%m%d-%H%M%S').tar < build.tar

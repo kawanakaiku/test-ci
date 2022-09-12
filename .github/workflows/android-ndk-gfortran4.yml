@@ -31,6 +31,8 @@ jobs:
 
       - name: prepare docker
         run: |
+          ls
+          ls infra
           docker build -t ndk-dev infra/docker
           docker run -it -u $UID -v `realpath ..`:/src -w /src/ndk ndk-dev ./checkbuild.py
           

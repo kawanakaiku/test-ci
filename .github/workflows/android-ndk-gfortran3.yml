@@ -16,6 +16,8 @@ jobs:
 
       - name: info
         run: |
+          env | sort
+          exit 1
           df -h
 
       - name: prepare
@@ -28,7 +30,7 @@ jobs:
       - name: prepare repo
         run: |
           mkdir -p ~/bin
-          curl https://storage.googleapis.com/git-repo-downloads/repo  > ~/bin/repo
+          wget -nv https://storage.googleapis.com/git-repo-downloads/repo -O ~/bin/repo
           chmod a+x ~/bin/repo
           ~/bin/repo --version
           

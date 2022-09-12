@@ -19,7 +19,6 @@ jobs:
       - name: info
         run: |
           df -h
-          which -a bzcat
           
       - name: prepare repo
         run: |

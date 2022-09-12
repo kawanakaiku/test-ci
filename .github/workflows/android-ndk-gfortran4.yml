@@ -34,9 +34,9 @@ jobs:
           # https://android.googlesource.com/platform/ndk/+/master/docs/Building.md
           
           cat <<DOCKER >Dockerfile
-          FROM ubuntu:trusty
+          FROM ubuntu:xenial
           RUN apt-get update
-          RUN apt-get install -y build-essential curl flex git make pbzip2 python python-pip texinfo uuid-runtime zip zlib1g && apt-get clean
+          RUN apt-get install -y build-essential curl flex git make pbzip2 python python-pip texinfo uuid-runtime zip && apt-get clean
           RUN pip install setuptools
           CMD ["/bin/bash"]
           DOCKER

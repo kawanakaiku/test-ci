@@ -22,7 +22,7 @@ jobs:
         run: |
           echo "path-exclude=/usr/share/man/*" | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
           sudo apt-get update
-          sudo apt-get upgrade -y git make gcc g++ m4 texinfo bison flex build-essential
+          sudo apt-get install -y git make gcc g++ m4 texinfo bison flex build-essential
 
       - name: prepare repo
         run: |

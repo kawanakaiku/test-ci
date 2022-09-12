@@ -38,13 +38,12 @@ jobs:
           RUN apt-get update
           RUN apt-get install -y build-essential curl flex git make pbzip2 texinfo uuid-runtime zip zlib1g-dev libssl-dev && \
               apt-get clean
-          RUN git clone https://github.com/pyenv/pyenv.git $HOME/pyenv && \
-              $HOME/pyenv/bin/pyenv install 3.6.8 && \
-              echo '#!/bin/bash' > /pyenv && \
-              echo 'export PATH="$HOME/pyenv/bin:$PATH"' >> /pyenv && \
-              echo 'eval "$(pyenv init -)"' >> /pyenv && \
-              echo 'env "$@"' >> /pyenv && \
-              chmod +x /pyenv
+          RUN git clone https://github.com/pyenv/pyenv.git /pyenv && \
+              /pyenv/bin/pyenv install 3.6.8 && \
+              echo '#!/bin/bash' > /pyenv.sh && \
+              echo 'eval "$(/pyenv/bin/pyenv init -)"' >> /pyenv.sh && \
+              echo 'env "$@"' >> /pyenv.sh && \
+              chmod +x /pyenv.sh
           RUN ["/bin/bash"]
           DOCKER
           
@@ -52,7 +51,7 @@ jobs:
           
       - name: build
         run: |
-          docker run -u $UID -v $PWD:/src -w /src ndk-dev /pyenv toolchain/gcc/build.py \
+          docker run -u $UID -v $PWD:/src -w /src ndk-dev /pyenv.sh toolchain/gcc/build.py \
             --host linux \
             --toolchain aarch64-linux-android
                     

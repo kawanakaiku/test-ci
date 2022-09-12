@@ -29,6 +29,12 @@ jobs:
           ~/bin/repo sync
           ~/bin/repo forall -c git checkout ndk-r25-release || true
           
+      - name: patch
+        run: |
+          perl -i -pe 's|\QENABLE_LANGUAGES="c,c++"\E|ENABLE_LANGUAGES="c,c++,fortran"|' toolchain/gcc/build-gcc.sh
+          
+          sed -i -e '/^setup_default_log_file /d' $( find -name build-gcc.sh -type f )  # build-gcc.sh: line 92: setup_default_log_file: command not found
+          
       - name: prepare docker
         run: |
           # https://android.googlesource.com/platform/ndk/+/master/docs/Building.md
@@ -41,8 +47,9 @@ jobs:
           RUN mkdir /tmp/python && cd /tmp/python && \
               curl https://www.python.org/ftp/python/3.6.8/Python-3.6.8.tar.xz -o python.tar.xz && \
               tar -Jxf python.tar.xz --strip-components=1 && \
-              ./configure --prefix=/ && make install && ln -s python3.6 /bin/python && \
+              ./configure && make install && ln -s python3.6 /usr/local/bin/python && \
               cd / && rm -rf /tmp/python
+          ENV CC gcc
           RUN ["/bin/bash"]
           DOCKER
           

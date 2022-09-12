@@ -39,7 +39,7 @@ jobs:
           RUN ["/bin/bash"]
           DOCKER
           docker build -t ndk-dev ./
-          docker run -i -u 0 -v $PWD:/src -w /src ndk-dev bash - <<BASH
+          docker run -i ndk-dev bash - <<BASH
             groupadd -g $( id -g $UID ) docker
             useradd -m -s /bin/bash -u $UID -g $( id -g $UID ) $( whoami )
           BASH

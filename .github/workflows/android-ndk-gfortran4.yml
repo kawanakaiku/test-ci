@@ -36,7 +36,7 @@ jobs:
           cat <<DOCKER >Dockerfile
           FROM ubuntu:trusty
           RUN apt-get update
-          RUN apt-get install -y build-essential curl flex git make pbzip2 python python-pip texinfo uuid-runtime zip zlib && apt-get clean
+          RUN apt-get install -y build-essential curl flex git make pbzip2 python python-pip texinfo uuid-runtime zip zlib1g && apt-get clean
           RUN pip install setuptools
           CMD ["/bin/bash"]
           DOCKER

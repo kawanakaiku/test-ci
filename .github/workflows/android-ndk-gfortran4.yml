@@ -41,10 +41,10 @@ jobs:
           RUN git clone https://github.com/pyenv/pyenv.git $HOME/pyenv && \
               $HOME/pyenv/bin/pyenv install 3.6.8 && \
               echo '#!/bin/bash' > /pyenv && \
+              echo 'export PATH="$HOME/pyenv/bin:$PATH"' >> /pyenv && \
               echo 'eval "$(pyenv init -)"' >> /pyenv && \
               echo 'exec /bin/env "$@"' >> /pyenv && \
               chmod +x /pyenv
-          ENV PATH $HOME/pyenv/bin:$PATH
           RUN ["/bin/bash"]
           DOCKER
           

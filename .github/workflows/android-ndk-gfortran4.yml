@@ -36,10 +36,8 @@ jobs:
           cat <<DOCKER >Dockerfile
           FROM ubuntu:trusty
           RUN apt-get update
-          RUN apt-get install -y build-essential curl flex git make pbzip2 python python-pip texinfo uuid-runtime zip && apt-get clean
+          RUN apt-get install -y build-essential curl flex git make pbzip2 python python-pip texinfo uuid-runtime zip zlib && apt-get clean
           RUN pip install setuptools
-          RUN curl -o /usr/bin/repo https://commondatastorage.googleapis.com/git-repo-downloads/repo
-          RUN chmod a+x /usr/bin/repo
           CMD ["/bin/bash"]
           DOCKER
           

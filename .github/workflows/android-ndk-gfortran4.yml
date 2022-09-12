@@ -26,6 +26,7 @@ jobs:
       - name: clone
         run: |
           ~/bin/repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b ndk-r25
+          ~/bin/repo sync
 
       - name: prepare docker
         run: |

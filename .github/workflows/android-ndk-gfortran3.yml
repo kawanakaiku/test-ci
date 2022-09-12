@@ -28,7 +28,7 @@ jobs:
         run: |
           repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b gcc
           repo sync
-          repo forall -c git checkout ndk-r21-release || true
+          repo forall -c git checkout ndk-r13-release || true
           
       - name: patch
         run: |

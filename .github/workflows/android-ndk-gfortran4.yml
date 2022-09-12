@@ -63,7 +63,7 @@ jobs:
                     
       - name: archive
         run: |
-          tar -Jcf build.tar.xz
+          tar -Jcf build.tar.xz .
           
       - name: store
         uses: actions/upload-artifact@v3

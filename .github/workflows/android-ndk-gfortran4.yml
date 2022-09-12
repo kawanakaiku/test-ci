@@ -43,7 +43,7 @@ jobs:
               echo '#!/bin/bash' > /pyenv && \
               echo 'export PATH="$HOME/pyenv/bin:$PATH"' >> /pyenv && \
               echo 'eval "$(pyenv init -)"' >> /pyenv && \
-              echo 'exec /bin/env "$@"' >> /pyenv && \
+              echo 'env "$@"' >> /pyenv && \
               chmod +x /pyenv
           RUN ["/bin/bash"]
           DOCKER

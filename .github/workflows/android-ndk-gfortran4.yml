@@ -18,6 +18,7 @@ jobs:
       - name: info
         run: |
           df -h
+          id
           
       - name: prepare docker
         run: |
@@ -38,6 +39,9 @@ jobs:
           RUN ["/bin/bash"]
           DOCKER
           docker build -t ndk-dev ./
+          docker run -i -u $UID -v $PWD:/src -w /src ndk-dev bash - <<BASH
+            useradd -m -s /bin/bash -u $UID -g $( id -g $UID ) $( whoami )
+          BASH
           
       - name: clone
         run: |

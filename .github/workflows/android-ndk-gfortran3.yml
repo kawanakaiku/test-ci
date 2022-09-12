@@ -22,13 +22,20 @@ jobs:
         run: |
           echo "path-exclude=/usr/share/man/*" | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
           sudo apt-get update
-          sudo apt-get upgrade -y git repo make gcc g++ m4 texinfo bison flex build-essential
+          sudo apt-get upgrade -y git make gcc g++ m4 texinfo bison flex build-essential
+
+      - name: prepare repo
+        run: |
+          mkdir -p ~/bin/repo
+          curl https://storage.googleapis.com/git-repo-downloads/repo  > ~/bin/repo
+          chmod a+x ~/bin/repo
+          ~/bin/repo --version
           
       - name: clone
         run: |
-          repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b gcc
-          repo sync
-          repo forall -c git checkout ndk-r25-release || true
+          ~/bin/repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b gcc
+          ~/bin/repo sync
+          ~/bin/repo forall -c git checkout ndk-r25-release || true
           
       - name: patch
         run: |

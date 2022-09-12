@@ -1,0 +1,57 @@
+name: android-ndk-gfortran4
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/android-ndk-gfortran4.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+  
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: info
+        run: |
+          df -h
+
+      - name: prepare docker
+        run: |
+          # https://android.googlesource.com/platform/ndk/+/master/docs/Building.md
+          
+          cat <<DOCKER >Dockerfile
+          FROM ubuntu:trusty
+          RUN apt-get update
+          RUN apt-get install -y build-essential curl flex git make pbzip2 python python-pip texinfo uuid-runtime zip && apt-get clean
+          RUN pip install setuptools
+          RUN curl -o /usr/bin/repo https://commondatastorage.googleapis.com/git-repo-downloads/repo
+          RUN chmod a+x /usr/bin/repo
+          CMD ["/bin/bash"]
+          DOCKER
+          
+          docker build -t ndk-dev ./
+          
+          docker run -it -u $UID -v `realpath ..`:/src -w /src/ndk ndk-dev repo init -u https://android.googlesource.com/platform/manifest -b ndk-r25
+          
+          docker run -it -u $UID -v `realpath ..`:/src -w /src/ndk ndk-dev ./checkbuild.py
+          
+      - name: build
+        run: |
+          # export CC=gcc  # Disable Forcing generation of linux binaries with legacy toolchain
+          toolchain/gcc/build.py \
+            --host linux \
+            --toolchain aarch64-linux-android
+                    
+      - name: archive
+        run: |
+          tar -Jcf build.tar.xz
+          
+      - name: store
+        uses: actions/upload-artifact@v3
+        with:
+          name: android-ndk-gfortran
+          path: build.tar.xz
+          

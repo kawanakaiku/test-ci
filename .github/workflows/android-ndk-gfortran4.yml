@@ -30,7 +30,7 @@ jobs:
       - name: clone
         run: |
           ~/bin/repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b gcc
-          ~/bin/repo forall -c git checkout ndk-r${NDK_VERSION}-release
+          ~/bin/repo forall -c git checkout ndk-r${NDK_VERSION}
           ~/bin/repo sync
           
       - name: patch

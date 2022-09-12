@@ -22,7 +22,7 @@ jobs:
         run: |
           echo "path-exclude=/usr/share/man/*" | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
           sudo apt-get update
-          sudo apt-get install -y git repo make gcc g++ m4 texinfo bison flex
+          sudo apt-get install -y git repo make gcc g++ m4 texinfo bison flex build-essential
           
       - name: clone
         run: |
@@ -40,6 +40,7 @@ jobs:
                     
       - name: build
         run: |
+          export CC=gcc  # Disable Forcing generation of linux binaries with legacy toolchain
           toolchain/gcc/build.py \
             --host linux \
             --toolchain aarch64-linux-android

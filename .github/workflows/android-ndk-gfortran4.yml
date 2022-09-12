@@ -40,8 +40,8 @@ jobs:
           DOCKER
           docker build -t ndk-dev ./
           docker run -i ndk-dev bash - <<BASH
-            groupadd -g $( id -g $UID ) docker
-            useradd -m -s /bin/bash -u $UID -g $( id -g $UID ) $( whoami )
+            git config --global user.name user
+            git config --global user.email email@example.com
           BASH
           
       - name: clone

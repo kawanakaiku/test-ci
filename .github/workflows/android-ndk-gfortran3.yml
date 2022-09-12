@@ -41,6 +41,8 @@ jobs:
       - name: patch
         run: |
           perl -i -pe 's|\QENABLE_LANGUAGES="c,c++"\E|ENABLE_LANGUAGES="c,c++,fortran"|' toolchain/gcc/build-gcc.sh
+          
+          sed -i -e '/^setup_default_log_file /d' $( find -name build-gcc.sh -type f )  # build-gcc.sh: line 92: setup_default_log_file: command not found
                     
       - name: help
         run: |

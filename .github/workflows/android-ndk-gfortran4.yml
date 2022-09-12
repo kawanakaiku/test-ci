@@ -41,7 +41,7 @@ jobs:
           
       - name: clone
         run: |
-          docker run -u $UID -v $PWD:/src -w /src ndk-dev <<BASH
+          docker run -u $UID -v $PWD:/src -w /src ndk-dev bash - <<BASH
             repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b gcc
             repo forall -c git checkout ndk-r25-release
             repo sync
@@ -49,7 +49,6 @@ jobs:
           
       - name: patch
         run: |
-          ls
           perl -i -pe 's|\QENABLE_LANGUAGES="c,c++"\E|ENABLE_LANGUAGES="c,c++,fortran"|' toolchain/gcc/build-gcc.sh
           sed -i -e '/^setup_default_log_file /d' toolchain/gcc/build-gcc.sh  # build-gcc.sh: line 92: setup_default_log_file: command not found
           sed -i -e 's|\xc2\xa0| |g' ndk/build/tools/prebuilt-common.sh  # $'\302\240\302\240\302\240\302\240\302\240\302\240\302\240ABI_CXXFLAGS_FOR_TARGET=-ffixed-x18': command not found

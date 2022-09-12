@@ -47,7 +47,7 @@ jobs:
           
       - name: build
         run: |
-          docker run -it -u $UID -v $PWD:/src -w /src ndk-dev toolchain/gcc/build.py \
+          docker run -u $UID -v $PWD:/src -w /src ndk-dev toolchain/gcc/build.py \
             --host linux \
             --toolchain aarch64-linux-android
                     

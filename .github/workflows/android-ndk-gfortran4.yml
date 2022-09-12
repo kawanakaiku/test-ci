@@ -6,7 +6,10 @@ on:
       paths:
         - '.github/workflows/android-ndk-gfortran4.yml'
     workflow_dispatch:
- 
+    
+env:
+  BUILD_TS_FILE: /tmp/ts_file
+  
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -57,13 +60,14 @@ jobs:
           
       - name: build
         run: |
+          touch ${BUILD_TS_FILE}
           docker run -u $UID -v $PWD:/src -w /src ndk-dev toolchain/gcc/build.py \
             --host linux \
             --toolchain aarch64-linux-android
                     
       - name: archive
         run: |
-          tar -Jcf build.tar.xz .
+          tar -N ${BUILD_TS_FILE} -Jcf build.tar.xz .
           
       - name: store
         uses: actions/upload-artifact@v3

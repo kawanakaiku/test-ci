@@ -17,7 +17,6 @@ jobs:
       - name: info
         run: |
           env | sort
-          exit 1
           df -h
 
       - name: prepare
@@ -39,6 +38,9 @@ jobs:
           ~/bin/repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b gcc
           ~/bin/repo sync
           ~/bin/repo forall -c git checkout ndk-r25-release || true
+          
+          grep -rI -e "Using NDK directory" .
+          exit 1
           
       - name: patch
         run: |

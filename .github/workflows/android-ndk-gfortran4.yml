@@ -49,6 +49,7 @@ jobs:
           
       - name: patch
         run: |
+          ls
           perl -i -pe 's|\QENABLE_LANGUAGES="c,c++"\E|ENABLE_LANGUAGES="c,c++,fortran"|' toolchain/gcc/build-gcc.sh
           sed -i -e '/^setup_default_log_file /d' toolchain/gcc/build-gcc.sh  # build-gcc.sh: line 92: setup_default_log_file: command not found
           sed -i -e 's|\xc2\xa0| |g' ndk/build/tools/prebuilt-common.sh  # $'\302\240\302\240\302\240\302\240\302\240\302\240\302\240ABI_CXXFLAGS_FOR_TARGET=-ffixed-x18': command not found

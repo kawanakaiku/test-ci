@@ -71,7 +71,7 @@ jobs:
                     
       - name: archive
         run: |
-          tar -N ${BUILD_TS_FILE} -Jcf build.tar.xz .
+          tar -N ${BUILD_TS_FILE} -Jcf build.tar.xz *
           
       - name: store
         uses: actions/upload-artifact@v3

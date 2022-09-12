@@ -39,7 +39,7 @@ jobs:
           RUN ["/bin/bash"]
           DOCKER
           docker build -t ndk-dev ./
-          docker run -i ndk-dev bash - <<BASH
+          docker run -i -u $UID ndk-dev bash - <<BASH
             git config --global user.name user
             git config --global user.email email@example.com
           BASH

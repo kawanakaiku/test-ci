@@ -18,7 +18,25 @@ jobs:
       - name: info
         run: |
           df -h
-          id
+          
+      - name: prepare repo
+        run: |
+          mkdir -p ~/bin
+          wget -nv https://storage.googleapis.com/git-repo-downloads/repo -O ~/bin/repo
+          chmod a+x ~/bin/repo
+          ~/bin/repo --version
+          
+      - name: clone
+        run: |
+          ~/bin/repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b gcc
+          ~/bin/repo forall -c git checkout ndk-r25-release
+          ~/bin/repo sync
+          
+      - name: patch
+        run: |
+          perl -i -pe 's|\QENABLE_LANGUAGES="c,c++"\E|ENABLE_LANGUAGES="c,c++,fortran"|' toolchain/gcc/build-gcc.sh
+          sed -i -e '/^setup_default_log_file /d' toolchain/gcc/build-gcc.sh  # build-gcc.sh: line 92: setup_default_log_file: command not found
+          sed -i -e 's|\xc2\xa0| |g' ndk/build/tools/prebuilt-common.sh  # $'\302\240\302\240\302\240\302\240\302\240\302\240\302\240ABI_CXXFLAGS_FOR_TARGET=-ffixed-x18': command not found
           
       - name: prepare docker
         run: |
@@ -34,29 +52,9 @@ jobs:
               tar -Jxf python.tar.xz --strip-components=1 && \
               ./configure && make install && ln -s python3.6 /usr/local/bin/python && \
               cd / && rm -rf /tmp/python
-          RUN curl https://storage.googleapis.com/git-repo-downloads/repo -o /usr/local/bin/repo && chmod +x /usr/local/bin/repo
           ENV CC gcc
           RUN ["/bin/bash"]
           DOCKER
-          docker build -t ndk-dev ./
-          docker run -i -u $UID ndk-dev bash - <<BASH
-            git config --global user.name user
-            git config --global user.email email@example.com
-          BASH
-          
-      - name: clone
-        run: |
-          docker run -i -u $UID -v $PWD:/src -w /src ndk-dev bash - <<BASH
-            repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b gcc
-            repo forall -c git checkout ndk-r25-release
-            repo sync
-          BASH
-          
-      - name: patch
-        run: |
-          perl -i -pe 's|\QENABLE_LANGUAGES="c,c++"\E|ENABLE_LANGUAGES="c,c++,fortran"|' toolchain/gcc/build-gcc.sh
-          sed -i -e '/^setup_default_log_file /d' toolchain/gcc/build-gcc.sh  # build-gcc.sh: line 92: setup_default_log_file: command not found
-          sed -i -e 's|\xc2\xa0| |g' ndk/build/tools/prebuilt-common.sh  # $'\302\240\302\240\302\240\302\240\302\240\302\240\302\240ABI_CXXFLAGS_FOR_TARGET=-ffixed-x18': command not found
           
       - name: build
         run: |

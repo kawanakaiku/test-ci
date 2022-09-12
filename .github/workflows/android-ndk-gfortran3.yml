@@ -20,13 +20,14 @@ jobs:
 
       - name: prepare
         run: |
-          echo "path-exclude=/usr/share/man/*" | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc
+          echo "path-exclude=/usr/share/man/*" | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc >/dev/null
+          echo 'Acquire::Languages "none";' | sudo tee /etc/apt/apt.conf.d/99_translations >/dev/null
           sudo apt-get update
           sudo apt-get install -y git make gcc g++ m4 texinfo bison flex build-essential
 
       - name: prepare repo
         run: |
-          mkdir -p ~/bin/repo
+          mkdir -p ~/bin
           curl https://storage.googleapis.com/git-repo-downloads/repo  > ~/bin/repo
           chmod a+x ~/bin/repo
           ~/bin/repo --version

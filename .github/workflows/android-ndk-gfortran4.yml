@@ -12,8 +12,6 @@ jobs:
     runs-on: ubuntu-22.04
   
     steps:
-      - uses: actions/checkout@v3
-
       - name: info
         run: |
           df -h
@@ -29,7 +27,7 @@ jobs:
         run: |
           ~/bin/repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b gcc
           ~/bin/repo sync
-          ~/bin/repo forall -c git checkout ndk-r25-release
+          ~/bin/repo forall -c git checkout ndk-r25-release || true
 
       - name: prepare docker
         run: |

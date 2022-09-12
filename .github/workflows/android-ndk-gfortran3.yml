@@ -48,7 +48,7 @@ jobs:
                     
       - name: build
         run: |
-          export CC=gcc  # Disable Forcing generation of linux binaries with legacy toolchain
+          # export CC=gcc  # Disable Forcing generation of linux binaries with legacy toolchain
           toolchain/gcc/build.py \
             --host linux \
             --toolchain aarch64-linux-android

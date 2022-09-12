@@ -39,14 +39,14 @@ jobs:
           RUN ["/bin/bash"]
           DOCKER
           docker build -t ndk-dev ./
-          docker run -i -u $UID -v $PWD:/src -w /src ndk-dev bash - <<BASH
+          docker run -i -u 0 -v $PWD:/src -w /src ndk-dev bash - <<BASH
             groupadd -g $( id -g $UID ) docker
             useradd -m -s /bin/bash -u $UID -g $( id -g $UID ) $( whoami )
           BASH
           
       - name: clone
         run: |
-          docker run -i -u 0 -v $PWD:/src -w /src ndk-dev bash - <<BASH
+          docker run -i -u $UID -v $PWD:/src -w /src ndk-dev bash - <<BASH
             repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b gcc
             repo forall -c git checkout ndk-r25-release
             repo sync

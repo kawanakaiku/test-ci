@@ -41,7 +41,7 @@ jobs:
           RUN mkdir /tmp/python && cd /tmp/python && \
               curl https://www.python.org/ftp/python/3.6.8/Python-3.6.8.tar.xz -o python.tar.xz && \
               tar -Jxf python.tar.xz --strip-components=1 && \
-              ./configure && make install && ln -s python3.6 /usr/local/bin/python && \
+              ./configure --prefix=/ && make install && ln -s python3.6 /bin/python && \
               cd / && rm -rf /tmp/python
           RUN ["/bin/bash"]
           DOCKER

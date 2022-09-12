@@ -42,7 +42,7 @@ jobs:
         run: |
           # https://android.googlesource.com/platform/ndk/+/master/docs/Building.md
           cat <<'DOCKER' >Dockerfile
-          FROM ubuntu:trusty
+          FROM ubuntu:xenial
           RUN apt-get update
           RUN apt-get install -y build-essential curl flex git make pbzip2 texinfo uuid-runtime zip bison m4 zlib1g-dev libssl-dev \
               libacl1-dev && \

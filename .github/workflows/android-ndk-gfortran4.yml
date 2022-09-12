@@ -1,11 +1,11 @@
 name: android-ndk-gfortran4
 
 on:
-    push:
-      branches: [ main ]
-      paths:
-        - '.github/workflows/android-ndk-gfortran4.yml'
-    workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/android-ndk-gfortran4.yml'
+  workflow_dispatch:
     
 env:
   BUILD_TS_FILE: /tmp/ts_file
@@ -42,8 +42,9 @@ jobs:
       - name: clone
         run: |
           docker run -u $UID -v $PWD:/src -w /src ndk-dev <<BASH
-          repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b gcc
-          repo sync
+            repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b gcc
+            repo forall -c git checkout ndk-r25-release
+            repo sync
           BASH
           
       - name: patch

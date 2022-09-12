@@ -41,7 +41,7 @@ jobs:
       - name: build
         run: |
           toolchain/gcc/build.py \
-            --host Linux \
+            --host linux \
             --toolchain aarch64-linux-android
                     
       - name: archive

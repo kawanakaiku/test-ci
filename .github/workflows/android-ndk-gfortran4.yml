@@ -25,20 +25,29 @@ jobs:
           
       - name: clone
         run: |
-          ~/bin/repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b ndk-r25
+          ~/bin/repo init --depth=1 -u https://android.googlesource.com/platform/manifest -b gcc
           ~/bin/repo sync
-
+          ~/bin/repo forall -c git checkout ndk-r25-release || true
+          
       - name: prepare docker
         run: |
-          ls
-          ls infra
-          docker build -t ndk-dev infra/docker
-          docker run -it -u $UID -v `realpath ..`:/src -w /src/ndk ndk-dev ./checkbuild.py
+          # https://android.googlesource.com/platform/ndk/+/master/docs/Building.md
+          
+          cat <<DOCKER >Dockerfile
+          FROM ubuntu:trusty
+          RUN apt-get update
+          RUN apt-get install -y build-essential curl flex git make pbzip2 python python-pip texinfo uuid-runtime zip && apt-get clean
+          RUN pip install setuptools
+          RUN curl -o /usr/bin/repo https://commondatastorage.googleapis.com/git-repo-downloads/repo
+          RUN chmod a+x /usr/bin/repo
+          CMD ["/bin/bash"]
+          DOCKER
+          
+          docker build -t ndk-dev ./
           
       - name: build
         run: |
-          # export CC=gcc  # Disable Forcing generation of linux binaries with legacy toolchain
-          toolchain/gcc/build.py \
+          docker run -it -u $UID -v $PWD:/src -w /src ndk-dev toolchain/gcc/build.py \
             --host linux \
             --toolchain aarch64-linux-android
                     
@@ -51,4 +60,3 @@ jobs:
         with:
           name: android-ndk-gfortran
           path: build.tar.xz
-          

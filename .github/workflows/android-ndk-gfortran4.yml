@@ -37,7 +37,7 @@ jobs:
           FROM ubuntu:trusty
           RUN apt-get update
           RUN apt-get install -y build-essential curl flex git make pbzip2 texinfo uuid-runtime zip zlib1g-dev libssl-dev && apt-get clean
-          RUN git clone git://github.com/yyuu/pyenv.git ./pyenv && export PATH="$HOME/.pyenv/bin:$PATH" && pyenv install 3.6.8 && which python && ln -sf $(which python) /usr/bin/python
+          RUN git clone https://github.com/pyenv/pyenv.git ./pyenv && export PATH="$HOME/.pyenv/bin:$PATH" && pyenv install 3.6.8 && which python && ln -sf $(which python) /usr/bin/python
           RUN ["/bin/bash"]
           DOCKER
           

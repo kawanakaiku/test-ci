@@ -55,6 +55,7 @@ jobs:
           ENV CC gcc
           RUN ["/bin/bash"]
           DOCKER
+          docker build -t ndk-dev ./
           
       - name: build
         run: |

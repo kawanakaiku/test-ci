@@ -42,7 +42,7 @@ jobs:
               $HOME/pyenv/bin/pyenv install 3.6.8 && \
               echo '#!/usr/bin/bash' > /pyenv && \
               echo 'eval "$(pyenv init -)"' >> /pyenv && \
-              echo 'exec /usr/bin/env "$@"' >> /pyenv && \
+              echo '/usr/bin/env "$@"' >> /pyenv && \
               chmod +x /pyenv
           ENV PATH $HOME/pyenv/bin:$PATH
           RUN ["/bin/bash"]

@@ -68,6 +68,10 @@ jobs:
           name: termux apt
           command: |
             /tmp/chroot bash <<BASH
+            pkg update
+            pkg install -y at-spi2-atk
+            exit 1
+            
             apt-get update
             apt-get upgrade -y build-essential jq termux-exec python gnupg file git wget curl
             BASH

@@ -69,7 +69,7 @@ jobs:
           command: |
             /tmp/chroot bash <<BASH
             pkg update
-            pkg install -y at-spi2-atk
+            pkg install at-spi2-atk
             exit 1
             
             apt-get update

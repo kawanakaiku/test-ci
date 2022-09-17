@@ -38,7 +38,8 @@ jobs:
               packages.termux.dev \
               registry.yarnpkg.com nodejs.org registry.npmjs.org \
               electronjs.org www.electronjs.org artifacts.electronjs.org \
-              archive.ubuntu.com
+              archive.ubuntu.com \
+              cpan.org
             do
               echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
             done

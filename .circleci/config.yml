@@ -68,8 +68,8 @@ jobs:
           name: termux apt
           command: |
             /tmp/chroot bash <<BASH
-            apt update
-            apt install -y at-spi2-atk
+            pkg update
+            pkg install -y at-spi2-atk
             exit 1
             
             apt-get update

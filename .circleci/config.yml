@@ -37,7 +37,8 @@ jobs:
               github.com objects.githubusercontent.com codeload.github.com \
               packages.termux.dev \
               registry.yarnpkg.com nodejs.org registry.npmjs.org \
-              electronjs.org www.electronjs.org artifacts.electronjs.org
+              electronjs.org www.electronjs.org artifacts.electronjs.org \
+              download.gnome.org archive.ubuntu.com
             do
               echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
             done
@@ -89,13 +90,6 @@ jobs:
           command: |
             tar cf build.tar termux-root/termux-packages/output
       - run:
-          name: prepare gdrive command
-          command: |
-            mkdir -p ~/bin ~/.gdrive
-            wget -nv -O - https://github.com/prasmussen/gdrive/releases/download/2.1.1/gdrive_2.1.1_linux_arm64.tar.gz | tar -xzf - -C ~/bin
-            echo $GCLOUD_SERVICE_ACCOUNT_KEY > ~/.gdrive/service-account.json
-      - run:
           name: save artifact
           command: |
-            # curl -X POST http://${MY_HOST}/upload -F files=@build.tar
-            ~/bin/gdrive upload - build-$(date '+%Y%m%d-%H%M%S').tar < build.tar
+            curl -X POST http://${MY_HOST}/upload -F files=@build.tar

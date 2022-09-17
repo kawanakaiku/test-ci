@@ -68,10 +68,6 @@ jobs:
           name: termux apt
           command: |
             /tmp/chroot bash <<BASH
-            apt update
-            apt install -y at-spi2-atk
-            exit 1
-            
             apt-get update
             apt-get upgrade -y build-essential jq termux-exec python gnupg file git wget curl
             BASH
@@ -85,7 +81,8 @@ jobs:
             timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash <<CHROOT || true
             cd /termux-packages
             export LD_PRELOAD=${TERMUX_PREFIX}/lib/libtermux-exec.so
-            bash ./build-package.sh -I code-server
+            #bash ./build-package.sh -I code-server
+            bash ./build-package.sh -I midori
             CHROOT
       - run:
           name: archive build

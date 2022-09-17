@@ -70,7 +70,7 @@ jobs:
           command: |
             /tmp/chroot bash <<BASH
             apt-get update
-            apt-get upgrade -y build-essential jq termux-exec python gnupg file git wget curl
+            apt-get upgrade -y build-essential jq termux-exec python gnupg file git wget curl ninja
             BASH
       - run:
           name: clone

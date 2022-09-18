@@ -28,8 +28,9 @@ jobs:
       - name: free space
         run: |
             set -o noglob
+            
             sudo apt purge --auto-remove \
-                apache2-*
+                apache2-* \
                 clang-* \
                 dotnet-* \
                 gcc-* \
@@ -58,6 +59,9 @@ jobs:
                 /usr/local/share/chromium \
                 /usr/share/dotnet \
                 /usr/share/swift \
+                /usr/share/miniconda \
+                /usr/share/az_* \
+                /usr/share/gradle-* \
                 /usr/share/miniconda \
                 /usr/lib/jvm \
                 /usr/lib/google-cloud-sdk \

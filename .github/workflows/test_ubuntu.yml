@@ -64,6 +64,10 @@ jobs:
                 /home/linuxbrew \
                 /etc/skel
 
+      - name: packages
+        run: |
+            apt list --installed
+
       - name: get storage info
         run: |
             free -h

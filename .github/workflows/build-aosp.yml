@@ -117,6 +117,10 @@ jobs:
           sed -i -e 's|/etc/ppp/resolv.conf|/etc/resolv.conf|' bionic/libc/dns/include/resolv_private.h
           sed -i -e 's|ifndef ANDROID_CHANGES|ifndef __NOT_REALLY_DEFINED__|' bionic/libc/dns/resolv/res_init.c
           
+          # error: build/soong/Android.bp:49:1: "libwinpthread" depends on undefined module "mingw-libwinpthread-notice"
+          # 15:59:24 soong bootstrap failed with: exit status 1
+          sed -i -e '/mingw-libwinpthread-notice/d' build/soong/Android.bp
+          
       - name: build
         run: |
           export LC_ALL=C

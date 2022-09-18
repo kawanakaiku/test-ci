@@ -126,7 +126,10 @@ jobs:
           export LC_ALL=C
           source build/envsetup.sh
           lunch ${aosp_target}
-          make -j$(nproc)
+          
+          # soong bootstrap failed with: exit status 1
+          # https://stackoverflow.com/questions/58894290/android-opensource-project-build-error-failed-out-soong-build-ninja
+          make -j1
           
       - name: archive built files
         run: |

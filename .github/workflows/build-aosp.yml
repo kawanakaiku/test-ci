@@ -103,6 +103,8 @@ jobs:
           sed -i -e '/linux-x86\/[host|x86]/d' .repo/manifests/default.xml
           
           repo sync -c -j8
+          
+          rm -rf .repo
                 
       - name: get storage info
         run: |

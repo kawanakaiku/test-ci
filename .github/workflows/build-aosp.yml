@@ -19,7 +19,6 @@ jobs:
       - name: free space
         run: |
             set -o noglob
-            
             sudo apt purge --auto-remove \
                 ant \
                 clang-* \
@@ -39,6 +38,8 @@ jobs:
                 tex-* \
                 vim-* \
                 x11* 
+                
+            set -o noglob
             sudo rm -rf \
                 /usr/local \
                 /usr/local/lib/node_modules \
@@ -52,20 +53,19 @@ jobs:
                 /usr/share/az_* \
                 /usr/share/gradle-* \
                 /usr/share/miniconda \
+                /usr/share/man \
+                /usr/share/doc \
                 /usr/lib/jvm \
                 /usr/lib/google-cloud-sdk \
                 /usr/lib/mono \
                 /usr/lib/firefox \
+                /usr/lib/mysql \
                 /opt \
                 /var/lib/docker \
                 /home/{runner,runneradmin}/.{rustup,cargo,dotnet} \
                 /home/linuxbrew \
-                /etc/skel
-                
-      - name: get storage info
-        run: |
-            free -h
-            df -h
+                /etc/skel \
+                /root/.sbt
 
       - name: get requirements
         run: |
@@ -75,6 +75,18 @@ jobs:
 
           curl https://storage.googleapis.com/git-repo-downloads/repo | sudo tee /bin/repo
           sudo chmod +x /bin/repo
+          
+      - name: mount bind
+        run: |
+          for i in {clang,rust,gcc,go,python}; do
+            mkdir -p /mnt/bind/$i prebuilts/$i
+            sudo mount --bind /mnt/bind/$i prebuilts/$i
+          done
+                
+      - name: get storage info
+        run: |
+            free -h
+            df -h
           
       - name: clone
         run: |
@@ -86,6 +98,11 @@ jobs:
           sed -i -e '/linux-x86\/[host|x86]/d' .repo/manifests/default.xml
           
           repo sync -c -j8
+                
+      - name: get storage info
+        run: |
+            free -h
+            df -h
           
       - name: patch
         run: |

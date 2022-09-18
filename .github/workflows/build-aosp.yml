@@ -18,6 +18,23 @@ jobs:
     steps:
       - name: free space
         run: |
+            set -o noglob
+            sudo apt purge --auto-remove \
+                dotnet-* \
+                mongodb-* \
+                mono-* \
+                monodoc-* \
+                mysql-* \
+                php* \
+                postgresql-* \
+                powershell \
+                python2* \
+                ruby* \
+                sqlite3 \
+                tex-* \
+                vim-* \
+                x11*
+                
             sudo rm -rf \
                 /usr/local \
                 /usr/local/lib/node_modules \

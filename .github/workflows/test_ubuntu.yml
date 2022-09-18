@@ -10,7 +10,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 1
   
     steps:
@@ -39,14 +39,13 @@ jobs:
           path: ./test1
           key: test1
           
-      - name: Run a multi-line script
+      - name: ncdu
         run: |
-            test -f test1 && cat test1
-            echo ok | sudo tee test1
+            sudo ncdu -o root.ncdu /
             
-      - name: Store log files
+      - name: Store files
         if: always()
         uses: actions/upload-artifact@v3
         with:
-          name: primes
-          path: primes
+          name: ncdu
+          path: root.ncdu

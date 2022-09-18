@@ -37,7 +37,8 @@ jobs:
                 /usr/lib/google-cloud-sdk \
                 /usr/lib/mono \
                 /opt/hostedtoolcache \
-                /var/lib/docker
+                /var/lib/docker \
+                /home/runner/runners \
 
       - name: get storage info
         run: |

@@ -79,7 +79,7 @@ jobs:
       - name: mount bind
         run: |
           for i in {clang,rust,gcc,go,python}; do
-            mkdir -p /mnt/bind/$i prebuilts/$i
+            sudo mkdir -p /mnt/bind/$i prebuilts/$i
             sudo mount --bind /mnt/bind/$i prebuilts/$i
           done
                 

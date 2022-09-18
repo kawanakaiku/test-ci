@@ -16,6 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: packages
+        run: |
+            apt list --installed
+
       - name: get storage info
         run: |
             free -h
@@ -36,10 +40,12 @@ jobs:
                 /usr/lib/jvm \
                 /usr/lib/google-cloud-sdk \
                 /usr/lib/mono \
+                /usr/lib/firefox \
                 /opt \
                 /var/lib/docker \
                 /home/{runner,runneradmin}/.{rustup,cargo,dotnet} \
                 /home/linuxbrew \
+                /etc/skel
 
       - name: get storage info
         run: |

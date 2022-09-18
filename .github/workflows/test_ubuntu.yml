@@ -36,7 +36,7 @@ jobs:
                 /usr/lib/jvm \
                 /usr/lib/google-cloud-sdk \
                 /usr/lib/mono \
-                /opt/hostedtoolcache \
+                /opt \
                 /var/lib/docker \
                 /home/{runner,runneradmin}/.{rustup,cargo,dotnet} \
                 /home/linuxbrew \

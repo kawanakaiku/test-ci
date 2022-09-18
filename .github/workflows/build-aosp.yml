@@ -1,0 +1,50 @@
+name: build-aosp
+
+on:
+    push:
+      branches: [ main ]
+      paths:
+        - '.github/workflows/build-aosp.yml'
+    workflow_dispatch:
+ 
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    env:
+      aosp_version: android-12.1.0_r27
+      aosp_target: aosp_arm64-eng
+  
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: get requirements
+        run: |
+          sudo apt-get install -y bison g++-multilib git gperf libxml2-utils make zlib1g-dev:i386 zip liblz4-tool libncurses5 libssl-dev bc flex
+          
+          curl https://storage.googleapis.com/git-repo-downloads/repo | sudo tee /bin/repo
+          sudo chmod +x /bin/repo
+          
+      - name: clone
+        run: |
+          repo init -u https://android.googlesource.com/platform/manifest --branch=${aosp_version} --depth=1
+          repo sync -c -j8
+          
+      - name: build
+        run: |
+          export LC_ALL=C
+          source build/envsetup.sh
+          lunch ${aosp_target}
+          make -j$(nproc)
+          
+      - name: archive built files
+        run: |
+          XZ_OPT=-e9 tar -Jcf ${{ env.aosp_version }}_${{ env.aosp_target }}.tar.xz out
+          
+      - name: Store built file
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.aosp_version }}_${{ env.aosp_target }}
+          path: |
+            ${{ env.aosp_version }}_${{ env.aosp_target }}.tar.xz

@@ -78,8 +78,10 @@ jobs:
           
       - name: mount bind
         run: |
+          sudo mkdir /mnt/bind
+          sudo chmod 777 /mnt/bind
           for i in {clang,rust,gcc,go,python}; do
-            sudo mkdir -p /mnt/bind/$i prebuilts/$i
+            mkdir -p /mnt/bind/$i prebuilts/$i
             sudo mount --bind /mnt/bind/$i prebuilts/$i
           done
                 

@@ -28,7 +28,6 @@ jobs:
       - name: free space
         run: |
             set -o noglob
-            
             sudo apt purge --auto-remove \
                 ant \
                 clang-* \
@@ -49,6 +48,7 @@ jobs:
                 vim-* \
                 x11* 
 
+            set -o noglob
             sudo rm -rf \
                 /usr/local \
                 /usr/local/lib/node_modules \
@@ -62,15 +62,19 @@ jobs:
                 /usr/share/az_* \
                 /usr/share/gradle-* \
                 /usr/share/miniconda \
+                /usr/share/man \
+                /usr/share/doc \
                 /usr/lib/jvm \
                 /usr/lib/google-cloud-sdk \
                 /usr/lib/mono \
                 /usr/lib/firefox \
+                /usr/lib/mysql \
                 /opt \
                 /var/lib/docker \
                 /home/{runner,runneradmin}/.{rustup,cargo,dotnet} \
                 /home/linuxbrew \
-                /etc/skel
+                /etc/skel \
+                /root/.sbt
 
       - name: packages
         run: |

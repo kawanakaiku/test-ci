@@ -30,10 +30,9 @@ jobs:
             set -o noglob
             
             sudo apt purge --auto-remove \
-                apache2-* \
+                ant \
                 clang-* \
                 dotnet-* \
-                gcc-* \
                 libllvm-* \
                 man-db \
                 mongodb-* \

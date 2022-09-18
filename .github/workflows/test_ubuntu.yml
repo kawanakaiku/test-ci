@@ -30,6 +30,7 @@ jobs:
             set -o noglob
             sudo apt purge --auto-remove \
                 dotnet-* \
+                man-db \
                 mongodb-* \
                 mono-* \
                 monodoc-* \

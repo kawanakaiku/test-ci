@@ -20,8 +20,10 @@ jobs:
 
       - name: get requirements
         run: |
-          sudo apt-get install -y bison g++-multilib git gperf libxml2-utils make zlib1g-dev:i386 zip liblz4-tool libncurses5 libssl-dev bc flex
-          
+          sudo apt -y install curl make zip unzip \
+            git python default-jre openjdk-8-jdk \
+            bison g++-multilib gcc-multilib libxml2-utils
+
           curl https://storage.googleapis.com/git-repo-downloads/repo | sudo tee /bin/repo
           sudo chmod +x /bin/repo
           

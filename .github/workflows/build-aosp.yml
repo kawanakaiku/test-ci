@@ -19,8 +19,12 @@ jobs:
       - name: free space
         run: |
             set -o noglob
+            
             sudo apt purge --auto-remove \
+                ant \
+                clang-* \
                 dotnet-* \
+                libllvm-* \
                 man-db \
                 mongodb-* \
                 mono-* \
@@ -34,8 +38,7 @@ jobs:
                 sqlite3 \
                 tex-* \
                 vim-* \
-                x11*
-                
+                x11* 
             sudo rm -rf \
                 /usr/local \
                 /usr/local/lib/node_modules \
@@ -45,6 +48,9 @@ jobs:
                 /usr/local/share/chromium \
                 /usr/share/dotnet \
                 /usr/share/swift \
+                /usr/share/miniconda \
+                /usr/share/az_* \
+                /usr/share/gradle-* \
                 /usr/share/miniconda \
                 /usr/lib/jvm \
                 /usr/lib/google-cloud-sdk \
@@ -76,7 +82,8 @@ jobs:
           
           # disable cloning darwin
           # may reduce for 10GB
-          sed -i -e '/darwin/d' .repo/manifests/default.xml
+          sed -i -e '/darwin-x86/d' .repo/manifests/default.xml
+          sed -i -e '/linux-x86\/[host|x86]/d' .repo/manifests/default.xml
           
           repo sync -c -j8
           

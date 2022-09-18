@@ -41,7 +41,8 @@ jobs:
           
       - name: ncdu
         run: |
-            sudo ncdu -o root.ncdu /
+          sudo apt-get install ncdu
+          sudo ncdu -o root.ncdu /
             
       - name: Store files
         if: always()

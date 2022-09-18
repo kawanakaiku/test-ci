@@ -87,6 +87,12 @@ jobs:
           
           repo sync -c -j8
           
+      - name: patch
+        run: |
+          # enable /etc/resolv.conf
+          sed -i -e 's|/etc/ppp/resolv.conf|/etc/resolv.conf|' bionic/libc/dns/include/resolv_private.h
+          sed -i -e 's|ifndef ANDROID_CHANGES|ifndef __NOT_REALLY_DEFINED__|' bionic/libc/dns/resolv/res_init.c
+          
       - name: build
         run: |
           export LC_ALL=C

@@ -29,7 +29,11 @@ jobs:
         run: |
             set -o noglob
             sudo apt purge --auto-remove \
+                apache2-*
+                clang-* \
                 dotnet-* \
+                gcc-* \
+                libllvm-* \
                 man-db \
                 mongodb-* \
                 mono-* \

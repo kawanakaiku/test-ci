@@ -38,7 +38,8 @@ jobs:
                 /usr/lib/mono \
                 /opt/hostedtoolcache \
                 /var/lib/docker \
-                /home/runner/runners \
+                /home/{runner,runneradmin}/.{rustup,cargo,dotnet} \
+                /home/linuxbrew \
 
       - name: get storage info
         run: |

@@ -36,7 +36,8 @@ jobs:
                 /usr/lib/jvm \
                 /usr/lib/google-cloud-sdk \
                 /usr/lib/mono \
-                /opt/hostedtoolcache
+                /opt/hostedtoolcache \
+                /var/lib/docker
 
       - name: get storage info
         run: |

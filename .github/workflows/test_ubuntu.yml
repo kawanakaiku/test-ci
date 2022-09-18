@@ -35,7 +35,8 @@ jobs:
                 /usr/share/miniconda \
                 /usr/lib/jvm \
                 /usr/lib/google-cloud-sdk \
-                /usr/lib/mono
+                /usr/lib/mono \
+                /opt/hostedtoolcache
 
       - name: get storage info
         run: |

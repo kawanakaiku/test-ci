@@ -21,6 +21,7 @@ jobs:
             set -o noglob
             sudo apt purge --auto-remove \
                 dotnet-* \
+                man-db \
                 mongodb-* \
                 mono-* \
                 monodoc-* \
@@ -72,6 +73,11 @@ jobs:
       - name: clone
         run: |
           repo init -u https://android.googlesource.com/platform/manifest -b ${aosp_version} --depth=1
+          
+          # disable cloning darwin
+          # may reduce for 10GB
+          sed -i -e '/darwin/d' .repo/manifests/default.xml
+          
           repo sync -c -j8
           
       - name: build

@@ -120,7 +120,7 @@ jobs:
           sed -i -e '/darwin-x86/d' .repo/manifests/default.xml
           sed -i -e '/linux-x86\/[host|x86]/d' .repo/manifests/default.xml
           sed -i -e '/platform\/test/d' .repo/manifests/default.xml
-          sed -i -e '/platform\/hardware/d' -e '/hardware\/qcom/d' .repo/manifests/default.xml
+          #sed -i -e '/platform\/hardware/d' -e '/hardware\/qcom/d' .repo/manifests/default.xml
           
           repo sync -c -j8
           

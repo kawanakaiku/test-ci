@@ -35,6 +35,7 @@ jobs:
                 python2* \
                 ruby* \
                 sqlite3 \
+                snapd \
                 tex-* \
                 vim-* \
                 x11* 
@@ -70,7 +71,7 @@ jobs:
             #sudo swapoff -a
             #sudo rm -f /mnt/swapfile
             
-            sudo pkill -9 dockerd containerd snapd mono
+            sudo pkill -9 mono
 
       - name: get requirements
         run: |

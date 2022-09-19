@@ -119,6 +119,7 @@ jobs:
           # may reduce for 10GB
           sed -i -e '/darwin-x86/d' .repo/manifests/default.xml
           sed -i -e '/linux-x86\/[host|x86]/d' .repo/manifests/default.xml
+          sed -i -e '/platform\/test/d' .repo/manifests/default.xml
           
           repo sync -c -j8
           

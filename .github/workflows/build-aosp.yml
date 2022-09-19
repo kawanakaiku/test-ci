@@ -94,7 +94,7 @@ jobs:
             git python default-jre openjdk-8-jdk \
             bison g++-multilib gcc-multilib libxml2-utils
 
-          curl https://storage.googleapis.com/git-repo-downloads/repo | sudo tee /bin/repo
+          curl https://storage.googleapis.com/git-repo-downloads/repo | sudo tee /bin/repo >/dev/null
           sudo chmod +x /bin/repo
           
       - name: mount bind
@@ -120,7 +120,7 @@ jobs:
           sed -i -e '/darwin-x86/d' .repo/manifests/default.xml
           sed -i -e '/linux-x86\/[host|x86]/d' .repo/manifests/default.xml
           sed -i -e '/platform\/test/d' .repo/manifests/default.xml
-          sed -i -e '/platform\/hardware/d' .repo/manifests/default.xml
+          sed -i -e '/platform\/hardware/d' -e '/hardware\/qcom/d' .repo/manifests/default.xml
           
           repo sync -c -j8
           

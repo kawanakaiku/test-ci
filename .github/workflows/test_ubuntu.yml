@@ -53,7 +53,7 @@ jobs:
                 vim-* \
                 x11* 
 
-            set -o noglob
+            set +o noglob
             sudo rm -rf \
                 /usr/local \
                 /usr/local/lib/node_modules \
@@ -69,17 +69,30 @@ jobs:
                 /usr/share/miniconda \
                 /usr/share/man \
                 /usr/share/doc \
+                /usr/share/kotlinc \
+                /usr/share/icons \
+                /usr/share/sbt \
+                /usr/share/locale \
                 /usr/lib/jvm \
                 /usr/lib/google-cloud-sdk \
                 /usr/lib/mono \
                 /usr/lib/firefox \
                 /usr/lib/mysql \
+                /usr/src \
+                /usr/include \
                 /opt \
                 /var/lib/docker \
+                /var/lib/mysql \
+                /var/lib/gems \
+                /var/lib/waagent \
+                /var/lib/dpkg/info/* \
                 /home/{runner,runneradmin}/.{rustup,cargo,dotnet} \
                 /home/linuxbrew \
+                /home/runner/runners/*.tgz \
+                /home/runner/runners/2.296.1 \
                 /etc/skel \
-                /root/.sbt
+                /root/.sbt \
+                /boot
             
             sudo pkill -9 mono
             sudo pkill -9 dockerd

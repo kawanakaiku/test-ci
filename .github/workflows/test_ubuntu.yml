@@ -47,6 +47,7 @@ jobs:
                 powershell \
                 python2* \
                 ruby* \
+                snapd \
                 sqlite3 \
                 tex-* \
                 vim-* \
@@ -79,6 +80,10 @@ jobs:
                 /home/linuxbrew \
                 /etc/skel \
                 /root/.sbt
+            
+            sudo pkill -9 mono
+            sudo pkill -9 dockerd
+            sudo pkill -9 containerd
 
       - name: packages
         run: |

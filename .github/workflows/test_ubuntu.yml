@@ -90,8 +90,7 @@ jobs:
                 /home/runner/runners/*.tgz \
                 /home/runner/runners/2.296.1 \
                 /etc/skel \
-                /root/.sbt \
-                /boot
+                /root/.sbt
             
             sudo pkill -9 mono
             sudo pkill -9 dockerd

@@ -101,7 +101,7 @@ jobs:
         run: |
           sudo mkdir /mnt/bind
           sudo chmod 777 /mnt/bind
-          for i in {clang,rust}; do
+          for i in {clang}; do
             mkdir -p /mnt/bind/$i prebuilts/$i
             sudo mount --bind /mnt/bind/$i prebuilts/$i
           done

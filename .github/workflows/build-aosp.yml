@@ -120,7 +120,15 @@ jobs:
           sed -i -e '/darwin-x86/d' .repo/manifests/default.xml
           sed -i -e '/linux-x86\/[host|x86]/d' .repo/manifests/default.xml
           sed -i -e '/platform\/test/d' .repo/manifests/default.xml
-          #sed -i -e '/platform\/hardware/d' -e '/hardware\/qcom/d' .repo/manifests/default.xml
+
+          python - <'PYTHON'
+          import xml.etree.ElementTree as ET
+          file = '.repo/manifests/default.xml'
+          tree = ET.parse(file)
+          root = tree.getroot()
+          [ root.remove(p) for p in root.findall('project') if p.attrib['name'].startswith('platform/hardware/') ]
+          tree.write(file)
+          PYTHON
           
           repo sync -c -j8
           

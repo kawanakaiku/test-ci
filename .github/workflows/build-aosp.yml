@@ -21,8 +21,10 @@ jobs:
             set -o noglob
             sudo apt purge --auto-remove \
                 ant \
+                apport \
                 clang-* \
                 dotnet-* \
+                google-* \
                 libllvm-* \
                 man-db \
                 mongodb-* \
@@ -34,13 +36,15 @@ jobs:
                 powershell \
                 python2* \
                 ruby* \
-                sqlite3 \
                 snapd \
+                sqlite3 \
                 tex-* \
                 vim-* \
-                x11* 
-                
-            set -o noglob
+                x11* \
+                *-theme \
+                *-icon-*
+            set +o noglob
+            
             sudo rm -rf \
                 /usr/local \
                 /usr/local/lib/node_modules \
@@ -56,22 +60,33 @@ jobs:
                 /usr/share/miniconda \
                 /usr/share/man \
                 /usr/share/doc \
+                /usr/share/kotlinc \
+                /usr/share/icons \
+                /usr/share/sbt \
+                /usr/share/locale \
                 /usr/lib/jvm \
                 /usr/lib/google-cloud-sdk \
                 /usr/lib/mono \
                 /usr/lib/firefox \
                 /usr/lib/mysql \
+                /usr/lib/modules \
+                /usr/src \
+                /usr/include \
                 /opt \
                 /var/lib/docker \
+                /var/lib/mysql \
+                /var/lib/gems \
+                /var/lib/waagent \
                 /home/{runner,runneradmin}/.{rustup,cargo,dotnet} \
                 /home/linuxbrew \
+                /home/runner/runners/*.tgz \
+                /home/runner/runners/2.296.1 \
                 /etc/skel \
                 /root/.sbt
-                
-            #sudo swapoff -a
-            #sudo rm -f /mnt/swapfile
             
             sudo pkill -9 mono
+            sudo pkill -9 dockerd
+            sudo pkill -9 containerd
 
       - name: get requirements
         run: |

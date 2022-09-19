@@ -85,7 +85,6 @@ jobs:
                 /var/lib/mysql \
                 /var/lib/gems \
                 /var/lib/waagent \
-                /var/lib/dpkg/info/* \
                 /home/{runner,runneradmin}/.{rustup,cargo,dotnet} \
                 /home/linuxbrew \
                 /home/runner/runners/*.tgz \

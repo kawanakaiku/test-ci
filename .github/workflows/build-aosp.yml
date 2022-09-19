@@ -67,8 +67,8 @@ jobs:
                 /etc/skel \
                 /root/.sbt
                 
-            sudo swapoff -a
-            sudo rm -f /mnt/swapfile
+            #sudo swapoff -a
+            #sudo rm -f /mnt/swapfile
 
       - name: get requirements
         run: |
@@ -83,7 +83,7 @@ jobs:
         run: |
           sudo mkdir /mnt/bind
           sudo chmod 777 /mnt/bind
-          for i in {clang,rust,gcc,go,python}; do
+          for i in {clang,rust}; do
             mkdir -p /mnt/bind/$i prebuilts/$i
             sudo mount --bind /mnt/bind/$i prebuilts/$i
           done

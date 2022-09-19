@@ -69,6 +69,8 @@ jobs:
                 
             #sudo swapoff -a
             #sudo rm -f /mnt/swapfile
+            
+            sudo pkill -9 dockerd containerd snapd mono
 
       - name: get requirements
         run: |

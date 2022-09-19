@@ -34,8 +34,10 @@ jobs:
             set -o noglob
             sudo apt purge --auto-remove \
                 ant \
+                apport \
                 clang-* \
                 dotnet-* \
+                google-* \
                 libllvm-* \
                 man-db \
                 mongodb-* \
@@ -51,7 +53,9 @@ jobs:
                 sqlite3 \
                 tex-* \
                 vim-* \
-                x11* 
+                x11* \
+                *-theme \
+                *-icon-*
 
             set +o noglob
             sudo rm -rf \
@@ -78,6 +82,7 @@ jobs:
                 /usr/lib/mono \
                 /usr/lib/firefox \
                 /usr/lib/mysql \
+                /usr/lib/modules \
                 /usr/src \
                 /usr/include \
                 /opt \

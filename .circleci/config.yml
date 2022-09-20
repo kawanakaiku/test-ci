@@ -71,7 +71,7 @@ jobs:
           command: |
             /tmp/chroot bash <<BASH
             apt-get update
-            apt-get upgrade -y build-essential jq termux-exec python gnupg file git wget curl ninja nodejs-lts rust
+            apt-get upgrade -y build-essential jq termux-exec python gnupg file git wget curl ninja nodejs rust
             BASH
       - run:
           name: clone

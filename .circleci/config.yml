@@ -39,7 +39,8 @@ jobs:
               registry.yarnpkg.com nodejs.org registry.npmjs.org \
               electronjs.org www.electronjs.org artifacts.electronjs.org \
               archive.ubuntu.com launchpad.net launchpadlibrarian.net librarian.launchpad.net　\
-              cpan.org
+              cpan.org \
+              crates.io static.crates.io
             do
               echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
             done

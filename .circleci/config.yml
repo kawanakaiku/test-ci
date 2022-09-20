@@ -84,7 +84,8 @@ jobs:
             cd /termux-packages
             export LD_PRELOAD=${TERMUX_PREFIX}/lib/libtermux-exec.so
             #bash ./build-package.sh -I code-server
-            bash ./build-package.sh -I libpeas midori
+            #bash ./build-package.sh -I libpeas midori
+            bash ./build-package.sh -I thundirbird
             CHROOT
       - run:
           name: archive build

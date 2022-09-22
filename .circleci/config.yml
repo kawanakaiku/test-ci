@@ -88,9 +88,9 @@ jobs:
             # /data/data/com.termux/files/usr/include/linux/types.h:21:10: fatal error: 'asm/types.h' file not found
             ln -sf /data/data/com.termux/files/usr/include/aarch64-linux-android/asm /data/data/com.termux/files/usr/include
             
-            #bash ./build-package.sh -I code-server
+            bash ./build-package.sh -I code-server
             #bash ./build-package.sh -I libpeas midori
-            bash ./build-package.sh -I thundirbird
+            #bash ./build-package.sh -I thundirbird
             CHROOT
       - run:
           name: archive build

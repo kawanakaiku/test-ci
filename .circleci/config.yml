@@ -83,10 +83,21 @@ jobs:
           command: |
             timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash <<CHROOT || true
             cd /termux-packages
-            export LD_PRELOAD=${TERMUX_PREFIX}/lib/libtermux-exec.so
+            export LD_PRELOAD=\${PREFIX}/lib/libtermux-exec.so
             
             # /data/data/com.termux/files/usr/include/linux/types.h:21:10: fatal error: 'asm/types.h' file not found
-            ln -sf /data/data/com.termux/files/usr/include/aarch64-linux-android/asm /data/data/com.termux/files/usr/include
+            #ln -sf /data/data/com.termux/files/usr/include/aarch64-linux-android/asm /data/data/com.termux/files/usr/include
+            
+            # log
+            _BIN=\${PREFIX}/_bin
+            mkdir -p \$_BIN
+            PATH="\$_BIN:\$PATH"
+            for C in {,aarch64-linux-android-}{ar,clang,clang++,cpp,g++,gcc,ld,nm,objdump,ranlib,readelf,strip}; do
+              echo "#!${TERMUX_PREFIX}/bin/sh" > \${_BIN}/\${C}
+              echo "echo \"\$C \\\$*\" > /build.log" > \${_BIN}/\${C}
+              echo "exec ${TERMUX_PREFIX}/bin/\${C} \"\\\$@\"" > \${_BIN}/\${C}
+              chmod +x \${_BIN}/\${C}
+            done
             
             bash ./build-package.sh -I code-server
             #bash ./build-package.sh -I libpeas midori
@@ -95,7 +106,7 @@ jobs:
       - run:
           name: archive build
           command: |
-            tar cf build.tar termux-root/termux-packages/output
+            tar cf build.tar termux-root/termux-packages/output termux-root/build.log
       - run:
           name: save artifact
           command: |

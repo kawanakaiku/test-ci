@@ -32,7 +32,6 @@ jobs:
           
       - name: apt
         run: |
-          exit
           sudo apt-get install -y --no-install-recommends qemu-user-static
           
       - name: chroot termux

@@ -77,7 +77,7 @@ jobs:
       - run:
           name: clone
           command: |
-            git clone --depth=1 --branch=kawanakaiku--thundirbird https://github.com/kawanakaiku/termux-packages.git termux-root/termux-packages
+            git clone --depth=1 --branch=kawanakaiku-code-server https://github.com/kawanakaiku/termux-packages.git termux-root/termux-packages
       - run:
           name: build
           command: |

@@ -44,8 +44,6 @@ jobs:
           sudo mount -t devpts devpts dev/pts
           sudo mount -t sysfs sysfs sys
           
-          #sudo cp /usr/bin/qemu-arm-static data/data/com.termux/files/usr/bin
-          
           # set host file
           mkdir -p system/etc
           for host in pypi.python.org files.pythonhosted.org pypi.org \
@@ -87,6 +85,15 @@ jobs:
           
           # reset hosts
           echo | sudo tee system/etc/hosts
+          
+      - name: chroot termux
+        run: |
+          cd termux-root
+          
+          sudo umount -lf sys
+          sudo umount -lf dev/pts
+          sudo umount -lf dev
+          sudo umount -lf proc
           
       - name: archive
         run: |

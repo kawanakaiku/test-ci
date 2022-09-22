@@ -92,7 +92,7 @@ jobs:
             _BIN=\${PREFIX}/_bin
             mkdir -p \$_BIN
             PATH="\$_BIN:\$PATH"
-            for C in {,aarch64-linux-android-}{ar,clang,clang++,cpp,g++,gcc,ld,nm,objdump,ranlib,readelf,strip}; do
+            for C in {,aarch64-linux-android-}{ar,clang,clang++,cpp,g++,gcc,ld,nm,objdump,ranlib,readelf,strip} node; do
               echo "#!${TERMUX_PREFIX}/bin/sh" > \${_BIN}/\${C}
               echo "echo \"\$C \\\$*\" > /build.log" >> \${_BIN}/\${C}
               echo "exec ${TERMUX_PREFIX}/bin/\${C} \"\\\$@\"" >> \${_BIN}/\${C}

@@ -1,0 +1,100 @@
+name: termux-chroot-update
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/termux-chroot-update.yml'
+  workflow_dispatch:
+    
+env:
+  TERMUX_PREFIX: /data/data/com.termux/files/usr
+  TERMUX_HOME: /data/data/com.termux/files/home
+  PIP_DISABLE_PIP_VERSION_CHECK: 1
+  TERMU_ARCH: aarch64
+ 
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+  
+    steps:
+      - name: get termux
+        run: |
+          mkdir archives; cd archives
+          wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/termux-aarch64.tar.xz
+          
+      - name: extract termux
+        run: |
+          mkdir termux-root
+          for tar_xz in archives/*.tar.xz; do
+            tar xf "${tar_xz}" -C termux-root
+          done
+          
+      - name: apt
+        run: |
+          exit
+          sudo apt-get install -y --no-install-recommends qemu-user-static
+          
+      - name: chroot termux
+        run: |
+          cd termux-root
+          mkdir -p proc dev dev/pts sys
+          
+          sudo mount -t proc proc proc
+          sudo mount -t devtmpfs udev dev
+          sudo mount -t devpts devpts dev/pts
+          sudo mount -t sysfs sysfs sys
+          
+          #sudo cp /usr/bin/qemu-arm-static data/data/com.termux/files/usr/bin
+          
+          # set host file
+          mkdir -p system/etc
+          for host in pypi.python.org files.pythonhosted.org pypi.org \
+            github.com objects.githubusercontent.com \
+            packages.termux.dev
+          do
+            echo $( nslookup $host | awk '/^Address: / { print $2; exit }' ) " $host" >> system/etc/hosts
+          done
+          
+          # suppress linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"
+          mkdir -p linkerconfig
+          touch linkerconfig/ld.config.txt
+          
+          TERMUX_USER=$( sudo chroot . /system/bin/stat -c '%U' ${TERMUX_PREFIX}/bin/env )
+          TERMUX_GROUP=$( sudo chroot . /system/bin/stat -c '%G' ${TERMUX_PREFIX}/bin/env )
+          
+          cat <<SH > /tmp/chroot
+          #!/usr/bin/sh
+          exec sudo chroot ${PWD} \
+            ${TERMUX_PREFIX}/bin/su ${TERMUX_USER} \
+            ${TERMUX_PREFIX}/bin/env \
+            PATH=${TERMUX_PREFIX}/bin \
+            LD_LIBRARY_PATH=${TERMUX_PREFIX}/lib \
+            HOME=${TERMUX_HOME} \
+            PIP_DISABLE_PIP_VERSION_CHECK=1 \
+            "\$@"
+          SH
+          chmod +x /tmp/chroot
+          
+      - name: update
+        run: |
+          cd termux-root
+          /tmp/chroot bash <<BASH
+          apt-get update
+          apt-get upgrade -y --auto-remove --purge build-essential jq termux-exec python gnupg file git wget curl ndk-sysroot ninja nodejs rust
+          python -m pip install -U --no-cache-dir pip
+          BASH
+          
+          # reset hosts
+          echo | sudo tee system/etc/hosts
+          
+      - name: archive
+        run: |
+          cd termux-root
+          tar -c -I 'xz -9 -T0' -f ../termux-aarch64.tar.xz -C termux-root *
+
+      - name: store
+        uses: actions/upload-artifact@v3
+        with:
+          name: termux-aarch64
+          path: termux-aarch64.tar.xz

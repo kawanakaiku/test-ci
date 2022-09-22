@@ -90,7 +90,7 @@ jobs:
       - name: archive
         run: |
           cd termux-root
-          tar -c -I 'xz -9 -T0' -f ../termux-aarch64.tar.xz -C termux-root *
+          tar -c -I 'xz -9 -T0' -f ../termux-aarch64.tar.xz *
 
       - name: store
         uses: actions/upload-artifact@v3

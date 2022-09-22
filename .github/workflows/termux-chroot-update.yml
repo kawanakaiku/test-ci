@@ -81,6 +81,7 @@ jobs:
           /tmp/chroot bash <<BASH
           apt-get update
           apt-get upgrade -y --auto-remove --purge build-essential jq termux-exec python gnupg file git wget curl ndk-sysroot ninja nodejs rust
+          apt-get clean
           python -m pip install -U --no-cache-dir pip
           BASH
           

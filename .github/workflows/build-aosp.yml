@@ -131,7 +131,7 @@ jobs:
           PYTHON
           
           while sleep 1; do
-            for p in prebuilts/*/*/darwin-x86*; do
+            for p in prebuilts/*{,/*}/darwin-x86*; do
               test -d $p && find $p -type f -delete
             done
           done &

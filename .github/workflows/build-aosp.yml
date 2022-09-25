@@ -113,6 +113,8 @@ jobs:
           
       - name: clone
         run: |
+          set -o noglob
+          
           repo init -u https://android.googlesource.com/platform/manifest -b ${aosp_version} --depth=1
           
           # disable cloning darwin
@@ -129,6 +131,12 @@ jobs:
           [ root.remove(p) for p in root.findall('project') if p.attrib['name'].startswith('platform/hardware/') ]
           tree.write(file)
           PYTHON
+          
+          while sleep 1; do
+            for p in prebuilts/*/*/darwin-x86*; do
+              find $p -type f -delete
+            done
+          done &
           
           repo sync -c -j8
           

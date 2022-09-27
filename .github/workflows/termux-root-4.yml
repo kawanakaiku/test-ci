@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: download termux-base
         run: |
-          wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/termux-base-${TERMUX_ARCH}.zip
+          wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/termux-base-${TERMUX_ARCH}.tar.xz
       - name: extract
         run: |
           mkdir root

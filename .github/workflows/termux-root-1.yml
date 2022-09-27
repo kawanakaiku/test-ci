@@ -69,5 +69,5 @@ jobs:
       - name: store
         uses: actions/upload-artifact@v3
         with:
-          name: system-${TERMUX_ARCH}-${VERSION}
+          name: system-${{ env.TERMUX_ARCH }}-${{ env.VERSION }}
           path: system.tar.xz

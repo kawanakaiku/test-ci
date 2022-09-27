@@ -11,23 +11,24 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: download bootstrap
+      - name: download archives
         run: |
-          wget -nv https://github.com/termux/termux-packages/releases/latest/download/bootstrap-${TERMUX_ARCH}.zip -O bootstrap.zip
+          wget -nv \
+            https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/system-${TERMUX_ARCH}.tar.xz \
+            https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/termux-files-${TERMUX_ARCH}.tar.xz
       - name: extract
         run: |
-          install -d -m 700 usr home
-          unzip -q bootstrap.zip -d usr
-      - name: link
-        run: |
-          cd usr
-          awk -F← '{system("ln -s "$1" "$2)}' SYMLINKS.txt
-          rm SYMLINKS.txt
+          mkdir root
+          cd root
+          tar xf ../system-${TERMUX_ARCH}.tar.xz
+          install -d -m 700 data/data/com.termux/{files,cache}
+          tar xf ../termux-files-${TERMUX_ARCH}.tar.xz -C data/data/com.termux/files
       - name: archive
         run: |
-          tar -c -I 'xz -9 -T0' -f termux-files-${{ env.TERMUX_ARCH }}.tar.xz usr home
+          cd root
+          tar -c -I 'xz -9 -T0' -f ../termux-${{ env.TERMUX_ARCH }}.tar.xz *
       - name: store
         uses: actions/upload-artifact@v3
         with:
-          name: termux-files-${{ env.TERMUX_ARCH }}
-          path: termux-files-${{ env.TERMUX_ARCH }}.tar.xz
+          name: termux-${{ env.TERMUX_ARCH }}
+          path: termux-${{ env.TERMUX_ARCH }}.tar.xz

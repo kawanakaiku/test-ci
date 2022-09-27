@@ -55,6 +55,14 @@ jobs:
           cd system
           rm -r apex
           ln -s /system/apex apex
+      - name: remove unneeded
+        run: |
+          cd system
+          rm -r \
+            system/fonts \
+            system/app \
+            system/priv-app \
+            system/framework
       - name: archive
         run: |
           tar -c -I 'xz -9 -T0' -f system.tar.xz system

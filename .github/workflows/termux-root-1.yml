@@ -65,9 +65,10 @@ jobs:
             system/framework
       - name: archive
         run: |
-          tar -c -I 'xz -9 -T0' -f system.tar.xz system
+          cd system
+          tar -c -I 'xz -9 -T0' -f ../system-${{ env.TERMUX_ARCH }}-${{ env.VERSION }}.tar.xz *
       - name: store
         uses: actions/upload-artifact@v3
         with:
           name: system-${{ env.TERMUX_ARCH }}-${{ env.VERSION }}
-          path: system.tar.xz
+          path: system-${{ env.TERMUX_ARCH }}-${{ env.VERSION }}.tar.xz

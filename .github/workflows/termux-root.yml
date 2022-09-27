@@ -46,11 +46,10 @@ jobs:
           cd system/system/apex
           ls
           rm -f *.capex
-          mkfifo apex_payload.img
           for APEX in *.apex; do
             NAME=${APEX%.*}
-            7z x apex_payload.img -o${NAME} &
             7z e -aoa ${APEX} apex_payload.img
+            7z x apex_payload.img -o${NAME}
           done
           rm *.apex apex_payload.img
       - name: link

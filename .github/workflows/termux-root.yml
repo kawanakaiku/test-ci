@@ -186,6 +186,10 @@ jobs:
           TERMUX_USER=$( sudo chroot . /system/bin/stat -c '%U' ${TERMUX_PREFIX}/bin/env )
           TERMUX_GROUP=$( sudo chroot . /system/bin/stat -c '%G' ${TERMUX_PREFIX}/bin/env )
           
+          TERMUX_USER=system
+          
+          printf '%s\n' * | grep -v -e ^proc$ -e ^dev$ -e ^sys$ | xargs sudo chroot . /system/xbin/su 0 chown -R ${TERMUX_USER}:${TERMUX_USER}
+          
           cat <<SH > /tmp/chroot
           #!/usr/bin/sh
           exec sudo chroot ${PWD} \

@@ -117,7 +117,7 @@ jobs:
   merge_dirs:
     needs: [get_system, get_bootstrap]
     runs-on: ubuntu-22.04
-      steps:
+    steps:
       - uses: actions/download-artifact@v3
         with:
           name: system-${{ env.TERMUX_ARCH }}-${{ env.VERSION }}

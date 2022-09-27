@@ -128,7 +128,7 @@ jobs:
         run: |
           mkdir root
           cd root
-          tar xf ../system-${TERMUX_ARCH}.tar.xz
+          tar xf ../system-${TERMUX_ARCH}-${VERSION}.tar.xz
           install -d -m 700 data/data/com.termux/{files,cache}
           tar xf ../termux-files-${TERMUX_ARCH}.tar.xz -C data/data/com.termux/files
       - name: archive

@@ -1,0 +1,32 @@
+name: termux-root-2
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/termux-root-2.yml'
+  workflow_dispatch:
+env:
+  TERMUX_ARCH: aarch64
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: download bootstrap
+        run: |
+          wget -nv https://github.com/termux/termux-packages/releases/latest/download/bootstrap-${TERMUX_ARCH}.zip -O bootstrap.zip
+      - name: extract
+        run: |
+          install -d -m 700 usr home
+          unzip -q bootstrap.zip -d usr
+      - name: link
+        run: |
+          cd usr
+          awk -F← '{system("ln -s "$1" "$2)}' SYMLINKS.txt
+      - name: archive
+        run: |
+          tar -c -I 'xz -9 -T0' -f termux-files-${{ env.TERMUX_ARCH }}.tar.xz usr home
+      - name: store
+        uses: actions/upload-artifact@v3
+        with:
+          name: termux-files-${{ env.TERMUX_ARCH }}
+          path: termux-files-${{ env.TERMUX_ARCH }}.tar.xz

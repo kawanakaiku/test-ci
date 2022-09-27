@@ -18,8 +18,8 @@ jobs:
           wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/termux-base-${TERMUX_ARCH}.tar.xz
       - name: extract
         run: |
-          mkdir root
-          cd root
+          mkdir termux-root
+          cd termux-root
           tar xf ../termux-base-${TERMUX_ARCH}.tar.xz
       - name: install qemu
         run: |
@@ -82,7 +82,7 @@ jobs:
           sudo umount -lf proc
       - name: archive
         run: |
-          cd root
+          cd termux-root
           tar -c -I 'xz -9 -T0' -f ../termux-${{ env.TERMUX_ARCH }}.tar.xz *
       - name: store
         uses: actions/upload-artifact@v3

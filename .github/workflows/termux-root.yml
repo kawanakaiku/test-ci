@@ -57,6 +57,11 @@ jobs:
           cd system
           rm -r apex
           ln -s /system/apex apex
+          
+          grep -rIl -e . system/bin | xargs -n1 grep -lvz -e '\n' | while read f; do
+            TO=$(cat $f)
+            ln -sf ${TO} ${f}
+          done
       - name: chmod
         run: |
           cd system

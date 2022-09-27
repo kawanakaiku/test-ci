@@ -66,6 +66,7 @@ jobs:
         run: |
           cd system
           find system/bin -type f -print0 | xargs -0 chmod 0755
+          chmod 0755 system/apex/*/bin/*
       - name: remove unneeded
         run: |
           cd system

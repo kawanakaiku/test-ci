@@ -61,7 +61,7 @@ jobs:
       - name: chmod
         run: |
           cd system
-          find bin -not -type d -print0 | xargs -0 chmod 0755
+          find system/bin -type f -print0 | xargs -0 chmod 0755
       - name: remove unneeded
         run: |
           cd system
@@ -97,13 +97,13 @@ jobs:
       - name: chmod
         run: |
           cd usr
-          find -not -type d | sed -e 's|^\./||' | while read f; do
+          find -type f | sed -e 's|^\./||' | while read f; do
             if [[ "$f" == bin/* ]] ||
               [[ "$f" == libexec* ]] ||
               [[ "$f" == lib/apt/apt-helper* ]] ||
               [[ "$f" == lib/apt/methods* ]]
             then
-              chmod 700 "$f"
+              chmod 0700 "$f"
             fi
           done
       - name: archive

@@ -22,6 +22,7 @@ jobs:
         run: |
           cd usr
           awk -F← '{system("ln -s "$1" "$2)}' SYMLINKS.txt
+          rm SYMLINKS.txt
       - name: archive
         run: |
           tar -c -I 'xz -9 -T0' -f termux-files-${{ env.TERMUX_ARCH }}.tar.xz usr home

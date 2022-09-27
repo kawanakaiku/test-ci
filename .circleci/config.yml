@@ -54,6 +54,7 @@ jobs:
           
             cat <<SH > /tmp/chroot
             #!/usr/bin/sh
+            proxy=http://127.0.0.1:3128
             exec sudo chroot ${PWD} \
               ${TERMUX_PREFIX}/bin/su ${TERMUX_USER} \
               ${TERMUX_PREFIX}/bin/env \
@@ -63,12 +64,12 @@ jobs:
               TMPDIR=${TERMUX_PREFIX}/tmp \
               LANG=en_US.UTF-8 \
               LD_LIBRARY_PATH=/apex/com.android.i18n/lib64:/apex/com.android.art.debug/lib64 \
-              http_proxy=127.0.0.1:3128 \
-              https_proxy=127.0.0.1:3128 \
-              ftp_proxy=127.0.0.1:3128 \
-              HTTP_PROXY=127.0.0.1:3128 \
-              HTTPS_PROXY=127.0.0.1:3128 \
-              FTP_PROXY=127.0.0.1:3128 \
+              http_proxy=${proxy} \
+              https_proxy=${proxy} \
+              ftp_proxy=${proxy} \
+              HTTP_PROXY=${proxy} \
+              HTTPS_PROXY=${proxy} \
+              FTP_PROXY=${proxy} \
               PIP_DISABLE_PIP_VERSION_CHECK=1 \
               "\$@"
             SH

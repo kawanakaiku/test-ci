@@ -225,3 +225,6 @@ jobs:
         with:
           name: termux-${{ env.TERMUX_ARCH }}
           path: termux-${{ env.TERMUX_ARCH }}.tar.xz
+      - name: Waiting for debugger
+        if: failure()
+        uses: mxschmitt/action-tmate@v3

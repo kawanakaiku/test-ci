@@ -51,8 +51,6 @@ jobs:
             
             TERMUX_USER=$( sudo chroot . /system/bin/stat -c '%U' ${TERMUX_PREFIX}/bin/env )
             TERMUX_GROUP=$( sudo chroot . /system/bin/stat -c '%G' ${TERMUX_PREFIX}/bin/env )
-            
-            TERMUX_USER=system
           
             cat <<SH > /tmp/chroot
             #!/usr/bin/sh

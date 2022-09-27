@@ -41,6 +41,7 @@ jobs:
       - name: extract apex
         run: |
           cd system/system/apex
+          ls
           rm *.capex
           mkfifo apex_payload.img
           for APEX in *.apex; do

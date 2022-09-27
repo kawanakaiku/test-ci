@@ -51,6 +51,8 @@ jobs:
             
             TERMUX_USER=$( sudo chroot . /system/bin/stat -c '%U' ${TERMUX_PREFIX}/bin/env )
             TERMUX_GROUP=$( sudo chroot . /system/bin/stat -c '%G' ${TERMUX_PREFIX}/bin/env )
+            
+            TERMUX_USER=system
           
             cat <<SH > /tmp/chroot
             #!/usr/bin/sh
@@ -63,6 +65,9 @@ jobs:
               TMPDIR=${TERMUX_PREFIX}/tmp \
               LANG=en_US.UTF-8 \
               LD_LIBRARY_PATH=/apex/com.android.i18n/lib64 \
+              HTTP_PROXY=127.0.0.1:3128 \
+              HTTPS_PROXY=127.0.0.1:3128 \
+              FTP_PROXY=127.0.0.1:3128 \
               PIP_DISABLE_PIP_VERSION_CHECK=1 \
               "\$@"
             SH
@@ -70,6 +75,7 @@ jobs:
       - run:
           name: termux apt
           command: |
+            exit
             /tmp/chroot bash <<BASH
             apt-get update
             apt-get upgrade -y build-essential jq termux-exec python gnupg file git wget curl ndk-sysroot ninja nodejs rust
@@ -82,6 +88,7 @@ jobs:
           name: build
           command: |
             timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash <<CHROOT || true
+            squid
             cd /termux-packages
             export LD_PRELOAD=\${PREFIX}/lib/libtermux-exec.so
             

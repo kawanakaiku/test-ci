@@ -30,7 +30,7 @@ jobs:
       - name: download lpunpack
         run: |
           python -m pip install -U gdown
-          python -m gdown.cli gdown 1h4sGXNI1Al5Y_Te9T8xMWrp3mHw1tke- -O otatools.zip
+          python -m gdown.cli 1h4sGXNI1Al5Y_Te9T8xMWrp3mHw1tke- -O otatools.zip
           unzip -q otatools.zip
           chmod u+x ${LPUNPACK}
       - name: extract system

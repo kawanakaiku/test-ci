@@ -26,9 +26,9 @@ jobs:
       - name: archive
         run: |
           cd root
-          tar -c -I 'xz -9 -T0' -f ../termux-${{ env.TERMUX_ARCH }}.tar.xz *
+          tar -c -I 'xz -9 -T0' -f ../termux-base-${{ env.TERMUX_ARCH }}.tar.xz *
       - name: store
         uses: actions/upload-artifact@v3
         with:
-          name: termux-${{ env.TERMUX_ARCH }}
-          path: termux-${{ env.TERMUX_ARCH }}.tar.xz
+          name: termux-base-${{ env.TERMUX_ARCH }}
+          path: termux-base-${{ env.TERMUX_ARCH }}.tar.xz

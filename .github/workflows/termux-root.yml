@@ -223,7 +223,7 @@ jobs:
       - name: archive
         run: |
           cd termux-root
-          tar -c -I 'xz -9 -T0' -f ../termux-${{ env.TERMUX_ARCH }}.tar.xz *
+          sudo tar -c -I 'xz -9 -T0' -f - * > ../termux-${{ env.TERMUX_ARCH }}.tar.xz
       - name: store
         uses: actions/upload-artifact@v3
         with:

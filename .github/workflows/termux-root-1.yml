@@ -57,9 +57,9 @@ jobs:
           ln -s /system/apex apex
       - name: archive
         run: |
-          tar -c -I 'xz -9 -T0' -f ../system.tar.xz system
+          tar -c -I 'xz -9 -T0' -f system.tar.xz system
       - name: store
         uses: actions/upload-artifact@v3
         with:
-          name: ${TERMUX_ARCH}-${VERSION}
+          name: system-${TERMUX_ARCH}-${VERSION}
           path: system.tar.xz

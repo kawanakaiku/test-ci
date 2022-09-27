@@ -47,7 +47,7 @@ jobs:
           for APEX in *.apex; do
             NAME=${APEX%.*}
             7z x apex_payload.img -o${NAME} &
-            7z e ${APEX} apex_payload.img
+            7z e -aoa ${APEX} apex_payload.img
           done
           rm *.apex apex_payload.img
       - name: link

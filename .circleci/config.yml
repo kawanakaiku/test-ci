@@ -70,6 +70,7 @@ jobs:
               HTTP_PROXY=${proxy} \
               HTTPS_PROXY=${proxy} \
               FTP_PROXY=${proxy} \
+              JAVA_HOME=${TERMUX_PREFIX}/opt/openjdk \
               PIP_DISABLE_PIP_VERSION_CHECK=1 \
               "\$@"
             SH

@@ -9,14 +9,14 @@ env:
   TERMUX_PREFIX: /data/data/com.termux/files/usr
   TERMUX_HOME: /data/data/com.termux/files/home
   TERMUX_ARCH: aarch64
-  VERSION: 24_r07
+  VERSION: 30_r01
   PIP_DISABLE_PIP_VERSION_CHECK: 1
 jobs:
   get_system:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        TERMUX_ARCH: [aarch64, arm, i686, x86_64]
+        TERMUX_ARCH: [aarch64, i686, x86_64]
     env:
       LPUNPACK: otatools/bin/lpunpack
       TERMUX_ARCH: ${{ matrix.TERMUX_ARCH }}
@@ -92,7 +92,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        TERMUX_ARCH: [aarch64, arm, i686, x86_64]
+        TERMUX_ARCH: [aarch64, i686, x86_64]
     env:
       TERMUX_ARCH: ${{ matrix.TERMUX_ARCH }}
     steps:
@@ -133,7 +133,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        TERMUX_ARCH: [aarch64, arm, i686, x86_64]
+        TERMUX_ARCH: [aarch64, i686, x86_64]
     env:
       TERMUX_ARCH: ${{ matrix.TERMUX_ARCH }}
     steps:
@@ -164,7 +164,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        TERMUX_ARCH: [aarch64, arm, i686, x86_64]
+        TERMUX_ARCH: [aarch64, i686, x86_64]
     env:
       TERMUX_ARCH: ${{ matrix.TERMUX_ARCH }}
     steps:

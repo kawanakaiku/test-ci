@@ -1,5 +1,7 @@
 #/usr/bin/bash
 
+set -eu
+
 TERMUX_PREFIX=${TERMUX_PREFIX:-/data/data/com.termux/files/usr}
 TERMUX_HOME=${TERMUX_HOME:-/data/data/com.termux/files/home}
 TERMUX_ARCH=${TERMUX_ARCH:-aarch64}
@@ -14,7 +16,7 @@ run_wait() {(
     pids+=" $!"
   done
   for pid in ${pids[*]}; do
-    wait $pid
+    wait $pid || exit 1
   done
 )}
 

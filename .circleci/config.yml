@@ -63,7 +63,11 @@ jobs:
               PREFIX=${TERMUX_PREFIX} \
               TMPDIR=${TERMUX_PREFIX}/tmp \
               LANG=en_US.UTF-8 \
-              LD_LIBRARY_PATH=/apex/com.android.i18n/lib64:/apex/com.android.art.debug/lib64 \
+              ANDROID_ROOT=/system \
+              ANDROID_DATA=/data \
+              ANDROID_ART_ROOT=/apex/com.android.art \
+              ANDROID_I18N_ROOT=/apex/com.android.i18n \
+              ANDROID_TZDATA_ROOT=/apex/com.android.tzdata \
               http_proxy=${proxy} \
               https_proxy=${proxy} \
               ftp_proxy=${proxy} \
@@ -90,7 +94,7 @@ jobs:
       - run:
           name: build
           command: |
-            timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash <<CHROOT || true
+            timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash --rcfile ${TERMUX_PREFIX}/etc/profile <<CHROOT || true
             squid
             cd /termux-packages
             export LD_PRELOAD=\${PREFIX}/lib/libtermux-exec.so

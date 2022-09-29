@@ -8,7 +8,7 @@ VERSION=${VERSION:-30_r01}
 run_wait() {(
   pids=
   for func do
-    log() { echo "$func: $*"; }
+    log() { echo "$0: $func: $*"; }
     echo "running $func..."
     "$func" &
     pids+=" $!"
@@ -119,7 +119,7 @@ merge_dirs() {
   log "install termux"
   cd termux-root
   install -d -m 700 data/data/com.termux/{files,cache}
-  mv usr home data/data/com.termux/files
+  mv ../usr ../home data/data/com.termux/files
 }
 
 install_pkgs() {

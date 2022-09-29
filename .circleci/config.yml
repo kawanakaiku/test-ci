@@ -90,7 +90,7 @@ jobs:
       - run:
           name: clone
           command: |
-            git clone --depth=1 --branch=main https://github.com/kawanakaiku/termux-packages.git termux-root/termux-packages
+            git clone --depth=1 --branch=master https://github.com/kawanakaiku/termux-packages.git termux-root/termux-packages
       - run:
           name: build
           command: |

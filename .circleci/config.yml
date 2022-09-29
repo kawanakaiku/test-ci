@@ -98,6 +98,7 @@ jobs:
             squid
             cd /termux-packages
             export LD_PRELOAD=\${PREFIX}/lib/libtermux-exec.so
+            export LD_LIBRARY_PATH=$( printf ':%s' /apex/*/lib* | tail -c+2 )
             
             # /data/data/com.termux/files/usr/include/linux/types.h:21:10: fatal error: 'asm/types.h' file not found
             #ln -sf /data/data/com.termux/files/usr/include/aarch64-linux-android/asm /data/data/com.termux/files/usr/include

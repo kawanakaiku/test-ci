@@ -9,7 +9,7 @@ env:
   TERMUX_PREFIX: /data/data/com.termux/files/usr
   TERMUX_HOME: /data/data/com.termux/files/home
   TERMUX_ARCH: aarch64
-  VERSION: 30_r01
+  VERSION: 25_r18
   PIP_DISABLE_PIP_VERSION_CHECK: 1
 jobs:
   get_system:

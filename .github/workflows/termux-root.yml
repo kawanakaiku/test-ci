@@ -18,7 +18,7 @@ jobs:
       LPUNPACK: otatools/bin/lpunpack
     strategy:
       matrix:
-        target_arch: [aarch64, arm, i686, x86_64]
+        TERMUX_ARCH: [aarch64, arm, i686, x86_64]
     steps:
       - name: download system.img
         run: |
@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        target_arch: [aarch64, arm, i686, x86_64]
+        TERMUX_ARCH: [aarch64, arm, i686, x86_64]
     steps:
       - name: download bootstrap
         run: |
@@ -130,7 +130,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        target_arch: [aarch64, arm, i686, x86_64]
+        TERMUX_ARCH: [aarch64, arm, i686, x86_64]
     steps:
       - uses: actions/download-artifact@v3
         with:
@@ -159,7 +159,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        target_arch: [aarch64, arm, i686, x86_64]
+        TERMUX_ARCH: [aarch64, arm, i686, x86_64]
     steps:
       - uses: actions/download-artifact@v3
         with:

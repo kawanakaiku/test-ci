@@ -22,7 +22,7 @@ jobs:
 
       - name: archive
         run: |
-          tar xf build.tar $( find -name '*.apk' )
+          tar cf build.tar $( find -name '*.apk' )
           
       - name: store
         uses: actions/upload-artifact@v3

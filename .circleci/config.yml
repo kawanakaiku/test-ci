@@ -90,7 +90,7 @@ jobs:
       - run:
           name: clone
           command: |
-            git clone --depth=1 --branch=kawanakaiku-bazel https://github.com/kawanakaiku/termux-packages.git termux-root/termux-packages
+            git clone --depth=1 --branch=main https://github.com/kawanakaiku/termux-packages.git termux-root/termux-packages
       - run:
           name: build
           command: |
@@ -116,7 +116,8 @@ jobs:
             #bash ./build-package.sh -I code-server
             #bash ./build-package.sh -I libpeas midori
             #bash ./build-package.sh -I thundirbird
-            bash ./build-package.sh -I bazel
+            #bash ./build-package.sh -I bazel
+            bash ./build-package.sh -I htop
             CHROOT
       - run:
           name: archive build

@@ -16,6 +16,9 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       LPUNPACK: otatools/bin/lpunpack
+    strategy:
+      matrix:
+        target_arch: [aarch64, arm, i686, x86_64]
     steps:
       - name: download system.img
         run: |
@@ -86,6 +89,9 @@ jobs:
           path: system-${{ env.TERMUX_ARCH }}-${{ env.VERSION }}.tar.xz
   get_bootstrap:
     runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        target_arch: [aarch64, arm, i686, x86_64]
     steps:
       - name: download bootstrap
         run: |
@@ -122,6 +128,9 @@ jobs:
   merge_dirs:
     needs: [get_system, get_bootstrap]
     runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        target_arch: [aarch64, arm, i686, x86_64]
     steps:
       - uses: actions/download-artifact@v3
         with:
@@ -148,6 +157,9 @@ jobs:
   install_pkgs:
     needs: [merge_dirs]
     runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        target_arch: [aarch64, arm, i686, x86_64]
     steps:
       - uses: actions/download-artifact@v3
         with:

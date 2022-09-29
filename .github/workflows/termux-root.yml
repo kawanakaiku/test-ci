@@ -9,14 +9,14 @@ env:
   TERMUX_PREFIX: /data/data/com.termux/files/usr
   TERMUX_HOME: /data/data/com.termux/files/home
   TERMUX_ARCH: aarch64
-  VERSION: 29_r08
+  VERSION: 31
   PIP_DISABLE_PIP_VERSION_CHECK: 1
 jobs:
   get_system:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        TERMUX_ARCH: [aarch64, i686, x86_64]
+        TERMUX_ARCH: [aarch64, x86_64]
     env:
       LPUNPACK: otatools/bin/lpunpack
       TERMUX_ARCH: ${{ matrix.TERMUX_ARCH }}
@@ -31,7 +31,8 @@ jobs:
               x86_64) echo x86_64;;
             esac
           )
-          wget -nv https://dl.google.com/android/repository/sys-img/android/${ABI}-${VERSION}.zip -O system.zip
+          FILE=$( curl -s https://dl.google.com/android/repository/sys-img/android/sys-img2-1.xml | grep -Po "${ABI}-${VERSION}.*\.zip" | head -n1 )
+          wget -nv https://dl.google.com/android/repository/sys-img/android/${FILE} -O system.zip
           7z e system.zip ${ABI}/system.img
           7z e system.img super.img
       - name: download lpunpack
@@ -92,7 +93,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        TERMUX_ARCH: [aarch64, i686, x86_64]
+        TERMUX_ARCH: [aarch64, x86_64]
     env:
       TERMUX_ARCH: ${{ matrix.TERMUX_ARCH }}
     steps:
@@ -133,7 +134,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        TERMUX_ARCH: [aarch64, i686, x86_64]
+        TERMUX_ARCH: [aarch64, x86_64]
     env:
       TERMUX_ARCH: ${{ matrix.TERMUX_ARCH }}
     steps:
@@ -164,7 +165,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        TERMUX_ARCH: [aarch64, i686, x86_64]
+        TERMUX_ARCH: [aarch64, x86_64]
     env:
       TERMUX_ARCH: ${{ matrix.TERMUX_ARCH }}
     steps:

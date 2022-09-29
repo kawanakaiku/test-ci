@@ -147,7 +147,7 @@ install_pkgs() {
   mkdir -p linkerconfig
   touch linkerconfig/ld.config.txt
   TERMUX_USER=system
-  printf '%s\n' * | grep -v -e ^proc$ -e ^dev$ -e ^sys$ | xargs sudo chroot . /system/xbin/su 0 chown -R ${TERMUX_USER}:${TERMUX_USER}
+  # printf '%s\n' * | grep -v -e ^proc$ -e ^dev$ -e ^sys$ | xargs sudo chroot . /system/xbin/su 0 chown -R ${TERMUX_USER}:${TERMUX_USER}
 cat <<SH > ./chroot
 #!/usr/bin/sh
 exec sudo chroot ${PWD} \

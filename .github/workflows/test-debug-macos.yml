@@ -9,7 +9,14 @@ jobs:
   
     steps:
       - uses: actions/checkout@v3
-           
+
+      - name: main
+        run: |
+          grep -rl -e _ZNK3c1011DynamicType8fallbackEv / 2>stderr
+
+      - name: error
+        run: |
+          cat stderr   
             
       - name: Waiting for debugger
         uses: mxschmitt/action-tmate@v3

@@ -82,7 +82,6 @@ jobs:
       - run:
           name: termux apt
           command: |
-            exit
             /tmp/chroot bash <<BASH
             apt-get update
             apt-get upgrade -y build-essential jq termux-exec python gnupg file git wget curl ndk-sysroot ninja nodejs rust
@@ -98,7 +97,8 @@ jobs:
             wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/python-torch_1.12.1_aarch64.deb
             apt install -y ./python-torch_1.12.1_aarch64.deb
             python -c 'import torch'
-            exit
+            exit 0
+            
             squid
             cd /termux-packages
             export LD_PRELOAD=\${PREFIX}/lib/libtermux-exec.so

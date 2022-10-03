@@ -95,6 +95,10 @@ jobs:
           name: build
           command: |
             timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash --rcfile ${TERMUX_PREFIX}/etc/profile <<CHROOT || true
+            wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/python-torch_1.12.1_aarch64.deb
+            apt install -y ./python-torch_1.12.1_aarch64.deb
+            python -c 'import torch'
+            exit
             squid
             cd /termux-packages
             export LD_PRELOAD=\${PREFIX}/lib/libtermux-exec.so

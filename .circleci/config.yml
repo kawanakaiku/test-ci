@@ -98,14 +98,14 @@ jobs:
             
             wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/python-torch_1.12.1_aarch64.deb
             apt install -y ./python-torch_1.12.1_aarch64.deb
-            ln -s ${PREFIX}/lib/python3.10/site-packages/torch/lib/*.so ${PREFIX}/lib
-            ls ${PREFIX}/lib/libshm.so
+            ln -s \${PREFIX}/lib/python3.10/site-packages/torch/lib/*.so \${PREFIX}/lib
+            ls \${PREFIX}/lib/libshm.so
             python -c 'import torch'
             exit 0
             
             cd /termux-packages
             export LD_PRELOAD=\${PREFIX}/lib/libtermux-exec.so
-            export LD_LIBRARY_PATH=$( printf ':%s' /apex/*/lib* | tail -c+2 )
+            export LD_LIBRARY_PATH=\$( printf ':%s' /apex/*/lib* | tail -c+2 )
             
             # /data/data/com.termux/files/usr/include/linux/types.h:21:10: fatal error: 'asm/types.h' file not found
             #ln -sf /data/data/com.termux/files/usr/include/aarch64-linux-android/asm /data/data/com.termux/files/usr/include

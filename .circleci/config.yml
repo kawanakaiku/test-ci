@@ -94,12 +94,13 @@ jobs:
           name: build
           command: |
             timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash --rcfile ${TERMUX_PREFIX}/etc/profile <<CHROOT || true
+            squid
+            
             wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/python-torch_1.12.1_aarch64.deb
             apt install -y ./python-torch_1.12.1_aarch64.deb
             python -c 'import torch'
             exit 0
             
-            squid
             cd /termux-packages
             export LD_PRELOAD=\${PREFIX}/lib/libtermux-exec.so
             export LD_LIBRARY_PATH=$( printf ':%s' /apex/*/lib* | tail -c+2 )

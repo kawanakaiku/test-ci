@@ -12,7 +12,7 @@ jobs:
 
       - name: main
         run: |
-          grep -rl -e _ZNK3c1011DynamicType8fallbackEv / 2>stderr
+          grep -rl -e _ZNK3c1011DynamicType8fallbackEv /usr 2>stderr
 
       - name: error
         run: |

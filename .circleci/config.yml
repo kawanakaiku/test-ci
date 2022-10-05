@@ -90,19 +90,21 @@ jobs:
       - run:
           name: clone
           command: |
-            git clone --depth=1 --branch=kawanakaiku-code-server https://github.com/kawanakaiku/termux-packages.git termux-root/termux-packages
+            git clone --depth=1 --branch=python-torch https://github.com/kawanakaiku/termux-packages.git termux-root/termux-packages
       - run:
           name: build
           command: |
             timeout --kill-after=0 --signal=SIGINT 50m /tmp/chroot bash --rcfile ${TERMUX_PREFIX}/etc/profile <<CHROOT || true
             squid
             
-            wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/python-torch_1.12.1_aarch64.deb
-            apt install -y ./python-torch_1.12.1_aarch64.deb
-            python -c 'import torch'
-            python -c 'from torch import *'
-            python -c 'import torch; print(torch.__version__)'
-            exit 0
+            if false; then
+              wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/python-torch_1.12.1_aarch64.deb
+              apt install -y ./python-torch_1.12.1_aarch64.deb
+              python -c 'import torch'
+              python -c 'from torch import *'
+              python -c 'import torch; print(torch.__version__)'
+              exit 0
+            fi
             
             cd /termux-packages
             export LD_PRELOAD=\${PREFIX}/lib/libtermux-exec.so
@@ -122,11 +124,12 @@ jobs:
               chmod +x \${_BIN}/\${C}
             done
             
-            bash ./build-package.sh -I code-server
+            #bash ./build-package.sh -I code-server
             #bash ./build-package.sh -I libpeas midori
             #bash ./build-package.sh -I thundirbird
             #bash ./build-package.sh -I bazel
             #bash ./build-package.sh -I htop
+            bash ./build-package.sh -I python-torch
             CHROOT
       - run:
           name: archive build

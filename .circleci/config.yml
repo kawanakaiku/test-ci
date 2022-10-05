@@ -99,9 +99,9 @@ jobs:
             
             wget -nv https://github.com/kawanakaiku/test-ci/releases/download/chroot-termux/python-torch_1.12.1_aarch64.deb
             apt install -y ./python-torch_1.12.1_aarch64.deb
-            ln -s \${PREFIX}/lib/python3.10/site-packages/torch/lib/*.so \${PREFIX}/lib
-            ls \${PREFIX}/lib/libshm.so
             python -c 'import torch'
+            python -c 'from torch import *'
+            python -c 'import torch; print(torch.__version__)'
             exit 0
             
             cd /termux-packages

@@ -83,8 +83,9 @@ jobs:
           name: termux apt
           command: |
             /tmp/chroot bash <<BASH
-            exit
             apt-get update
+            apt-get install -y python-numpy
+            exit
             apt-get upgrade -y build-essential jq termux-exec python gnupg file git wget curl ndk-sysroot ninja nodejs rust
             BASH
       - run:

@@ -11,7 +11,7 @@ jobs:
           echo -e '#!/bin/sh\nexit 0' | sudo tee /usr/sbin/policy-rc.d >/dev/null
 
           git clone https://github.com/termux/termux-packages.git
-          timeout bash termux-packages/scripts/run-docker.sh bash -c '
+          bash termux-packages/scripts/run-docker.sh bash -c '
           sudo apt update
           sudo apt install -y icecc
           iceccd -s ${{ secrets.MY_IP }}

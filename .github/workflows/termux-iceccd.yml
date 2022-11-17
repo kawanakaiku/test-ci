@@ -12,7 +12,7 @@ jobs:
           bash termux-packages/scripts/run-docker.sh bash -c '
 
           # invoke-rc.d: policy-rc.d denied execution of start.
-          echo -e '#!/bin/sh\nexit 0' | sudo tee /usr/sbin/policy-rc.d >/dev/null
+          echo -e "#!/bin/sh\nexit 0" | sudo tee /usr/sbin/policy-rc.d >/dev/null
 
           # install icecc
           sudo apt update

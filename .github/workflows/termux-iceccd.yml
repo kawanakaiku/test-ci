@@ -19,5 +19,5 @@ jobs:
           sudo apt install -y icecc
 
           # start daemon
-          iceccd -s ${{ secrets.MY_IP }}
+          iceccd -vvv -s ${{ secrets.MY_IP }}
           '

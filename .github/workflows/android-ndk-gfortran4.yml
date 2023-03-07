@@ -9,7 +9,7 @@ on:
     
 env:
   BUILD_TS_FILE: /tmp/ts_file
-  NDK_VERSION: 25
+  NDK_VERSION: 25c
   
 jobs:
   build:

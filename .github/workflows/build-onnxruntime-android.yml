@@ -34,14 +34,13 @@ jobs:
         run: |
           mkdir ${GITHUB_WORKSPACE}/build
           cd ${GITHUB_WORKSPACE}/build
+          ln -sf ${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android-{clang,gcc}
+          ln -sf ${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android-{clang++,g++}
           cmake -GNinja \
             -DCMAKE_SYSTEM_NAME=Android \
             -DCMAKE_SYSTEM_VERSION=24 \
             -DCMAKE_SYSTEM_PROCESSOR=${ARCH} \
             -DCMAKE_ANDROID_STANDALONE_TOOLCHAIN=${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64 \
-            -DCMAKE_C_COMPILER=${ARCH}-linux-android24-clang \
-            -DCMAKE_CXX_COMPILER=${ARCH}-linux-android24-clang++ \
-            -DCMAKE_ASM_COMPILER=${ARCH}-linux-android24-clang \
             -DCMAKE_MAKE_PROGRAM=ninja \
             -DONNX_CUSTOM_PROTOC_EXECUTABLE=${GITHUB_WORKSPACE}/host-protoc/protoc \
             -Donnxruntime_RUN_ONNX_TESTS=OFF \

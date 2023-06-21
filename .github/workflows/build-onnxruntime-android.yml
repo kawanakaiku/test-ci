@@ -139,4 +139,4 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: libonnxruntime.so_${{ env.ARCH }}
-          path: ${GITHUB_WORKSPACE}/build/libonnxruntime.so
+          path: ${{ github.workspace }}/build/libonnxruntime.so

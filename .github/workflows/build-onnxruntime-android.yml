@@ -43,8 +43,7 @@ jobs:
           mkdir ${GITHUB_WORKSPACE}/build
           cd ${GITHUB_WORKSPACE}/build
           ANDROID_STANDALONE_TOOLCHAIN=${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64
-          ln -sf ${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android-{clang,gcc}
-          ln -sf ${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android-{clang++,g++}
+          CFLAGS="-Ofast"
           cmake -GNinja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CROSSCOMPILING=True \
@@ -55,6 +54,8 @@ jobs:
             -DCMAKE_SYSTEM_PROCESSOR=${ARCH} \
             -DCMAKE_ANDROID_STANDALONE_TOOLCHAIN=${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64 \
             -DCMAKE_MAKE_PROGRAM=ninja \
+            -DCMAKE_C_FLAGS="$CFLAGS" \
+            -DCMAKE_CXX_FLAGS="$CFLAGS" \
             -DONNX_CUSTOM_PROTOC_EXECUTABLE=${GITHUB_WORKSPACE}/host-protoc/bin/protoc \
             -Donnxruntime_RUN_ONNX_TESTS=OFF \
             -Donnxruntime_GENERATE_TEST_REPORTS=OFF \
@@ -135,5 +136,7 @@ jobs:
             ${GITHUB_WORKSPACE}/src/cmake
           ninja
       - name: Store Artifact
-        run: |
-          find ${GITHUB_WORKSPACE}/build -name "*.so*"
+        uses: actions/upload-artifact@v3
+        with:
+          name: libonnxruntime.so_${{ env.ARCH }}
+          path: ${GITHUB_WORKSPACE}/build/libonnxruntime.so

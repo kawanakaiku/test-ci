@@ -51,6 +51,7 @@ jobs:
             -DCMAKE_SYSTEM_VERSION=24 \
             -DCMAKE_SYSTEM_PROCESSOR=${ARCH} \
             -DCMAKE_ANDROID_STANDALONE_TOOLCHAIN=${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64 \
+            -D_ANDROID_TOOL_C_COMPILER=${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android-clang \
             -DCMAKE_MAKE_PROGRAM=ninja \
             -DONNX_CUSTOM_PROTOC_EXECUTABLE=${GITHUB_WORKSPACE}/host-protoc/bin/protoc \
             -Donnxruntime_RUN_ONNX_TESTS=OFF \

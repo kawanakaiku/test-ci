@@ -13,7 +13,7 @@ env:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Get source code
         run: |
@@ -36,7 +36,7 @@ jobs:
           cmake -GNinja \
             -DCMAKE_SYSTEM_NAME=Android \
             -DCMAKE_SYSTEM_PROCESSOR=${ARCH} \
-            -DCMAKE_ANDROID_STANDALONE_TOOLCHAIN=${ANDROID_NDK}/toolchains/llvm/prebuilt/darwin-x86_64 \
+            -DCMAKE_ANDROID_STANDALONE_TOOLCHAIN=${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64 \
             -DONNX_CUSTOM_PROTOC_EXECUTABLE=${GITHUB_WORKSPACE}/host-protoc/protoc \
             -Donnxruntime_RUN_ONNX_TESTS=OFF \
             -Donnxruntime_GENERATE_TEST_REPORTS=OFF \

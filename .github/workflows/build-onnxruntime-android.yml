@@ -49,6 +49,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CROSSCOMPILING=True \
             -DCMAKE_LINKER=${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld \
+            -DCMAKE_ANDROID_NDK=${ANDROID_NDK} \
             -DCMAKE_SYSTEM_NAME=Android \
             -DCMAKE_SYSTEM_VERSION=24 \
             -DCMAKE_SYSTEM_PROCESSOR=${ARCH} \

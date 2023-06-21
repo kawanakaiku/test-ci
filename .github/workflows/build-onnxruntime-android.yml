@@ -16,7 +16,7 @@ jobs:
     steps:
       - name: Get source code
         run: |
-          git clone --depth=1 --branch=v${ONNX_VERSION} https://github.com/microsoft/onnxruntime ${GITHUB_WORKSPACE}/src
+          git clone --depth=1 --recurse-submodules --branch=v${ONNX_VERSION} https://github.com/microsoft/onnxruntime ${GITHUB_WORKSPACE}/src
       - name: Build Host Protoc
         run: |
           mkdir ${GITHUB_WORKSPACE}/host-protoc

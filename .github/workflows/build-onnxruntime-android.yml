@@ -17,6 +17,7 @@ jobs:
       - name: Get source code
         run: |
           git clone --depth=1 --recurse-submodules --branch=v${ONNX_VERSION} https://github.com/microsoft/onnxruntime ${GITHUB_WORKSPACE}/src
+      - uses: seanmiddleditch/gha-setup-ninja@master
       - name: Build Host Protoc
         run: |
           mkdir ${GITHUB_WORKSPACE}/host-protoc

@@ -1,0 +1,23 @@
+name: build-onnxruntime-android
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/build-onnxruntime-android.yml"
+  workflow_dispatch:
+
+env:
+  ONNX_VERSION: "1.14.1"
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Test
+        run: |
+          echo $ANDROID_NDK
+          find $ANDROID_NDK -type f
+      - name: Get source code
+        run: |
+          git clone --depth=1 --branch=v${ONNX_VERSION} https://github.com/microsoft/onnxruntime

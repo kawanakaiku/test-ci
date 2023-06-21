@@ -37,6 +37,7 @@ jobs:
           ln -sf ${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android-{clang,gcc}
           ln -sf ${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/${ARCH}-linux-android-{clang++,g++}
           cmake -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_SYSTEM_NAME=Android \
             -DCMAKE_SYSTEM_VERSION=24 \
             -DCMAKE_SYSTEM_PROCESSOR=${ARCH} \

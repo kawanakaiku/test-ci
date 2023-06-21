@@ -18,19 +18,28 @@ jobs:
       - name: Get source code
         run: |
           git clone --depth=1 --recurse-submodules --branch=v${ONNX_VERSION} https://github.com/microsoft/onnxruntime ${GITHUB_WORKSPACE}/src
+      - uses: actions/cache@v3
+        id: cache-protoc
+        with:
+          path: ${{ github.workspace }}/host-protoc
+          key: onnx_protoc_${{ env.ONNX_VERSION }}
       - uses: seanmiddleditch/gha-setup-ninja@master
-      - name: Build Host Protoc
+      - if: ${{ steps.cache-protoc.outputs.cache-hit != 'true' }}
+        name: Build Host Protoc
         run: |
-          mkdir ${GITHUB_WORKSPACE}/host-protoc
-          cd ${GITHUB_WORKSPACE}/host-protoc
+          mkdir ${GITHUB_WORKSPACE}/host-{protoc,build}
+          cd ${GITHUB_WORKSPACE}/host-build
           cmake -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=${GITHUB_WORKSPACE}/host-protoc \
             -Dprotobuf_BUILD_TESTS=OFF \
             -Dprotobuf_WITH_ZLIB_DEFAULT=OFF \
             -Dprotobuf_BUILD_SHARED_LIBS=OFF \
             ${GITHUB_WORKSPACE}/src/cmake/external/protobuf/cmake
           ninja
-      - uses: seanmiddleditch/gha-setup-ninja@master
-      - name: Build Onnxruntime
+          ninja install
+      - if: ${{ steps.cache-protoc.outputs.cache-hit != 'true' }}
+        name: Build Onnxruntime
         run: |
           mkdir ${GITHUB_WORKSPACE}/build
           cd ${GITHUB_WORKSPACE}/build
@@ -44,7 +53,7 @@ jobs:
             -DCMAKE_SYSTEM_PROCESSOR=${ARCH} \
             -DCMAKE_ANDROID_STANDALONE_TOOLCHAIN=${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64 \
             -DCMAKE_MAKE_PROGRAM=ninja \
-            -DONNX_CUSTOM_PROTOC_EXECUTABLE=${GITHUB_WORKSPACE}/host-protoc/protoc \
+            -DONNX_CUSTOM_PROTOC_EXECUTABLE=${GITHUB_WORKSPACE}/host-protoc/bin/protoc \
             -Donnxruntime_RUN_ONNX_TESTS=OFF \
             -Donnxruntime_GENERATE_TEST_REPORTS=OFF \
             -Donnxruntime_USE_MIMALLOC=OFF \

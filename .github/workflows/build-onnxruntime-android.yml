@@ -21,17 +21,17 @@ jobs:
         run: |
           mkdir ${GITHUB_WORKSPACE}/host-protoc
           cd ${GITHUB_WORKSPACE}/host-protoc
-          cmake \
+          cmake -GNinja \
             -Dprotobuf_BUILD_TESTS=OFF \
             -Dprotobuf_WITH_ZLIB_DEFAULT=OFF \
             -Dprotobuf_BUILD_SHARED_LIBS=OFF \
             ${GITHUB_WORKSPACE}/src/cmake/external/protobuf/cmake
-          make -j
+          ninja
       - name: Build Onnxruntime
         run: |
           mkdir ${GITHUB_WORKSPACE}/build
           cd ${GITHUB_WORKSPACE}/build
-          cmake \
+          cmake -GNinja \
             -DONNX_CUSTOM_PROTOC_EXECUTABLE=${GITHUB_WORKSPACE}/host-protoc/protoc \
             -Donnxruntime_RUN_ONNX_TESTS=OFF \
             -Donnxruntime_GENERATE_TEST_REPORTS=OFF \
@@ -110,7 +110,7 @@ jobs:
             -Donnxruntime_BUILD_UNIT_TESTS=OFF \
             -Donnxruntime_BUILD_WINML_TESTS=OFF \
             ${GITHUB_WORKSPACE}/src/cmake
-          make -j
+          ninja
       - name: Store Artifact
         run: |
           find ${GITHUB_WORKSPACE}/build -name "*.so*"

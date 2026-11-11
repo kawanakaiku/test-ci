@@ -13,6 +13,8 @@
 | usbdevfs トランスポート | `USBDEVFS_BULK/CLEAR_HALT/CONTROL` で `BulkTransport` を実装 (`UsbDeviceConnection` の fd をそのまま使用)。引数不正・USB でない fd はエラーで安全に失敗 | PC: 失敗系のみ。**実機動作は未検証** |
 | Android 側 | `UsbMscSelector` (class 8 / subclass 6 / protocol 0x50 の bulk IN/OUT)、`UsbStorageSession` (権限要求 → claimInterface → 読み取り専用で open)、取り外しで公開中ボリュームと接続を即クローズ、UI (一覧・パーティション・NTFS 公開) | JVM 単体テスト (選択ロジック)、`assembleDebug` (arm64-v8a, x86_64)。実機未検証 |
 
+| Windows 製イメージ × 模擬 USB | Windows が作った MBR/512B と **USB 4Kn (4096B ブロック)** のイメージを模擬 BOT デバイス越しに読み、1020 ファイルの sha256 が一致 | PC (ASan/UBSan) |
+
 ## 設計上の判断 (理由つき)
 - **常に読み取り専用で開く**: `MscOptions.read_only` の既定は true、Kotlin も `readOnly=true` 固定。書き込みは NTFS 書き込みが検証されるまで有効化しない (要件 16-8)。
 - **UAS 非対応**: protocol 0x62 は選択しない。BOT のみ。UAS 専用デバイスは「見つからない」扱い。
@@ -24,6 +26,10 @@
 2. UAS、複数 LUN (LUN は引数で指定可能だが UI は LUN 0 固定)、メディア交換検知、スループット計測。
 3. **NTFS 書き込み** (iomap 書き込み・writeback・フォルダ作成/削除/名前変更・排他制御・クラッシュ時整合性) — Phase 3 の中心だが未着手。
 4. 再接続後のデータ整合性の検証 (Phase 3 完了条件)。
+
+## 書き込み検証に使えるもの
+`tools/winpe/` の WinPE 環境 (QEMU/KVM + `autounattend.xml`) は、**書き込み実装の独立検証**にも使える: 私たちのドライバが書いたイメージを WinPE で起動し、
+`chkdsk W:` (読み取り専用チェック) と `dir`/`fc` で Windows 自身に整合性を判定させる。`ntfs-3g`/`ntfsfix -n` に加えて第 2 の独立した検証者になる。
 
 ## 次の作業 (提案)
 1. 互換層に書き込み経路 (dirty folio / writeback / bio write / iomap write) を追加し、**イメージファイル上で** `ntfs-3g` / `ntfsfix -n` / `ntfsinfo` による独立検証と fuzz を通す。

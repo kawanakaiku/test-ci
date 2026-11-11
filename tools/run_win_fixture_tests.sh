@@ -13,4 +13,7 @@ done
 echo "== win_usb4kn (論理ブロック 4096)"
 USBMEM_IMG_BS=4096 "$T" --manifest "$D/win_usb4kn.img" "$D/manifest.txt" || rc=1
 USBMEM_IMG_BS=4096 "$T" --fuzz "$D" 200 7 win_usb4kn.img || rc=1
+echo "== 模擬 USB Mass Storage 経由 (4Kn は 4096B ブロック)"
+USBMEM_VIA_MSC=1 "$T" --manifest "$D/win_mbr.img" "$D/manifest.txt" || rc=1
+USBMEM_VIA_MSC=1 USBMEM_IMG_BS=4096 "$T" --manifest "$D/win_usb4kn.img" "$D/manifest.txt" || rc=1
 exit $rc

@@ -98,6 +98,15 @@ static usbmem::BlockDevicePtr open_ntfs_partition(const std::string& img, int nt
   const char* bse = std::getenv("USBMEM_IMG_BS");
   uint32_t bsz = bse ? (uint32_t)std::atoi(bse) : 512;
   if (!usbmem::RawImageDevice::open_path(img, true, bsz, &base).ok()) return nullptr;
+  if (std::getenv("USBMEM_VIA_MSC")) {  // 同じイメージを模擬 USB Mass Storage デバイス (ブロックサイズ bsz) 越しに読む
+    usbmem::BlockDevicePtr raw = base;
+    auto bot = std::make_unique<fake::BotDevice>(raw->size() / bsz, bsz);
+    bot->backing = [raw, bsz](uint64_t lba, uint8_t* out) { if (!raw->read_at(lba * bsz, out, bsz).ok()) std::memset(out, 0, bsz); };
+    usbmem::MscOptions mo; mo.retry_delay_ms = 1;
+    usbmem::BlockDevicePtr usb;
+    if (!usbmem::MscDevice::open(std::move(bot), mo, &usb).ok()) return nullptr;
+    base = usb;
+  }
   usbmem::PartitionTable pt;
   if (!usbmem::read_partition_table(*base, &pt).ok()) return nullptr;
   if (pt.whole_device_volume) return base;

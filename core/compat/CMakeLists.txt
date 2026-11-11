@@ -40,6 +40,10 @@ if(USBMEM_BUILD_TESTS)
   set_tests_properties(ntfs_gen_fixture PROPERTIES SKIP_RETURN_CODE 77 FIXTURES_SETUP ntfs_fixture)
   add_test(NAME ntfs_read COMMAND usbmem_ntfs_tests ${NTFS_FIX_DIR})
   set_tests_properties(ntfs_read PROPERTIES FIXTURES_REQUIRED ntfs_fixture)
+  # Windows (WinPE) が作ったイメージがあれば検証 (無ければ SKIP)。tools/winpe/make_windows_fixtures.sh で作る。
+  add_test(NAME ntfs_windows_images COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_win_fixture_tests.sh $<TARGET_FILE:usbmem_ntfs_tests>)
+  set_tests_properties(ntfs_windows_images PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900
+    ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
   add_test(NAME ntfs_fuzz COMMAND usbmem_ntfs_tests --fuzz ${NTFS_FIX_DIR} 150 1)
   set_tests_properties(ntfs_fuzz PROPERTIES FIXTURES_REQUIRED ntfs_fixture TIMEOUT 600
     # 失敗したマウントの後始末は inode 内部の確保物を解放しきれない (既知)。メモリ安全性 (UAF/OOB/ハング) の検査に集中する。

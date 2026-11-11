@@ -126,3 +126,29 @@ byteorder/min/max マクロだけ**で `gcc -fsyntax-only` した。残ったエ
 - 失敗したマウントの後始末: ページキャッシュ (folio) は解放するよう修正。**inode 内部の確保物 (MFT レコードのコピー、runlist) は失敗経路で残る** (解放には既に解放済みの vol が必要で、
   UAF になるため安全側で許容)。早期に失敗する非 NTFS データでは発生しない。
 - **未検証のまま**: Windows が作成した NTFS (この環境に Windows がない)、暗号化 (EFS)、reparse/WOF 圧縮、システムの Documents UI。
+
+### Windows が作成した NTFS での検証 (2026-11-11)
+Phase 2 完了条件の「Windows で作成した NTFS イメージとの検証」を実施。Win11 25H2 インストール ISO の **WinPE を QEMU/KVM で起動**し、`autounattend.xml` の
+`windowsPE` パス `RunSynchronous` から、同梱 CD のスクリプトを実行させて NTFS を作らせた (キー操作なし、約 100 秒/回)。ISO は同梱・配布しない。
+手順: `tools/winpe/make_windows_fixtures.sh <Win11.iso>` (`make_payload.py` が内容と期待値 (sha256) をホスト側で生成、`run_vm.py` が VM を起動)。
+
+| イメージ | 構成 |
+|---|---|
+| `win_mbr` | IDE、MBR、512B セクタ、4KiB クラスタ |
+| `win_gpt64k` | IDE、GPT、64KiB クラスタ |
+| `win_usb4kn` | **USB 接続 4Kn** (論理/物理セクタ 4096)、GPT、4KiB クラスタ |
+| `win_dirty` | `fsutil dirty set` でダーティフラグ付き (`$Volume` flags = 0x0181 を生イメージで確認) |
+
+内容 (全イメージ共通、1020 ファイル): 日本語名/ディレクトリ、254 文字の名前、空白・括弧入り名、5MiB+777B、**1000 件のディレクトリ**、
+**Windows 自身の LZNT1 圧縮** (`compact /c`: テキスト 5.3:1 / 非圧縮性 1:1 / 混在 4:1)、**WOF 圧縮 (xpress4k / 8k / 16k / lzx)**、
+10MiB 疎ファイル (`fsutil sparse`)、代替データストリーム (主ストリームを検証)、hidden/system/readonly 属性、シンボリックリンク・ジャンクション、削除済み MFT スロット。
+
+**結果: 4 イメージとも manifest 全件 (サイズ + sha256) が一致、失敗 0。** ASan/UBSan・リーク検出あり。さらに各イメージに fuzz (計 6000 回) を当て、crash/ハングなし。
+4Kn はデバイスの論理ブロックサイズを 512 / 4096 のどちらで開いても読めた。ダーティなボリュームも読み取り専用なら問題なくマウントできた。
+CTest `ntfs_windows_images` (イメージが無ければ SKIP)。
+
+観測した点:
+- `win_gpt64k` で `$MFT and $MFTMirr record 24 do not match` の警告。64KiB クラスタでは上流が `$MFTMirr` を 1 クラスタ分 (64 レコード) 比較するが、Windows が同期するのは
+  先頭 4 レコードだけで、後続は古い。**上流の偽陽性**で、読み取り専用では無害。書き込み有効化時に上流がこれを理由に読み取り専用へ落とす可能性があるので、Phase 3 の書き込みでは扱いを決める必要がある。
+- 圧縮ファイルのクラスタ数: Windows は圧縮ユニットに満たない部分を疎にする。読み出しは問題なし。
+- 未検証: EFS 暗号化 (WinPE では作れない)、BitLocker (Phase 4)、Windows が書き込み中に電源断した本物の「ログ未再生」ボリューム (ダーティフラグのみで $LogFile は静止状態)、巨大 (TB 級) ボリューム上の Windows 製データ。

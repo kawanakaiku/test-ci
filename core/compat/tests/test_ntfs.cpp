@@ -14,6 +14,7 @@
 #include "../../tests/fake_bot.h"
 #include "usbmem/devices.h"
 #include "usbmem/ntfs_volume.h"
+#include "usbmem/partition.h"
 
 static int g_fail = 0;
 #define CHECK(c) do { if (!(c)) { std::fprintf(stderr, "CHECK failed %s:%d: %s\n", __FILE__, __LINE__, #c); g_fail++; } } while (0)
@@ -91,10 +92,31 @@ static void walk(usbmem::NtfsVolume& v, uint64_t dir, int depth, int& budget) {
   }
 }
 
-// 使い方: usbmem_ntfs_tests --fuzz <fixture_dir> <iterations> <seed>
-static int fuzz(const std::string& dir, int iters, unsigned seed) {
+static usbmem::BlockDevicePtr open_ntfs_partition(const std::string& img, int nth) {
   usbmem::BlockDevicePtr base;
-  if (!usbmem::RawImageDevice::open_path(dir + "/ntfs_basic.img", true, 512, &base).ok()) return 2;
+  // 4Kn ディスクのイメージは USBMEM_IMG_BS=4096 を指定 (デバイスの論理ブロックサイズとして与える。実機では MscDevice が申告する)
+  const char* bse = std::getenv("USBMEM_IMG_BS");
+  uint32_t bsz = bse ? (uint32_t)std::atoi(bse) : 512;
+  if (!usbmem::RawImageDevice::open_path(img, true, bsz, &base).ok()) return nullptr;
+  usbmem::PartitionTable pt;
+  if (!usbmem::read_partition_table(*base, &pt).ok()) return nullptr;
+  if (pt.whole_device_volume) return base;
+  int k = 0;
+  for (auto& p : pt.partitions) {
+    if (p.fs != usbmem::FsType::Ntfs) continue;
+    if (k++ != nth) continue;
+    usbmem::BlockDevicePtr sub;
+    if (!usbmem::SubRangeDevice::create(base, p.start_bytes, p.size_bytes, true, &sub).ok()) return nullptr;
+    return sub;
+  }
+  return nullptr;
+}
+
+// 使い方: usbmem_ntfs_tests --fuzz <fixture_dir> <iterations> <seed>
+static int fuzz(const std::string& dir, int iters, unsigned seed, const std::string& image = "ntfs_basic.img") {
+  // image にパーティションテーブルがあれば最初の NTFS パーティション内だけを対象にする
+  usbmem::BlockDevicePtr base = open_ntfs_partition(dir + "/" + image, 0);
+  if (!base) return 2;
   uint64_t x = seed * 2654435761u + 1;
   auto rnd = [&]() { x ^= x << 13; x ^= x >> 7; x ^= x << 17; return x; };
   int mounted = 0;
@@ -128,6 +150,44 @@ static int fuzz(const std::string& dir, int iters, unsigned seed) {
   return 0;
 }
 
+// パーティションテーブル付きイメージ (Windows が作ったディスク等) から n 番目の NTFS パーティションを BlockDevice として得る。
+// 使い方: --manifest <image> <manifest> [n番目のNTFS]  manifest の全エントリを sha256 で検証する (追加の仮定なし)。
+static int verify_manifest(const std::string& img, const std::string& manifest, int nth) {
+  auto dev = open_ntfs_partition(img, nth);
+  if (!dev) { std::fprintf(stderr, "no NTFS partition #%d in %s\n", nth, img.c_str()); return 2; }
+  int err = 0;
+  auto vol = usbmem::NtfsVolume::mount(dev, &err);
+  if (!vol) { std::fprintf(stderr, "mount failed: errno %d\n", err); return 1; }
+  std::ifstream mf(manifest);
+  std::string line; int files = 0, fails = 0;
+  while (std::getline(mf, line)) {
+    std::istringstream is(line);
+    std::string kind, size, sha; is >> kind >> size >> sha; std::string path; std::getline(is >> std::ws, path);
+    uint64_t ino = 0; int rc = vol->resolve(path, &ino);
+    if (rc) { std::fprintf(stderr, "FAIL resolve %s -> %d\n", path.c_str(), rc); fails++; continue; }
+    usbmem::NtfsStat st; if (vol->stat(ino, &st)) { std::fprintf(stderr, "FAIL stat %s\n", path.c_str()); fails++; continue; }
+    if (kind == "d") { if (!st.is_dir()) { std::fprintf(stderr, "FAIL not dir %s\n", path.c_str()); fails++; } continue; }
+    Sha256 h; std::vector<uint8_t> buf(100000); uint64_t off = 0; bool bad = false;
+    for (;;) { int64_t n = vol->read(ino, off, buf.data(), buf.size()); if (n < 0) { std::fprintf(stderr, "FAIL read %s -> %lld\n", path.c_str(), (long long)n); bad = true; break; } if (!n) break; h.update(buf.data(), (size_t)n); off += (uint64_t)n; }
+    if (!bad && (off != std::stoull(size) || st.size != std::stoull(size) || h.hex() != sha)) { std::fprintf(stderr, "FAIL content %s (size %llu vs %s)\n", path.c_str(), (unsigned long long)off, size.c_str()); bad = true; }
+    if (bad) fails++; else files++;
+  }
+  std::fprintf(stderr, "manifest: %d files ok, %d failures\n", files, fails);
+  return fails ? 1 : 0;
+}
+
+// 使い方: --cat <image> <path> [n番目のNTFS]  ファイルの内容を stdout へ (診断用)
+static int cat_file(const std::string& img, const std::string& path, int nth) {
+  auto dev = open_ntfs_partition(img, nth);
+  if (!dev) return 2;
+  int err = 0; auto vol = usbmem::NtfsVolume::mount(dev, &err);
+  if (!vol) return 1;
+  uint64_t ino = 0; if (vol->resolve(path, &ino)) return 1;
+  std::vector<uint8_t> b(65536); uint64_t off = 0;
+  for (;;) { int64_t n = vol->read(ino, off, b.data(), b.size()); if (n <= 0) break; std::fwrite(b.data(), 1, (size_t)n, stdout); off += (uint64_t)n; }
+  return 0;
+}
+
 static int replay(const std::string& dir, const char* file) {
   usbmem::BlockDevicePtr base;
   if (!usbmem::RawImageDevice::open_path(dir + "/ntfs_basic.img", true, 512, &base).ok()) return 2;
@@ -142,8 +202,10 @@ static int replay(const std::string& dir, const char* file) {
 }
 
 int main(int argc, char** argv) {
+  if (argc >= 4 && std::string(argv[1]) == "--cat") return cat_file(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);
+  if (argc >= 4 && std::string(argv[1]) == "--manifest") return verify_manifest(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);
   if (argc >= 4 && std::string(argv[1]) == "--replay") return replay(argv[2], argv[3]);
-  if (argc >= 5 && std::string(argv[1]) == "--fuzz") return fuzz(argv[2], std::atoi(argv[3]), (unsigned)std::atoi(argv[4]));
+  if (argc >= 5 && std::string(argv[1]) == "--fuzz") return fuzz(argv[2], std::atoi(argv[3]), (unsigned)std::atoi(argv[4]), argc >= 6 ? argv[5] : "ntfs_basic.img");
   if (argc < 2) { std::fprintf(stderr, "usage: %s <fixture_dir>\n", argv[0]); return 2; }
   std::string dir = argv[1];
   usbmem::BlockDevicePtr dev;

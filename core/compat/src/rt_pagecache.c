@@ -77,7 +77,7 @@ void memzero_page(struct page *p, size_t off, size_t len) { memset((char *)p->fo
 void zero_user_segment(struct page *p, unsigned s, unsigned e) { folio_zero_segment(p->folio_, s, e); }
 void zero_user_segments(struct page *p, unsigned s1, unsigned e1, unsigned s2, unsigned e2) { folio_zero_segments(p->folio_, s1, e1, s2, e2); }
 struct page *alloc_page(gfp_t g) { (void)g; struct folio *f = folio_new(NULL, 0); return f ? &f->page : NULL; }
-void put_page(struct page *p) { if (p && !p->folio_->mapping) { free(p->folio_->data); free(p->folio_); } }
+void put_page(struct page *p) { if (p) folio_put(p->folio_); }  /* alloc_page は参照 1、キャッシュ上の page は get 系が +1 */
 void lock_page(struct page *p) { folio_lock(p->folio_); }
 void unlock_page(struct page *p) { folio_unlock(p->folio_); }
 int PageUptodate(const struct page *p) { return folio_test_uptodate(p->folio_); }

@@ -13,7 +13,7 @@ data class UsbDeviceRow(val key: String, val title: String, val vidPid: String)
 /** USB を開く前に決める書き込みモード。 */
 enum class WriteMode { ReadOnly, CreateOnly, Full }
 
-data class PublishedVolume(val label: String, val modeText: String, val writable: Boolean)
+data class PublishedVolume(val label: String, val modeText: String, val writable: Boolean, val fullWrite: Boolean = false)
 
 /**
  * 画面が読む状態をまとめたもの (Compose の状態保持)。ロジックは MainActivity が持ち、ここは値を更新するだけ。
@@ -39,5 +39,7 @@ class AppModel {
     // ---- 診断
     var ops by mutableStateOf("")                            // 送信した SCSI 命令の集計
     var tuneLog by mutableStateOf("")                        // 速度計測 / 最適化の結果
+    var selfTestLog by mutableStateOf("")                    // 書き込み自己診断の結果
+    var selfTestPassed by mutableStateOf<Boolean?>(null)     // null = 未実施
     var tuningSaved by mutableStateOf<String?>(null)    // 保存した転送設定の表示 (null = 既定)
 }

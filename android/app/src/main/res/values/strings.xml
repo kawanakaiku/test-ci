@@ -73,6 +73,13 @@
     <string name="diag_hint_need_open">USB を開くと実行できます。</string>
     <string name="diag_hint_published">マウント中は実行できません。一度閉じてください。</string>
     <string name="diag_hint_busy">処理が終わるまでお待ちください。</string>
+    <string name="diag_selftest_title">書き込みの自己診断</string>
+    <string name="diag_selftest_subtitle">「すべて許可」でマウント中のときだけ使えます</string>
+    <string name="diag_selftest_desc">専用の一時フォルダを 1 つ作り、その中だけで、作成・書き込み・上書き・縮小・名前変更・移動を試して読み戻し、最後に作ったものを全部消します。もとからあるファイルには触れません。同名のフォルダが既にあるときは、何もしません。</string>
+    <string name="diag_selftest_button">書き込みを診断する</string>
+    <string name="diag_selftest_passed">合格: 書き込みは正しく動いています</string>
+    <string name="diag_selftest_failed">不合格: 下の結果を確認してください。作った一時フォルダは削除を試みています</string>
+    <string name="busy_selftest">書き込みを診断しています…</string>
     <string name="diag_scsi_title">送信した SCSI 命令</string>
     <string name="diag_scsi_subtitle">読み取り専用で、書き込み系が出ていないことの確認用</string>
     <string name="diag_scsi_empty">(USB を開くと表示されます)</string>

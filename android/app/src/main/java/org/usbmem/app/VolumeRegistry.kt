@@ -20,6 +20,9 @@ object VolumeRegistry {
     fun all(ctx: Context): List<Entry> { restore(ctx); return volumes.values.toList() }
 
     @Synchronized
+    fun byKey(key: String): Entry? = volumes[idOf(key)]
+
+    @Synchronized
     fun get(ctx: Context, id: String): Entry? { restore(ctx); return volumes[id] }
 
     /** SAF で選ばれたイメージを読み取り専用でマウントして登録する。 */

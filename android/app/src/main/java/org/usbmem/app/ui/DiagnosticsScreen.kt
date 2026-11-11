@@ -19,6 +19,7 @@ interface DiagnosticsActions {
     fun refreshOps()
     fun benchmark()
     fun optimize()
+    fun writeSelfTest()
 }
 
 @Composable
@@ -37,6 +38,12 @@ fun DiagnosticsScreen(m: AppModel, a: DiagnosticsActions, modifier: Modifier = M
             OutlinedButton(onClick = a::benchmark, enabled = canTune, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.diag_bench_button)) }
             if (!canTune) Text(stringResource(if (!open) R.string.diag_hint_need_open else if (m.published != null) R.string.diag_hint_published else R.string.diag_hint_busy), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (m.tuneLog.isNotEmpty()) Text(m.tuneLog, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+        }
+        if (m.published?.fullWrite == true) SectionCard(stringResource(R.string.diag_selftest_title), subtitle = stringResource(R.string.diag_selftest_subtitle)) {
+            Text(stringResource(R.string.diag_selftest_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(onClick = a::writeSelfTest, enabled = m.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.diag_selftest_button)) }
+            m.selfTestPassed?.let { Text(stringResource(if (it) R.string.diag_selftest_passed else R.string.diag_selftest_failed), style = MaterialTheme.typography.titleSmall) }
+            if (m.selfTestLog.isNotEmpty()) Text(m.selfTestLog, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
         }
         SectionCard(stringResource(R.string.diag_scsi_title), subtitle = stringResource(R.string.diag_scsi_subtitle)) {
             Text(if (m.ops.isEmpty()) stringResource(R.string.diag_scsi_empty) else m.ops, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)

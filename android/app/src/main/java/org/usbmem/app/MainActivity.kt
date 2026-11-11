@@ -136,7 +136,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 android.util.Log.i("usbmem", "ntfs mount: sessionWritable=${sess.writable} volumeWritable=${v.writable} createOnly=${v.createOnly}")
                 val roText = getString(R.string.mode_read_only)
                 if (!sess.writable) pub = PublishedVolume(label, roText, false)
-                else if (v.writable) pub = PublishedVolume(label, getString(if (v.createOnly) R.string.mode_create_only else R.string.mode_full), true)
+                else if (v.writable) pub = PublishedVolume(label, getString(if (v.createOnly) R.string.mode_create_only else R.string.mode_full), true, fullWrite = !v.createOnly)
                 else {
                     pub = PublishedVolume(label, roText, false)
                     notice = Notice(Severity.Warning, getString(R.string.notice_published_read_only), getString(R.string.notice_published_read_only_detail))
@@ -236,6 +236,29 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     }
 
     // ---- DiagnosticsActions
+    /** 書き込み自己診断。マウント中の「すべて許可」ボリュームに、専用の一時フォルダだけを作って検証し、全部消す。既存のファイルには触れない。 */
+    override fun writeSelfTest() {
+        val sess = usbSession ?: return
+        val v = VolumeRegistry.byKey("usb:" + sess.deviceName)?.volume
+        if (v == null || !v.writable || v.createOnly) return
+        model.busy = getString(R.string.busy_selftest)
+        model.selfTestPassed = null; model.selfTestLog = ""
+        Thread {
+            val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+            val r = try { WriteSelfTest.run(v, stamp) } catch (e: Throwable) { null }
+            val sb = StringBuilder()
+            if (r == null) sb.appendLine(getString(R.string.diag_failed_simple, "exception"))
+            else {
+                for (s in r.steps) {
+                    android.util.Log.i("usbmem", "selftest step '${s.name}' ok=${s.ok} ${s.ms}ms ${s.detail}")
+                    sb.appendLine((if (s.ok) "OK  " else "NG  ") + s.name + " (" + s.ms + " ms)" + if (s.detail.isNotEmpty()) " — " + s.detail else "")
+                }
+            }
+            updateOps("after selftest")
+            ui { model.busy = null; model.selfTestPassed = r?.passed == true; model.selfTestLog = sb.toString().trimEnd() }
+        }.start()
+    }
+
     override fun refreshOps() { Thread { updateOps("manual refresh") }.start() }
 
     /** 読み取り専用の速度計測。転送サイズの組を順に試し、MB/s を表示・ログへ出す。デバイスの先頭付近を読むだけで、何も書かない。 */

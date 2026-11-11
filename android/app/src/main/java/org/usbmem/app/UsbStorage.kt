@@ -76,10 +76,11 @@ class UsbStorageSession private constructor(
     fun lastSense(): IntArray = IntArray(3).also { if (Handle.valid(handle)) NativeBridge.nativeUsbLastSense(handle, it) }
 
     @Synchronized
-    fun mountNtfs(offsetBytes: Long, sizeBytes: Long, writable: Boolean = false): NtfsVolume {
+    /** [createOnly] = true なら新規作成だけ許可 (既存の変更・削除・名前変更を拒否)。false なら NTFS の書き込み操作を全て許可。 */
+    fun mountNtfs(offsetBytes: Long, sizeBytes: Long, writable: Boolean = false, createOnly: Boolean = true): NtfsVolume {
         check(Handle.valid(handle)) { "closed" }
         if (writable && !this.writable) throw NativeException(30, "このセッションは読み取り専用で開かれています")
-        val v = if (writable) NtfsVolume.mountDeviceRangeReadWrite(handle, offsetBytes, sizeBytes) else NtfsVolume.mountDeviceRange(handle, offsetBytes, sizeBytes)
+        val v = if (writable) NtfsVolume.mountDeviceRangeReadWrite(handle, offsetBytes, sizeBytes, createOnly) else NtfsVolume.mountDeviceRange(handle, offsetBytes, sizeBytes)
         return v.also { volumes += it }
     }
 

@@ -10,3 +10,14 @@
 #define DEFINE_EVENT(cls, name, proto, args) static inline void trace_##name(proto) { }
 #define TRACE_EVENT(name, proto, args, tstruct, assign, print) static inline void trace_##name(proto) { }
 #define CREATE_TRACE_POINTS
+#define TRACE_DEFINE_ENUM(x)
+#define TRACE_DEFINE_SIZEOF(x)
+#define TRACE_EVENT_CONDITION(name, proto, args, cond, tstruct, assign, print) static inline void trace_##name(proto) { }
+#define DEFINE_EVENT_CONDITION(cls, name, proto, args, cond) static inline void trace_##name(proto) { }
+#define DEFINE_EVENT_PRINT(cls, name, proto, args, print) static inline void trace_##name(proto) { }
+#define DECLARE_TRACE(name, proto, args)
+#define TRACE_EVENT_FN(name, proto, args, tstruct, assign, print, reg, unreg) static inline void trace_##name(proto) { }
+#define __field(t, n)
+#define __array(t, n, l)
+#define __string(n, s)
+#define __entry_dummy

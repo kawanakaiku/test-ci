@@ -16,8 +16,8 @@ FIXED_MTIME = 1700000000
 def pattern(seed, off, n):
     return bytes((((off + i) * 31 + seed * 7 + ((off + i) >> 8)) & 0xFF) for i in range(n))
 
-def build(tree, bs):
-    """ツリーを作り、manifest の行を返す。bs = ブロックサイズ。"""
+def build(tree, bs, extra=None):
+    """ツリーを作り、manifest の行を返す。bs = ブロックサイズ。extra(ctx) は追加の内容を足すフック (gen_ext4_fixture.py が使う)。"""
     man = []
     n = bs // 4                      # 1 ブロックに入るブロック番号数
     clock = [FIXED_MTIME]
@@ -95,6 +95,8 @@ def build(tree, bs):
     for rel, tgt in (("link_fast", fast), ("link_slow", slow), ("link_dangling", "no/such/target")):
         os.symlink(tgt, os.path.join(tree, rel))
         man.append("L\t%s\t%s" % (rel, tgt))
+    if extra:
+        extra(dict(put=put, dense=dense, mkdir=mkdir, s=s, stamp=stamp, man=man, tree=tree, bs=bs))
     return man
 
 def run(cmd, **kw):

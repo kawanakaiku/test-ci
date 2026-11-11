@@ -10,6 +10,9 @@ import org.usbmem.app.PartitionTable
 data class UsbDeviceRow(val key: String, val title: String, val vidPid: String)
 
 /** 公開 (SAF) 中のボリューム。 */
+/** USB を開く前に決める書き込みモード。 */
+enum class WriteMode { ReadOnly, CreateOnly, Full }
+
 data class PublishedVolume(val label: String, val modeText: String, val writable: Boolean)
 
 /**
@@ -20,7 +23,8 @@ class AppModel {
     // ---- USB
     var usbDevices by mutableStateOf<List<UsbDeviceRow>>(emptyList())
     var osMountedUsb by mutableIntStateOf(0)                 // OS がマウント中の USB ボリューム数 (0 でないと、開く前に取り出しが必要)
-    var allowUsbWrite by mutableStateOf(false)               // USB を開く時の書き込み許可 (新規作成のみ)。毎回の起動で明示的に許可し、保存しない
+    var writeMode by mutableStateOf(WriteMode.ReadOnly)      // USB を開く時の書き込みモード。毎回の起動で明示的に選び、保存しない (既定は読み取り専用)
+    val allowUsbWrite: Boolean get() = writeMode != WriteMode.ReadOnly
     var usbOpenKey by mutableStateOf<String?>(null)          // 開いているデバイスのキー (null = 未接続)
     var usbWritable by mutableStateOf(false)                 // 開いているセッションが書き込み可か
     var usbLabel by mutableStateOf("")

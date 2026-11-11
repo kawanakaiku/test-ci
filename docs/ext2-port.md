@@ -1,5 +1,7 @@
 # ext2 (Linux fs/ext2) の移植 — 読み取り専用
 
+> 2026-11-12 追記: ext3 / ext4 は docs/ext4-port.md のとおり fs/ext4 で読めるようになった。下の「ext3/ext4 を拒否する」記述は ext2 単独の時点のもの。アプリは `fs_probe` で純粋な ext2 だけを fs/ext2 に回す。
+
 2026-11-12。Linux mainline `fs/ext2` (コミット 067c5c24…、NTFS / exFAT と同じ) を**無改変**で LinuxCompat に載せ、
 ホスト (4 構成の ctest) と Android (AVD の instrumented test、NDK arm64-v8a / x86_64) で「読み取り専用マウント → 一覧 → stat → 読み取り」まで動かした。実機 (F-51A + USB) では未確認。
 

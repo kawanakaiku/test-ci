@@ -80,7 +80,7 @@ void rb_erase(struct rb_node *n, struct rb_root *r) {
 
 /* ---- メモリ */
 struct kmem_cache { size_t size; void (*ctor)(void *); };
-struct kmem_cache *kmem_cache_create(const char *name, size_t size, size_t align, unsigned long flags, void (*ctor)(void *)) {
+struct kmem_cache *kmem_cache_create5(const char *name, size_t size, size_t align, unsigned long flags, void (*ctor)(void *)) {
   (void)name; (void)align; (void)flags;
   struct kmem_cache *c = malloc(sizeof *c); if (!c) return NULL;
   c->size = size; c->ctor = ctor; return c;
@@ -259,6 +259,19 @@ static void drop_inodes_sb(struct super_block *sb) {
   }
   pthread_mutex_unlock(&g_inode_lock);
 }
+/* call_rcu の遅延実行 (ext4 のみ使う)。umount の最後にまとめて実行する。 */
+static struct rcu_head *g_rcu_defer;
+static pthread_mutex_t g_rcu_mu = PTHREAD_MUTEX_INITIALIZER;
+void usbmem_call_rcu_defer(struct rcu_head *h, void (*fn)(struct rcu_head *)) {
+  pthread_mutex_lock(&g_rcu_mu); h->func = fn; h->next = g_rcu_defer; g_rcu_defer = h; pthread_mutex_unlock(&g_rcu_mu);
+}
+void usbmem_rcu_flush(void) {
+  for (;;) {
+    pthread_mutex_lock(&g_rcu_mu); struct rcu_head *h = g_rcu_defer; if (h) g_rcu_defer = h->next; pthread_mutex_unlock(&g_rcu_mu);
+    if (!h) return;
+    h->func(h);
+  }
+}
 /* マウント解除: VFS の generic_shutdown_super と同順 (evict_inodes → put_super → 残り退避 → 解放)。 */
 void usbmem_compat_umount(struct super_block *sb) {
   if (!sb) return;
@@ -271,6 +284,7 @@ void usbmem_compat_umount(struct super_block *sb) {
   if (sb->s_bdev && !sb_rdonly(sb)) usbmem_bdev_flush(sb->s_bdev->impl);   /* put_super が書いた最終状態 (ダーティ解除) を確定 */
   if (sb->s_type && sb->s_type->kill_sb) sb->s_type->kill_sb(sb);   /* VFS の deactivate_locked_super 相当 (exfat: sbi・upcase テーブルの解放。ntfs は kill_block_super = 何もしない) */
   free(sb);
+  usbmem_rcu_flush();
 }
 void __mark_inode_dirty(struct inode *i, int f) { i->i_state |= (unsigned long)(f & I_DIRTY_ALL); }
 void mark_inode_dirty(struct inode *i) { __mark_inode_dirty(i, I_DIRTY_SYNC | I_DIRTY_DATASYNC); }
@@ -472,7 +486,7 @@ int get_tree_bdev(struct fs_context *fc, int (*fill_super)(struct super_block *,
   strcpy(sb->s_id, "usbmem");
   sb->s_fc_ = fc;
   int rc = fill_super(sb, fc);
-  if (rc) { fprintf(stderr, "usbmem-compat: fill_super failed: %d\n", rc); drop_inodes_sb(sb); if (sb->s_type && sb->s_type->kill_sb) sb->s_type->kill_sb(sb); free(sb); return rc; }
+  if (rc) { fprintf(stderr, "usbmem-compat: fill_super failed: %d\n", rc); drop_inodes_sb(sb); if (sb->s_type && sb->s_type->kill_sb) sb->s_type->kill_sb(sb); free(sb); usbmem_rcu_flush(); return rc; }
   fc->root = sb->s_root;
   return 0;
 }
@@ -482,17 +496,28 @@ int sb_set_blocksize(struct super_block *sb, int size) {
   sb->s_blocksize = size; sb->s_blocksize_bits = (unsigned char)__builtin_ctz(size); return size;
 }
 int sb_min_blocksize(struct super_block *sb, int size) { return sb_set_blocksize(sb, size < 512 ? 512 : size); }
+/* オプション解析: フラグ形式 (名前の一致 → spec->opt) だけ対応する。値付きは未対応 (-ENOPARAM)。 */
 int fs_parse(struct fs_context *fc, const struct fs_parameter_spec *s, struct fs_parameter *p, struct fs_parse_result *r) {
-  (void)fc; (void)s; (void)p; (void)r; return -ENOPARAM;
+  (void)fc;
+  if (!s || !p || !p->key) return -ENOPARAM;
+  for (; s->name; s++)
+    if (!strcmp(s->name, p->key)) { if (r) memset(r, 0, sizeof *r); return s->opt; }
+  return -ENOPARAM;
 }
 
 /* FS モジュールごとの init は 1 度だけ実行する (register_filesystem で file_system_type を得る)。2 回目以降は記録から引く。 */
 static struct { int (*init)(void); struct file_system_type *type; } g_mods[8];
 static pthread_mutex_t g_mount_mu = PTHREAD_MUTEX_INITIALIZER;
+static const char *const *g_flag_opts;   /* g_mount_mu 保護下で mount_locked が使う */
 static int mount_locked(int (*init_fn)(void), struct block_device *bdev, int read_only, struct super_block **out);
 int usbmem_compat_mount_fs(int (*init_fn)(void), struct block_device *bdev, int read_only, struct super_block **out) {
+  return usbmem_compat_mount_fs_opts(init_fn, bdev, read_only, NULL, out);
+}
+int usbmem_compat_mount_fs_opts(int (*init_fn)(void), struct block_device *bdev, int read_only, const char *const *flag_opts, struct super_block **out) {
   pthread_mutex_lock(&g_mount_mu);
+  g_flag_opts = flag_opts;
   int rc = mount_locked(init_fn, bdev, read_only, out);
+  g_flag_opts = NULL;
   pthread_mutex_unlock(&g_mount_mu);
   return rc;
 }
@@ -513,6 +538,13 @@ static int mount_locked(int (*init_fn)(void), struct block_device *bdev, int rea
   int rc = init_fc(fc);
   if (rc) { free(fc); return rc; }
   fc->sb_flags = (read_only ? SB_RDONLY : 0) | SB_SILENT;
+  for (const char *const *o = g_flag_opts; o && *o; o++) {
+    struct fs_parameter prm; memset(&prm, 0, sizeof prm);
+    prm.key = *o; prm.type = fs_value_is_flag;
+    int (*parse)(struct fs_context *, struct fs_parameter *) = (int (*)(struct fs_context *, struct fs_parameter *))((const struct fs_context_operations *)fc->ops)->parse_param;
+    if (!parse) { rc = -EINVAL; } else rc = parse(fc, &prm);
+    if (rc) { void (*ff)(struct fs_context *) = (void (*)(struct fs_context *))((const struct fs_context_operations *)fc->ops)->free; if (ff) ff(fc); free(fc); return rc; }
+  }
   g_pending_bdev = bdev;
   rc = ((const struct fs_context_operations *)fc->ops)->get_tree ? ((int (*)(struct fs_context *))((const struct fs_context_operations *)fc->ops)->get_tree)(fc) : -ENOSYS;
   g_pending_bdev = NULL;

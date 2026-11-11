@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import org.usbmem.app.ui.AppModel
+import org.usbmem.app.ui.WriteMode
 import org.usbmem.app.ui.AppScaffold
 import org.usbmem.app.ui.AppTheme
 import org.usbmem.app.ui.DiagnosticsActions
@@ -77,7 +78,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         startActivity(android.content.Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS))
     }
 
-    override fun setAllowWrite(v: Boolean) { if (usbSession == null) model.allowUsbWrite = v }
+    override fun setWriteMode(mode: WriteMode) { if (usbSession == null) model.writeMode = mode }
 
     override fun openUsb(key: String) {
         val dev = devices[key] ?: return
@@ -128,21 +129,22 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             var notice: Notice? = null
             var pub: PublishedVolume? = null
             try {
-                val v = sess.mountNtfs(startBytes, sizeBytes, writable = sess.writable)
+                val v = sess.mountNtfs(startBytes, sizeBytes, writable = sess.writable, createOnly = model.writeMode != WriteMode.Full)
                 VolumeRegistry.addVolume(label, "usb:" + sess.deviceName, v)
                 notifyRoots()
                 updateOps("after ntfs mount")
                 android.util.Log.i("usbmem", "ntfs mount: sessionWritable=${sess.writable} volumeWritable=${v.writable} createOnly=${v.createOnly}")
                 val roText = getString(R.string.mode_read_only)
                 if (!sess.writable) pub = PublishedVolume(label, roText, false)
-                else if (v.writable) pub = PublishedVolume(label, getString(R.string.mode_create_only), true)
+                else if (v.writable) pub = PublishedVolume(label, getString(if (v.createOnly) R.string.mode_create_only else R.string.mode_full), true)
                 else {
                     pub = PublishedVolume(label, roText, false)
                     notice = Notice(Severity.Warning, getString(R.string.notice_published_read_only), getString(R.string.notice_published_read_only_detail))
                 }
             } catch (e: NativeException) {
                 android.util.Log.w("usbmem", "ntfs mount failed: code=${e.code} ${e.message}")
-                notice = if (sess.tuningIndex >= 0) {   // 保存した転送設定が原因かもしれない → 既定に戻す (次の最適化で、その設定以上は試さない)
+                notice = if (fsRefusalNotice(e) != null) fsRefusalNotice(e)!!   // ext3/ext4 の意図的な拒否 (転送設定とは無関係)
+                else if (sess.tuningIndex >= 0) {   // 保存した転送設定が原因かもしれない → 既定に戻す (次の最適化で、その設定以上は試さない)
                     TransferTuning.markFailed(this, sess.vendorId, sess.productId, sess.tuningIndex)
                     TransferTuning.reset(this, sess.vendorId, sess.productId)
                     Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed_with_reason, e.message ?: ""), getString(R.string.notice_ntfs_open_failed_tuning_reset))
@@ -346,9 +348,16 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         else if (e.volume.writable) ImageResult(notice = Notice(Severity.Warning, getString(R.string.notice_image_shared_write, e.label), getString(R.string.notice_image_shared_write_detail)))
         else ImageResult(notice = Notice(Severity.Warning, getString(R.string.notice_image_shared_fallback, e.label), getString(R.string.notice_image_shared_fallback_detail)))
     } catch (e: NativeException) {
-        ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.message))
+        ImageResult(notice = fsRefusalNotice(e) ?: Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.message))
     } catch (e: Exception) {
         ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.javaClass.simpleName))
+    }
+
+    /** ext3/ext4 の「マウントしない」理由 (EUCLEAN=117: ジャーナル未回復/破損、EOPNOTSUPP=95: 未対応の機能) を専用の文言にする。それ以外は null。 */
+    private fun fsRefusalNotice(e: NativeException): Notice? = when (e.code) {
+        117 -> Notice(Severity.Warning, getString(R.string.notice_fs_needs_recovery), getString(R.string.notice_fs_needs_recovery_detail))
+        95 -> Notice(Severity.Warning, getString(R.string.notice_fs_unsupported_feature), getString(R.string.notice_fs_unsupported_feature_detail))
+        else -> null
     }
 
     // ---- ライフサイクル

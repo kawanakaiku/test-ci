@@ -15,7 +15,8 @@
 extern "C" {
 #endif
 
-enum bh_state_bits { BH_Uptodate, BH_Dirty, BH_Lock, BH_Write_EIO, BH_Mapped, BH_New, BH_Boundary };
+enum bh_state_bits { BH_Uptodate, BH_Dirty, BH_Lock, BH_Write_EIO, BH_Mapped, BH_New, BH_Boundary, BH_Delay, BH_Unwritten, BH_Req, BH_Verified, BH_Meta, BH_Prio, BH_Quiet,
+  BH_PrivateStart = 16, BH_JBDPrivateStart = 22 /* 上流は jbd2 の状態ビットの後 */ };
 
 struct buffer_head {
   unsigned long b_state;
@@ -23,6 +24,7 @@ struct buffer_head {
   size_t b_size;
   char *b_data;
   struct folio *b_folio;   /* 参照を 1 つ保持 (brelse で folio_put) */
+  struct buffer_head *b_this_page;
   struct block_device *b_bdev;
 };
 
@@ -62,9 +64,24 @@ static inline void map_bh(struct buffer_head *bh, struct super_block *sb, sector
 }
 /* メタデータ bh は常に uptodate (bd_mapping から読み込み済み) なので何もしない */
 static inline int bh_read(struct buffer_head *bh, blk_opf_t flags) { (void)bh; (void)flags; return 0; }
+/* 上流の BUFFER_FNS / TAS_BUFFER_FNS: b_state のビット操作の関数群 (ext4 は独自のビット (Verified/Uninit など) を足す) */
+#define BUFFER_FNS(bit, name) \
+  static inline void set_buffer_##name(struct buffer_head *bh) { bh->b_state |= 1UL << BH_##bit; } \
+  static inline void clear_buffer_##name(struct buffer_head *bh) { bh->b_state &= ~(1UL << BH_##bit); } \
+  static inline int buffer_##name(const struct buffer_head *bh) { return (bh->b_state >> BH_##bit) & 1; }
+#define TAS_BUFFER_FNS(bit, name) \
+  static inline int test_set_buffer_##name(struct buffer_head *bh) { int o = (bh->b_state >> BH_##bit) & 1; bh->b_state |= 1UL << BH_##bit; return o; } \
+  static inline int test_clear_buffer_##name(struct buffer_head *bh) { int o = (bh->b_state >> BH_##bit) & 1; bh->b_state &= ~(1UL << BH_##bit); return o; }
+BUFFER_FNS(Delay, delay)
+BUFFER_FNS(Unwritten, unwritten)
+BUFFER_FNS(Verified, verified)
+BUFFER_FNS(Meta, meta)
+BUFFER_FNS(Prio, prio)
 static inline void mmb_init(struct mapping_metadata_bhs *m, struct address_space *mapping) { m->mapping = mapping; }
-static inline void lock_buffer(struct buffer_head *bh) { (void)bh; }
-static inline void unlock_buffer(struct buffer_head *bh) { (void)bh; }
+static inline void lock_buffer(struct buffer_head *bh) { bh->b_state |= 1UL << BH_Lock; }   /* 単一スレッドで使う (ext4 の BUG_ON(!buffer_locked) を満たすためのビットだけ) */
+static inline void unlock_buffer(struct buffer_head *bh) { bh->b_state &= ~(1UL << BH_Lock); }
+static inline int buffer_locked(const struct buffer_head *bh) { return (bh->b_state >> BH_Lock) & 1; }
+static inline int trylock_buffer(struct buffer_head *bh) { if (buffer_locked(bh)) return 0; lock_buffer(bh); return 1; }
 
 static inline void clean_bdev_aliases(struct block_device *bdev, sector_t block, sector_t len) { (void)bdev; (void)block; (void)len; }
 

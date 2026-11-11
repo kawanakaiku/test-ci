@@ -23,7 +23,21 @@ struct dentry_operations {
   void *d_hash;
   void *d_revalidate;
 };
+struct dquot_operations {
+  void *acquire_dquot;
+  void *alloc_dquot;
+  void *destroy_dquot;
+  void *get_inode_usage;
+  void *get_next_id;
+  void *get_projid;
+  void *get_reserved_space;
+  void *mark_dirty;
+  void *release_dquot;
+  void *write_dquot;
+  void *write_info;
+};
 struct export_operations {
+  void *commit_metadata;
   void *encode_fh;
   void *fh_to_dentry;
   void *fh_to_parent;
@@ -32,8 +46,10 @@ struct export_operations {
 struct file_operations {
   void *compat_ioctl;
   void *fallocate;
+  void *fop_flags;
   void *fsync;
   void *get_unmapped_area;
+  void *iopoll;
   void *iterate_shared;
   void *llseek;
   void *mmap_prepare;
@@ -79,6 +95,8 @@ struct inode_operations {
 };
 struct super_operations {
   void *alloc_inode;
+  void *destroy_inode;
+  void *dirty_inode;
   void *drop_inode;
   void *evict_inode;
   void *free_inode;
@@ -97,8 +115,10 @@ struct super_operations {
 };
 struct vm_operations_struct {
   void *fault;
+  void *huge_fault;
   void *map_pages;
   void *page_mkwrite;
+  void *pfn_mkwrite;
 };
 struct xattr_handler {
   void *get;

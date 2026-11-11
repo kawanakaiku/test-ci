@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#undef errno   /* 上流のコードは構造体メンバ名に errno を使う (ext4 super.c)。カーネルコードはユーザ空間の errno を使わない */
 #include <limits.h>
 #include <sys/types.h>
 #ifndef EFSCORRUPTED
@@ -133,5 +134,6 @@ typedef unsigned int fmode_t;
 #include <compat/misc.h>
 #include <compat/more.h>
 #include <compat/more_blockfs.h>
+#include <compat/more_ext4.h>
 
 #endif

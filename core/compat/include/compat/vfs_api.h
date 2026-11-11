@@ -312,7 +312,7 @@ typedef void (*bio_end_io_t)(struct bio *);
 struct folio_iter { struct folio *folio; size_t offset; size_t length; int idx_; };
 void usbmem_fi_next(struct folio_iter *, struct bio *);
 struct va_format { const char *fmt; va_list *va; };
-struct iomap_ioend { int unused; };
+struct iomap_ioend { void *io_private; struct inode *io_inode; loff_t io_offset; size_t io_size; struct bio io_bio; unsigned io_flags; int io_error; };
 extern const struct iomap_read_ops iomap_bio_read_ops;
 void iomap_read_folio(iomap_iter_next_fn, struct iomap_read_folio_ctx *, void *private);
 void iomap_readahead(iomap_iter_next_fn, struct iomap_read_folio_ctx *, void *private);
@@ -351,7 +351,8 @@ void *vmemdup_user(const void *, size_t);
 char *strndup_user(const char *, long);
 int fatal_signal_pending_(void);
 #define fatal_signal_pending(t) 0
-extern struct task_struct { int unused; struct fs_struct *fs; int pid; } *current;
+struct io_context;
+extern struct task_struct { int unused; struct fs_struct *fs; int pid; char comm[16]; void *journal_info; unsigned int flags; struct io_context *io_context; } *current;
 bool capable(int);
 int inode_permission(struct mnt_idmap *, struct inode *, int);
 bool inode_owner_or_capable(struct mnt_idmap *, const struct inode *);

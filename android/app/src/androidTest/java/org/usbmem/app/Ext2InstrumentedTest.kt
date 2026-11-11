@@ -5,7 +5,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
@@ -13,7 +12,7 @@ import java.io.FileInputStream
 
 /**
  * 実 ext2 イメージ (tools/gen_ext2_fixture.py) を Android 上で fs/ext2 経由で読む (読み取り専用)。
- * 事前に adb push で /data/local/tmp/ext2_<name>.{img,manifest} を置く (name = b1k / b2k / b4k。拒否テスト用に ext3_empty / ext4_empty は .img のみ)。
+ * 事前に adb push で /data/local/tmp/ext2_<name>.{img,manifest} を置く (name = b1k / b2k / b4k。ext3_empty / ext4_empty は .img のみ = ext4 ドライバでマウントされることの確認用)。
  * manifest はタブ区切り: D path mtime / F path size mtime nlink spec / L path target。
  * spec = "d:<off>:<len>:<seed>" (パターン内容) と "z:<off>:<len>" (ゼロ) のカンマ区切り。パターンは byte(i) = (i*31 + seed*7 + (i>>8)) & 0xFF (i はファイル先頭からのオフセット)。
  */
@@ -106,17 +105,16 @@ class Ext2InstrumentedTest {
         } finally { img.delete(); man.delete() }
     }
 
-    /** ext3 / ext4 は fs/ext2 では読まず、明示的に拒否される (NTFS として試されることもない)。 */
-    private fun rejected(name: String) {
+    /** ext3 / ext4 の空イメージは fs/ext2 ではなく fs/ext4 (読み取り専用) でマウントされる (NTFS として試されることもない)。 */
+    private fun mountedByExt4(name: String) {
         val img = File(ctx.cacheDir, "ext2_$name.img")
         assumeTrue("fixture not pushed", shellCopy("/data/local/tmp/ext2_$name.img", img))
         try {
             val pfd = ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_ONLY)
-            try {
-                NtfsVolume.mountReadOnly(pfd.detachFd()).close()
-                fail("$name must not be mounted")
-            } catch (e: NativeException) {
-                assertEquals("errno for $name", 19, e.code)   // ENODEV
+            NtfsVolume.mountReadOnly(pfd.detachFd()).use { vol ->
+                assertEquals("ext4", vol.fsName)
+                assertFalse(vol.writable)
+                assertTrue(vol.list("/").any { it.name == "lost+found" })
             }
         } finally { img.delete() }
     }
@@ -124,6 +122,6 @@ class Ext2InstrumentedTest {
     @Test fun mountsAndVerifiesB1k() = verify("b1k")
     @Test fun mountsAndVerifiesB2k() = verify("b2k")
     @Test fun mountsAndVerifiesB4k() = verify("b4k")
-    @Test fun rejectsExt3() = rejected("ext3_empty")
-    @Test fun rejectsExt4() = rejected("ext4_empty")
+    @Test fun ext3IsMountedByExt4Driver() = mountedByExt4("ext3_empty")
+    @Test fun ext4IsMountedByExt4Driver() = mountedByExt4("ext4_empty")
 }

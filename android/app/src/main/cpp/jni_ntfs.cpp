@@ -11,6 +11,7 @@
 #include "usbmem/c_api_internal.h"
 #include "usbmem/devices.h"
 #include "usbmem/ext2_volume.h"
+#include "usbmem/ext4_volume.h"
 #include "usbmem/exfat_volume.h"
 #include "usbmem/fs_probe.h"
 #include "usbmem/ntfs_volume.h"
@@ -18,7 +19,7 @@
 namespace {
 struct Vol { std::unique_ptr<usbmem::FsVolume> v; };
 
-// dev 全体のファイルシステムを判別してマウントする。exFAT / ext2 と判別できたときだけそれぞれ読み取り専用でマウントし、ext3/ext4 は拒否する。それ以外は従来どおり NTFS として試す
+// dev 全体のファイルシステムを判別してマウントする。exFAT / ext2 / ext3 / ext4 と判別できたときだけそれぞれ読み取り専用でマウントする。それ以外は従来どおり NTFS として試す
 // (壊れた NTFS のブート領域でも、NTFS ドライバ側の検査・復旧の挙動を変えないため)。失敗時 nullptr と正の errno。
 std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, bool rw, int* err) {
   usbmem::FsType t = usbmem::probe_filesystem(*dev, 0, dev->size());
@@ -31,9 +32,9 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     return usbmem::Ext2Volume::mount(dev, err);
   }
   if (t == usbmem::FsType::Ext3 || t == usbmem::FsType::Ext4) {
-    // ext3/ext4 は未対応 (ジャーナルの未再生や extent を ext2 ドライバで読むと壊れた内容を返しうる)。NTFS として試さずに明示的に拒否する
-    if (err) *err = ENODEV;
-    return nullptr;
+    // ext3 / ext4 は fs/ext4 で読み取り専用。ジャーナルは再生しない: 未再生 (needs_recovery) のボリュームは EUCLEAN(117) で拒否、
+    // 暗号化 / casefold / fs-verity などは EOPNOTSUPP(95)。書き込みは未対応 (rw を要求されても読み取り専用)。NTFS として試さない
+    return usbmem::Ext4Volume::mount(dev, err);
   }
   return rw ? usbmem::NtfsVolume::mount_rw(dev, err) : usbmem::NtfsVolume::mount(dev, err);
 }
@@ -255,6 +256,18 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsRename(JNIEnv
   uint64_t d = 0;
   int rc = v->resolve(dir, &d);
   if (!rc) rc = v->rename(d, name, d, utf8(env, newName));
+  return rc ? neg(rc) : 0;
+}
+
+// path を newParent ディレクトリの下へ newName で移動 (同じ名前でも別フォルダでも可)。0 / <0 = -errno
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMove(JNIEnv* env, jclass, jlong h, jbyteArray path, jbyteArray newParent, jbyteArray newName) {
+  auto* v = reinterpret_cast<Vol*>(h)->v.get();
+  std::string dir, name;
+  split_path(utf8(env, path), &dir, &name);
+  uint64_t od = 0, nd = 0;
+  int rc = v->resolve(dir, &od);
+  if (!rc) rc = v->resolve(utf8(env, newParent), &nd);
+  if (!rc) rc = v->rename(od, name, nd, utf8(env, newName));
   return rc ? neg(rc) : 0;
 }
 

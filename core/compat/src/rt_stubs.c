@@ -118,7 +118,7 @@ char * strndup_user(const char * a0, long a1) {
   usbmem_unimplemented("strndup_user"); return (char *)0;
 }
 void super_set_uuid(struct super_block * a0, const u8 * a1, unsigned a2) {
-  usbmem_unimplemented("super_set_uuid");
+  (void)a0; (void)a1; (void)a2;   /* UUID は sysfs/統計用。ホスト API では使わないので何もしない (ext4 が呼ぶ) */
 }
 int vma_desc_test_all(const void * a0, int a1, int a2) {
   usbmem_unimplemented("vma_desc_test_all"); return (int)-ENOSYS;

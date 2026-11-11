@@ -83,7 +83,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         if (e.isDir) f = f or Document.FLAG_DIR_SUPPORTS_CREATE
         // 作成のみモード: 書き込みはこのセッションで作ったファイルだけ。削除・名前変更は出さない
         else if (!vol.volume.createOnly || vol.volume.isCreatedHere(path)) f = f or Document.FLAG_SUPPORTS_WRITE
-        if (!isRoot && !vol.volume.createOnly) f = f or Document.FLAG_SUPPORTS_DELETE or Document.FLAG_SUPPORTS_RENAME
+        if (!isRoot && !vol.volume.createOnly) f = f or Document.FLAG_SUPPORTS_DELETE or Document.FLAG_SUPPORTS_RENAME or Document.FLAG_SUPPORTS_MOVE
         return f
     }
 
@@ -163,7 +163,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         requireWritable(vol)
         requireNotCreateOnly(vol, "削除")
         if (path == "/") throw UnsupportedOperationException("root")
-        try { vol.volume.remove(path) } catch (ex: NativeException) { wrap(ex, documentId) }
+        try { vol.volume.removeTree(path) } catch (ex: NativeException) { wrap(ex, documentId) }
         notifyChildren(parentIdOf(documentId))
     }
 
@@ -176,6 +176,27 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         try { vol.volume.rename(path, displayName) } catch (ex: NativeException) { wrap(ex, documentId) }
         notifyChildren(parentIdOf(documentId))
         return documentId.substringBeforeLast('/') + "/" + displayName   // "<vol>:/a/b" -> "<vol>:/a/new", "<vol>:/b" -> "<vol>:/new"
+    }
+
+    /** 別のディレクトリへ移動する (同じボリューム内のみ)。移動先に同名があれば失敗。 */
+    override fun moveDocument(sourceDocumentId: String, sourceParentDocumentId: String, targetParentDocumentId: String): String {
+        val (vol, path) = parse(sourceDocumentId)
+        val (vol2, target) = parse(targetParentDocumentId)
+        if (vol.id != vol2.id) throw UnsupportedOperationException("cross-volume move")
+        requireWritable(vol)
+        requireNotCreateOnly(vol, "移動")
+        if (path == "/") throw UnsupportedOperationException("root")
+        if (target == path || target.startsWith(if (path.endsWith("/")) path else "$path/")) throw IllegalArgumentException("cannot move into itself")
+        val name = path.substringAfterLast('/')
+        try {
+            if (!vol.volume.stat(target).isDir) throw FileNotFoundException("$targetParentDocumentId is not a directory")
+            val dest = if (target.endsWith("/")) target + name else "$target/$name"
+            val exists = try { vol.volume.stat(dest); true } catch (e: NativeException) { if (e.code == 2) false else throw e }
+            if (exists) throw IllegalStateException("target exists: $dest")
+            vol.volume.move(path, target, name)
+        } catch (ex: NativeException) { wrap(ex, sourceDocumentId) }
+        notifyChildren(sourceParentDocumentId); notifyChildren(targetParentDocumentId)
+        return childId(targetParentDocumentId, name)
     }
 
     override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
@@ -191,7 +212,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         try { if (truncate && st.size != 0L) vol.volume.truncate(path, 0) } catch (ex: NativeException) { wrap(ex, documentId) }
         val sm = ctx.getSystemService(Context.STORAGE_SERVICE) as StorageManager
         val cb = object : ProxyFileDescriptorCallback() {
-            override fun onGetSize(): Long = try { vol.volume.stat(path).size } catch (e: NativeException) { throw ErrnoException("onGetSize", OsConstants.EIO) }
+            override fun onGetSize(): Long = try { vol.volume.stat(path).size } catch (e: Exception) { throw ErrnoException("onGetSize", if (e is IllegalStateException) OsConstants.ENODEV else OsConstants.EIO) }
             override fun onRead(offset: Long, size: Int, data: ByteArray): Int {
                 try {
                     var done = 0
@@ -203,7 +224,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
                         done += n
                     }
                     return done
-                } catch (e: NativeException) { throw ErrnoException("onRead", OsConstants.EIO) }
+                } catch (e: Exception) { throw ErrnoException("onRead", if (e is IllegalStateException) OsConstants.ENODEV else OsConstants.EIO) }   // ボリュームが閉じられた後 (USB を閉じた後) の読み取りは ENODEV
             }
             override fun onWrite(offset: Long, size: Int, data: ByteArray): Int {
                 if (!write) throw ErrnoException("onWrite", OsConstants.EBADF)
@@ -217,8 +238,10 @@ class NtfsDocumentsProvider : DocumentsProvider() {
                     }
                     return done
                 } catch (e: NativeException) { throw ErrnoException("onWrite", if (e.code == 28) OsConstants.ENOSPC else OsConstants.EIO) }
+                catch (e: ErrnoException) { throw e }
+                catch (e: Exception) { throw ErrnoException("onWrite", if (e is IllegalStateException) OsConstants.ENODEV else OsConstants.EIO) }
             }
-            override fun onFsync() { if (write) try { vol.volume.sync() } catch (e: NativeException) { throw ErrnoException("onFsync", OsConstants.EIO) } }
+            override fun onFsync() { if (write) try { vol.volume.sync() } catch (e: Exception) { throw ErrnoException("onFsync", OsConstants.EIO) } }
             override fun onRelease() {
                 if (write) { try { vol.volume.sync() } catch (_: Exception) { /* 閉じる時の失敗は報告先が無い。次回マウント時にダーティで検出される */ }
                     notifyChildren(parentIdOf(documentId)) }   // サイズ・更新日時の変化を一覧へ反映

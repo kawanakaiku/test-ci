@@ -28,7 +28,14 @@ exp = {}
 for l in open(man, encoding='utf-8'):
     k, sz, h, p = l.rstrip('\n').split(' ', 3); exp[p] = (k, sz, h)
 # テストが行った変更を期待値へ反映
-d = b"replaced by SAF\n"; exp["a.txt"] = ("f", str(len(d)), hashlib.sha256(d).hexdigest()); exp.pop("dir1/b.txt")
+def pat(n, seed): return bytes(((i * 7) + seed) & 255 for i in range(n))
+def put(path, data): exp[path] = ("f", str(len(data)), hashlib.sha256(data).hexdigest())
+put("a.txt", b"replaced by SAF\n")
+for k in [k for k in exp if k == "dir1" or k.startswith("dir1/") or k == "many" or k.startswith("many/")]: exp.pop(k)   # 中身ごと削除
+keep = bytearray(pat(500_000, 1)); keep[100_000:104_096] = bytes([0xAB]) * 4096
+put("saf_keep.bin", bytes(keep))
+put("big.bin", pat(200_000, 11))   # cdir/ (圧縮) は拒否されるので manifest のまま
+exp["saf_src"] = ("d", "0", "-"); exp["saf_dst"] = ("d", "0", "-"); put("saf_dst/move_me.bin", pat(70_000, 2))
 got = {}
 for dp, dns, fns in os.walk(root):
     for n in dns + fns:

@@ -162,7 +162,7 @@ void *kmemdup(const void *p, size_t n, gfp_t g);
 #define memalloc_nofs_restore(x) ((void)(x))
 
 struct kmem_cache;
-struct kmem_cache *kmem_cache_create(const char *name, size_t size, size_t align, unsigned long flags, void (*ctor)(void *));
+struct kmem_cache *kmem_cache_create5(const char *name, size_t size, size_t align, unsigned long flags, void (*ctor)(void *));
 void *kmem_cache_alloc(struct kmem_cache *c, gfp_t g);
 void kmem_cache_free(struct kmem_cache *c, void *p);
 void kmem_cache_destroy(struct kmem_cache *c);

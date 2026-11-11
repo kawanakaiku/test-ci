@@ -92,6 +92,7 @@ struct address_space {
   struct list_head private_list;
   struct block_device *host_bdev_;  /* bd_mapping の場合のみ */
   void *pages;  /* 実装依存: ページキャッシュ (src/pagecache.cpp) */
+  pgoff_t writeback_index; errseq_t wb_err;
   unsigned long nrpages;
 };
 struct block_device { struct usbmem_bdev *impl; struct address_space *bd_mapping; struct address_space bd_data_; u32 bd_dev; };
@@ -114,6 +115,7 @@ struct inode {
   const struct file_operations *i_fop;
   struct posix_acl *i_acl, *i_default_acl;
   struct rw_semaphore i_rwsem;
+  struct list_head i_io_list; atomic_t i_writecount;
   struct timespec64 i_atime_, i_mtime_, i_ctime_;
   u64 i_version;
   unsigned long i_state;
@@ -131,6 +133,7 @@ struct dentry {
   void *d_fsdata;
 };
 struct super_block {
+  struct { int frozen; } s_writers;
   struct block_device *s_bdev;
   unsigned long s_flags;
   unsigned long s_magic;
@@ -153,9 +156,11 @@ struct super_block {
   s64 s_time_min, s_time_max;
   int s_active_;
   struct fs_context *s_fc_;
+  struct rw_semaphore s_umount;
 };
 struct vfsmount;
 struct path { struct vfsmount *mnt; struct dentry *dentry; };
+struct file_ra_state { pgoff_t start; unsigned size; unsigned ra_pages; loff_t prev_pos; };
 struct file {
   struct path f_path;
   struct address_space *f_mapping;
@@ -164,6 +169,7 @@ struct file {
   loff_t f_pos;
   struct inode *f_inode;
   void *private_data;
+  struct file_ra_state f_ra;
 };
 struct kiocb { struct file *ki_filp; loff_t ki_pos; unsigned int ki_flags; };
 struct iov_iter { const char *buf; size_t count; };   /* 単一の連続バッファのみ (ホスト API 用) */
@@ -180,17 +186,19 @@ struct kstatfs {
   long f_type, f_bsize; u64 f_blocks, f_bfree, f_bavail, f_ffree; __kernel_fsid_t f_fsid;
   long f_namelen, f_frsize; u64 f_files;
 };
-struct writeback_control { int sync_mode; pgoff_t *snap_; size_t nsnap_, pos_; int saved_err_; };
+struct writeback_control { unsigned for_sync:1, tagged_writepages:1; long nr_to_write; loff_t range_start, range_end; unsigned range_cyclic:1; int sync_mode; pgoff_t *snap_; size_t nsnap_, pos_; int saved_err_; };
 
 /* ---- iomap */
 struct iomap {
+  u64 validity_cookie; void *dax_dev;
   u64 addr; loff_t offset; u64 length; u16 type; u16 flags;
   struct block_device *bdev; void *inline_data; void *private;
 };
 
 /* ---- mount (fs_context) */
 struct fs_context { unsigned int sb_flags; void *s_fs_info; struct dentry *root; unsigned int purpose; const void *ops; void *fs_private; const char *source; };
-struct fs_parameter { const char *key; char *string; };
+enum fs_value_type { fs_value_is_undefined, fs_value_is_flag, fs_value_is_string, fs_value_is_blob, fs_value_is_filename, fs_value_is_file };
+struct fs_parameter { const char *key; char *string; enum fs_value_type type; size_t size; };
 
 #ifdef __cplusplus
 }

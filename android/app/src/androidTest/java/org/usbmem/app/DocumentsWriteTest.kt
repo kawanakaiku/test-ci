@@ -159,13 +159,47 @@ class DocumentsWriteTest {
             assertTrue(names("$vid:/saf_dir").containsAll(setOf("renamed.bin", "日本語 file (1).bin")))
             assertFalse(names("$vid:/saf_dir").contains("日本語 file.bin"))
 
-            // delete: ファイルとディレクトリ (空でないディレクトリの削除は失敗する)
-            try { DocumentsContract.deleteDocument(cr, dirUri); fail("non-empty dir must not be deleted") } catch (_: Exception) { }
+            // delete: ファイルと、空でないディレクトリ (SAF の約束どおり中身ごと消える)
             assertTrue(DocumentsContract.deleteDocument(cr, renamed!!))
             assertTrue(DocumentsContract.deleteDocument(cr, dup))
             assertTrue(DocumentsContract.deleteDocument(cr, dirUri))
             assertFalse(names(root).contains("saf_dir"))
-            assertTrue(DocumentsContract.deleteDocument(cr, uri("$vid:/dir1/b.txt")))
+
+            // 空でないディレクトリを中身ごと削除 (dir1 = b.txt と sub、many = 800 ファイル)
+            assertTrue(DocumentsContract.deleteDocument(cr, uri("$vid:/dir1")))
+            assertTrue(DocumentsContract.deleteDocument(cr, uri("$vid:/many")))
+            assertFalse(names(root).containsAll(setOf("dir1")) || names(root).contains("many"))
+
+            // 作った大きなファイルの途中を書き換える (rw、切り詰めなし)。サイズは変わらない
+            val keepUri = DocumentsContract.createDocument(cr, uri(root), "application/octet-stream", "saf_keep.bin")!!
+            cr.openOutputStream(keepUri, "wt")!!.use { it.write(pattern(500_000, 1)) }
+            cr.openFileDescriptor(keepUri, "rw")!!.use { p ->
+                val ch = java.io.FileOutputStream(p.fileDescriptor).channel
+                ch.position(100_000); ch.write(java.nio.ByteBuffer.wrap(ByteArray(4096) { 0xAB.toByte() })); ch.force(true)
+            }
+            val keepBytes = cr.openInputStream(keepUri)!!.use { it.readBytes() }
+            assertEquals(500_000, keepBytes.size)
+            assertTrue(keepBytes.copyOfRange(100_000, 104_096).all { it == 0xAB.toByte() })
+            assertEquals(pattern(500_000, 1)[99_999], keepBytes[99_999]); assertEquals(pattern(500_000, 1)[104_096], keepBytes[104_096])
+
+            // 既存の大きなファイルを短く上書き (big.bin: 3146505 → 200000 バイト)
+            cr.openOutputStream(uri("$vid:/big.bin"), "wt")!!.use { it.write(pattern(200_000, 11)) }
+            assertEquals(200_000L, e.volume.stat("/big.bin").size)
+
+            // NTFS の圧縮ファイル (cdir/) の変更は上流が未対応: 拒否され、元のデータは変わらない
+            val cSize = e.volume.stat("/cdir/mixed.bin").size
+            try { cr.openOutputStream(uri("$vid:/cdir/mixed.bin"), "wt")!!.use { it.write(ByteArray(10)) }; fail("compressed file must not be modified") } catch (_: Exception) { }
+            assertEquals(cSize, e.volume.stat("/cdir/mixed.bin").size)
+
+            // 別フォルダへ移動 (moveDocument)
+            val srcDir = DocumentsContract.createDocument(cr, uri(root), Document.MIME_TYPE_DIR, "saf_src")!!
+            val dstDir = DocumentsContract.createDocument(cr, uri(root), Document.MIME_TYPE_DIR, "saf_dst")!!
+            val mv = DocumentsContract.createDocument(cr, srcDir, "application/octet-stream", "move_me.bin")!!
+            cr.openOutputStream(mv, "wt")!!.use { it.write(pattern(70_000, 2)) }
+            val moved = DocumentsContract.moveDocument(cr, mv, srcDir, dstDir)
+            assertNotNull("move failed", moved)
+            assertTrue(names("$vid:/saf_dst").contains("move_me.bin")); assertFalse(names("$vid:/saf_src").contains("move_me.bin"))
+            cr.openInputStream(moved!!)!!.use { assertArrayEquals(pattern(70_000, 2), it.readBytes()) }
 
             // 不正な名前は拒否
             try { DocumentsContract.createDocument(cr, uri(root), "text/plain", "a/b"); fail("slash in name") } catch (_: Exception) { }

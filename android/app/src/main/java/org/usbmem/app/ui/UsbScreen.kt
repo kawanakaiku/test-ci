@@ -35,27 +35,32 @@ interface UsbActions {
     fun stopDisk()
     fun resumeDisk()
     fun setIdleSpinDown(minutes: Int)
-    fun setAllowWrite(v: Boolean)
+    fun setWriteMode(mode: WriteMode)
 }
 
 @Composable
 fun UsbScreen(m: AppModel, a: UsbActions, modifier: Modifier = Modifier) {
     var confirmClose by remember { mutableStateOf(false) }
+    var confirmFull by remember { mutableStateOf(false) }
     val isOpen = m.usbOpenKey != null
     Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         // ---- モード (USB を開く前に決める)
         SectionCard(
             stringResource(R.string.usb_mode_title),
             subtitle = stringResource(R.string.usb_mode_subtitle),
-            trailing = { Chip(stringResource(if (m.allowUsbWrite) R.string.common_mode_create_only else R.string.common_mode_read_only), severity = if (m.allowUsbWrite) Severity.Warning else Severity.Success) },
+            trailing = { Chip(stringResource(when (m.writeMode) { WriteMode.ReadOnly -> R.string.common_mode_read_only; WriteMode.CreateOnly -> R.string.common_mode_create_only; WriteMode.Full -> R.string.mode_full_short }), severity = if (m.writeMode == WriteMode.ReadOnly) Severity.Success else Severity.Warning) },
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.common_write_allow), style = MaterialTheme.typography.bodyLarge)
-                    Text(stringResource(R.string.usb_write_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(WriteMode.ReadOnly to R.string.common_mode_read_only, WriteMode.CreateOnly to R.string.common_mode_create_only, WriteMode.Full to R.string.mode_full_short).forEach { (mode, label) ->
+                    FilterChip(
+                        selected = m.writeMode == mode,
+                        onClick = { if (mode == WriteMode.Full && m.writeMode != WriteMode.Full) confirmFull = true else a.setWriteMode(mode) },
+                        enabled = !isOpen && m.busy == null,
+                        label = { Text(stringResource(label)) },
+                    )
                 }
-                Switch(checked = m.allowUsbWrite, onCheckedChange = { a.setAllowWrite(it) }, enabled = !isOpen && m.busy == null)
             }
+            Text(stringResource(when (m.writeMode) { WriteMode.ReadOnly -> R.string.usb_mode_desc_read_only; WriteMode.CreateOnly -> R.string.usb_write_desc; WriteMode.Full -> R.string.usb_mode_desc_full }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         // ---- 接続前の案内 / OS のマウント警告
@@ -75,7 +80,7 @@ fun UsbScreen(m: AppModel, a: UsbActions, modifier: Modifier = Modifier) {
                 SectionCard(d.title, subtitle = d.vidPid, trailing = { if (open) Chip(stringResource(R.string.usb_connected), severity = Severity.Success) }) {
                     if (!open) {
                         Button(onClick = { a.openUsb(d.key) }, enabled = m.busy == null && !isOpen, modifier = Modifier.fillMaxWidth()) {
-                            Text(stringResource(if (m.allowUsbWrite) R.string.usb_open_write else R.string.usb_open_read_only))
+                            Text(stringResource(when (m.writeMode) { WriteMode.ReadOnly -> R.string.usb_open_read_only; WriteMode.CreateOnly -> R.string.usb_open_write; WriteMode.Full -> R.string.usb_open_full }))
                         }
                     }
                 }
@@ -127,7 +132,7 @@ fun UsbScreen(m: AppModel, a: UsbActions, modifier: Modifier = Modifier) {
         // ---- パーティション
         val t = m.table
         if (isOpen && t != null) {
-            PartitionList(t, m.usbLabel, canPublish = pub == null && m.busy == null && !m.diskStopped, writable = m.usbWritable) { p -> a.publishPartition(p.startBytes, p.sizeBytes, "${m.usbLabel} #${p.index}") }
+            PartitionList(t, m.usbLabel, canPublish = pub == null && m.busy == null && !m.diskStopped, writeMode = if (m.usbWritable) m.writeMode else WriteMode.ReadOnly) { p -> a.publishPartition(p.startBytes, p.sizeBytes, "${m.usbLabel} #${p.index}") }
             if (t.wholeDeviceVolume && pub == null) OutlinedButton(onClick = { a.publishPartition(0, t.diskBytes, m.usbLabel) }, enabled = m.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_publish_whole_device)) }
             if (pub == null) OutlinedButton(onClick = { if (m.usbWritable) confirmClose = true else a.closeUsb() }, enabled = m.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_close_without_publish)) }
         }
@@ -145,6 +150,15 @@ fun UsbScreen(m: AppModel, a: UsbActions, modifier: Modifier = Modifier) {
             }
         }
     }
+    if (confirmFull) {
+        ConfirmDialog(
+            title = stringResource(R.string.usb_full_dialog_title),
+            text = stringResource(R.string.usb_full_dialog_text),
+            confirmLabel = stringResource(R.string.usb_full_dialog_confirm),
+            onConfirm = { confirmFull = false; a.setWriteMode(WriteMode.Full) },
+            onDismiss = { confirmFull = false },
+        )
+    }
     if (confirmClose) {
         ConfirmDialog(
             title = stringResource(R.string.usb_close_dialog_title),
@@ -157,7 +171,7 @@ fun UsbScreen(m: AppModel, a: UsbActions, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun PartitionList(t: PartitionTable, label: String, canPublish: Boolean, writable: Boolean, onPublish: (org.usbmem.app.Partition) -> Unit) {
+private fun PartitionList(t: PartitionTable, label: String, canPublish: Boolean, writeMode: WriteMode, onPublish: (org.usbmem.app.Partition) -> Unit) {
     SectionCard(stringResource(R.string.common_partitions_title), subtitle = stringResource(R.string.common_partitions_subtitle, label, t.kind.uppercase(), formatBytes(t.diskBytes), t.sectorSize)) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             t.partitions.forEach { p ->
@@ -167,10 +181,10 @@ private fun PartitionList(t: PartitionTable, label: String, canPublish: Boolean,
                         Chip(p.fs.uppercase())
                     }
                     Text(stringResource(if (p.extendedContainer) R.string.common_partition_detail_extended else R.string.common_partition_detail, formatBytes(p.sizeBytes), p.typeName, p.startLba), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (p.fs == "ntfs" || p.fs == "exfat" || p.fs == "ext2") {
-                        // exFAT / ext2 は読み取り専用 (書き込みは未対応)。NTFS だけ、書き込み許可のスイッチに従う
-                        val canWrite = writable && p.fs == "ntfs"
-                        Button(onClick = { onPublish(p) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) { Text(stringResource(if (canWrite) R.string.usb_publish_write else R.string.usb_publish_read_only)) }
+                    if (p.fs == "ntfs" || p.fs == "exfat" || p.fs == "ext2" || p.fs == "ext3" || p.fs == "ext4") {
+                        // exFAT / ext2 / ext3 / ext4 は読み取り専用 (書き込みは未対応)。NTFS だけ、書き込み許可のスイッチに従う
+                        val mode = if (p.fs == "ntfs") writeMode else WriteMode.ReadOnly
+                        Button(onClick = { onPublish(p) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) { Text(stringResource(when (mode) { WriteMode.ReadOnly -> R.string.usb_publish_read_only; WriteMode.CreateOnly -> R.string.usb_publish_write; WriteMode.Full -> R.string.usb_publish_full })) }
                     }
                 }
             }

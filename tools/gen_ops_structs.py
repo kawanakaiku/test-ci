@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""fs/ntfs / fs/exfat の `static const struct XXX_operations name = { .a = f, ... };` を走査し、
+"""fs/ntfs / fs/exfat / fs/ext2 / fs/ext4 の `static const struct XXX_operations name = { .a = f, ... };` を走査し、
 互換レイヤー用の ops 構造体定義(メンバは void*)を生成する。メンバ名は上流ソースが実際に使うものだけ。"""
 import re, sys, glob, collections
 srcs = sys.argv[1:]   # 複数の FS ソースディレクトリ (fs/ntfs, fs/exfat, ...) のメンバの和集合を出す
@@ -11,7 +11,7 @@ for f in [g for d in srcs for g in glob.glob(d + '/*.c')]:
         if not WANT.match(m.group(1)): continue
         for fld in re.findall(r'^\s*\.(\w+)\s*=', m.group(2), re.M):
             fields[m.group(1)].add(fld)
-skip = {'iomap_ops', 'iomap_write_ops', 'iomap_dio_ops', 'iomap_read_ops', 'iomap_writeback_ops'}
+skip = {'fscrypt_operations', 'fsverity_operations', 'seq_operations', 'iomap_ops', 'iomap_write_ops', 'iomap_dio_ops', 'iomap_read_ops', 'iomap_writeback_ops'}
 print("/* 自動生成: tools/gen_ops_structs.py (手編集しない) */")
 print("#ifndef USBMEM_COMPAT_OPS_H\n#define USBMEM_COMPAT_OPS_H\n")
 for name in sorted(fields):

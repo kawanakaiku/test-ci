@@ -8,16 +8,15 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-struct file_ra_state { pgoff_t start; unsigned size; unsigned ra_pages; };
 struct file_system_type {
   const char *name; unsigned fs_flags; void *init_fs_context; const struct fs_parameter_spec *parameters;
   void (*kill_sb)(struct super_block *); void *owner;
 };
 struct fstrim_range { u64 start, len, minlen; };
-struct vm_fault { struct vm_area_struct *vma; pgoff_t pgoff; };
+struct vm_fault { struct vm_area_struct *vma; pgoff_t pgoff; struct page *page; };
 struct vm_area_desc { struct file *file; unsigned long flags, start, end; pgoff_t pgoff; const struct vm_operations_struct *vm_ops; };
 struct readahead_control { struct file *file; struct address_space *mapping; };
-struct fs_parameter_spec { const char *name; int type; };
+struct fs_parameter_spec { const char *name; int type; int opt; unsigned flags; const void *data; };
 struct fid; struct pipe_inode_info;
 
 #define DEFINE_MUTEX(name) struct mutex name = { PTHREAD_MUTEX_INITIALIZER }
@@ -70,13 +69,13 @@ struct folio *writeback_iter(struct address_space *, struct writeback_control *,
 #define ATTR_FILE (1 << 13)
 
 /* fs_parser (mount option 定義用。値の意味は super.c 側) */
-#define fsparam_flag(n, o) { n, o }
-#define fsparam_u32(n, o) { n, o }
-#define fsparam_u32oct(n, o) { n, o }
-#define fsparam_s32(n, o) { n, o }
-#define fsparam_u64(n, o) { n, o }
-#define fsparam_string(n, o) { n, o }
-#define fsparam_enum(n, o, t) { n, o }
+#define fsparam_flag(n, o) { n, 0, o }
+#define fsparam_u32(n, o) { n, 0, o }
+#define fsparam_u32oct(n, o) { n, 0, o }
+#define fsparam_s32(n, o) { n, 0, o }
+#define fsparam_u64(n, o) { n, 0, o }
+#define fsparam_string(n, o) { n, 0, o }
+#define fsparam_enum(n, o, t) { n, 0, o }
 #ifdef __cplusplus
 }
 #endif

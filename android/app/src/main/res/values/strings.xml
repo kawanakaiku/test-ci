@@ -107,8 +107,12 @@
     <string name="mode_create_only">新規作成のみ書き込み可</string>
     <string name="notice_published_read_only">読み取り専用でマウントしました</string>
     <string name="notice_published_read_only_detail">書き込みは使えません (ビルドで無効、またはボリュームに異常/ダーティがあります)。</string>
-    <string name="notice_ntfs_open_failed">NTFS / exFAT として開けません</string>
-    <string name="notice_ntfs_open_failed_with_reason">NTFS / exFAT として開けません: %1$s</string>
+    <string name="notice_ntfs_open_failed">NTFS / exFAT / ext として開けません</string>
+    <string name="notice_ntfs_open_failed_with_reason">NTFS / exFAT / ext として開けません: %1$s</string>
+    <string name="notice_fs_needs_recovery">未回復または破損のため、マウントしません</string>
+    <string name="notice_fs_needs_recovery_detail">まだ反映されていない更新 (ext3 / ext4 のジャーナル) が残っているか、ファイルシステムの内部が壊れています。書き込み中に取り外された可能性があります。このアプリはジャーナルを再生しないため、そのまま読むと古い内容が見えることがあります。PC や Linux 機器で fsck (e2fsck / chkdsk) を実行してから、もう一度マウントしてください。</string>
+    <string name="notice_fs_unsupported_feature">対応していない機能のため、マウントできません</string>
+    <string name="notice_fs_unsupported_feature_detail">暗号化・大文字小文字の無視 (casefold)・fs-verity など、このアプリが対応していない ext4 の機能が有効です。</string>
     <string name="notice_ntfs_open_failed_tuning_reset">保存した転送設定を使っていたため、既定に戻しました。USB を閉じて、開き直してください。</string>
     <string name="busy_closing_usb">USB を閉じています (書き込みの確定とアンマウント)…</string>
     <string name="notice_usb_closed">USB を閉じました</string>
@@ -142,4 +146,13 @@
     <string name="usb_idle_off">しない</string>
     <string name="usb_idle_minutes">%1$d 分</string>
     <string name="usb_idle_stopped_chip">アイドル停止中</string>
+    <string name="mode_full">書き込み可 (変更・削除も可)</string>
+    <string name="mode_full_short">すべて許可</string>
+    <string name="usb_open_full">開く (変更・削除も許可)</string>
+    <string name="usb_publish_full">マウント (変更・削除も可)</string>
+    <string name="usb_mode_desc_read_only">何も書き込みません。最も安全です。</string>
+    <string name="usb_mode_desc_full">既存のファイルの上書き・削除・名前変更もできます (実験的)。バックアップを取ってから使ってください。</string>
+    <string name="usb_full_dialog_title">変更・削除も許可しますか？</string>
+    <string name="usb_full_dialog_text">既存のファイルの上書き・削除・名前変更ができるようになります。電源断や取り外しの失敗、ソフトウェアの不具合で、データが失われる恐れがあります。大事なデータはバックアップしてから使ってください。作業が終わったら、必ず「USB を安全に閉じる」を押してください。</string>
+    <string name="usb_full_dialog_confirm">許可する</string>
 </resources>

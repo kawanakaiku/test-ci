@@ -35,6 +35,7 @@ object NativeBridge {
     @JvmStatic external fun nativeNtfsCreate(handle: Long, parent: ByteArray, name: ByteArray, isDir: Boolean): Long
     @JvmStatic external fun nativeNtfsRemove(handle: Long, path: ByteArray): Long
     @JvmStatic external fun nativeNtfsRename(handle: Long, path: ByteArray, newName: ByteArray): Long
+    @JvmStatic external fun nativeNtfsMove(handle: Long, path: ByteArray, newParent: ByteArray, newName: ByteArray): Long
     @JvmStatic external fun nativeNtfsTruncate(handle: Long, path: ByteArray, size: Long): Long
     @JvmStatic external fun nativeNtfsSync(handle: Long): Long
 }
@@ -92,7 +93,7 @@ data class NtfsEntry(val name: String, val ino: Long, val isDir: Boolean, val si
  */
 class NtfsVolume private constructor(private var handle: Long, val writable: Boolean = false, val createOnly: Boolean = false) : AutoCloseable {
     private val createdHere = HashSet<String>()
-    /** マウントしたファイルシステム ("ntfs" / "exfat" / "ext2")。 */
+    /** マウントしたファイルシステム ("ntfs" / "exfat" / "ext2" / "ext4"。ext3 も ext4 ドライバなので "ext4")。 */
     val fsName: String = String(NativeBridge.nativeFsName(handle), Charsets.UTF_8)
     private fun bytes(p: String) = p.toByteArray(Charsets.UTF_8)
     private fun norm(path: String) = "/" + path.split('/').filter { it.isNotEmpty() }.joinToString("/")
@@ -121,6 +122,23 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
     }
     @Synchronized
     fun remove(path: String) { checkWritable(); denyIfCreateOnly("remove"); ok("remove '$path'", NativeBridge.nativeNtfsRemove(handle, bytes(path))); sync() }
+    /** ディレクトリなら中身ごと削除する (SAF の deleteDocument の約束)。子から順に消し、最後に 1 回だけ sync する。途中で失敗しても、そこまでの削除は整合した状態。 */
+    @Synchronized
+    fun removeTree(path: String) {
+        checkWritable(); denyIfCreateOnly("remove")
+        fun rec(p: String, depth: Int) {
+            if (depth > 64) throw NativeException(40, "directory nesting too deep: '$p'")
+            if (stat(p).isDir) for (c in list(p)) rec(norm("$p/${c.name}"), depth + 1)
+            ok("remove '$p'", NativeBridge.nativeNtfsRemove(handle, bytes(p)))
+        }
+        try { rec(norm(path), 0) } finally { runCatching { sync() } }
+    }
+    /** path を newParent の下へ newName で移動する (別ディレクトリへも可)。 */
+    @Synchronized
+    fun move(path: String, newParent: String, newName: String) {
+        checkWritable(); denyIfCreateOnly("move")
+        ok("move '$path'", NativeBridge.nativeNtfsMove(handle, bytes(path), bytes(newParent), bytes(newName))); sync()
+    }
     @Synchronized
     fun rename(path: String, newName: String) { checkWritable(); denyIfCreateOnly("rename"); ok("rename '$path'", NativeBridge.nativeNtfsRename(handle, bytes(path), bytes(newName))); sync() }
     @Synchronized

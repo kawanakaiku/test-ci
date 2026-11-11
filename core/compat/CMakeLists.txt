@@ -3,11 +3,16 @@
 set(NTFS_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/ntfs-resurrection)
 set(EXFAT_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/exfat)
 set(EXT2_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/ext2)
+set(EXT4_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/ext4)
 file(GLOB NTFS_SRC ${NTFS_ROOT}/fs-ntfs/*.c ${NTFS_ROOT}/fs-ntfs/lib/*.c)
 file(GLOB EXFAT_SRC ${EXFAT_ROOT}/fs-exfat/*.c)
 # ext2: カーネルの Makefile の ext2-y (xattr / ACL / security は CONFIG なし = 含めない)
 foreach(f balloc dir file ialloc inode ioctl namei super symlink trace)
   list(APPEND EXT2_SRC ${EXT2_ROOT}/fs-ext2/${f}.c)
+endforeach()
+# ext4: 読み取り経路に必要なものだけをそのままコンパイルする (書き込み・journal・mballoc・ioctl・sysfs 等は src/rt_ext4.c の最小スタブ。docs/ext4-port.md)
+foreach(f balloc bitmap block_validity dir ext4_jbd2 extents extents_status file fsync hash ialloc indirect inline inode namei readpage super symlink xattr xattr_hurd xattr_trusted xattr_user)
+  list(APPEND EXT4_SRC ${EXT4_ROOT}/fs-ext4/${f}.c)
 endforeach()
 
 # ---- 共通ランタイム (LinuxCompat 本体: inode/ページキャッシュ/bio/buffer_head/VFS 風マウント)。FS ごとの上流コードはここに入れない。
@@ -33,6 +38,7 @@ if(USBMEM_SANITIZE)
   set_source_files_properties(${NTFS_SRC} PROPERTIES COMPILE_OPTIONS "-fno-sanitize=alignment;-fno-sanitize=shift-base;-fno-sanitize=nonnull-attribute")
   # 破損 runlist の巨大値で符号付き左シフトが溢れる (上流は -fno-strict-overflow 前提 = wrap)。実カーネルのビルドと同じ扱いにする。
   set_source_files_properties(${EXT2_SRC} PROPERTIES COMPILE_OPTIONS "-fno-sanitize=alignment;-fno-sanitize=shift-base;-fno-sanitize=nonnull-attribute")
+  set_source_files_properties(${EXT4_SRC} PROPERTIES COMPILE_OPTIONS "-fno-sanitize=alignment;-fno-sanitize=shift-base;-fno-sanitize=nonnull-attribute")
   set_source_files_properties(${EXFAT_SRC} PROPERTIES COMPILE_OPTIONS "-fno-sanitize=alignment;-fno-sanitize=shift-base;-fno-sanitize=nonnull-attribute")
 endif()
 target_include_directories(usbmem_ntfs PUBLIC public)
@@ -78,6 +84,19 @@ target_compile_options(usbmem_ext2 PRIVATE
   "$<$<COMPILE_LANGUAGE:C>:SHELL:-iquote ${EXT2_ROOT}/fs-ext2>")
 target_compile_definitions(usbmem_ext2 PRIVATE CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=1 USBMEM_MODULE_INIT_NAME=usbmem_module_init_ext2)
 target_link_libraries(usbmem_ext2 PUBLIC usbmem_compat_rt)
+
+# ---- ext4 (Linux fs/ext4, 無改変)。読み取り専用・journal 無し (noload 固定)。
+add_library(usbmem_ext4 STATIC ${EXT4_SRC} src/rt_ext4.c src/rt_vfs_ext4.c src/ext4_volume.cpp)
+target_include_directories(usbmem_ext4 PUBLIC public)
+target_include_directories(usbmem_ext4 PRIVATE ${EXT4_ROOT}/include)
+target_compile_options(usbmem_ext4 PRIVATE
+  $<$<COMPILE_LANGUAGE:C>:-std=gnu11>
+  $<$<COMPILE_LANGUAGE:C>:-w>
+  $<$<COMPILE_LANGUAGE:C>:-fno-strict-aliasing>
+  $<$<COMPILE_LANGUAGE:C>:-fwrapv>
+  "$<$<COMPILE_LANGUAGE:C>:SHELL:-iquote ${EXT4_ROOT}/fs-ext4>")
+target_compile_definitions(usbmem_ext4 PRIVATE CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=1 CONFIG_BLOCK=1 __KERNEL__ USBMEM_RCU_DEFER=1 USBMEM_MODULE_INIT_NAME=usbmem_module_init_ext4)
+target_link_libraries(usbmem_ext4 PUBLIC usbmem_compat_rt)
 
 if(USBMEM_BUILD_TESTS)
   add_executable(usbmem_exfat_tests tests/test_exfat.cpp)
@@ -152,5 +171,26 @@ if(USBMEM_BUILD_TESTS)
     # 失敗したマウントの後始末は inode 内部の確保物を解放しきれない (NTFS / exFAT と同じ既知事項)。メモリ安全性 (UAF/OOB/ハング) の検査に集中する。
     set_tests_properties(ext2_corrupt ext2_ioerr ext2_fuzz PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
     set_tests_properties(ext2_read PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+  endif()
+endif()
+
+# ---- ext4 のテスト: mke2fs -d + tools/gen_ext4_fixture.py (機能の組み合わせごと・e2fsck -fn で clean を確認)。ext2 とのコンテナ共存 (同一プロセスで両方マウント) も検査する。
+if(USBMEM_BUILD_TESTS)
+  add_executable(usbmem_ext4_tests tests/test_ext4.cpp)
+  target_link_libraries(usbmem_ext4_tests PRIVATE usbmem_ext4 usbmem_ext2)
+  find_package(Python3 COMPONENTS Interpreter)
+  if(Python3_FOUND AND EXISTS /dev/shm)
+    set(EXT4_FIX_DIR /dev/shm/usbmem_ext4_$ENV{USER})
+    add_test(NAME ext4_gen_fixture COMMAND ${CMAKE_COMMAND} -E env "PATH=$ENV{PATH}:/sbin:/usr/sbin" ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_LIST_DIR}/../../tools/gen_ext4_fixture.py ${EXT4_FIX_DIR})
+    set_tests_properties(ext4_gen_fixture PROPERTIES FIXTURES_SETUP ext4_fixture TIMEOUT 900)
+    add_test(NAME ext4_read COMMAND usbmem_ext4_tests ${EXT4_FIX_DIR})
+    add_test(NAME ext4_corrupt COMMAND usbmem_ext4_tests --corrupt ${EXT4_FIX_DIR})
+    add_test(NAME ext4_ioerr COMMAND usbmem_ext4_tests --ioerr ${EXT4_FIX_DIR})
+    add_test(NAME ext4_fuzz COMMAND usbmem_ext4_tests --fuzz ${EXT4_FIX_DIR} 600 1)
+    add_test(NAME ext4_coexist COMMAND usbmem_ext4_tests --coexist ${EXT4_FIX_DIR} /dev/shm/usbmem_ext2_$ENV{USER})
+    set_tests_properties(ext4_read ext4_corrupt ext4_ioerr ext4_fuzz PROPERTIES FIXTURES_REQUIRED ext4_fixture TIMEOUT 1800)
+    set_tests_properties(ext4_coexist PROPERTIES FIXTURES_REQUIRED "ext4_fixture;ext2_fixture" TIMEOUT 600)
+    set_tests_properties(ext4_corrupt ext4_ioerr ext4_fuzz ext4_coexist PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
+    set_tests_properties(ext4_read PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
   endif()
 endif()

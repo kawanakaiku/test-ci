@@ -112,7 +112,7 @@ extern const struct qstr dotdot_name;
 extern const struct qstr slash_name;
 static inline sector_t sb_bdev_nr_blocks(struct super_block *sb) { return usbmem_bdev_size(sb->s_bdev->impl) >> sb->s_blocksize_bits; }
 static inline struct kmem_cache *kmem_cache_create_usercopy(const char *name, unsigned size, unsigned align, unsigned long flags, unsigned useroffset, unsigned usersize, void (*ctor)(void *)) {
-  (void)useroffset; (void)usersize; return kmem_cache_create(name, size, align, flags, ctor);
+  (void)useroffset; (void)usersize; return kmem_cache_create5(name, size, align, flags, ctor);
 }
 
 /* ---- folio の "checked" ビット (dir.c の検査済みページ印) */
@@ -144,7 +144,7 @@ int __block_write_begin(struct folio *, loff_t, unsigned, get_block_t *);
 int block_write_end(loff_t, unsigned, unsigned, struct folio *);
 int block_truncate_page(struct address_space *, loff_t, get_block_t *);
 int mpage_writepages(struct address_space *, struct writeback_control *, get_block_t *);
-#define nd_terminate_link(name, len, maxlen) do { if ((len) >= (maxlen)) ((char *)(name))[(maxlen) - 1] = 0; } while (0)
+#define nd_terminate_link(name, len, maxlen) do { size_t _l = (size_t)(len), _m = (size_t)(maxlen); ((char *)(name))[_l < _m ? _l : _m] = 0; } while (0)   /* 上流 linux/namei.h と同じ */
 
 #ifdef __cplusplus
 }

@@ -41,7 +41,11 @@ FsType probe_ext(const uint8_t* sb /* superblock 先頭 */) {
   if (le16(sb + 56) != 0xEF53) return FsType::Unknown;
   uint32_t compat = le32(sb + 0x5C), incompat = le32(sb + 0x60);
   // EXTENTS(0x40) / 64BIT(0x80) / FLEX_BG(0x200) 等は ext4 専用
+  uint32_t rocompat = le32(sb + 0x64);
   if (incompat & (0x40 | 0x80 | 0x200 | 0x400 | 0x1000)) return FsType::Ext4;
+  // ext2 (fs/ext2) が正しく扱える機能の外 (metadata_csum / huge_file / dir_nlink / extra_isize / orphan_file 等) があれば ext4 側のドライバで読む
+  //   compat: 0x3F (dir_prealloc imagic has_journal ext_attr resize_inode dir_index) + incompat: filetype(0x2) + ro_compat: sparse_super large_file btree_dir (0x7)
+  if ((compat & ~0x3Fu) || (incompat & ~0x2u & ~0x4u) || (rocompat & ~0x7u)) return FsType::Ext4;
   if (compat & 0x4) return FsType::Ext3;  // has_journal
   return FsType::Ext2;
 }

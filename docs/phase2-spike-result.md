@@ -106,3 +106,11 @@ byteorder/min/max マクロだけ**で `gcc -fsyntax-only` した。残ったエ
 - AVD 計装テスト **7 件成功**: ContentResolver (バインダ経由) で roots / 子一覧 / 3MiB ファイルの sha256 / 書き込みモード拒否 / `..` 拒否 / isChildDocument。
 - **未検証**: 実際のシステム Documents UI / 他社ファイルマネージャからの操作 (テストは自アプリからの ContentResolver 呼び出し)、
   選択 UI のエンドツーエンド (SAF ピッカー操作)、arm64 実行、USB 経由 (Phase 3)。
+
+### 破損イメージ fuzz (2026-11-11)
+- `usbmem_ntfs_tests --fuzz <dir> <回数> <seed>`: 実イメージを読み取り専用のまま、メモリ上で 1〜24 バイト変異 (ブート領域・MFT 周辺・全域) して
+  マウント → 走査 (最大 1200 エントリ、各ファイル先頭 32KiB) を繰り返す。ASan/UBSan、ハング検出 (30 秒 alarm)。`--replay` で変異を再現。CTest に 150 回を組込み。
+- **実際に見つかった問題**: マウント失敗後に sb アドレスが再利用され、前回の inode がハッシュに残っていて UAF (seed 2/5)。失敗時に当該 sb の inode を強制破棄して修正。
+- 修正後: seed 2,5,6,7 × 1500 回、seed 11–16 × 2000 回 (MFT 重点) で crash/ハングなし。
+- 限界: 失敗したマウントの後始末で inode 内部の確保物 (runlist 等) がリークしうる (fuzz テストは detect_leaks=0)。画像が 64MiB でほぼ空のため、
+  実使用規模・Windows 作成イメージ・圧縮/暗号化属性に対するカバレッジは限定的。コード網羅 (coverage) は未計測。

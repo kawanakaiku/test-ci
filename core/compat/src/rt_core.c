@@ -233,6 +233,21 @@ static int evict_inodes_sb(struct super_block *sb) {
   } while (n);
   return total;
 }
+/* fill_super 失敗後の強制破棄: s_fs_info は既に解放済みなので evict_inode コールバックは呼べない。
+ * sb アドレスが再利用されたとき古い inode と誤一致して UAF になるのを防ぐため、ハッシュから外して inode 本体だけ解放する
+ * (inode 内部の確保物は失敗経路では解放しきれずリークしうるが、安全側を優先する)。 */
+static void drop_inodes_sb(struct super_block *sb) {
+  pthread_mutex_lock(&g_inode_lock);
+  for (int b = 0; b < 1024; b++) {
+    struct inode **p = &g_inode_hash[b];
+    while (*p) {
+      struct inode *i = *p;
+      if (i->i_sb == sb) { *p = i->i_hash_next_; i->i_hashed_ = false; destroy_inode(i); }
+      else p = &i->i_hash_next_;
+    }
+  }
+  pthread_mutex_unlock(&g_inode_lock);
+}
 /* マウント解除: VFS の generic_shutdown_super と同順 (evict_inodes → put_super → 残り退避 → 解放)。 */
 void usbmem_compat_umount(struct super_block *sb) {
   if (!sb) return;
@@ -363,7 +378,7 @@ int get_tree_bdev(struct fs_context *fc, int (*fill_super)(struct super_block *,
   strcpy(sb->s_id, "usbmem");
   sb->s_fc_ = fc;
   int rc = fill_super(sb, fc);
-  if (rc) { fprintf(stderr, "usbmem-compat: fill_super failed: %d\n", rc); free(sb); return rc; }
+  if (rc) { fprintf(stderr, "usbmem-compat: fill_super failed: %d\n", rc); drop_inodes_sb(sb); free(sb); return rc; }
   fc->root = sb->s_root;
   return 0;
 }

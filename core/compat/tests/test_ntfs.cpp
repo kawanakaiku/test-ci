@@ -2,6 +2,8 @@
 // 実 NTFS イメージ(tools/gen_ntfs_fixture.sh が mkntfs + ntfs-3g で作成)を fs/ntfs 経由で読み、
 // マニフェスト(サイズ・sha256)と照合する。使い方: usbmem_ntfs_tests <fixture_dir>
 #include <algorithm>
+#include <cstdlib>
+#include <memory>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -48,7 +50,99 @@ struct Sha256 {
   }
 };
 
+#include <csignal>
+#include <map>
+#include <unistd.h>
+
+// 元イメージを書き換えずに、一部バイトだけ差し替えて見せる読み取りデバイス (破損イメージ fuzz 用)。
+class MutatedDevice final : public usbmem::BlockDevice {
+ public:
+  MutatedDevice(usbmem::BlockDevicePtr base, std::map<uint64_t, uint8_t> m) : base_(std::move(base)), m_(std::move(m)) {}
+  usbmem::Status read_at(uint64_t off, void* buf, size_t len, const usbmem::IoOptions& o = {}) override {
+    usbmem::Status st = base_->read_at(off, buf, len, o);
+    if (!st.ok()) return st;
+    for (auto it = m_.lower_bound(off); it != m_.end() && it->first < off + len; ++it) static_cast<uint8_t*>(buf)[it->first - off] = it->second;
+    return st;
+  }
+  usbmem::Status write_at(uint64_t, const void*, size_t, const usbmem::IoOptions& = {}) override { return usbmem::Status::Make(usbmem::Errc::ReadOnly); }
+  usbmem::Status flush() override { return usbmem::Status::Ok(); }
+  usbmem::Status close() override { return usbmem::Status::Ok(); }
+  uint64_t size() const override { return base_->size(); }
+  uint32_t logical_block_size() const override { return base_->logical_block_size(); }
+  bool is_read_only() const override { return true; }
+  std::string describe() const override { return "mutated"; }
+ private:
+  usbmem::BlockDevicePtr base_;
+  std::map<uint64_t, uint8_t> m_;
+};
+
+static void walk(usbmem::NtfsVolume& v, uint64_t dir, int depth, int& budget) {
+  if (depth > 8 || budget <= 0) return;
+  std::vector<usbmem::NtfsDirEntry> es;
+  if (v.readdir(dir, &es) != 0) return;
+  std::vector<uint8_t> buf(8192);
+  for (auto& e : es) {
+    if (e.name == "." || e.name == ".." || budget-- <= 0) continue;
+    usbmem::NtfsStat st;
+    if (v.stat(e.ino, &st) != 0) continue;
+    if (st.is_dir()) walk(v, e.ino, depth + 1, budget);
+    else { uint64_t off = 0; for (int k = 0; k < 4; k++) { int64_t n = v.read(e.ino, off, buf.data(), buf.size()); if (n <= 0) break; off += (uint64_t)n; } }
+  }
+}
+
+// 使い方: usbmem_ntfs_tests --fuzz <fixture_dir> <iterations> <seed>
+static int fuzz(const std::string& dir, int iters, unsigned seed) {
+  usbmem::BlockDevicePtr base;
+  if (!usbmem::RawImageDevice::open_path(dir + "/ntfs_basic.img", true, 512, &base).ok()) return 2;
+  uint64_t x = seed * 2654435761u + 1;
+  auto rnd = [&]() { x ^= x << 13; x ^= x >> 7; x ^= x << 17; return x; };
+  int mounted = 0;
+  // MFT 位置 (ブートセクタ 0x30 = $MFT の LCN, 0x0D = クラスタあたりセクタ数) 周辺を重点的に壊す
+  uint8_t bs[512] = {0};
+  uint64_t mft = 0;
+  if (base->read_at(0, bs, 512).ok()) {
+    uint64_t lcn = 0; std::memcpy(&lcn, bs + 0x30, 8);
+    mft = lcn * bs[0x0D] * 512ull;
+    if (mft + (512u << 10) > base->size()) mft = 0;
+  }
+  for (int it = 0; it < iters; it++) {
+    std::map<uint64_t, uint8_t> m;
+    int nmut = 1 + (int)(rnd() % 24);
+    for (int k = 0; k < nmut; k++) {
+      // 境界: 先頭セクタ / MFT 周辺 (先頭 6MiB) を重点的に。残りは全域。
+      uint64_t off = (mft && rnd() % 2 == 0) ? mft + rnd() % (512u << 10) : (rnd() % 4 == 0) ? rnd() % 512 : (rnd() % 8 == 0) ? rnd() % base->size() : rnd() % (6u << 20);
+      m[off] = (uint8_t)(rnd() % 3 == 0 ? 0xFF : rnd());
+    }
+    if (const char* lp = std::getenv("USBMEM_FUZZ_LAST")) {  // 直前の変異を保存 (クラッシュ再現用: --replay)
+      if (FILE* lf = std::fopen(lp, "w")) { for (auto& kv : m) std::fprintf(lf, "%llu %u\n", (unsigned long long)kv.first, kv.second); std::fclose(lf); }
+    }
+    alarm(30);  // ハング検出: 30 秒で SIGALRM → 異常終了
+    int err = 0;
+    auto dev = std::make_shared<MutatedDevice>(base, m);
+    auto v = usbmem::NtfsVolume::mount(dev, &err);
+    if (v) { mounted++; int budget = 1200; walk(*v, v->root(), 0, budget); }
+    alarm(0);
+  }
+  std::fprintf(stderr, "fuzz: %d iterations (seed %u), %d mounted, no crash/hang\n", iters, seed, mounted);
+  return 0;
+}
+
+static int replay(const std::string& dir, const char* file) {
+  usbmem::BlockDevicePtr base;
+  if (!usbmem::RawImageDevice::open_path(dir + "/ntfs_basic.img", true, 512, &base).ok()) return 2;
+  std::map<uint64_t, uint8_t> m; unsigned long long o; unsigned v;
+  FILE* f = std::fopen(file, "r"); if (!f) return 2;
+  while (std::fscanf(f, "%llu %u", &o, &v) == 2) m[o] = (uint8_t)v;
+  std::fclose(f);
+  int err = 0; auto v2 = usbmem::NtfsVolume::mount(std::make_shared<MutatedDevice>(base, m), &err);
+  std::fprintf(stderr, "replay: mount %s (err %d)\n", v2 ? "ok" : "failed", err);
+  if (v2) { int budget = 1200; walk(*v2, v2->root(), 0, budget); }
+  return 0;
+}
+
 int main(int argc, char** argv) {
+  if (argc >= 4 && std::string(argv[1]) == "--replay") return replay(argv[2], argv[3]);
+  if (argc >= 5 && std::string(argv[1]) == "--fuzz") return fuzz(argv[2], std::atoi(argv[3]), (unsigned)std::atoi(argv[4]));
   if (argc < 2) { std::fprintf(stderr, "usage: %s <fixture_dir>\n", argv[0]); return 2; }
   std::string dir = argv[1];
   usbmem::BlockDevicePtr dev;

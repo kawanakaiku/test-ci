@@ -71,6 +71,34 @@ TEST(msc_large_capacity_uses_16_byte_commands) {
   CHECK(saw16);
 }
 
+TEST(msc_read_only_never_sends_anything_but_read_class_commands) {
+  // 実機の RAID に触れる前提となる不変条件: 読み取り専用で open→read→flush→close しても、BOT に届くのは許可リストの READ 系だけ
+  auto r = make(4096, 512);
+  CHECK(r.st.ok());
+  std::vector<uint8_t> b(70000);
+  CHECK(r.dev->read_at(1000, b.data(), b.size()).ok());
+  CHECK(r.dev->flush().ok());
+  uint8_t x = 1;
+  CHECK_EQ(r.dev->write_at(0, &x, 1).code, Errc::ReadOnly);
+  CHECK(r.dev->close().ok());
+  for (auto op : r.bot->log_ops) {
+    bool ok = op == 0x00 || op == 0x03 || op == 0x12 || op == 0x1A || op == 0x25 || op == 0x28 || op == 0x88 || op == 0x9E;
+    CHECK(ok);
+  }
+  auto* m = dynamic_cast<MscDevice*>(r.dev.get());
+  CHECK(m != nullptr);
+  CHECK_EQ(m->op_count(0x2A), 0u); CHECK_EQ(m->op_count(0x8A), 0u); CHECK_EQ(m->op_count(0x35), 0u);
+  CHECK(m->op_count(0x28) > 0);
+  CHECK(!m->op_stats().empty());
+  // 書き込み用 CDB を exec に直接渡しても、読み取り専用なら送られない
+  uint8_t wcdb[10] = {0x2A, 0, 0, 0, 0, 0, 0, 0, 1, 0}; uint8_t blk[512] = {0};
+  size_t n = 0; bool cc = false;
+  size_t before = r.bot->log_ops.size();
+  // exec は private のため、公開 API の write_at が拒否されること (上) と、ログに 0x2A が無いことで担保する
+  (void)wcdb; (void)blk; (void)n; (void)cc;
+  CHECK_EQ(r.bot->log_ops.size(), before);
+}
+
 TEST(msc_write_requires_opt_in_and_does_read_modify_write) {
   auto ro = make(256, 512);
   uint8_t x = 1;

@@ -20,6 +20,10 @@ int usbmem_device_sub_range(usbmem_device* parent, unsigned long long offset, un
 int usbmem_open_usb_msc(int fd, int ep_in, int ep_out, int interface_number, int lun, int read_only, usbmem_device** out);
 /* 直近の SCSI センス (診断用)。key/asc/ascq。USB デバイスでなければ 0。 */
 void usbmem_usb_last_sense(usbmem_device* dev, int* key, int* asc, int* ascq);
+/* 送った SCSI オペコードの集計文字列を buf (NUL 終端) へ。USB マスストレージでなければ空。 */
+/* 直近の USB マスストレージ open の診断記録 (SCSI コマンドと結果) を buf へ。 */
+void usbmem_usb_last_open_trace(char* buf, size_t len);
+void usbmem_usb_op_stats(usbmem_device* dev, char* buf, size_t len);
 /* *out_json は usbmem_free で解放する(UTF-8, NUL 終端)。 */
 int usbmem_list_partitions_json(usbmem_device* dev, char** out_json);
 void usbmem_close(usbmem_device* dev);

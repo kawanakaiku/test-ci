@@ -54,6 +54,11 @@ class MscDevice final : public BlockDevice {
   std::string describe() const override;
 
   ScsiSense last_sense() const { return last_sense_; }
+  /** 送った SCSI オペコードの集計 (例: "12x1 1ax1 25x1 28x4237")。読み取り専用で WRITE 系が 0 であることの実機での証拠。 */
+  std::string op_stats() const;
+  /** 診断用: 直近の open() 中に送った SCSI コマンドと結果の記録 (失敗時の原因調査用)。 */
+  static std::string last_open_trace();
+  uint32_t op_count(uint8_t opcode) const { return op_counts_[opcode]; }
   bool write_protected() const { return write_protected_; }
   const std::string& vendor() const { return vendor_; }
   const std::string& product() const { return product_; }
@@ -79,6 +84,10 @@ class MscDevice final : public BlockDevice {
   uint32_t block_size_ = 0;
   bool read_only_ = true, write_protected_ = false, dead_ = false, closed_ = false;
   ScsiSense last_sense_;
+  uint32_t op_counts_[256] = {0};
+  std::string trace_;
+  char phase_ = '-';
+  Status exec_impl(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* data, size_t len, size_t* transferred, uint32_t timeout_ms, bool* check_condition);
   std::string vendor_, product_;
 };
 

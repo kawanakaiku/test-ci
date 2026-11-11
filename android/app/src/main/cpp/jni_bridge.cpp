@@ -53,6 +53,18 @@ JNIEXPORT void JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbLastSense(JNIEn
   if (out && env->GetArrayLength(out) >= 3) env->SetIntArrayRegion(out, 0, 3, v);
 }
 
+JNIEXPORT jstring JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbLastOpenTrace(JNIEnv* env, jclass) {
+  char buf[3400];
+  usbmem_usb_last_open_trace(buf, sizeof buf);
+  return env->NewStringUTF(buf);   // 16 進オペコード・errno 名のみの ASCII
+}
+
+JNIEXPORT jstring JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbOpStats(JNIEnv* env, jclass, jlong handle) {
+  char buf[512];
+  usbmem_usb_op_stats(reinterpret_cast<usbmem_device*>(handle), buf, sizeof buf);
+  return env->NewStringUTF(buf);   // 16 進オペコードと回数のみの ASCII
+}
+
 JNIEXPORT void JNICALL Java_org_usbmem_app_NativeBridge_nativeClose(JNIEnv*, jclass, jlong handle) {
   usbmem_close(reinterpret_cast<usbmem_device*>(handle));
 }

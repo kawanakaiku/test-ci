@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <mutex>
 #include <cerrno>
 #include <cstring>
 #include <thread>
@@ -29,15 +31,45 @@ std::string trim(const uint8_t* p, size_t n) {
   while (!s.empty() && s.back() == ' ') s.pop_back();
   return s;
 }
+std::mutex g_trace_mu;
+std::string g_last_open_trace;
 }  // namespace
+
+std::string MscDevice::last_open_trace() { std::lock_guard<std::mutex> g(g_trace_mu); return g_last_open_trace; }
 
 // ---- BOT: 1 コマンド (CBW → データ → CSW)。check_condition=true で CSW が Command Failed のとき呼び出し側が REQUEST SENSE する。
 Status MscDevice::exec(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* data, size_t len, size_t* transferred,
                        uint32_t timeout_ms, bool* check_condition) {
+  phase_ = '-';
+  Status st = exec_impl(cdb, cdb_len, dir, data, len, transferred, timeout_ms, check_condition);
+  // 診断用の記録 (オペコード・長さ・失敗した段階・結果)。秘密情報は含まない。成功した READ は件数だけで足りるので記録しない。
+  if (!st.ok() || (cdb_len && cdb[0] != 0x28 && cdb[0] != 0x88)) {
+    if (trace_.size() < 3000) {
+      char b[96];
+      snprintf(b, sizeof b, "%s%02x len=%zu ph=%c -> %s/%d%s", trace_.empty() ? "" : "; ", cdb_len ? cdb[0] : 0, len, phase_, errc_name(st.code), st.sys_errno,
+               (check_condition && *check_condition) ? " CC" : "");
+      trace_ += b;
+    }
+  }
+  return st;
+}
+
+Status MscDevice::exec_impl(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* data, size_t len, size_t* transferred,
+                            uint32_t timeout_ms, bool* check_condition) {
   if (check_condition) *check_condition = false;
   if (transferred) *transferred = 0;
   if (dead_) return Status::Make(Errc::Disconnected);
   if (cdb_len == 0 || cdb_len > 16 || len > 0xFFFFFFFFu) return Status::Make(Errc::InvalidArgument);
+  // 最後の安全弁: 読み取り専用のときは、メディアの内容を変えうるコマンドを (呼び出し側の誤りがあっても) 絶対に送らない。
+  // 許可: TEST UNIT READY / REQUEST SENSE / INQUIRY / MODE SENSE(6) / READ CAPACITY(10,16) / READ(10,16)
+  if (read_only_) {
+    switch (cdb[0]) {
+      case 0x00: case 0x03: case 0x12: case 0x1A: case 0x25: case 0x28: case 0x88: case 0x9E: break;
+      default: return Status::Make(Errc::ReadOnly);
+    }
+    if (cdb[0] == 0x9E && (cdb_len < 2 || (cdb[1] & 0x1F) != 0x10)) return Status::Make(Errc::ReadOnly);   // SERVICE ACTION IN: READ CAPACITY(16) のみ
+  }
+  op_counts_[cdb[0]]++;
   uint8_t cbw[kCbwLen] = {0};
   uint32_t tag = tag_++;
   put32le(cbw, kCbwSig); put32le(cbw + 4, tag); put32le(cbw + 8, static_cast<uint32_t>(len));
@@ -46,11 +78,13 @@ Status MscDevice::exec(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* da
   std::memcpy(cbw + 15, cdb, cdb_len);
 
   size_t done = 0;
+  phase_ = 'C';   // CBW 送信
   Status st = t_->bulk_out(cbw, kCbwLen, &done, timeout_ms);
   if (is_fatal(st)) { dead_ = true; return st; }
   if (!st.ok() || done != kCbwLen) { reset_recovery(); return st.ok() ? Status::Make(Errc::Io, EIO) : st; }
 
   size_t moved = 0;
+  phase_ = 'D';   // データ段階
   if (len) {
     Status ds = dir == UsbDir::In ? t_->bulk_in(data, len, &moved, timeout_ms) : t_->bulk_out(data, len, &moved, timeout_ms);
     if (is_fatal(ds)) { dead_ = true; return ds; }
@@ -63,6 +97,7 @@ Status MscDevice::exec(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* da
     }
   }
 
+  phase_ = 'S';   // CSW 受信
   uint8_t csw[kCswLen] = {0};
   size_t cdone = 0;
   Status cs = t_->bulk_in(csw, kCswLen, &cdone, timeout_ms);
@@ -97,6 +132,12 @@ Status MscDevice::reset_recovery() {
   Status b = t_->clear_halt(UsbDir::Out);
   if (is_fatal(b)) { dead_ = true; return b; }
   return r;
+}
+
+std::string MscDevice::op_stats() const {
+  std::string o;
+  for (int i = 0; i < 256; i++) if (op_counts_[i]) { char b[24]; snprintf(b, sizeof b, "%s%02xx%u", o.empty() ? "" : " ", i, op_counts_[i]); o += b; }
+  return o;
 }
 
 Status MscDevice::request_sense(ScsiSense* s) {
@@ -214,6 +255,7 @@ Status MscDevice::open(std::unique_ptr<BulkTransport> transport, const MscOption
   std::unique_ptr<MscDevice> d(new (std::nothrow) MscDevice(std::move(transport), opt));
   if (!d) return Status::Make(Errc::NoMemory);
   Status st = d->initialize();
+  { std::lock_guard<std::mutex> g(g_trace_mu); g_last_open_trace = d->trace_ + (st.ok() ? " [open ok]" : std::string(" [open failed: ") + errc_name(st.code) + "/" + std::to_string(st.sys_errno) + "]"); }
   if (!st.ok()) return st;
   out->reset(d.release());
   return Status::Ok();

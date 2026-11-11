@@ -11,6 +11,8 @@ object NativeBridge {
     @JvmStatic external fun nativeOpenUsbMsc(fd: Int, epIn: Int, epOut: Int, iface: Int, lun: Int, readOnly: Boolean): Long
     @JvmStatic external fun nativeUsbLastSense(handle: Long, out: IntArray)
     @JvmStatic external fun nativeNtfsMountDevice(devHandle: Long, offset: Long, length: Long): Long
+    @JvmStatic external fun nativeUsbLastOpenTrace(): String
+    @JvmStatic external fun nativeUsbOpStats(handle: Long): String
     @JvmStatic external fun nativeClose(handle: Long)
     @JvmStatic external fun nativeErrcName(code: Int): String
     @JvmStatic external fun nativeNtfsMount(fd: Int): Long

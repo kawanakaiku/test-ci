@@ -63,6 +63,9 @@ class UsbStorageSession private constructor(
         return PartitionTable.parse(String(bytes, Charsets.UTF_8))
     }
 
+    /** 診断用: これまでに送った SCSI オペコードの集計 (例: "12x1 1ax1 25x1 28x4237")。WRITE 系 (2a/8a) や 35 が出ないことの確認用。 */
+    fun opStats(): String = if (handle > 0) NativeBridge.nativeUsbOpStats(handle) else ""
+
     /** 診断用: 直近の SCSI センス [key, asc, ascq]。 */
     fun lastSense(): IntArray = IntArray(3).also { if (handle > 0) NativeBridge.nativeUsbLastSense(handle, it) }
 
@@ -92,10 +95,23 @@ class UsbStorageSession private constructor(
             return PendingIntent.getBroadcast(ctx, 0, i, flags)
         }
 
+        /**
+         * OS (vold) が現在マウント中の USB マスストレージ由来ボリュームの一覧 (/proc/mounts の "/dev/block/vold/public:8,<minor>" = SCSI ディスク)。
+         * claimInterface(force=true) は OS のドライバを強制的に切り離すため、マウント中のボリュームがあると下から引き抜くことになる。
+         * 内蔵 SD スロット (mmc = major 179) は対象外。
+         */
+        fun osMountedUsbVolumes(mountsText: String): List<String> =
+            mountsText.lineSequence().map { it.substringBefore(' ') }.filter { it.startsWith("/dev/block/vold/public:8,") }.distinct().toList()
+
         /** USB パーミッション取得済みのデバイスを読み取り専用で開く。 */
         fun open(ctx: Context, usb: UsbManager, device: UsbDevice): UsbStorageSession {
             val pick = UsbMscSelector.pick(UsbMscSelector.describe(device)) ?: throw NativeException(9, "Mass Storage (Bulk-Only) インタフェースがありません")
             if (!usb.hasPermission(device)) throw SecurityException("USB permission not granted")
+            // 安全策: OS がこのような USB ボリュームをマウント中は、ドライバの強制切り離しをしない (取り出してから再試行する)。
+            // /proc/mounts を読めなかった場合は判断できないので、安全側 (拒否) に倒す。
+            val mounts = try { java.io.File("/proc/mounts").readText() } catch (_: Exception) { throw NativeException(16, "/proc/mounts を読めないため、OS のマウント状態を確認できません") }
+            val busy = osMountedUsbVolumes(mounts)
+            if (busy.isNotEmpty()) throw NativeException(16, "OS が USB ボリュームをマウント中です(${busy.size} 個)。先に「取り出し」てから再試行してください")
             val intf = (0 until device.interfaceCount).map { device.getInterface(it) }.first { it.id == pick.interfaceNumber }
             val conn = usb.openDevice(device) ?: throw NativeException(2, "USB デバイスを開けません")
             // 他ドライバ(カーネルの usb-storage など)が掴んでいれば force=true で奪う。Android では通常は掴まれていない。
@@ -103,6 +119,8 @@ class UsbStorageSession private constructor(
             val h = NativeBridge.nativeOpenUsbMsc(conn.fileDescriptor, pick.epIn, pick.epOut, pick.interfaceNumber, 0, true)
             if (h <= 0) {
                 val code = (-h).toInt()
+                // 失敗の原因調査用 (SCSI コマンドと結果のみ。個人情報なし)
+                android.util.Log.w("usbmem", "USB open failed: ${NativeBridge.nativeErrcName(code)} trace=${NativeBridge.nativeUsbLastOpenTrace()}")
                 runCatching { conn.releaseInterface(intf) }
                 conn.close()
                 throw NativeException(code, "USB 初期化に失敗: ${NativeBridge.nativeErrcName(code)}")

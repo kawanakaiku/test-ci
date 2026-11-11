@@ -88,6 +88,17 @@ int usbmem_open_usb_msc(int fd, int ep_in, int ep_out, int interface_number, int
   return wrap(std::move(d), out);
 }
 
+void usbmem_usb_last_open_trace(char* buf, size_t len) {
+  if (!buf || !len) return;
+  snprintf(buf, len, "%s", MscDevice::last_open_trace().c_str());
+}
+
+void usbmem_usb_op_stats(usbmem_device* dev, char* buf, size_t len) {
+  if (!buf || !len) return;
+  buf[0] = 0;
+  if (dev) if (auto* m = dynamic_cast<MscDevice*>(dev->dev.get())) { std::string s = m->op_stats(); snprintf(buf, len, "%s", s.c_str()); }
+}
+
 void usbmem_usb_last_sense(usbmem_device* dev, int* key, int* asc, int* ascq) {
   int k = 0, a = 0, q = 0;
   if (dev) {

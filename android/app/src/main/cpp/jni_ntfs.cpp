@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 
+#include "usbmem/c_api_internal.h"
 #include "usbmem/devices.h"
 #include "usbmem/ntfs_volume.h"
 
@@ -43,6 +44,20 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMount(JNIEnv*
   if (!st.ok()) return -22;
   int err = 0;
   auto v = usbmem::NtfsVolume::mount(dev, &err);
+  if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
+  return reinterpret_cast<jlong>(new Vol{std::move(v)});
+}
+
+// 既に開いているデバイス (USB 等) の [offset, offset+length) を NTFS として読み取り専用マウント。ハンドルは消費しない
+// (呼び出し側が NTFS を unmount してからデバイスを close する)。戻り値: >0 ハンドル / <=0 = -errno
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDevice(JNIEnv*, jclass, jlong devHandle, jlong offset, jlong length) {
+  auto* d = reinterpret_cast<usbmem_device*>(devHandle);
+  if (!d || offset < 0 || length <= 0) return -22;
+  usbmem::BlockDevicePtr sub;
+  usbmem::Status st = usbmem::SubRangeDevice::create(d->dev, static_cast<uint64_t>(offset), static_cast<uint64_t>(length), true, &sub);
+  if (!st.ok()) return -22;
+  int err = 0;
+  auto v = usbmem::NtfsVolume::mount(sub, &err);
   if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
 }

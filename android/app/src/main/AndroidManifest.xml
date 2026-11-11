@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- ストレージ権限は不要: ファイルは SAF (ACTION_OPEN_DOCUMENT) 経由でのみ開く。
          USB Host は Phase 3 で uses-feature と UsbManager 権限ダイアログとして追加する。 -->
+    <!-- USB ホスト機能は必須にしない (非対応端末でも SAF でイメージを開ける) -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <application
         android:allowBackup="false"
         android:label="@string/app_name"

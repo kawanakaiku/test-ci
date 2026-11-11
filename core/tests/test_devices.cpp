@@ -143,3 +143,19 @@ TEST(c_api_roundtrip) {
   usbmem_close(nullptr);
   unlink(tmpl);
 }
+
+TEST(usb_msc_open_rejects_bad_arguments_and_non_usb_fd) {
+  usbmem_device* d = nullptr;
+  CHECK(usbmem_open_usb_msc(-1, 0x81, 0x02, 0, 0, 1, &d) != 0);
+  CHECK(usbmem_open_usb_msc(0, 0x02, 0x81, 0, 0, 1, &d) != 0);   // IN/OUT 取り違え
+  CHECK(usbmem_open_usb_msc(0, 0x81, 0x02, 0, 99, 1, &d) != 0);  // LUN 範囲外
+  CHECK(d == nullptr);
+  // USB ではない fd (通常ファイル) への ioctl は ENOTTY → 安全にエラーになる (クラッシュ・ハングしない)
+  std::string p = temp_image(4096);
+  int fd = ::open(p.c_str(), O_RDONLY);
+  CHECK(fd >= 0);
+  CHECK(usbmem_open_usb_msc(fd, 0x81, 0x02, 0, 0, 1, &d) != 0);
+  CHECK(d == nullptr);
+  ::close(fd);
+  ::unlink(p.c_str());
+}

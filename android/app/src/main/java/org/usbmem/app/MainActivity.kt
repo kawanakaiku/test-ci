@@ -31,6 +31,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+data class UsbRow(val device: android.hardware.usb.UsbDevice, val title: String)
+
 sealed interface UiState {
     data object Idle : UiState
     data class Loaded(val label: String, val table: PartitionTable) : UiState
@@ -38,6 +40,110 @@ sealed interface UiState {
 }
 
 class MainActivity : ComponentActivity() {
+    private val usbManager by lazy { getSystemService(USB_SERVICE) as android.hardware.usb.UsbManager }
+    private var usbSession: UsbStorageSession? = null
+    private var usbState by mutableStateOf<UiState>(UiState.Idle)
+    private var usbRows by mutableStateOf<List<UsbRow>>(emptyList())
+
+    private val usbReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context, i: android.content.Intent) {
+            val dev: android.hardware.usb.UsbDevice? =
+                if (android.os.Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(android.hardware.usb.UsbManager.EXTRA_DEVICE, android.hardware.usb.UsbDevice::class.java)
+                else @Suppress("DEPRECATION") i.getParcelableExtra(android.hardware.usb.UsbManager.EXTRA_DEVICE)
+            when (i.action) {
+                UsbStorageSession.ACTION_PERMISSION ->
+                    if (dev != null && i.getBooleanExtra(android.hardware.usb.UsbManager.EXTRA_PERMISSION_GRANTED, false)) openUsb(dev)
+                    else usbState = UiState.Failed("USB の許可が得られませんでした")
+                android.hardware.usb.UsbManager.ACTION_USB_DEVICE_DETACHED -> {
+                    // 抜去: 公開中のボリュームと接続を直ちに閉じる (抜けた後の I/O は Disconnected になるが、後始末を先に行う)
+                    if (dev != null && dev.deviceName == usbSession?.deviceName) closeUsb("USB デバイスが取り外されました")
+                }
+                android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED -> refreshUsb()
+            }
+        }
+    }
+
+    private fun refreshUsb() {
+        usbRows = usbManager.deviceList.values
+            .filter { UsbMscSelector.pick(UsbMscSelector.describe(it)) != null }
+            .map { UsbRow(it, "${it.productName ?: "USB ストレージ"} (${String.format("%04x:%04x", it.vendorId, it.productId)})") }
+    }
+
+    private fun requestUsb(dev: android.hardware.usb.UsbDevice) {
+        if (usbManager.hasPermission(dev)) openUsb(dev) else usbManager.requestPermission(dev, UsbStorageSession.permissionIntent(this))
+    }
+
+    private fun openUsb(dev: android.hardware.usb.UsbDevice) {
+        Thread {
+            val st = try {
+                closeUsbQuiet()
+                val s = UsbStorageSession.open(this, usbManager, dev)
+                usbSession = s
+                UiState.Loaded(dev.productName ?: "USB", s.partitionTable())
+            } catch (e: NativeException) {
+                UiState.Failed(e.message ?: "native error")
+            } catch (e: Exception) {
+                UiState.Failed(e.javaClass.simpleName)
+            }
+            runOnUiThread { usbState = st }
+        }.start()
+    }
+
+    private fun closeUsbQuiet() {
+        VolumeRegistry.removeByKey("usb:" + (usbSession?.deviceName ?: ""))
+        runCatching { usbSession?.close() }
+        usbSession = null
+    }
+
+    private fun closeUsb(msg: String) {
+        closeUsbQuiet()
+        notifyRoots()
+        runOnUiThread { usbState = UiState.Failed(msg); refreshUsb() }
+    }
+
+    private fun notifyRoots() {
+        contentResolver.notifyChange(android.provider.DocumentsContract.buildRootsUri("org.usbmem.app.documents"), null)
+    }
+
+    /** USB 上の NTFS パーティションを読み取り専用でマウントして SAF に公開する。 */
+    private fun shareUsbPartition(offset: Long, size: Long, label: String) {
+        Thread {
+            val st = try {
+                val s = usbSession ?: throw IllegalStateException("not open")
+                val v = s.mountNtfs(offset, size)
+                VolumeRegistry.addVolume(label, "usb:" + s.deviceName, v)
+                notifyRoots()
+                UiState.Failed("公開しました: $label(読み取り専用)")
+            } catch (e: NativeException) {
+                UiState.Failed("NTFS として開けません: ${e.message}")
+            } catch (e: Exception) {
+                UiState.Failed(e.javaClass.simpleName)
+            }
+            runOnUiThread { usbState = st }
+        }.start()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val f = android.content.IntentFilter().apply {
+            addAction(UsbStorageSession.ACTION_PERMISSION)
+            addAction(android.hardware.usb.UsbManager.ACTION_USB_DEVICE_DETACHED)
+            addAction(android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED)
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(usbReceiver, f, RECEIVER_NOT_EXPORTED) else @Suppress("UnspecifiedRegisterReceiverFlag") registerReceiver(usbReceiver, f)
+        refreshUsb()
+    }
+
+    override fun onStop() {
+        runCatching { unregisterReceiver(usbReceiver) }
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        if (isFinishing) closeUsbQuiet()
+        super.onDestroy()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { MaterialTheme { Scaffold { pad -> Screen(Modifier.padding(pad)) } } }
@@ -57,6 +163,20 @@ class MainActivity : ComponentActivity() {
             Text("ディスクイメージ(読み取り専用)", style = MaterialTheme.typography.titleLarge)
             Button(onClick = { picker.launch(arrayOf("*/*")) }) { Text("RAW イメージを開く") }
             Button(onClick = { sharePicker.launch(arrayOf("*/*")) }) { Text("NTFS イメージを他アプリに公開(読み取り専用)") }
+            Text("USB ストレージ(読み取り専用)", style = MaterialTheme.typography.titleMedium)
+            if (usbRows.isEmpty()) Text("対応する USB マスストレージ(Bulk-Only)は見つかりません。")
+            usbRows.forEach { r -> Button(onClick = { requestUsb(r.device) }) { Text(r.title) } }
+            when (val u = usbState) {
+                UiState.Idle -> {}
+                is UiState.Failed -> Text(u.message, color = MaterialTheme.colorScheme.error)
+                is UiState.Loaded -> {
+                    TableView(u)
+                    u.table.partitions.filter { it.fs == "ntfs" }.forEach { p ->
+                        Button(onClick = { shareUsbPartition(p.startBytes, p.sizeBytes, "${u.label} #${p.index}") }) { Text("#${p.index} を他アプリに公開(NTFS・読み取り専用)") }
+                    }
+                    if (u.table.wholeDeviceVolume) Button(onClick = { shareUsbPartition(0, u.table.diskBytes, u.label) }) { Text("デバイス全体を公開(読み取り専用)") }
+                }
+            }
             when (val s = state) {
                 UiState.Idle -> Text("イメージ(.img / .bin)を選ぶとパーティションを一覧表示します。書き込みは行いません。")
                 is UiState.Failed -> Text("エラー: ${s.message}", color = MaterialTheme.colorScheme.error)

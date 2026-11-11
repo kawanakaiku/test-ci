@@ -36,6 +36,23 @@ JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_NativeBridge_nativeListPartitio
   return arr;
 }
 
+// USB Mass Storage を開く。戻り値: >0 ハンドル / <=0 = -(usbmem::Errc)。fd の所有権は Kotlin (UsbDeviceConnection) に残る。
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeOpenUsbMsc(JNIEnv*, jclass, jint fd, jint epIn, jint epOut,
+                                                                        jint iface, jint lun, jboolean readOnly) {
+  usbmem_device* dev = nullptr;
+  int rc = usbmem_open_usb_msc(fd, epIn, epOut, iface, lun, readOnly ? 1 : 0, &dev);
+  if (rc != 0) return -static_cast<jlong>(rc);
+  return reinterpret_cast<jlong>(dev);
+}
+
+// 直近の SCSI センス [key, asc, ascq] (診断表示用)
+JNIEXPORT void JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbLastSense(JNIEnv* env, jclass, jlong handle, jintArray out) {
+  int k = 0, a = 0, q = 0;
+  usbmem_usb_last_sense(reinterpret_cast<usbmem_device*>(handle), &k, &a, &q);
+  jint v[3] = {k, a, q};
+  if (out && env->GetArrayLength(out) >= 3) env->SetIntArrayRegion(out, 0, 3, v);
+}
+
 JNIEXPORT void JNICALL Java_org_usbmem_app_NativeBridge_nativeClose(JNIEnv*, jclass, jlong handle) {
   usbmem_close(reinterpret_cast<usbmem_device*>(handle));
 }

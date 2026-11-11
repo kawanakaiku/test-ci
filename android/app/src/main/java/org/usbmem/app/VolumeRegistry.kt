@@ -41,6 +41,17 @@ object VolumeRegistry {
         return e
     }
 
+    /** マウント済みの NTFS ボリュームを登録する (USB など。永続化しない: 再接続時に再度登録される)。所有権は登録簿に移る。 */
+    @Synchronized
+    fun addVolume(label: String, key: String, volume: NtfsVolume): Entry {
+        val id = idOf(key)
+        volumes.remove(id)?.volume?.close()
+        return Entry(id, label, volume).also { volumes[id] = it }
+    }
+
+    @Synchronized
+    fun removeByKey(key: String) { volumes.remove(idOf(key))?.volume?.close() }
+
     @Synchronized
     fun remove(ctx: Context, id: String) {
         volumes.remove(id)?.volume?.close()

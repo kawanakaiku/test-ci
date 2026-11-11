@@ -15,7 +15,7 @@ endif()
 option(USBMEM_BUILD_TESTS "Build unit tests" ${_top})
 
 add_library(usbmem_core STATIC
-  src/devices.cpp src/usb_msc.cpp src/crc32.cpp src/fs_probe.cpp src/partition.cpp src/c_api.cpp)
+  src/devices.cpp src/usb_msc.cpp src/usbdevfs_transport.cpp src/crc32.cpp src/fs_probe.cpp src/partition.cpp src/c_api.cpp)
 target_include_directories(usbmem_core PUBLIC include)
 target_compile_definitions(usbmem_core PUBLIC _FILE_OFFSET_BITS=64)
 target_compile_options(usbmem_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wno-sign-conversion)

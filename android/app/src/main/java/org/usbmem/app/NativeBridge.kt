@@ -8,6 +8,9 @@ object NativeBridge {
 
     @JvmStatic external fun nativeOpenFd(fd: Int, readOnly: Boolean): Long
     @JvmStatic external fun nativeListPartitions(handle: Long, errorOut: IntArray?): ByteArray?
+    @JvmStatic external fun nativeOpenUsbMsc(fd: Int, epIn: Int, epOut: Int, iface: Int, lun: Int, readOnly: Boolean): Long
+    @JvmStatic external fun nativeUsbLastSense(handle: Long, out: IntArray)
+    @JvmStatic external fun nativeNtfsMountDevice(devHandle: Long, offset: Long, length: Long): Long
     @JvmStatic external fun nativeClose(handle: Long)
     @JvmStatic external fun nativeErrcName(code: Int): String
     @JvmStatic external fun nativeNtfsMount(fd: Int): Long
@@ -90,6 +93,13 @@ class NtfsVolume private constructor(private var handle: Long) : AutoCloseable {
     }
 
     companion object {
+        /** 開いているデバイス(USB 等)の一区間を NTFS として読み取り専用マウント。デバイスの close より先にこの volume を close すること。 */
+        fun mountDeviceRange(deviceHandle: Long, offset: Long, length: Long): NtfsVolume {
+            val h = NativeBridge.nativeNtfsMountDevice(deviceHandle, offset, length)
+            if (h <= 0) throw NativeException((-h).toInt(), "ntfs mount failed: errno ${-h}")
+            return NtfsVolume(h)
+        }
+
         fun mountReadOnly(detachedFd: Int): NtfsVolume {
             val h = NativeBridge.nativeNtfsMount(detachedFd)
             if (h <= 0) throw NativeException((-h).toInt(), "ntfs mount failed: errno ${-h}")

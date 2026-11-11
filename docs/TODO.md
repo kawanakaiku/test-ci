@@ -60,6 +60,8 @@
 - [ ] ext4: 実機 USB での確認、書き込み(ジャーナル実装が必要)、ACL/xattr の公開、ブロックサイズ 8K 以上。
 - [x] ext2 の書き込み (実験的、`USBMEM_NTFS_WRITE` ビルドのみ。docs/ext2-write.md): bh の dirty/writeback 基盤、作成・書き込み・truncate・削除・rename・symlink・hardlink。ホスト (e2fsck + fuse2fs 参照との全ツリー比較、モデル、3000 ファイル、電源断 320 試行/構成) と AVD で検証。ダーティ印を先に確定し、汚れた/エラー/未知機能のボリュームは読み取り専用。
 - [ ] ext2 の書き込み: 実機 USB での確認 (flush の効き方)、ディレクトリ再帰削除の性能 (解放のたびに同期)、予約ブロックの扱い (uid 0 扱いで 100% まで使える)、inode キャッシュの上限。
-- [ ] リンクの UI / DocumentsProvider でのシンボリックリンクの見せ方 (JNI の `nativeFsReadlink/Symlink/Link` は ext2 で実装済み、UI・プロバイダからは未使用)。
+- [x] リンク: DocumentsProvider はボリューム内でシンボリックリンクを辿って見せる (`LinkResolver.kt`: 絶対パスはボリュームのルート基準、".." はルートで止める、辿りは 40 回まで、祖先/自分を指すディレクトリリンク・壊れたリンク・循環はリンク先の文字列を中身とする小さなファイルとして見せる、削除/名前変更はリンク自身、再帰削除はリンクを辿らない)。アプリ内の「リンクを作る…」ダイアログ (ext2 のシンボリック/ハード。ハードは「すべて許可」のみ)。AVD の `LinkProviderTest` で検証。実機未確認。
+- [x] 書き込み自己診断 (診断タブ。「すべて許可」でマウント中のみ。専用の一時フォルダだけを使い、全部消す)。AVD で検証。**実機の RAID ではまだ実行していない (ユーザーが任意のタイミングで実行する)**。
+- [ ] NTFS のリパースポイント (シンボリックリンク/ジャンクション) の表示は未対応。
 - [ ] exFAT / ext4 の書き込みは ext2 の書き込み基盤の上に載せる (exFAT: VolumeFlags 先行確定 + FAT チェーン順序、ext4: jbd2 の移植が必要)。
 - [ ] 次: fat/vfat、isofs、squashfs/erofs、udf、ntfs3 (NTFS の第二のバックエンドとして選択可能に)。見積もり (tools/fs_compat_probe.py): ntfs3 は 33k 行で iomap/folio 前提 (gcc エラー 618 件)。

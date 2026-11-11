@@ -136,7 +136,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 android.util.Log.i("usbmem", "ntfs mount: sessionWritable=${sess.writable} volumeWritable=${v.writable} createOnly=${v.createOnly}")
                 val roText = getString(R.string.mode_read_only)
                 if (!sess.writable) pub = PublishedVolume(label, roText, false)
-                else if (v.writable) pub = PublishedVolume(label, getString(if (v.createOnly) R.string.mode_create_only else R.string.mode_full), true, fullWrite = !v.createOnly)
+                else if (v.writable) pub = PublishedVolume(label, getString(if (v.createOnly) R.string.mode_create_only else R.string.mode_full), true, fullWrite = !v.createOnly, canLink = v.fsName == "ext2")
                 else {
                     pub = PublishedVolume(label, roText, false)
                     notice = Notice(Severity.Warning, getString(R.string.notice_published_read_only), getString(R.string.notice_published_read_only_detail))
@@ -233,6 +233,32 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
 
     private fun notifyRoots() {
         contentResolver.notifyChange(android.provider.DocumentsContract.buildRootsUri("org.usbmem.app.documents"), null)
+    }
+
+    // ---- LinkActions (アプリ内のリンク作成)
+    private fun linkVolume(): NtfsVolume = VolumeRegistry.byKey("usb:" + (usbSession?.deviceName ?: ""))?.volume ?: throw IllegalStateException("not mounted")
+    override fun listDir(path: String): List<NtfsEntry> {
+        val v = linkVolume()
+        return v.list(LinkResolver.physical(v, path, true))
+    }
+    override fun createLink(hard: Boolean, folder: String, name: String, target: String): String? {
+        return try {
+            val v = linkVolume()
+            if (name.contains('/') || name == "." || name == ".." || name.any { it.code < 0x20 }) return getString(R.string.link_err_name)
+            val dir = LinkResolver.physical(v, folder, true)
+            if (!v.stat(dir).isDir) return getString(R.string.link_err_folder)
+            if (hard) {
+                val src = LinkResolver.physical(v, target, true)
+                if (v.stat(src).isDir) return getString(R.string.link_err_hard_dir)
+                v.link(dir, name, src)
+            } else v.symlink(dir, name, target)
+            null
+        } catch (e: NativeException) { getString(R.string.link_err_failed, e.code, e.message ?: "") }
+        catch (e: Exception) { getString(R.string.link_err_failed, -1, e.message ?: e.javaClass.simpleName) }
+    }
+    override fun linkCreated(name: String) {
+        model.usbNotice = Notice(Severity.Success, getString(R.string.link_done, name))
+        notifyRoots()
     }
 
     // ---- DiagnosticsActions

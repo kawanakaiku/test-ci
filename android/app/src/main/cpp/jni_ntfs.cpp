@@ -164,6 +164,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsList(JNI
     first = false;
     o += "{\"name\":"; json_str(o, e.name);
     o += ",\"ino\":\"" + std::to_string(e.ino) + "\",\"dir\":" + (st.is_dir() ? "true" : "false");
+    o += std::string(",\"link\":") + (((st.mode & 0170000) == 0120000) ? "true" : "false");
     o += ",\"size\":\"" + std::to_string(st.size) + "\",\"mtime\":" + std::to_string(st.mtime) + "}";
   }
   o += "]";
@@ -180,6 +181,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsStat(JNI
   if (!rc) rc = v->stat(ino, &st);
   if (rc) { jint e = rc < 0 ? -rc : rc; env->SetIntArrayRegion(err, 0, 1, &e); return nullptr; }
   std::string o = "{\"ino\":\"" + std::to_string(ino) + "\",\"dir\":" + (st.is_dir() ? "true" : "false") +
+                  ",\"link\":" + (((st.mode & 0170000) == 0120000) ? "true" : "false") +
                   ",\"size\":\"" + std::to_string(st.size) + "\",\"mtime\":" + std::to_string(st.mtime) + "}";
   return bytes(env, o);
 }

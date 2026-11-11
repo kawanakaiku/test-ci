@@ -84,7 +84,8 @@ class RawImage private constructor(private var handle: Long) : AutoCloseable {
     }
 }
 
-data class NtfsEntry(val name: String, val ino: Long, val isDir: Boolean, val size: Long, val mtimeSec: Long)
+/** [isLink] = シンボリックリンクそのもの (stat はリンクを辿らない。isDir / size はリンク自身の値)。 */
+data class NtfsEntry(val name: String, val ino: Long, val isDir: Boolean, val size: Long, val mtimeSec: Long, val isLink: Boolean = false)
 
 /**
  * NTFS をマウントしたボリューム (既定は読み取り専用)。fd の所有権を引き受ける。[writable] は実際に書き込み可能でマウントされたときだけ true。
@@ -183,7 +184,7 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
         val arr = org.json.JSONArray(String(b, Charsets.UTF_8))
         return (0 until arr.length()).map {
             val o = arr.getJSONObject(it)
-            NtfsEntry(o.getString("name"), o.getString("ino").toLong(), o.getBoolean("dir"), o.getString("size").toLong(), o.getLong("mtime"))
+            NtfsEntry(o.getString("name"), o.getString("ino").toLong(), o.getBoolean("dir"), o.getString("size").toLong(), o.getLong("mtime"), o.optBoolean("link", false))
         }
     }
 
@@ -194,7 +195,7 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
         val b = NativeBridge.nativeNtfsStat(handle, path.toByteArray(Charsets.UTF_8), err)
             ?: throw NativeException(err[0], "stat '$path' failed: errno ${err[0]}")
         val o = org.json.JSONObject(String(b, Charsets.UTF_8))
-        return NtfsEntry(path.substringAfterLast('/'), o.getString("ino").toLong(), o.getBoolean("dir"), o.getString("size").toLong(), o.getLong("mtime"))
+        return NtfsEntry(path.substringAfterLast('/'), o.getString("ino").toLong(), o.getBoolean("dir"), o.getString("size").toLong(), o.getLong("mtime"), o.optBoolean("link", false))
     }
 
     /** off から buf.size バイトまで読む。EOF で 0。 */

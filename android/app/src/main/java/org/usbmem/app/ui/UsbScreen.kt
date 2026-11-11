@@ -27,7 +27,7 @@ import org.usbmem.app.R
 import org.usbmem.app.formatBytes
 
 /** USB 画面で起こせる操作。実処理は MainActivity。 */
-interface UsbActions {
+interface UsbActions : LinkActions {
     fun openStorageSettings()
     fun openUsb(key: String)
     fun publishPartition(startBytes: Long, sizeBytes: Long, label: String)
@@ -40,6 +40,7 @@ interface UsbActions {
 
 @Composable
 fun UsbScreen(m: AppModel, a: UsbActions, modifier: Modifier = Modifier) {
+    var linkOpen by remember { mutableStateOf(false) }
     var confirmClose by remember { mutableStateOf(false) }
     var confirmFull by remember { mutableStateOf(false) }
     val isOpen = m.usbOpenKey != null
@@ -101,6 +102,7 @@ fun UsbScreen(m: AppModel, a: UsbActions, modifier: Modifier = Modifier) {
             SectionCard(stringResource(R.string.usb_published_title), subtitle = pub.label, trailing = { Chip(pub.modeText, severity = if (pub.writable) Severity.Warning else Severity.Success) }) {
                 Text(stringResource(R.string.usb_published_desc), style = MaterialTheme.typography.bodyMedium)
                 if (pub.writable) Text(stringResource(R.string.usb_published_warning), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (pub.canLink) OutlinedButton(onClick = { linkOpen = true }, enabled = m.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.link_button)) }
                 FilledTonalButton(onClick = { if (m.usbWritable) confirmClose = true else a.closeUsb() }, enabled = m.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_close_safely)) }
             }
         }
@@ -158,6 +160,10 @@ fun UsbScreen(m: AppModel, a: UsbActions, modifier: Modifier = Modifier) {
             onConfirm = { confirmFull = false; a.setWriteMode(WriteMode.Full) },
             onDismiss = { confirmFull = false },
         )
+    }
+    if (linkOpen) {
+        val pub = m.published
+        LinkDialog(a, allowHard = pub?.fullWrite == true, onDone = { linkOpen = false; a.linkCreated(it) }, onDismiss = { linkOpen = false })
     }
     if (confirmClose) {
         ConfirmDialog(

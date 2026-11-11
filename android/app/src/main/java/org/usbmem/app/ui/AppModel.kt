@@ -13,7 +13,7 @@ data class UsbDeviceRow(val key: String, val title: String, val vidPid: String)
 /** USB を開く前に決める書き込みモード。 */
 enum class WriteMode { ReadOnly, CreateOnly, Full }
 
-data class PublishedVolume(val label: String, val modeText: String, val writable: Boolean, val fullWrite: Boolean = false)
+data class PublishedVolume(val label: String, val modeText: String, val writable: Boolean, val fullWrite: Boolean = false, val canLink: Boolean = false)
 
 /**
  * 画面が読む状態をまとめたもの (Compose の状態保持)。ロジックは MainActivity が持ち、ここは値を更新するだけ。

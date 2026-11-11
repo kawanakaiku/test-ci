@@ -102,7 +102,9 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         val (vol, path) = parse(documentId)
         val c = MatrixCursor(projection ?: docCols)
         try {
-            val e = vol.volume.stat(path)
+            val pp = LinkResolver.physical(vol.volume, path, false)
+            val raw = vol.volume.stat(pp)
+            val e = if (raw.isLink) LinkResolver.view(vol.volume, pp.substringBeforeLast('/', "").ifEmpty { "/" }, raw).entry.copy(name = raw.name) else raw
             addRow(c, documentId, e, flagsOf(vol, e, path == "/", path), if (path == "/") vol.label else null)
         } catch (ex: NativeException) { fail(ex, documentId) }
         return c
@@ -113,7 +115,11 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         val c = MatrixCursor(projection ?: docCols)
         c.setNotificationUri(ctx.contentResolver, DocumentsContract.buildChildDocumentsUri(AUTHORITY, parentDocumentId))
         try {
-            for (e in vol.volume.list(path)) addRow(c, childId(parentDocumentId, e.name), e, flagsOf(vol, e, false, if (path.endsWith("/")) path + e.name else "$path/${e.name}"))
+            val dirPhys = LinkResolver.physical(vol.volume, path, true)
+            for (raw in vol.volume.list(dirPhys)) {
+                val e = LinkResolver.view(vol.volume, dirPhys, raw).entry
+                addRow(c, childId(parentDocumentId, e.name), e, flagsOf(vol, e, false, if (path.endsWith("/")) path + e.name else "$path/${e.name}"))
+            }
         } catch (ex: NativeException) { fail(ex, parentDocumentId) }
         return c
     }
@@ -135,11 +141,12 @@ class NtfsDocumentsProvider : DocumentsProvider() {
     private fun wrap(ex: NativeException, id: String): Nothing = throw FileNotFoundException("$id (errno ${ex.code})")
 
     override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
-        val (vol, parent) = parse(parentDocumentId)
+        val (vol, parentVirtual) = parse(parentDocumentId)
         requireWritable(vol)
         checkName(displayName)
         val isDir = mimeType == Document.MIME_TYPE_DIR
         try {
+            val parent = LinkResolver.physical(vol.volume, parentVirtual, true)   // リンク先のディレクトリの中へ作る
             if (!vol.volume.stat(parent).isDir) throw FileNotFoundException("$parentDocumentId is not a directory")
             // 同名があれば " (1)", " (2)" ... を付けて重複を避ける (DocumentsProvider の約束)
             var name = displayName; var n = 0
@@ -163,7 +170,8 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         requireWritable(vol)
         requireNotCreateOnly(vol, "削除")
         if (path == "/") throw UnsupportedOperationException("root")
-        try { vol.volume.removeTree(path) } catch (ex: NativeException) { wrap(ex, documentId) }
+        // リンクは**リンク自身**を消す (最後の要素は辿らない。リンク先の中身は消さない。removeTree もリンクを辿らない)
+        try { vol.volume.removeTree(LinkResolver.physical(vol.volume, path, false)) } catch (ex: NativeException) { wrap(ex, documentId) }
         notifyChildren(parentIdOf(documentId))
     }
 
@@ -173,7 +181,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         requireNotCreateOnly(vol, "名前変更")
         if (path == "/") throw UnsupportedOperationException("root")
         checkName(displayName)
-        try { vol.volume.rename(path, displayName) } catch (ex: NativeException) { wrap(ex, documentId) }
+        try { vol.volume.rename(LinkResolver.physical(vol.volume, path, false), displayName) } catch (ex: NativeException) { wrap(ex, documentId) }
         notifyChildren(parentIdOf(documentId))
         return documentId.substringBeforeLast('/') + "/" + displayName   // "<vol>:/a/b" -> "<vol>:/a/new", "<vol>:/b" -> "<vol>:/new"
     }
@@ -181,29 +189,59 @@ class NtfsDocumentsProvider : DocumentsProvider() {
     /** 別のディレクトリへ移動する (同じボリューム内のみ)。移動先に同名があれば失敗。 */
     override fun moveDocument(sourceDocumentId: String, sourceParentDocumentId: String, targetParentDocumentId: String): String {
         val (vol, path) = parse(sourceDocumentId)
-        val (vol2, target) = parse(targetParentDocumentId)
+        val (vol2, targetVirtual) = parse(targetParentDocumentId)
         if (vol.id != vol2.id) throw UnsupportedOperationException("cross-volume move")
         requireWritable(vol)
         requireNotCreateOnly(vol, "移動")
         if (path == "/") throw UnsupportedOperationException("root")
-        if (target == path || target.startsWith(if (path.endsWith("/")) path else "$path/")) throw IllegalArgumentException("cannot move into itself")
         val name = path.substringAfterLast('/')
         try {
+            val src = LinkResolver.physical(vol.volume, path, false)
+            val target = LinkResolver.physical(vol.volume, targetVirtual, true)
+            // 自分自身や自分の下 (リンク経由を含む) へは動かせない
+            if (target == src || target.startsWith(if (src.endsWith("/")) src else "$src/")) throw IllegalArgumentException("cannot move into itself")
             if (!vol.volume.stat(target).isDir) throw FileNotFoundException("$targetParentDocumentId is not a directory")
             val dest = if (target.endsWith("/")) target + name else "$target/$name"
             val exists = try { vol.volume.stat(dest); true } catch (e: NativeException) { if (e.code == 2) false else throw e }
             if (exists) throw IllegalStateException("target exists: $dest")
-            vol.volume.move(path, target, name)
+            vol.volume.move(src, target, name)
         } catch (ex: NativeException) { wrap(ex, sourceDocumentId) }
         notifyChildren(sourceParentDocumentId); notifyChildren(targetParentDocumentId)
         return childId(targetParentDocumentId, name)
     }
 
     override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
-        val (vol, path) = parse(documentId)
+        val (vol, virtualPath) = parse(documentId)
+        // リンクは辿った先の実体を開く。辿れない/循環するリンクは、リンク先の文字列を中身とする読み取り専用の小さなファイルとして開く
+        var path = virtualPath
+        var brokenText: ByteArray? = null
+        if (LinkResolver.supported(vol.volume)) {
+            try {
+                val pp = LinkResolver.physical(vol.volume, virtualPath, false)
+                val raw = vol.volume.stat(pp)
+                if (raw.isLink) {
+                    val vw = LinkResolver.view(vol.volume, pp.substringBeforeLast('/', "").ifEmpty { "/" }, raw)
+                    if (vw.broken) brokenText = (vw.target ?: "").toByteArray(Charsets.UTF_8) else path = LinkResolver.physical(vol.volume, virtualPath, true)
+                } else path = pp
+            } catch (ex: NativeException) { fail(ex, documentId) }
+        }
         val pfdMode = ParcelFileDescriptor.parseMode(mode)   // "r" / "w"(切り詰め) / "wt" / "wa" / "rw" / "rwt"
         val write = (pfdMode and ParcelFileDescriptor.MODE_WRITE_ONLY) != 0 || (pfdMode and ParcelFileDescriptor.MODE_READ_WRITE) == ParcelFileDescriptor.MODE_READ_WRITE
         val canRead = mode.contains('r')
+        if (brokenText != null) {
+            if (write) throw SecurityException("壊れた/循環するリンクには書き込めません")
+            val txt = brokenText
+            val smb = ctx.getSystemService(Context.STORAGE_SERVICE) as StorageManager
+            return smb.openProxyFileDescriptor(ParcelFileDescriptor.MODE_READ_ONLY, object : ProxyFileDescriptorCallback() {
+                override fun onGetSize(): Long = txt.size.toLong()
+                override fun onRead(offset: Long, size: Int, data: ByteArray): Int {
+                    if (offset >= txt.size) return 0
+                    val n = minOf(size.toLong(), txt.size - offset).toInt()
+                    System.arraycopy(txt, offset.toInt(), data, 0, n); return n
+                }
+                override fun onRelease() {}
+            }, ioHandler)
+        }
         if (write) requireWritable(vol)
         if (write && vol.volume.createOnly && !vol.volume.isCreatedHere(path)) throw SecurityException("作成のみモード: 既存のファイルは書き換えられません")
         val st = try { vol.volume.stat(path) } catch (ex: NativeException) { fail(ex, documentId) }

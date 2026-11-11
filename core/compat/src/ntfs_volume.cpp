@@ -16,6 +16,11 @@ std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr dev, int ro, int* err);
 std::unique_ptr<NtfsVolume> NtfsVolume::mount(BlockDevicePtr dev, int* err) { return mount_impl_(std::move(dev), 1, err); }
 std::unique_ptr<NtfsVolume> NtfsVolume::mount_rw(BlockDevicePtr dev, int* err) { return mount_impl_(std::move(dev), 0, err); }
 int64_t NtfsVolume::write(uint64_t ino, uint64_t off, const void* buf, size_t len) { return usbmem_ntfs_write(impl_->v, ino, off, buf, len); }
+int NtfsVolume::create(uint64_t d, const std::string& n, uint32_t m, uint64_t* i) { return usbmem_ntfs_create(impl_->v, d, n.data(), n.size(), m, i); }
+int NtfsVolume::mkdir(uint64_t d, const std::string& n, uint32_t m, uint64_t* i) { return usbmem_ntfs_mkdir(impl_->v, d, n.data(), n.size(), m, i); }
+int NtfsVolume::unlink(uint64_t d, const std::string& n) { return usbmem_ntfs_unlink(impl_->v, d, n.data(), n.size()); }
+int NtfsVolume::rmdir(uint64_t d, const std::string& n) { return usbmem_ntfs_rmdir(impl_->v, d, n.data(), n.size()); }
+int NtfsVolume::rename(uint64_t od, const std::string& on, uint64_t nd, const std::string& nn) { return usbmem_ntfs_rename(impl_->v, od, on.data(), on.size(), nd, nn.data(), nn.size()); }
 int NtfsVolume::sync() { return usbmem_ntfs_sync(impl_->v); }
 int64_t NtfsVolume::write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len) { return usbmem_ntfs_write_inplace(impl_->v, ino, off, buf, len); }
 std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr dev, int ro, int* err) {

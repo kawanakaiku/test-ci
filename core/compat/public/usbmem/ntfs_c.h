@@ -32,6 +32,13 @@ int64_t usbmem_ntfs_write_inplace(usbmem_ntfs *, uint64_t ino, uint64_t off, con
 /* 上流の write_iter 経由の書き込み (拡張可)。書いたバイト数 / 負の errno。要 sync。 */
 int64_t usbmem_ntfs_write(usbmem_ntfs *, uint64_t ino, uint64_t off, const void *buf, size_t len);
 
+/* 名前空間の変更 (実験的)。いずれも書き込みマウント時のみ。dir_ino の直下の name を対象にする。 */
+int usbmem_ntfs_create(usbmem_ntfs *, uint64_t dir_ino, const char *name, size_t len, uint32_t mode, uint64_t *ino);
+int usbmem_ntfs_mkdir(usbmem_ntfs *, uint64_t dir_ino, const char *name, size_t len, uint32_t mode, uint64_t *ino);
+int usbmem_ntfs_unlink(usbmem_ntfs *, uint64_t dir_ino, const char *name, size_t len);
+int usbmem_ntfs_rmdir(usbmem_ntfs *, uint64_t dir_ino, const char *name, size_t len);
+int usbmem_ntfs_rename(usbmem_ntfs *, uint64_t old_dir, const char *old_name, size_t old_len, uint64_t new_dir, const char *new_name, size_t new_len);
+
 /* BlockDevice ブリッジ。dev は usbmem::BlockDevicePtr を指す不透明ポインタ(C++ ラッパが渡す)。 */
 struct usbmem_bdev *usbmem_bdev_wrap(void *shared_ptr_copy_owner);
 void usbmem_bdev_free(struct usbmem_bdev *);

@@ -70,3 +70,17 @@ MFT は `ntfs_mft_writepages` (別系統) で書く。
   - `win_gpt64k`: 上流が `$MFTMirr` 不一致 (64KiB クラスタで比較範囲が広すぎる偽陽性) を理由に**自動で読み取り専用マウントに落ちる** (`write_inplace -> -EROFS`)。データは壊さず安全側だが、64KiB クラスタの Windows ボリュームには書けない。対処 (上流の比較を先頭 4 レコードに限る等) は別途判断。
   - `win_dirty` (ダーティフラグ付き): rw マウントし、クリーンなアンマウントでダーティフラグを下ろす (`$Volume` flags 0x0181→0x0180)。これは上流の方針。`$LogFile` が静止状態のため許容されたが、未再生ログのあるボリュームでの挙動は別途確認が必要。
   - 4Kn (4096B ブロック) の書き込みも成功。
+
+### 段階 3 (名前空間の変更) 実装結果 (2026-11-11)
+- 互換層: `iomap_file_buffered_write` / `iomap_zero_range` (rt_write.c)、単一バッファの `iov_iter`、`generic_write_checks`、`kiocb_modified` 等 (更新時刻)。
+  ホスト API: `usbmem_ntfs_write` (上流 `ntfs_file_write_iter` 経由 = 拡張・常駐→非常駐の昇格・隙間のゼロ埋めは上流)、`create` / `mkdir` / `unlink` / `rmdir` / `rename` (上流の inode_operations を VFS 同様に呼ぶ)。
+  前提: クラスタサイズ >= 4096 (1 folio が 1 クラスタに収まる)。512B クラスタの小容量ボリュームは書き込み未対応 (TODO)。
+- 検証 (`tools/run_write_tests.sh`): 同じ操作列を (a) 自前ドライバ、(b) ntfs-3g の POSIX で実行し、**ツリー全体 (名前・サイズ・sha256) を比較** + `ntfsfix -n`。
+  全て一致: 作成 / mkdir (入れ子) / 削除と再作成 / rename (ファイル・ディレクトリ・別ディレクトリへ移動) / **1200 ファイルの一括作成と間引き削除 (索引の拡張・縮小)** / 日本語名・254 文字名・空白括弧名 /
+  EOF 超えの拡張・隙間・数 MiB 拡張・常駐ファイルの昇格。
+  圧縮ファイル (LZNT1) の削除は上流が `-EOPNOTSUPP` で拒否するが、**失敗してもツリーは変わらず fs も整合** (負のコントロールをテストに含む)。
+- **Windows による検証**: Windows 製 MBR イメージ (WinPE の `diskpart` で作成) に 1615 操作 (作成・削除・rename・書き込み・600+ ファイルの索引拡張) を実行 →
+  WinPE の **`chkdsk` が「問題は見つかりませんでした」**、Windows がボリュームから読み戻した 1215 ファイルが ntfs-3g の見たツリーと sha256 まで一致。
+- UBSan: 上流の `memcpy(NULL, ..., 0)` (nonnull-attribute) だけ上流 C で除外。
+- 未対応/次: 64KiB クラスタの `$MFTMirr` 偽陽性 (自動で読み取り専用)、電源断模擬、圧縮・疎ファイルへの書き込み、fsync/flush の意味づけ、`usbmem_ntfs_write` の mtime 等の属性、
+  書き込み中の USB 抜去時の整合性、実機 USB。

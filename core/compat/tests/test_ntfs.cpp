@@ -242,6 +242,48 @@ static int probe_img(const std::string& img) {
   return 0;
 }
 
+// 使い方: --ops <image> <script>  実験的: 書き込みマウントで操作列を実行し sync → unmount。
+// script の各行: mkdir P | create P | write P OFF LEN SEED | unlink P | rmdir P | rename A B   (P は "/" 区切りの絶対パス風、先頭 "/" 省略可)
+// 書き込みの内容: byte i = ((OFF+i)*7+SEED)&255。run_write_tests.sh は同じ列を ntfs-3g 上で POSIX 操作して結果を比較する。
+static int ops_run(const std::string& img, const std::string& script) {
+  usbmem::BlockDevicePtr base;
+  const char* bse = std::getenv("USBMEM_IMG_BS");
+  if (!usbmem::RawImageDevice::open_path(img, false, bse ? (uint32_t)std::atoi(bse) : 512, &base).ok()) return 2;
+  usbmem::BlockDevicePtr dev = base;
+  { usbmem::PartitionTable pt; if (usbmem::read_partition_table(*base, &pt).ok() && !pt.whole_device_volume) {
+      for (auto& p : pt.partitions) if (p.fs == usbmem::FsType::Ntfs) { if (!usbmem::SubRangeDevice::create(base, p.start_bytes, p.size_bytes, false, &dev).ok()) return 2; break; } } }
+  int err = 0; auto vol = usbmem::NtfsVolume::mount_rw(dev, &err);
+  if (!vol) { std::fprintf(stderr, "mount_rw failed: errno %d\n", err); return 1; }
+  auto split = [](const std::string& p, std::string* dir, std::string* name) {
+    std::string q = p; while (!q.empty() && q[0] == '/') q.erase(0, 1);
+    size_t k = q.rfind('/'); if (k == std::string::npos) { *dir = ""; *name = q; } else { *dir = q.substr(0, k); *name = q.substr(k + 1); }
+  };
+  auto dir_ino = [&](const std::string& d, uint64_t* ino) { if (d.empty()) { *ino = vol->root(); return 0; } return vol->resolve(d, ino); };
+  std::ifstream in(script); std::string line; int n = 0, bad = 0;
+  while (std::getline(in, line)) {
+    if (line.empty() || line[0] == '#') continue;
+    std::istringstream is(line); std::string op, a, b; is >> op >> a;
+    int rc = 0; std::string d, nm; uint64_t di = 0, ino = 0;
+    if (op == "mkdir" || op == "create" || op == "unlink" || op == "rmdir") {
+      split(a, &d, &nm); rc = dir_ino(d, &di);
+      if (!rc) rc = op == "mkdir" ? vol->mkdir(di, nm, 0755, &ino) : op == "create" ? vol->create(di, nm, 0644, &ino) : op == "unlink" ? vol->unlink(di, nm) : vol->rmdir(di, nm);
+    } else if (op == "write") {
+      uint64_t off, len; unsigned seed; is >> off >> len >> seed;
+      rc = vol->resolve(a, &ino);
+      if (!rc) { std::vector<uint8_t> buf(len); for (uint64_t i = 0; i < len; i++) buf[i] = (uint8_t)((((off + i) * 7) + seed) & 255);
+        int64_t w = vol->write(ino, off, buf.data(), buf.size()); rc = w == (int64_t)len ? 0 : (w < 0 ? (int)w : -EIO); }
+    } else if (op == "rename") {
+      is >> b; std::string d2, n2; uint64_t di2 = 0; split(a, &d, &nm); split(b, &d2, &n2);
+      rc = dir_ino(d, &di); if (!rc) rc = dir_ino(d2, &di2); if (!rc) rc = vol->rename(di, nm, di2, n2);
+    } else { std::fprintf(stderr, "bad op: %s\n", line.c_str()); return 2; }
+    n++; if (rc) { bad++; std::fprintf(stderr, "op failed (%d): %s\n", rc, line.c_str()); }
+  }
+  int rc = vol->sync(); if (rc) { std::fprintf(stderr, "sync -> %d\n", rc); return 1; }
+  vol.reset();
+  std::fprintf(stderr, "ops: %d run, %d failed\n", n, bad);
+  return bad ? 1 : 0;
+}
+
 static int replay(const std::string& dir, const char* file) {
   usbmem::BlockDevicePtr base;
   if (!usbmem::RawImageDevice::open_path(dir + "/ntfs_basic.img", true, 512, &base).ok()) return 2;
@@ -258,6 +300,7 @@ static int replay(const std::string& dir, const char* file) {
 int main(int argc, char** argv) {
   if (argc >= 7 && std::string(argv[1]) == "--wtest") return wtest(argv[2], argv[3], std::strtoull(argv[4], 0, 10), std::strtoull(argv[5], 0, 10), (unsigned)std::atoi(argv[6]));
   if (argc >= 3 && std::string(argv[1]) == "--probe") return probe_img(argv[2]);
+  if (argc >= 4 && std::string(argv[1]) == "--ops") return ops_run(argv[2], argv[3]);
   if (argc >= 4 && std::string(argv[1]) == "--extract") return extract_part(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);
   if (argc >= 4 && std::string(argv[1]) == "--cat") return cat_file(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);
   if (argc >= 4 && std::string(argv[1]) == "--manifest") return verify_manifest(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);

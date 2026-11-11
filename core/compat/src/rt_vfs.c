@@ -153,3 +153,74 @@ int64_t usbmem_ntfs_write(usbmem_ntfs *v, uint64_t ino, uint64_t off, const void
   }
   iput(i); return ret;
 }
+
+/* ---- 名前空間の変更: VFS の vfs_create / vfs_mkdir / vfs_unlink / vfs_rmdir / vfs_rename 相当 */
+static int lookup_d(struct inode *dir, const char *name, size_t len, struct dentry **out) {
+  if (!S_ISDIR(dir->i_mode) || !dir->i_op || !dir->i_op->lookup) return -ENOTDIR;
+  if (!len || len > 255 || memchr(name, '/', len) || (len == 1 && name[0] == '.') || (len == 2 && name[0] == '.' && name[1] == '.')) return -EINVAL;
+  struct dentry *d = usbmem_d_alloc(dir->i_sb, NULL, name, (unsigned)len);
+  if (!d) return -ENOMEM;
+  struct dentry *r = ((struct dentry *(*)(struct inode *, struct dentry *, unsigned))dir->i_op->lookup)(dir, d, 0);
+  if (IS_ERR(r)) { int e = (int)PTR_ERR(r); usbmem_d_free(d); return e; }
+  if (r && r != d) { usbmem_d_free(d); d = r; }
+  *out = d; return 0;
+}
+static int ns_op(usbmem_ntfs *v, int kind, uint64_t dir_ino, const char *name, size_t len, uint32_t mode, uint64_t *ino) {
+  if (sb_rdonly(v->sb)) return -EROFS;
+  int err = 0; struct inode *dir = get_inode(v, dir_ino, &err);
+  if (!dir) return err;
+  struct dentry *d = NULL;
+  int rc = lookup_d(dir, name, len, &d);
+  if (rc) { iput(dir); return rc; }
+  down_write(&dir->i_rwsem);
+  switch (kind) {
+  case 0: case 1:   /* create / mkdir */
+    if (d->d_inode) { rc = -EEXIST; break; }
+    if (kind == 0) {
+      if (!dir->i_op->create) { rc = -EOPNOTSUPP; break; }
+      rc = ((int (*)(const struct mnt_idmap *, struct inode *, struct dentry *, umode_t))dir->i_op->create)(NULL, dir, d, (umode_t)(mode & 07777));
+    } else {
+      if (!dir->i_op->mkdir) { rc = -EOPNOTSUPP; break; }
+      struct dentry *r = ((struct dentry *(*)(const struct mnt_idmap *, struct inode *, struct dentry *, umode_t))dir->i_op->mkdir)(NULL, dir, d, (umode_t)(S_IFDIR | (mode & 07777)));
+      rc = IS_ERR(r) ? (int)PTR_ERR(r) : 0;
+      if (!rc && r && r != d) { usbmem_d_free(d); d = r; }
+    }
+    if (!rc) { if (!d->d_inode) rc = -EIO; else if (ino) *ino = d->d_inode->i_ino; }
+    break;
+  case 2: case 3:   /* unlink / rmdir */
+    if (!d->d_inode) { rc = -ENOENT; break; }
+    if (kind == 2 && S_ISDIR(d->d_inode->i_mode)) { rc = -EISDIR; break; }
+    if (kind == 3 && !S_ISDIR(d->d_inode->i_mode)) { rc = -ENOTDIR; break; }
+    if (kind == 2) rc = dir->i_op->unlink ? ((int (*)(struct inode *, struct dentry *))dir->i_op->unlink)(dir, d) : -EOPNOTSUPP;
+    else rc = dir->i_op->rmdir ? ((int (*)(struct inode *, struct dentry *))dir->i_op->rmdir)(dir, d) : -EOPNOTSUPP;
+    break;
+  }
+  up_write(&dir->i_rwsem);
+  usbmem_d_free(d);   /* d の inode を iput: 削除済み (nlink 0) ならここで evict される */
+  iput(dir);
+  return rc;
+}
+int usbmem_ntfs_create(usbmem_ntfs *v, uint64_t d, const char *n, size_t l, uint32_t m, uint64_t *ino) { return ns_op(v, 0, d, n, l, m, ino); }
+int usbmem_ntfs_mkdir(usbmem_ntfs *v, uint64_t d, const char *n, size_t l, uint32_t m, uint64_t *ino) { return ns_op(v, 1, d, n, l, m, ino); }
+int usbmem_ntfs_unlink(usbmem_ntfs *v, uint64_t d, const char *n, size_t l) { return ns_op(v, 2, d, n, l, 0, NULL); }
+int usbmem_ntfs_rmdir(usbmem_ntfs *v, uint64_t d, const char *n, size_t l) { return ns_op(v, 3, d, n, l, 0, NULL); }
+int usbmem_ntfs_rename(usbmem_ntfs *v, uint64_t od, const char *on, size_t ol, uint64_t nd, const char *nn, size_t nl) {
+  if (sb_rdonly(v->sb)) return -EROFS;
+  int err = 0; struct inode *odir = get_inode(v, od, &err); if (!odir) return err;
+  struct inode *ndir = (nd == od) ? (ihold(odir), odir) : get_inode(v, nd, &err);
+  if (!ndir) { iput(odir); return err; }
+  struct dentry *od_ = NULL, *nd_ = NULL;
+  int rc = lookup_d(odir, on, ol, &od_);
+  if (!rc) { rc = lookup_d(ndir, nn, nl, &nd_); if (rc) usbmem_d_free(od_); }
+  if (rc) { iput(ndir); iput(odir); return rc; }
+  if (!od_->d_inode) rc = -ENOENT;
+  else if (!odir->i_op->rename) rc = -EOPNOTSUPP;
+  else {
+    down_write(&odir->i_rwsem); if (ndir != odir) down_write(&ndir->i_rwsem);
+    rc = ((int (*)(const struct mnt_idmap *, struct inode *, struct dentry *, struct inode *, struct dentry *, unsigned))odir->i_op->rename)(NULL, odir, od_, ndir, nd_, 0);
+    if (ndir != odir) up_write(&ndir->i_rwsem); up_write(&odir->i_rwsem);
+  }
+  usbmem_d_free(nd_); usbmem_d_free(od_);
+  iput(ndir); iput(odir);
+  return rc;
+}

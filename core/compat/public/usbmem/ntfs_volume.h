@@ -20,6 +20,12 @@ class NtfsVolume {
   // 読み書きでマウント (実験的)。ビルドで USBMEM_NTFS_WRITE=ON が必要。無効なら err=EROFS。
   static std::unique_ptr<NtfsVolume> mount_rw(BlockDevicePtr dev, int* err = nullptr);
   int sync();
+  // 名前空間の変更 (実験的)。0 / 負の errno。sync() で永続化。
+  int create(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino);
+  int mkdir(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino);
+  int unlink(uint64_t dir, const std::string& name);
+  int rmdir(uint64_t dir, const std::string& name);
+  int rename(uint64_t old_dir, const std::string& old_name, uint64_t new_dir, const std::string& new_name);
   int64_t write(uint64_t ino, uint64_t off, const void* buf, size_t len);   // 実験的: 拡張可。sync() で永続化
   int64_t write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len);
   ~NtfsVolume();

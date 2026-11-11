@@ -14,7 +14,7 @@ uint32_t le32(const uint8_t* p) {
 bool is_pow2(uint32_t v) { return v && !(v & (v - 1)); }
 
 // FAT: Microsoft のクラスタ数基準で 12/16/32 を決める。BPB が不正なら Unknown。
-FsType probe_fat(const uint8_t* s, size_t sz) {
+FsType probe_fat(const uint8_t* s, size_t sz, uint64_t total_bytes) {
   if (sz < 512 || s[510] != 0x55 || s[511] != 0xAA) return FsType::Unknown;
   if (!(s[0] == 0xEB && s[2] == 0x90) && s[0] != 0xE9) return FsType::Unknown;
   uint32_t bps = le16(s + 11), spc = s[13], rsvd = le16(s + 14), nfats = s[16];
@@ -26,6 +26,8 @@ FsType probe_fat(const uint8_t* s, size_t sz) {
   uint64_t root_secs = (static_cast<uint64_t>(root) * 32 + bps - 1) / bps;
   uint64_t meta = rsvd + static_cast<uint64_t>(nfats) * fatsz + root_secs;
   if (meta >= tot) return FsType::Unknown;
+  // 申告容量が実際のデバイス/領域を超える BPB は採用しない (MBR のブートコードの誤認防止)
+  if (total_bytes && static_cast<uint64_t>(tot) * bps > total_bytes) return FsType::Unknown;
   // FAT32 は BPB の構造(root entries == 0 && 16bit FAT サイズ == 0)で判定する。
   // mkfs.fat -F 32 は 65525 クラスタ未満でも FAT32 を作り、Linux も受け入れるため。
   if (root == 0 && le16(s + 22) == 0) return FsType::Fat32;
@@ -67,7 +69,7 @@ const char* fs_type_name(FsType t) {
   return "unknown";
 }
 
-FsType probe_boot_sector(const uint8_t* s, size_t sz, uint64_t /*total_bytes*/) {
+FsType probe_boot_sector(const uint8_t* s, size_t sz, uint64_t total_bytes) {
   if (sz < 512) return FsType::Unknown;
   if (std::memcmp(s + 3, "NTFS    ", 8) == 0 && s[510] == 0x55 && s[511] == 0xAA) return FsType::Ntfs;
   if (std::memcmp(s + 3, "EXFAT   ", 8) == 0) {
@@ -76,7 +78,7 @@ FsType probe_boot_sector(const uint8_t* s, size_t sz, uint64_t /*total_bytes*/) 
     return FsType::Exfat;
   }
   if (std::memcmp(s + 3, "-FVE-FS-", 8) == 0) return FsType::BitLocker;
-  return probe_fat(s, sz);
+  return probe_fat(s, sz, total_bytes);
 }
 
 FsType probe_filesystem(BlockDevice& dev, uint64_t offset, uint64_t length, Status* io) {

@@ -46,6 +46,8 @@ struct folio {
   atomic_t refcount;
   struct mutex lock_;
   struct page page;
+  struct folio *hash_next_;
+  int read_pending_, read_err_;
 };
 enum { FOLIO_LOCKED, FOLIO_UPTODATE, FOLIO_DIRTY, FOLIO_WRITEBACK };
 
@@ -55,6 +57,8 @@ struct block_device { struct usbmem_bdev *impl; struct address_space *bd_mapping
 struct bio_vec { struct page *bv_page; unsigned bv_len, bv_offset; };
 struct bvec_iter { sector_t bi_sector; unsigned bi_size; };
 struct bio {
+  struct bio_vec *bi_io_vec;
+  unsigned short bi_vcnt, bi_max_vecs;
   struct bvec_iter bi_iter;
   struct block_device *bi_bdev;
   blk_opf_t bi_opf;
@@ -98,6 +102,9 @@ struct inode {
   struct timespec64 i_atime_, i_mtime_, i_ctime_;
   u64 i_version;
   unsigned long i_state;
+  struct inode *i_hash_next_;
+  bool i_hashed_;
+  unsigned long i_hashval_;
 };
 struct dentry {
   struct qstr d_name;
@@ -120,6 +127,8 @@ struct super_block {
   const struct super_operations *s_op;
   const struct export_operations *s_export_op;
   const void *s_xattr;
+  int s_active_;
+  struct fs_context *s_fc_;
 };
 struct file {
   struct address_space *f_mapping;

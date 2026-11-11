@@ -19,7 +19,9 @@ struct swap_info_struct; struct seq_file; struct file_ra_state; struct readahead
 struct fs_parse_result { union { bool boolean; int int_32; unsigned uint_32; u64 uint_64; }; };
 struct fs_parameter_spec; struct constant_table { const char *name; int value; };
 struct file_kattr { u32 flags; u32 fsx_xflags; };
-struct dir_context { loff_t pos; };
+struct dir_context;
+typedef bool (*filldir_t)(struct dir_context *, const char *, int, loff_t, u64, unsigned);
+struct dir_context { filldir_t actor; loff_t pos; void *user; };
 struct delayed_call { void (*fn)(void *); void *arg; };
 struct pt_regs; struct poll_table_struct; struct kobject; struct xattr_handler; struct path { struct vfsmount *mnt; struct dentry *dentry; };
 struct vfsmount;
@@ -232,7 +234,7 @@ void bioset_exit(struct bio_set *);
 void submit_bio(struct bio *);
 int submit_bio_wait(struct bio *);
 int blk_status_to_errno(int);
-#define bio_for_each_folio_all(fi, bio) for ((fi).folio = NULL; (fi).folio; )
+#define bio_for_each_folio_all(fi, bio) for ((fi).idx_ = -1, usbmem_fi_next(&(fi), (bio)); (fi).folio; usbmem_fi_next(&(fi), (bio)))
 
 /* ---- iomap (読み取り専用段階の最小実装) */
 struct iomap_iter {
@@ -304,7 +306,8 @@ struct iomap_dio_ops {
   struct bio_set *bio_set;
 };
 typedef void (*bio_end_io_t)(struct bio *);
-struct folio_iter { struct folio *folio; size_t offset; size_t length; };
+struct folio_iter { struct folio *folio; size_t offset; size_t length; int idx_; };
+void usbmem_fi_next(struct folio_iter *, struct bio *);
 struct va_format { const char *fmt; va_list *va; };
 struct iomap_ioend { int unused; };
 extern const struct iomap_read_ops iomap_bio_read_ops;

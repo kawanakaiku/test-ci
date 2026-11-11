@@ -163,6 +163,9 @@ Status parse_gpt(BlockDevice& dev, PartitionTable& t, bool* present) {
   std::set<uint64_t> cand;
   if (prim_ok && prim.alt_lba < t.disk_sectors) cand.insert(prim.alt_lba);
   if (t.disk_sectors >= 3) cand.insert(last_lba);
+  bool back_have_fallback = false;
+  GptHeader back_fallback{};
+  std::string back_fallback_reason;
   for (uint64_t lba : cand) {
     if (lba <= 1) continue;
     Status st = dev.read_at(lba * ss, sec.data(), ss);
@@ -172,9 +175,16 @@ Status parse_gpt(BlockDevice& dev, PartitionTable& t, bool* present) {
     back_sig = true;
     GptHeader h{};
     std::string why;
-    if (parse_gpt_header(sec.data(), ss, lba, t.disk_sectors, &h, &why)) { back = h; back_ok = true; back_reason.clear(); break; }
-    back_reason = why;
+    if (!parse_gpt_header(sec.data(), ss, lba, t.disk_sectors, &h, &why)) { back_reason = why; continue; }
+    // ヘッダだけでなく配列 CRC まで通った候補を優先する
+    std::vector<uint8_t> tmp;
+    bool crc_ok = false;
+    st = read_gpt_entries(dev, h, ss, &tmp, &crc_ok);
+    if (!st.ok()) return st;
+    if (crc_ok) { back = h; back_ok = true; back_reason.clear(); back_have_fallback = false; break; }
+    if (!back_have_fallback) { back_fallback = h; back_have_fallback = true; }
   }
+  if (!back_ok && back_have_fallback) { back = back_fallback; back_ok = true; back_reason.clear(); }
 
   if (!prim_sig && !back_sig) return Status::Ok();
   *present = true;
@@ -411,8 +421,11 @@ Status read_partition_table(BlockDevice& dev, PartitionTable* out, const ParseOp
       return Status::Make(Errc::InvalidArgument);
     sizes = {opt.sector_size};
   } else {
-    for (uint32_t s : {dev.logical_block_size(), 512u, 4096u})
+    for (uint32_t s : {dev.logical_block_size(), 512u, 4096u}) {
+      // デバイスの申告値も信用しない (0 や 2 の冪でない値でゼロ除算・範囲外参照になる)
+      if (s < 512 || s > 65536 || (s & (s - 1))) continue;
       if (std::find(sizes.begin(), sizes.end(), s) == sizes.end()) sizes.push_back(s);
+    }
   }
 
   if (t.disk_bytes < 512) {
@@ -421,20 +434,25 @@ Status read_partition_table(BlockDevice& dev, PartitionTable* out, const ParseOp
     return Status::Ok();
   }
 
-  // 1) GPT (サイズ候補ごとに LBA1 を調べる)
-  for (uint32_t ss : sizes) {
-    if (t.disk_bytes < 2ull * ss) continue;
-    PartitionTable cand;
-    cand.sector_size = ss;
-    cand.disk_bytes = t.disk_bytes;
-    cand.disk_sectors = t.disk_bytes / ss;
-    bool present = false;
-    Status st = parse_gpt(dev, cand, &present);
-    if (!st.ok()) return st;
-    if (present) {
-      *out = std::move(cand);
-      break;
+  // 1) GPT (サイズ候補ごとに調べる)。検証を通った候補を優先し、全滅なら最初に見つかった不正候補を診断用に採用する。
+  {
+    PartitionTable best;
+    bool have_best = false, best_usable = false;
+    for (uint32_t ss : sizes) {
+      if (t.disk_bytes < 2ull * ss) continue;
+      PartitionTable cand;
+      cand.sector_size = ss;
+      cand.disk_bytes = t.disk_bytes;
+      cand.disk_sectors = t.disk_bytes / ss;
+      bool present = false;
+      Status st = parse_gpt(dev, cand, &present);
+      if (!st.ok()) return st;
+      if (!present) continue;
+      bool usable = !cand.has_errors();
+      if (!have_best || (usable && !best_usable)) { best = std::move(cand); have_best = true; best_usable = usable; }
+      if (usable) break;
     }
+    if (have_best) *out = std::move(best);
   }
   if (t.kind == TableKind::Gpt) {
     // 保護 MBR / ハイブリッド MBR の確認(情報提供のみ)

@@ -61,3 +61,22 @@ byteorder/min/max マクロだけ**で `gcc -fsyntax-only` した。残ったエ
   うち読み取り専用の最小到達点で本当に必要なのは一部(書き込み・VFS 公開・DIO・swapfile 系は `-ENOSYS` スタブで可)と見込むが、**未検証**。
 - 次: `core/compat/src/` に最小実装(pagecache / inode hash / bio→BlockDevice / iomap_read_folio / iomap_iter_continue)を作り、
   CMake で `ntfs_fs` ターゲットとしてリンク → `runlist` 等の単体テスト → `$MFT` 読み出し。
+
+### 更新 (最初の読み取り成功)
+- `core/compat/src/` に実行時を実装: `rt_core.c`(メモリ/同期/inode キャッシュ/dentry/マウント)、`rt_pagecache.c`(folio・bio・iomap 読み取り・UTF 変換)、
+  `rt_vfs.c`(ホスト向け mount/lookup/readdir/read)、`bdev_bridge.cpp`(BlockDevice ブリッジ)、`ntfs_volume.cpp`(C++ ラッパ)。
+  未実装の 63 シンボルは `tools/gen_compat_stubs.py` が生成するスタブ(`rt_stubs.c`)。呼ばれると stderr に名前を出して -ENOSYS を返す。
+- **結果: 無改変の `fs/ntfs` で、`mkntfs` + `ntfs-3g` が作った実 NTFS イメージ(32MiB, 512B セクタ, 4KiB クラスタ)を読み取り専用でマウントし、
+  ルート列挙・入れ子ディレクトリ・日本語名・3MiB+777B ファイル・空ファイルを sha256 付きで検証して一致。** 失敗 0。
+  通常ビルドと ASan/UBSan(リーク検出あり)の両方で `ctest` 通過(`ntfs_gen_fixture` + `ntfs_read`)。イメージは tmpfs (/dev/shm)。
+- 読み取り中に実際に呼ばれた未実装 API: `super_set_uuid` のみ(影響なし)。
+- ビルド上の注意: 互換シム(`<linux/errno.h>` 等)は **C ソース専用**にする(C++ に見せると glibc の `<errno.h>` が奪われ std ヘッダと衝突)。
+  `project()` に C を含め忘れると C ソースが黙って無視される(一度ハマった)。
+
+### 制約・未検証(正直な記録)
+- 検証したのは **mkntfs/ntfs-3g が作った小さな正常イメージ 1 種**のみ。圧縮ファイル・暗号化・スパース・ADS・reparse・巨大ファイル・
+  破損/敵対的イメージは未検証。Windows 作成イメージとの照合も未実施(Phase 2 完了条件)。
+- folio は 4KiB 固定(large folio 未対応)。`iomap_readahead`、書き込み系、DIO、xattr/ACL は未実装(スタブ)。
+- マウント/アンマウントの完全な後始末(inode 退避、メモリ解放)は未実装。読み取り専用固定。
+- 単一スレッド前提(inode hash の I_NEW 待ちなし)。
+- Android(NDK)ビルドへの接続と SAF DocumentsProvider への接続は未着手。

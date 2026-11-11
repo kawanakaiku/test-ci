@@ -22,15 +22,13 @@ struct fid; struct pipe_inode_info;
 
 #define DEFINE_MUTEX(name) struct mutex name = { PTHREAD_MUTEX_INITIALIZER }
 /* 型付き alloc (新カーネル API): 第 1 引数は型または *ptr 式 */
-#define kmalloc_obj(v, ...) ((__typeof__(v) *)malloc(sizeof(v)))
-#define kzalloc_obj(v, ...) ((__typeof__(v) *)calloc(1, sizeof(v)))
-#define kvzalloc_obj(v, ...) ((__typeof__(v) *)calloc(1, sizeof(v)))
-#define kmalloc_objs(v, n, ...) ((__typeof__(v) *)malloc(sizeof(v) * (size_t)(n)))
-#define kzalloc_objs(v, n, ...) ((__typeof__(v) *)calloc((size_t)(n), sizeof(v)))
-#define kvmalloc_objs(v, n, ...) ((__typeof__(v) *)malloc(sizeof(v) * (size_t)(n)))
-#define kvzalloc_objs(v, n, ...) ((__typeof__(v) *)calloc((size_t)(n), sizeof(v)))
-#undef kzalloc_obj
-#define kzalloc_obj(v, ...) ((__typeof__(v) *)calloc(1, sizeof(v)))
+#define kmalloc_obj(v, ...) ((__typeof__(v) *)usbmem_alloc(sizeof(v), 0))
+#define kzalloc_obj(v, ...) ((__typeof__(v) *)usbmem_alloc(sizeof(v), __GFP_ZERO))
+#define kvzalloc_obj(v, ...) ((__typeof__(v) *)usbmem_alloc(sizeof(v), __GFP_ZERO))
+#define kmalloc_objs(v, n, ...) ((__typeof__(v) *)usbmem_alloc_array((size_t)(n), sizeof(v), 0))
+#define kzalloc_objs(v, n, ...) ((__typeof__(v) *)usbmem_alloc_array((size_t)(n), sizeof(v), __GFP_ZERO))
+#define kvmalloc_objs(v, n, ...) ((__typeof__(v) *)usbmem_alloc_array((size_t)(n), sizeof(v), 0))
+#define kvzalloc_objs(v, n, ...) ((__typeof__(v) *)usbmem_alloc_array((size_t)(n), sizeof(v), __GFP_ZERO))
 /* __free(fn): スコープ終了時に解放 (cleanup 属性) */
 #define __free(fn) __attribute__((cleanup(fn##_cleanup)))
 static inline void kfree_cleanup(void *p) { free(*(void **)p); }
@@ -51,8 +49,11 @@ struct folio *writeback_iter(struct address_space *, struct writeback_control *,
 #define MODULE_LICENSE(x)
 #define MODULE_ALIAS(x)
 #define MODULE_ALIAS_FS(x)
-#define module_init(x)
-#define module_exit(x)
+#define module_init(f) int usbmem_module_init_ntfs(void) { return f(); }
+#define module_exit(f)
+#ifndef ENOPARAM
+#define ENOPARAM 519
+#endif
 
 /* iattr */
 #define ATTR_MODE (1 << 0)

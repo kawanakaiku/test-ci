@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.22)
-project(usbmem_core LANGUAGES CXX)
+project(usbmem_core LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,6 +26,15 @@ endif()
 # Android 16KB ページ対応 (NDK r28+ は既定だが旧 NDK でも守る)
 if(ANDROID)
   target_link_options(usbmem_core PUBLIC -Wl,-z,max-page-size=16384)
+endif()
+
+if(USBMEM_BUILD_TESTS)
+  enable_testing()  # compat/ のテストも拾うため add_subdirectory より前に呼ぶ
+endif()
+option(USBMEM_NTFS "Build NTFS (LinuxCompat + fs/ntfs, GPL-2.0-or-later)" ON)
+if(USBMEM_NTFS)
+  find_package(Threads REQUIRED)
+  add_subdirectory(compat)
 endif()
 
 if(USBMEM_BUILD_TESTS)

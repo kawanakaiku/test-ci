@@ -123,21 +123,29 @@ unsigned long bitmap_weight(const unsigned long *a, unsigned int bits);
 #define GFP_KERNEL 0u
 #define GFP_NOFS 0u
 #define GFP_NOIO 0u
+#define GFP_ATOMIC 0u
+#define GFP_USER 0u
+#define GFP_HIGHUSER 0u
+#define GFP_KERNEL_ACCOUNT 0u
 #define __GFP_ZERO 1u
 #define __GFP_NOWARN 2u
 #define __GFP_NOFAIL 4u
-#define kmalloc(n, f) malloc(n)
-#define kzalloc(n, f) calloc(1, (n))
-#define kmalloc_array(n, s, f) calloc((n), (s))
+/* GFP_* フラグ: __GFP_ZERO のみ解釈する。サイズ計算の桁あふれは NULL を返す。 */
+static inline void *usbmem_alloc(size_t n, gfp_t f) { return (f & __GFP_ZERO) ? calloc(1, n ? n : 1) : malloc(n ? n : 1); }
+static inline void *usbmem_alloc_array(size_t n, size_t sz, gfp_t f) {
+  size_t t; if (__builtin_mul_overflow(n, sz, &t)) return NULL; return usbmem_alloc(t, f);
+}
+#define kmalloc(n, f) usbmem_alloc((n), (f))
+#define kzalloc(n, f) usbmem_alloc((n), (f) | __GFP_ZERO)
+#define kmalloc_array(n, s, f) usbmem_alloc_array((n), (s), (f))
 #define kfree(p) free(p)
 #define kvfree(p) free(p)
 #define vfree(p) free(p)
-#define kvmalloc(n, f) malloc(n)
-#define kvzalloc(n, f) calloc(1, (n))
-#define vmalloc(n) malloc(n)
+#define kvmalloc(n, f) usbmem_alloc((n), (f))
+#define kvzalloc(n, f) usbmem_alloc((n), (f) | __GFP_ZERO)
+#define vmalloc(n) usbmem_alloc((n), 0)
 #define krealloc(p, n, f) realloc((p), (n))
 #define kvrealloc(p, n, f) realloc((p), (n))
-#define kzalloc_obj(v, ...) ((__typeof__(v) *)0 + 0, calloc(1, sizeof(v)))
 #define is_vmalloc_addr(p) 0
 char *kstrdup(const char *s, gfp_t g);
 void *kmemdup(const void *p, size_t n, gfp_t g);
@@ -160,7 +168,12 @@ static inline int IS_ERR_OR_NULL(const void *p) { return !p || IS_ERR_VALUE(p); 
 static inline void *ERR_CAST(const void *p) { return (void *)p; }
 #define check_add_overflow(a, b, d) __builtin_add_overflow(a, b, d)
 #define check_mul_overflow(a, b, d) __builtin_mul_overflow(a, b, d)
-#define check_shl_overflow(a, s, d) ({ *(d) = (__typeof__(*(d)))((a) << (s)); (s) >= (int)(sizeof(*(d)) * 8) || ((*(d)) >> (s)) != (a); })
+#define check_shl_overflow(a, s, d) ({ \
+    __typeof__(*(d)) _r = 0; unsigned long long _a = (unsigned long long)(a); int _s = (int)(s); \
+    bool _o = _s < 0 || _s >= (int)(sizeof(_r) * 8); \
+    if (!_o) { unsigned long long _v = _a << _s; _r = (__typeof__(*(d)))_v; \
+               _o = ((unsigned long long)_r != _v) || ((_v >> _s) != _a); } \
+    *(d) = _r; _o; })
 #define is_power_of_2(n) ((n) != 0 && (((n) & ((n) - 1)) == 0))
 #define round_up(x, y) ((((x) - 1) | ((__typeof__(x))((y) - 1))) + 1)
 #define round_down(x, y) ((x) & ~((__typeof__(x))(y) - 1))
@@ -169,7 +182,8 @@ static inline void *ERR_CAST(const void *p) { return (void *)p; }
 #define min3(a, b, c) min(min(a, b), c)
 #define cmp_int(a, b) (((a) > (b)) - ((a) < (b)))
 #define sizeof_field(t, m) sizeof(((t *)0)->m)
-#define struct_size(p, m, n) (sizeof(*(p)) + sizeof((p)->m[0]) * (n))
+#define struct_size(p, m, n) ({ size_t _s; \
+    (__builtin_mul_overflow(sizeof((p)->m[0]), (size_t)(n), &_s) || __builtin_add_overflow(_s, sizeof(*(p)), &_s)) ? (size_t)-1 : _s; })
 #define overflows_type(v, t) ({ __typeof__(t) _x; __builtin_add_overflow((v), 0, &_x); })
 #define WARN_ON(c) ({ int _w = !!(c); if (_w) fprintf(stderr, "WARN_ON %s:%d\n", __FILE__, __LINE__); _w; })
 #define WARN_ON_ONCE(c) WARN_ON(c)

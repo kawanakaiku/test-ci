@@ -402,3 +402,34 @@ TEST(fuzz_mutations_do_not_crash) {
     CHECK(parse(img, &t).ok());
   }
 }
+
+// ---- レビュー指摘(codex)に対する回帰テスト
+TEST(device_reports_bad_block_size_does_not_crash) {
+  for (uint32_t bs : {0u, 1u, 100u, 3u * 512u}) {
+    usbmem::MemoryDevice dev(simple_gpt(), true, bs);
+    PartitionTable t;
+    CHECK(read_partition_table(dev, &t).ok());
+    CHECK(t.kind == TableKind::Gpt && t.partitions.size() == 3u);  // 512/4096 候補で読める
+  }
+}
+
+TEST(gpt_invalid_signature_at_512_does_not_hide_valid_4k_gpt) {
+  Bytes img = simple_gpt(4096);
+  std::memcpy(img.data() + 512, "EFI PART", 8);  // 512 候補側に CRC 不正の署名だけを置く
+  PartitionTable t;
+  CHECK(parse(img, &t, 512).ok());
+  CHECK_EQ(t.sector_size, 4096u);
+  CHECK_EQ(t.partitions.size(), 3u);
+  CHECK(!t.has_errors());
+}
+
+TEST(fat_bpb_claiming_more_than_device_is_not_superfloppy) {
+  Bytes img(2048 * 512, 0);
+  Bytes v = fat32_vbr(10000000);                          // 実容量(2048 セクタ)より遥かに大きい申告
+  std::memcpy(img.data(), v.data(), 512);
+  put_mbr_entry(img, 0, {0x80, 0x0C, 64, 1000});          // 実際は MBR
+  PartitionTable t;
+  CHECK(parse(img, &t).ok());
+  CHECK(!t.whole_device_volume);
+  CHECK(t.kind == TableKind::Mbr);
+}

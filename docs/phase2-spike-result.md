@@ -50,3 +50,14 @@ byteorder/min/max マクロだけ**で `gcc -fsyntax-only` した。残ったエ
 ### 現時点の状態(正直な記録)
 - **NTFS はまだマウントも読み取りもできない。** `core/compat` は CMake に未接続で、アプリ・テストには影響しない。
 - 互換面の下限見積り(関数 約 430 / 定数 約 200 / 構造体 十数個)は変わらず、実装量は数千行規模。
+
+### 更新 (互換ヘッダー完成)
+- 段階 5〜: `compat/consts.h`, `vfs_api.h`, `misc.h`, `ops.h`(`tools/gen_ops_structs.py` が上流の演算テーブルから自動生成)を追加。
+  iomap は上流 `include/linux/iomap.h`(commit 067c5c24cef2)の `iomap_iter_next` / `DEFINE_IOMAP_ITER_NEXT*` を同等に移植(GPL-2.0)。
+- **結果: `fs/ntfs/*.c` と `lib/*.c` の全 31 ファイルが無改変のままコンパイル通過(構文エラー 0、`-c` でオブジェクト生成まで成功)。**
+  総エラーの推移: 17,085 → 0。`tools/ntfs_compat_build.sh` で再現。
+- ただしこれは**ヘッダーが埋まっただけ**で、動作する実装はまだ無い。オブジェクトをリンクするために実装が必要な外部シンボルは
+  **224 個**(`docs/ntfs-compat-runtime-todo.txt`)。内訳の傾向: folio_* / inode・dentry 系 / bio・bdev 系 / iomap_* / generic_* / filemap_*。
+  うち読み取り専用の最小到達点で本当に必要なのは一部(書き込み・VFS 公開・DIO・swapfile 系は `-ENOSYS` スタブで可)と見込むが、**未検証**。
+- 次: `core/compat/src/` に最小実装(pagecache / inode hash / bio→BlockDevice / iomap_read_folio / iomap_iter_continue)を作り、
+  CMake で `ntfs_fs` ターゲットとしてリンク → `runlist` 等の単体テスト → `$MFT` 読み出し。

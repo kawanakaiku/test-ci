@@ -31,10 +31,12 @@ kuid_t make_kuid(struct user_namespace *ns, uid_t id);
 kgid_t make_kgid(struct user_namespace *ns, gid_t id);
 
 /* ---- NLS / UTF */
-struct nls_table { const char *charset; };
+struct nls_table { const char *charset; int (*uni2char)(u16, unsigned char *, int); int (*char2uni)(const unsigned char *, int, void *); };
 
 /* ---- page / folio */
 struct address_space;
+struct folio;
+struct page { struct folio *folio_; };
 struct folio {
   unsigned long flags;
   pgoff_t index;
@@ -43,13 +45,13 @@ struct folio {
   void *data;          /* PAGE_SIZE バイトのバッファ (ホスト側メモリ) */
   atomic_t refcount;
   struct mutex lock_;
+  struct page page;
 };
-struct page { struct folio *folio_; };
 enum { FOLIO_LOCKED, FOLIO_UPTODATE, FOLIO_DIRTY, FOLIO_WRITEBACK };
 
 /* ---- ブロックデバイス / bio */
 struct usbmem_bdev;  /* core の BlockDevice ブリッジ (src/bdev_bridge.cpp) */
-struct block_device { struct usbmem_bdev *impl; };
+struct block_device { struct usbmem_bdev *impl; struct address_space *bd_mapping; };
 struct bio_vec { struct page *bv_page; unsigned bv_len, bv_offset; };
 struct bvec_iter { sector_t bi_sector; unsigned bi_size; };
 struct bio {
@@ -125,6 +127,7 @@ struct file {
   unsigned int f_flags;
   loff_t f_pos;
   struct inode *f_inode;
+  void *private_data;
 };
 struct kiocb { struct file *ki_filp; loff_t ki_pos; unsigned int ki_flags; };
 struct iov_iter { size_t count; };
@@ -133,10 +136,10 @@ struct kstat {
   u32 blksize, dio_mem_align, dio_offset_align; u64 blocks, size;
   struct timespec64 btime;
 };
-struct iattr { unsigned int ia_valid; loff_t ia_size; };
+struct iattr { unsigned int ia_valid; umode_t ia_mode; kuid_t ia_uid; kgid_t ia_gid; loff_t ia_size; struct file *ia_file; };
 struct kstatfs {
   long f_type, f_bsize; u64 f_blocks, f_bfree, f_bavail, f_ffree; __kernel_fsid_t f_fsid;
-  long f_namelen, f_frsize;
+  long f_namelen, f_frsize; u64 f_files;
 };
 struct writeback_control { int sync_mode; };
 

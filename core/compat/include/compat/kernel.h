@@ -111,5 +111,8 @@ typedef unsigned int fmode_t;
 
 #include <compat/sync.h>
 #include <compat/fs.h>
+#include <compat/consts.h>
+#include <compat/vfs_api.h>
+#include <compat/misc.h>
 
 #endif

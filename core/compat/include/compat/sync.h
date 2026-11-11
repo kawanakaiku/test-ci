@@ -61,6 +61,7 @@ typedef struct { pthread_rwlock_t l; } rwlock_t;
 #define lockdep_off() ((void)0)
 #define lockdep_on() ((void)0)
 #define lockdep_set_class(l, k) ((void)0)
+struct lock_class_key { int unused; };
 #define rcu_read_lock() ((void)0)
 #define rcu_read_unlock() ((void)0)
 #define cond_resched() ((void)0)
@@ -169,7 +170,7 @@ static inline void *ERR_CAST(const void *p) { return (void *)p; }
 #define cmp_int(a, b) (((a) > (b)) - ((a) < (b)))
 #define sizeof_field(t, m) sizeof(((t *)0)->m)
 #define struct_size(p, m, n) (sizeof(*(p)) + sizeof((p)->m[0]) * (n))
-#define overflows_type(v, t) ((v) > (__typeof__(v))(t)~(t)0 && 0)
+#define overflows_type(v, t) ({ __typeof__(t) _x; __builtin_add_overflow((v), 0, &_x); })
 #define WARN_ON(c) ({ int _w = !!(c); if (_w) fprintf(stderr, "WARN_ON %s:%d\n", __FILE__, __LINE__); _w; })
 #define WARN_ON_ONCE(c) WARN_ON(c)
 #define BUG_ON(c) do { if (c) { fprintf(stderr, "BUG %s:%d\n", __FILE__, __LINE__); abort(); } } while (0)

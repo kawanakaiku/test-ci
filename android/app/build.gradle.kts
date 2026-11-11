@@ -35,12 +35,21 @@ android {
     }
 
     // リリースビルドは R8 でコード縮小・難読化 + 未使用リソースの削除 (APK を小さくする)。
-    // 署名鍵はリポジトリに置かない。手元で動作確認するときだけ -PusbmemSignWithDebugKey=true で debug 鍵で署名する (配布用ではない)。
+    // 署名鍵はリポジトリに置かない。~/.gradle/gradle.properties の usbmemKeystore / usbmemKeystorePassword / usbmemKeyAlias で指定する
+    // (鍵が無い環境では署名なしの release APK になる)。手元の動作確認だけなら -PusbmemSignWithDebugKey=true で debug 鍵で署名できる (配布用ではない)。
     signingConfigs {
+        val ks = providers.gradleProperty("usbmemKeystore").orNull
         if (providers.gradleProperty("usbmemSignWithDebugKey").orNull == "true") {
             create("localRelease") {
                 storeFile = file(System.getProperty("user.home") + "/.android/debug.keystore")
                 storePassword = "android"; keyAlias = "androiddebugkey"; keyPassword = "android"
+            }
+        } else if (ks != null) {
+            create("localRelease") {
+                storeFile = file(ks)
+                storePassword = providers.gradleProperty("usbmemKeystorePassword").get()
+                keyAlias = providers.gradleProperty("usbmemKeyAlias").get()
+                keyPassword = providers.gradleProperty("usbmemKeystorePassword").get()
             }
         }
     }

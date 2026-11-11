@@ -37,10 +37,11 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         ui { model.ops = o }
     }
 
-    private fun describeTuning(s: UsbStorageSession?): String {
-        if (s == null) return "既定 (USB 16K / コマンド 64K)"
-        val t = TransferTuning.load(this, s.vendorId, s.productId) ?: return "既定 (USB 16K / コマンド 64K)"
-        return "USB ${t.first}K / コマンド ${t.second}K (この端末で保存した設定)"
+    /** 保存した転送設定の表示。null = 既定 (画面側で既定の文言にする)。 */
+    private fun describeTuning(s: UsbStorageSession?): String? {
+        if (s == null) return null
+        val t = TransferTuning.load(this, s.vendorId, s.productId) ?: return null
+        return getString(R.string.tuning_saved, t.first, t.second)
     }
 
     private val usbReceiver = object : android.content.BroadcastReceiver() {
@@ -51,10 +52,10 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             when (i.action) {
                 UsbStorageSession.ACTION_PERMISSION ->
                     if (dev != null && i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) openUsb(dev)
-                    else model.usbNotice = Notice(Severity.Error, "USB の許可が得られませんでした", "もう一度「開く」を押して、許可ダイアログで許可してください。")
+                    else model.usbNotice = Notice(Severity.Error, getString(R.string.notice_usb_permission_denied), getString(R.string.notice_usb_permission_denied_detail))
                 UsbManager.ACTION_USB_DEVICE_DETACHED -> {
                     // 抜去: 公開中のボリュームと接続を直ちに閉じる (抜けた後の I/O は Disconnected になるが、後始末を先に行う)
-                    if (dev != null && dev.deviceName == usbSession?.deviceName) closeUsbWith(Notice(Severity.Warning, "USB デバイスが取り外されました"))
+                    if (dev != null && dev.deviceName == usbSession?.deviceName) closeUsbWith(Notice(Severity.Warning, getString(R.string.notice_usb_detached)))
                     else refreshUsb()
                 }
                 UsbManager.ACTION_USB_DEVICE_ATTACHED -> refreshUsb()
@@ -65,7 +66,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     private fun refreshUsb() {
         val list = usbManager.deviceList.values.filter { UsbMscSelector.pick(UsbMscSelector.describe(it)) != null }
         devices = list.associateBy { it.deviceName }
-        model.usbDevices = list.map { UsbDeviceRow(it.deviceName, it.productName ?: "USB ストレージ", String.format("%04x:%04x", it.vendorId, it.productId)) }
+        model.usbDevices = list.map { UsbDeviceRow(it.deviceName, it.productName ?: getString(R.string.usb_device_default_name), String.format("%04x:%04x", it.vendorId, it.productId)) }
         // OS が USB ボリュームをマウント中か (開く前に取り出してもらう)
         model.osMountedUsb = runCatching { UsbStorageSession.osMountedUsbVolumes(java.io.File("/proc/mounts").readText()).size }.getOrDefault(0)
     }
@@ -83,7 +84,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     }
 
     private fun openUsb(dev: UsbDevice) {
-        model.busy = "USB を開いています…"
+        model.busy = getString(R.string.busy_opening_usb)
         model.usbNotice = null
         Thread {
             var notice: Notice? = null
@@ -96,9 +97,9 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 updateOps("after open+partition scan")
                 ui { model.tuningSaved = describeTuning(s) }
             } catch (e: NativeException) {
-                notice = Notice(Severity.Error, "USB を開けません", e.message ?: "native error")
+                notice = Notice(Severity.Error, getString(R.string.notice_usb_open_failed), e.message ?: "native error")
             } catch (e: Exception) {
-                notice = Notice(Severity.Error, "USB を開けません", e.javaClass.simpleName)
+                notice = Notice(Severity.Error, getString(R.string.notice_usb_open_failed), e.javaClass.simpleName)
             }
             val s = usbSession
             ui {
@@ -119,7 +120,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     /** USB 上の NTFS パーティションをマウントして SAF に公開する (開いたセッションが書き込み可なら、新規作成のみ書き込み可)。 */
     override fun publishPartition(startBytes: Long, sizeBytes: Long, label: String) {
         val sess = usbSession ?: return
-        model.busy = if (sess.writable) "NTFS をマウント中です。書き込み可のマウントは、空きクラスタ数の計算のため、大きなディスクでは数十秒かかります。アプリを閉じないでください…" else "NTFS をマウント中です…"
+        model.busy = getString(if (sess.writable) R.string.busy_mounting_write else R.string.busy_mounting_read_only)
         model.usbNotice = null
         Thread {
             var notice: Notice? = null
@@ -130,29 +131,30 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 notifyRoots()
                 updateOps("after ntfs mount")
                 android.util.Log.i("usbmem", "ntfs mount: sessionWritable=${sess.writable} volumeWritable=${v.writable} createOnly=${v.createOnly}")
-                if (!sess.writable) pub = PublishedVolume(label, "読み取り専用", false)
-                else if (v.writable) pub = PublishedVolume(label, "新規作成のみ書き込み可", true)
+                val roText = getString(R.string.mode_read_only)
+                if (!sess.writable) pub = PublishedVolume(label, roText, false)
+                else if (v.writable) pub = PublishedVolume(label, getString(R.string.mode_create_only), true)
                 else {
-                    pub = PublishedVolume(label, "読み取り専用", false)
-                    notice = Notice(Severity.Warning, "読み取り専用で公開しました", "書き込みは使えません (ビルドで無効、またはボリュームに異常/ダーティがあります)。")
+                    pub = PublishedVolume(label, roText, false)
+                    notice = Notice(Severity.Warning, getString(R.string.notice_published_read_only), getString(R.string.notice_published_read_only_detail))
                 }
             } catch (e: NativeException) {
                 android.util.Log.w("usbmem", "ntfs mount failed: code=${e.code} ${e.message}")
                 notice = if (sess.tuningIndex >= 0) {   // 保存した転送設定が原因かもしれない → 既定に戻す (次の最適化で、その設定以上は試さない)
                     TransferTuning.markFailed(this, sess.vendorId, sess.productId, sess.tuningIndex)
                     TransferTuning.reset(this, sess.vendorId, sess.productId)
-                    Notice(Severity.Error, "NTFS として開けません: ${e.message}", "保存した転送設定を使っていたため、既定に戻しました。USB を閉じて、開き直してください。")
-                } else Notice(Severity.Error, "NTFS として開けません", e.message)
+                    Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed_with_reason, e.message ?: ""), getString(R.string.notice_ntfs_open_failed_tuning_reset))
+                } else Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.message)
             } catch (e: Exception) {
-                notice = Notice(Severity.Error, "NTFS として開けません", e.javaClass.simpleName)
+                notice = Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.javaClass.simpleName)
             }
             ui { model.busy = null; model.published = pub; model.usbNotice = notice }
         }.start()
     }
 
     override fun closeUsb() {
-        model.busy = "USB を閉じています (書き込みの確定とアンマウント)…"
-        Thread { closeUsbWith(Notice(Severity.Success, "USB を閉じました", "NTFS をアンマウントし、書き込みを確定しました。取り外せます。")) }.start()
+        model.busy = getString(R.string.busy_closing_usb)
+        Thread { closeUsbWith(Notice(Severity.Success, getString(R.string.notice_usb_closed), getString(R.string.notice_usb_closed_detail))) }.start()
     }
 
     private fun closeUsbQuiet() {
@@ -166,7 +168,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         notifyRoots()
         ui {
             model.busy = null; model.usbOpenKey = null; model.usbWritable = false; model.table = null; model.published = null
-            model.usbNotice = notice; model.ops = ""; model.tuneLog = ""; model.tuningSaved = describeTuning(null)
+            model.usbNotice = notice; model.ops = ""; model.tuneLog = ""; model.tuningSaved = null
             refreshUsb()
         }
     }
@@ -181,7 +183,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     /** 読み取り専用の速度計測。転送サイズの組を順に試し、MB/s を表示・ログへ出す。デバイスの先頭付近を読むだけで、何も書かない。 */
     override fun benchmark() {
         val s = usbSession ?: return
-        model.busy = "読み取り速度を計測しています…"
+        model.busy = getString(R.string.busy_benchmark)
         Thread {
             val sb = StringBuilder()
             try {
@@ -192,13 +194,13 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                     val line = try {
                         s.tune(chunk, mt)
                         val us = s.benchRead(off, total, 1024)
-                        "chunk=${chunk}K cmd=${mt}K: %.1f MB/s".format(total / 1048576.0 / (us / 1e6))
-                    } catch (e: NativeException) { "chunk=${chunk}K cmd=${mt}K: 失敗 ${e.message}" }
+                        getString(R.string.diag_bench_line, chunk, mt, total / 1048576.0 / (us / 1e6))
+                    } catch (e: NativeException) { getString(R.string.diag_bench_line_failed, chunk, mt, e.message ?: "") }
                     android.util.Log.i("usbmem", "bench $line"); sb.appendLine(line)
                 }
                 val saved = TransferTuning.load(this, s.vendorId, s.productId)
                 s.tune(saved?.first ?: UsbStorageSession.READ_CHUNK_KIB, saved?.second ?: UsbStorageSession.READ_MAX_TRANSFER_KIB)   // 保存済み (無ければ既定) へ戻す
-            } catch (e: Exception) { sb.appendLine("失敗: ${e.javaClass.simpleName}") }
+            } catch (e: Exception) { sb.appendLine(getString(R.string.diag_failed_simple, e.javaClass.simpleName)) }
             updateOps("after bench")
             ui { model.busy = null; model.tuneLog = sb.toString().trim() }
         }.start()
@@ -211,7 +213,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
      */
     override fun optimize() {
         val s = usbSession ?: return
-        model.busy = "読み取りを最適化しています…"
+        model.busy = getString(R.string.busy_optimize)
         Thread {
             val sb = StringBuilder()
             val ladder = TransferTuning.LADDER
@@ -221,7 +223,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 val limit = TransferTuning.failedFrom(this, vid, pid)
                 if (limit < ladder.size) {   // 前回、その設定の試行中に落ちた/失敗した → 失敗として確定
                     TransferTuning.markFailed(this, vid, pid, limit)
-                    sb.appendLine("前回失敗した設定 (chunk=${ladder[limit].first}K cmd=${ladder[limit].second}K 以上) は試しません")
+                    sb.appendLine(getString(R.string.diag_opt_skip_failed, ladder[limit].first, ladder[limit].second))
                 }
                 val mb = 1L shl 20
                 val refOff = 1024 * mb; val refLen = 4 * mb
@@ -236,20 +238,20 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                         s.benchReadHash(refOff, refLen, 1024, h)
                         if (h[0] != refHash) {   // 転送サイズを変えたら内容が変わった = 化けている。使わない
                             TransferTuning.markFailed(this, vid, pid, i)
-                            sb.appendLine("chunk=${chunk}K cmd=${mt}K: 読めたデータが一致しません。この設定は使いません")
+                            sb.appendLine(getString(R.string.diag_opt_mismatch, chunk, mt))
                             break
                         }
                     }
                     val off = 1024 * mb + 64 * mb + i * 96 * mb   // 区間はずらして、デバイス側のキャッシュ効果を避ける
                     val us = s.benchReadHash(off, 64 * mb, 1024, h)
                     val mbps = 64.0 / (us / 1e6)
-                    sb.appendLine("chunk=${chunk}K cmd=${mt}K: %.1f MB/s (データ一致)".format(mbps))
+                    sb.appendLine(getString(R.string.diag_opt_line_ok, chunk, mt, mbps))
                     android.util.Log.i("usbmem", "optimize chunk=${chunk}K cmd=${mt}K: %.1f MB/s".format(mbps))
                     if (mbps > bestMbps * 1.03) { best = i; bestMbps = mbps }
                     TransferTuning.markOk(this, vid, pid, best)   // 途中経過も保存 (試行中の印はここで消える)
                 }
                 s.tune(ladder[best].first, ladder[best].second)
-                sb.appendLine("→ 保存: chunk=${ladder[best].first}K cmd=${ladder[best].second}K (%.1f MB/s)。次回から USB を開くときに使います".format(bestMbps))
+                sb.appendLine(getString(R.string.diag_opt_saved, ladder[best].first, ladder[best].second, bestMbps))
             } catch (e: Exception) {
                 val code = (e as? NativeException)?.code
                 android.util.Log.w("usbmem", "optimize failed: ${e.message}")
@@ -257,9 +259,9 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 val trying = TransferTuning.failedFrom(this, vid, pid)
                 if (trying < ladder.size) TransferTuning.markFailed(this, vid, pid, trying)
                 runCatching { s.tune(ladder[best].first, ladder[best].second) }
-                sb.appendLine("失敗しました (${e.message}${if (code != null) ", code=$code" else ""})。この設定は使いません。")
-                sb.appendLine("USB が切れた場合は、USB を閉じる → OS が FAT をマウントしていたら取り出し → もう一度 USB を開いてください。")
-                sb.appendLine("ここまでに通った最速: chunk=${ladder[best].first}K cmd=${ladder[best].second}K (保存済み)")
+                sb.appendLine(getString(R.string.diag_opt_failed, "${e.message}${if (code != null) ", code=$code" else ""}"))
+                sb.appendLine(getString(R.string.diag_opt_failed_hint))
+                sb.appendLine(getString(R.string.diag_opt_best_so_far, ladder[best].first, ladder[best].second))
             }
             updateOps("after optimize")
             ui { model.busy = null; model.tuneLog = sb.toString().trim(); model.tuningSaved = describeTuning(s) }
@@ -269,13 +271,13 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     // ---- ImageActions (IO スレッドから呼ばれる)
     override fun loadImage(uri: Uri): ImageResult = try {
         // 読み取り専用 ("r") で開く。fd の所有権はネイティブ側へ渡す。
-        val pfd = contentResolver.openFileDescriptor(uri, "r") ?: return ImageResult(notice = Notice(Severity.Error, "開けません"))
+        val pfd = contentResolver.openFileDescriptor(uri, "r") ?: return ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_image_open_failed)))
         val fd = pfd.detachFd()
         RawImage.openReadOnly(fd).use { img -> ImageResult(label = uri.lastPathSegment ?: "image", table = img.partitionTable()) }
     } catch (e: NativeException) {
-        ImageResult(notice = Notice(Severity.Error, "開けません", e.message ?: "native error"))
+        ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_image_open_failed), e.message ?: "native error"))
     } catch (e: Exception) {
-        ImageResult(notice = Notice(Severity.Error, "開けません", e.javaClass.simpleName))  // パスや内容は出さない
+        ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_image_open_failed), e.javaClass.simpleName))  // パスや内容は出さない
     }
 
     /** NTFS イメージをマウントし、SAF プロバイダ経由でファイルマネージャ等へ公開する。 */
@@ -284,13 +286,13 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         try { contentResolver.takePersistableUriPermission(uri, flags) } catch (_: SecurityException) { }
         val e = VolumeRegistry.addUri(this, uri, writable)
         notifyRoots()
-        if (!writable) ImageResult(notice = Notice(Severity.Success, "公開しました: ${e.label}", "読み取り専用。ファイルアプリの一覧に表示されます。"))
-        else if (e.volume.writable) ImageResult(notice = Notice(Severity.Warning, "書き込み可 (実験的) で公開しました: ${e.label}", "ファイルアプリの一覧に表示されます。バックアップを取ってから使ってください。"))
-        else ImageResult(notice = Notice(Severity.Warning, "読み取り専用で公開しました: ${e.label}", "書き込みは使えません (ビルドで無効、またはボリュームに未処理の異常/ダーティがあります)。"))
+        if (!writable) ImageResult(notice = Notice(Severity.Success, getString(R.string.notice_image_shared_read_only, e.label), getString(R.string.notice_image_shared_read_only_detail)))
+        else if (e.volume.writable) ImageResult(notice = Notice(Severity.Warning, getString(R.string.notice_image_shared_write, e.label), getString(R.string.notice_image_shared_write_detail)))
+        else ImageResult(notice = Notice(Severity.Warning, getString(R.string.notice_image_shared_fallback, e.label), getString(R.string.notice_image_shared_fallback_detail)))
     } catch (e: NativeException) {
-        ImageResult(notice = Notice(Severity.Error, "NTFS として開けません", e.message))
+        ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.message))
     } catch (e: Exception) {
-        ImageResult(notice = Notice(Severity.Error, "NTFS として開けません", e.javaClass.simpleName))
+        ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.javaClass.simpleName))
     }
 
     // ---- ライフサイクル

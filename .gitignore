@@ -10,3 +10,5 @@ android/.kotlin/
 *.bin
 !tests/**/*.keep
 captures/
+*.jks
+*.keystore

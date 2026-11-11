@@ -1,3 +1,125 @@
 <resources>
     <string name="app_name">USB Storage Manager</string>
+
+    <!-- 共通 -->
+    <string name="common_cancel">キャンセル</string>
+    <string name="common_mode_read_only">読み取り専用</string>
+    <string name="common_mode_create_only">新規作成のみ</string>
+    <string name="common_write_allow">書き込みを許可 (実験的)</string>
+    <string name="common_partitions_title">パーティション</string>
+    <string name="common_partitions_subtitle">%1$s · %2$s · %3$s · セクタ %4$dB</string>
+    <string name="common_partition_detail">%1$s · %2$s · 開始 LBA %3$d</string>
+    <string name="common_partition_detail_extended">%1$s · %2$s · 開始 LBA %3$d · 拡張枠</string>
+
+    <!-- タブ -->
+    <string name="tab_usb">USB</string>
+    <string name="tab_image">イメージ</string>
+    <string name="tab_diagnostics">診断</string>
+
+    <!-- USB 画面 -->
+    <string name="usb_mode_title">書き込みモード</string>
+    <string name="usb_mode_subtitle">USB を開く前に決めます。開いている間は変えられません</string>
+    <string name="usb_write_desc">新しいフォルダとファイルの作成だけができます。既存のファイルの変更・削除・名前変更はできません。</string>
+    <string name="usb_os_mounted_title">OS が USB ボリュームをマウント中です (%1$d 個)</string>
+    <string name="usb_os_mounted_detail">このまま開くと、OS のドライバを強制的に外すことになります。先に取り出してください。</string>
+    <string name="usb_open_storage_settings">ストレージ設定を開く</string>
+    <string name="usb_none_title">対応する USB マスストレージが見つかりません</string>
+    <string name="usb_none_detail">USB ストレージ (Bulk-Only) を接続してください。</string>
+    <string name="usb_device_default_name">USB ストレージ</string>
+    <string name="usb_connected">接続中</string>
+    <string name="usb_open_write">開く (新規作成のみ書き込み可)</string>
+    <string name="usb_open_read_only">開く (読み取り専用)</string>
+    <string name="usb_published_title">公開中</string>
+    <string name="usb_published_desc">ファイルアプリの一覧に「USB Storage Manager」として表示されます。</string>
+    <string name="usb_published_warning">作業が終わったら、必ず下のボタンで閉じてください。アプリを強制終了したり USB を抜くと、NTFS がダーティのまま残り、Windows で chkdsk が走ります。</string>
+    <string name="usb_close_safely">USB を安全に閉じる</string>
+    <string name="usb_publish_whole_device">デバイス全体を公開 (読み取り専用)</string>
+    <string name="usb_close_without_publish">公開せずに USB を閉じる</string>
+    <string name="usb_publish_write">公開 (新規作成のみ書き込み可)</string>
+    <string name="usb_publish_read_only">公開 (読み取り専用)</string>
+    <string name="usb_guide_title">使い方</string>
+    <string name="usb_guide_1_title">OS が自動でマウントしたボリュームを取り出す</string>
+    <string name="usb_guide_1_body">多くの USB ディスクは、接続すると小さな FAT 領域 (EFI など) を OS がマウントします。ストレージ設定から取り出します。</string>
+    <string name="usb_guide_2_title">書き込みモードを選ぶ</string>
+    <string name="usb_guide_2_body">迷ったら読み取り専用のままにします。</string>
+    <string name="usb_guide_3_title">USB を開く</string>
+    <string name="usb_guide_3_body">初回は USB の許可ダイアログが出ます。</string>
+    <string name="usb_guide_4_title">NTFS パーティションを公開する</string>
+    <string name="usb_guide_4_body">公開すると、ファイルアプリから見られます。</string>
+    <string name="usb_guide_5_title">終わったら「USB を安全に閉じる」</string>
+    <string name="usb_guide_5_body">書き込みの確定とアンマウントをします。その後で取り外せます。</string>
+    <string name="usb_close_dialog_title">USB を閉じますか？</string>
+    <string name="usb_close_dialog_text">書き込みを確定して NTFS をアンマウントします。終わるまで数秒かかることがあります。閉じた後は、USB を取り外せます。</string>
+    <string name="usb_close_dialog_confirm">閉じる</string>
+
+    <!-- イメージ画面 -->
+    <string name="image_inspect_title">パーティションを調べる</string>
+    <string name="image_inspect_subtitle">ディスクイメージ (.img / .bin) を読み取り専用で開きます。書き込みはしません</string>
+    <string name="image_open_raw">RAW イメージを開く</string>
+    <string name="image_share_title">NTFS イメージを公開</string>
+    <string name="image_share_subtitle">ファイルアプリから中身を見られるようにします</string>
+    <string name="image_chip_write">書き込み可 (実験的)</string>
+    <string name="image_write_warning">データ破損の恐れがあります。バックアップを取ってください。</string>
+    <string name="image_share_write">NTFS イメージを公開 (書き込み可)</string>
+    <string name="image_share_read_only">NTFS イメージを公開 (読み取り専用)</string>
+
+    <!-- 診断画面 -->
+    <string name="diag_speed_title">読み取り速度</string>
+    <string name="diag_speed_subtitle">端末ごとに通る転送サイズが違います</string>
+    <string name="diag_current_setting">使用中の設定</string>
+    <string name="diag_optimize_desc">「最適化」は、小さい設定から順に、同じ区間を読んでデータが一致するかを確かめ、通った中で最速を保存します。保存した設定は、次回から USB を開くときに使われます (書き込みの転送サイズは変えません)。失敗すると USB が切れることがあります。</string>
+    <string name="diag_optimize_button">読み取りを最適化して保存 (約 1 分)</string>
+    <string name="diag_bench_button">速度だけ計測 (約 1 分)</string>
+    <string name="diag_hint_need_open">USB を開くと実行できます。</string>
+    <string name="diag_hint_published">公開中は実行できません。一度閉じてください。</string>
+    <string name="diag_hint_busy">処理が終わるまでお待ちください。</string>
+    <string name="diag_scsi_title">送信した SCSI 命令</string>
+    <string name="diag_scsi_subtitle">読み取り専用で、書き込み系が出ていないことの確認用</string>
+    <string name="diag_scsi_empty">(USB を開くと表示されます)</string>
+    <string name="diag_scsi_desc">16 進のオペコード x 回数。読み取り系: 12 INQUIRY / 00 TUR / 03 SENSE / 1a MODE SENSE / 25, 9e CAPACITY / 28, 88 READ。書き込み系は 2a, 8a, 35 (キャッシュ同期)。これらが無ければ、ディスクへの書き込みはありません。</string>
+    <string name="diag_scsi_refresh">集計を更新</string>
+
+    <!-- 転送サイズの設定 (表示) -->
+    <string name="tuning_default">既定 (USB 16K / コマンド 64K)</string>
+    <string name="tuning_saved">USB %1$dK / コマンド %2$dK (この端末で保存した設定)</string>
+
+    <!-- 診断の結果行 (画面と logcat の両方に出す) -->
+    <string name="diag_bench_line">chunk=%1$dK cmd=%2$dK: %3$.1f MB/s</string>
+    <string name="diag_bench_line_failed">chunk=%1$dK cmd=%2$dK: 失敗 %3$s</string>
+    <string name="diag_failed_simple">失敗: %1$s</string>
+    <string name="diag_opt_skip_failed">前回失敗した設定 (chunk=%1$dK cmd=%2$dK 以上) は試しません</string>
+    <string name="diag_opt_mismatch">chunk=%1$dK cmd=%2$dK: 読めたデータが一致しません。この設定は使いません</string>
+    <string name="diag_opt_line_ok">chunk=%1$dK cmd=%2$dK: %3$.1f MB/s (データ一致)</string>
+    <string name="diag_opt_saved">→ 保存: chunk=%1$dK cmd=%2$dK (%3$.1f MB/s)。次回から USB を開くときに使います</string>
+    <string name="diag_opt_failed">失敗しました (%1$s)。この設定は使いません。</string>
+    <string name="diag_opt_failed_hint">USB が切れた場合は、USB を閉じる → OS が FAT をマウントしていたら取り出し → もう一度 USB を開いてください。</string>
+    <string name="diag_opt_best_so_far">ここまでに通った最速: chunk=%1$dK cmd=%2$dK (保存済み)</string>
+
+    <!-- 通知 (バナー) と処理中の表示 -->
+    <string name="notice_usb_permission_denied">USB の許可が得られませんでした</string>
+    <string name="notice_usb_permission_denied_detail">もう一度「開く」を押して、許可ダイアログで許可してください。</string>
+    <string name="notice_usb_detached">USB デバイスが取り外されました</string>
+    <string name="busy_opening_usb">USB を開いています…</string>
+    <string name="notice_usb_open_failed">USB を開けません</string>
+    <string name="busy_mounting_write">NTFS をマウント中です。書き込み可のマウントは、空きクラスタ数の計算のため、大きなディスクでは数十秒かかります。アプリを閉じないでください…</string>
+    <string name="busy_mounting_read_only">NTFS をマウント中です…</string>
+    <string name="mode_read_only">読み取り専用</string>
+    <string name="mode_create_only">新規作成のみ書き込み可</string>
+    <string name="notice_published_read_only">読み取り専用で公開しました</string>
+    <string name="notice_published_read_only_detail">書き込みは使えません (ビルドで無効、またはボリュームに異常/ダーティがあります)。</string>
+    <string name="notice_ntfs_open_failed">NTFS として開けません</string>
+    <string name="notice_ntfs_open_failed_with_reason">NTFS として開けません: %1$s</string>
+    <string name="notice_ntfs_open_failed_tuning_reset">保存した転送設定を使っていたため、既定に戻しました。USB を閉じて、開き直してください。</string>
+    <string name="busy_closing_usb">USB を閉じています (書き込みの確定とアンマウント)…</string>
+    <string name="notice_usb_closed">USB を閉じました</string>
+    <string name="notice_usb_closed_detail">NTFS をアンマウントし、書き込みを確定しました。取り外せます。</string>
+    <string name="busy_benchmark">読み取り速度を計測しています…</string>
+    <string name="busy_optimize">読み取りを最適化しています…</string>
+    <string name="notice_image_open_failed">開けません</string>
+    <string name="notice_image_shared_read_only">公開しました: %1$s</string>
+    <string name="notice_image_shared_read_only_detail">読み取り専用。ファイルアプリの一覧に表示されます。</string>
+    <string name="notice_image_shared_write">書き込み可 (実験的) で公開しました: %1$s</string>
+    <string name="notice_image_shared_write_detail">ファイルアプリの一覧に表示されます。バックアップを取ってから使ってください。</string>
+    <string name="notice_image_shared_fallback">読み取り専用で公開しました: %1$s</string>
+    <string name="notice_image_shared_fallback_detail">書き込みは使えません (ビルドで無効、またはボリュームに未処理の異常/ダーティがあります)。</string>
 </resources>

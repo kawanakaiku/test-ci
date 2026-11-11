@@ -32,5 +32,5 @@ class AppModel {
     // ---- 診断
     var ops by mutableStateOf("")                            // 送信した SCSI 命令の集計
     var tuneLog by mutableStateOf("")                        // 速度計測 / 最適化の結果
-    var tuningSaved by mutableStateOf("既定 (USB 16K / コマンド 64K)")
+    var tuningSaved by mutableStateOf<String?>(null)    // 保存した転送設定の表示 (null = 既定)
 }

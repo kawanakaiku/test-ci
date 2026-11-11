@@ -1,0 +1,12 @@
+build/
+.gradle/
+.idea/
+*.iml
+local.properties
+android/**/build/
+android/.kotlin/
+.cxx/
+*.img
+*.bin
+!tests/**/*.keep
+captures/

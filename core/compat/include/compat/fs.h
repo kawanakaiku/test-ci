@@ -57,7 +57,7 @@ enum { FOLIO_LOCKED, FOLIO_UPTODATE, FOLIO_DIRTY, FOLIO_WRITEBACK };
 
 /* ---- ブロックデバイス / bio */
 struct usbmem_bdev;  /* core の BlockDevice ブリッジ (src/bdev_bridge.cpp) */
-struct block_device { struct usbmem_bdev *impl; struct address_space *bd_mapping; };
+struct address_space; struct block_device;
 struct bio_vec { struct page *bv_page; unsigned bv_len, bv_offset; };
 struct bvec_iter { sector_t bi_sector; unsigned bi_size; };
 struct bio {
@@ -82,8 +82,10 @@ struct address_space {
   const struct address_space_operations *a_ops;
   struct rw_semaphore invalidate_lock;
   struct list_head private_list;
+  struct block_device *host_bdev_;  /* bd_mapping の場合のみ */
   void *pages;  /* 実装依存: ページキャッシュ (src/pagecache.cpp) */
 };
+struct block_device { struct usbmem_bdev *impl; struct address_space *bd_mapping; struct address_space bd_data_; };
 struct inode {
   struct super_block *i_sb;
   struct address_space *i_mapping;

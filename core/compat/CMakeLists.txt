@@ -5,6 +5,12 @@ file(GLOB NTFS_SRC ${NTFS_ROOT}/fs-ntfs/*.c ${NTFS_ROOT}/fs-ntfs/lib/*.c)
 set(COMPAT_SRC src/rt_core.c src/rt_pagecache.c src/rt_stubs.c src/rt_vfs.c src/bdev_bridge.cpp src/ntfs_volume.cpp)
 
 add_library(usbmem_ntfs STATIC ${NTFS_SRC} ${COMPAT_SRC})
+# 上流 fs/ntfs は CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS 前提 (x86/arm64 は非整列アクセス可) で u16/u32 を直接読む。
+# UBSan の alignment 検査だけ上流コードで外す (他の UB 検査は有効のまま)。互換層 (src/rt_*.c) には適用しない。
+if(USBMEM_SANITIZE)
+  set_source_files_properties(${NTFS_SRC} PROPERTIES COMPILE_OPTIONS "-fno-sanitize=alignment;-fno-sanitize=shift-base")
+  # 破損 runlist の巨大値で符号付き左シフトが溢れる (上流は -fno-strict-overflow 前提 = wrap)。実カーネルのビルドと同じ扱いにする。
+endif()
 target_include_directories(usbmem_ntfs PUBLIC public)
 # 互換シム(<linux/errno.h> 等)は C ソース専用。C++ に見せると glibc の <errno.h> が奪われ std ヘッダと衝突する。
 target_compile_options(usbmem_ntfs PRIVATE $<$<COMPILE_LANGUAGE:C>:-I${CMAKE_CURRENT_LIST_DIR}/include>)
@@ -14,6 +20,7 @@ target_compile_options(usbmem_ntfs PRIVATE
   $<$<COMPILE_LANGUAGE:C>:-std=gnu11>
   $<$<COMPILE_LANGUAGE:C>:-w>
   $<$<COMPILE_LANGUAGE:C>:-fno-strict-aliasing>
+  $<$<COMPILE_LANGUAGE:C>:-fwrapv>   # カーネルは -fno-strict-overflow でビルドされる
   "$<$<COMPILE_LANGUAGE:C>:SHELL:-iquote ${NTFS_ROOT}/fs-ntfs>"
   "$<$<COMPILE_LANGUAGE:C>:SHELL:-iquote ${NTFS_ROOT}/fs-ntfs/lib>")
 target_compile_definitions(usbmem_ntfs PRIVATE CONFIG_NTFS_FS_WOF_COMPRESSION=1

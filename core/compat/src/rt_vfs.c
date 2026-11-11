@@ -12,9 +12,10 @@ int usbmem_ntfs_mount(struct usbmem_bdev *bdev, int ro, usbmem_ntfs **out) {
   struct block_device *bd = calloc(1, sizeof *bd);
   if (!bd) return -ENOMEM;
   bd->impl = bdev;
+  usbmem_bdev_mapping_init(bd);
   struct super_block *sb = NULL;
   int rc = usbmem_compat_mount(bd, ro, &sb);
-  if (rc) { free(bd); return rc; }
+  if (rc) { usbmem_bdev_mapping_free(bd); free(bd); return rc; }
   usbmem_ntfs *v = calloc(1, sizeof *v);
   v->sb = sb; *out = v; return 0;
 }
@@ -22,6 +23,7 @@ void usbmem_ntfs_unmount(usbmem_ntfs *v) {
   if (!v) return;
   struct block_device *bd = v->sb->s_bdev;
   usbmem_compat_umount(v->sb);
+  usbmem_bdev_mapping_free(bd);
   free(bd);
   free(v);
 }

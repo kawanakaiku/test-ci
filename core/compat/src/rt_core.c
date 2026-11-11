@@ -242,7 +242,7 @@ static void drop_inodes_sb(struct super_block *sb) {
     struct inode **p = &g_inode_hash[b];
     while (*p) {
       struct inode *i = *p;
-      if (i->i_sb == sb) { *p = i->i_hash_next_; i->i_hashed_ = false; destroy_inode(i); }
+      if (i->i_sb == sb) { *p = i->i_hash_next_; i->i_hashed_ = false; truncate_inode_pages_final(&i->i_data); destroy_inode(i); }
       else p = &i->i_hash_next_;
     }
   }
@@ -406,5 +406,54 @@ int usbmem_compat_mount(struct block_device *bdev, int read_only, struct super_b
   if (rc) { free(fc); return rc; }
   *out = fc->root->d_sb;
   (*out)->s_fc_ = NULL; free(fc);
+  return 0;
+}
+
+/* ---- printk 風出力: カーネル拡張の %pV (struct va_format*) を展開する。他の変換は 1 つずつ snprintf に委ねる。 */
+static void pk_vformat(FILE *out, const char *fmt, va_list ap) {
+  for (const char *p = fmt; *p;) {
+    if (*p != '%') { fputc(*p++, out); continue; }
+    if (p[1] == '%') { fputc('%', out); p += 2; continue; }
+    if (p[1] == 'p' && p[2] == 'V') {
+      struct va_format *vf = va_arg(ap, struct va_format *);
+      if (vf && vf->fmt && vf->va) { va_list c; va_copy(c, *vf->va); pk_vformat(out, vf->fmt, c); va_end(c); }
+      p += 3; continue;
+    }
+    char spec[32]; size_t n = 0; spec[n++] = *p++;
+    int lng = 0, star = 0; int w = 0, pr = -1;
+    while (*p && strchr("-+ #0123456789.*hlzjtL", *p) && n < sizeof spec - 3) {
+      if (*p == '*') star++;
+      if (*p == 'l' || *p == 'z' || *p == 'j' || *p == 't') lng++;
+      spec[n++] = *p++;
+    }
+    char conv = *p ? *p++ : 0; spec[n++] = conv; spec[n] = 0;
+    (void)w; (void)pr;
+    int wd[2] = {0, 0};
+    for (int i = 0; i < star && i < 2; i++) wd[i] = va_arg(ap, int);
+    char buf[512];
+    /* star の数 (0/1/2) に応じて snprintf へ渡す幅引数の個数を合わせる */
+#define PK_EMIT(v) do { if (star == 0) snprintf(buf, sizeof buf, spec, v); else if (star == 1) snprintf(buf, sizeof buf, spec, wd[0], v); else snprintf(buf, sizeof buf, spec, wd[0], wd[1], v); } while (0)
+    switch (conv) {
+      case 'd': case 'i':
+        if (lng >= 2 || (lng == 1 && sizeof(long) == 8)) { long long v = va_arg(ap, long long); PK_EMIT(v); }
+        else { int v = va_arg(ap, int); PK_EMIT(v); }
+        break;
+      case 'u': case 'x': case 'X': case 'o':
+        if (lng >= 2 || (lng == 1 && sizeof(long) == 8)) { unsigned long long v = va_arg(ap, unsigned long long); PK_EMIT(v); }
+        else { unsigned v = va_arg(ap, unsigned); PK_EMIT(v); }
+        break;
+      case 'c': { int v = va_arg(ap, int); PK_EMIT(v); break; }
+      case 's': { const char *v = va_arg(ap, const char *); if (!v) v = "(null)"; PK_EMIT(v); break; }
+      case 'p': { void *v = va_arg(ap, void *); snprintf(buf, sizeof buf, "%p", v); break; }
+      default: buf[0] = 0; break;
+    }
+#undef PK_EMIT
+    fputs(buf, out);
+  }
+}
+int usbmem_printk(const char *fmt, ...) {
+  va_list ap; va_start(ap, fmt);
+  pk_vformat(stderr, fmt, ap);
+  va_end(ap);
   return 0;
 }

@@ -197,10 +197,11 @@ static inline void *ERR_CAST(const void *p) { return (void *)p; }
 #define unsafe_memcpy(d, s, n, reason) memcpy(d, s, n)
 #define le16_add_cpu(p, v) (*(p) = cpu_to_le16(le16_to_cpu(*(p)) + (v)))
 #define no_printk(...) ((void)0)
-#define pr_err(...) fprintf(stderr, __VA_ARGS__)
+int usbmem_printk(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+#define pr_err(...) usbmem_printk(__VA_ARGS__)
 #define pr_info(...) ((void)0)
-#define pr_crit(...) fprintf(stderr, __VA_ARGS__)
-#define pr_err_ratelimited(...) fprintf(stderr, __VA_ARGS__)
+#define pr_crit(...) usbmem_printk(__VA_ARGS__)
+#define pr_err_ratelimited(...) usbmem_printk(__VA_ARGS__)
 #define pr_warn_ratelimited(...) ((void)0)
 #define str_plural(n) ((n) == 1 ? "" : "s")
 size_t strscpy(char *dst, const char *src, size_t n);

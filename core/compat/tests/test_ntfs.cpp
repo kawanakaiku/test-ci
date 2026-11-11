@@ -177,7 +177,7 @@ int main(int argc, char** argv) {
     files++;
     if (path.find('/') == std::string::npos) CHECK(names.count(path) == 1);
   }
-  CHECK(files >= 800 + 5);
+  CHECK(files >= 800 + 8);
   // many/ には 800 件が重複・欠落なく並ぶ (index allocation 経由の列挙)
   uint64_t many = 0; CHECK(vol->resolve("many", &many) == 0);
   std::vector<usbmem::NtfsDirEntry> me; CHECK(vol->readdir(many, &me) == 0);

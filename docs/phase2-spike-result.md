@@ -114,3 +114,15 @@ byteorder/min/max マクロだけ**で `gcc -fsyntax-only` した。残ったエ
 - 修正後: seed 2,5,6,7 × 1500 回、seed 11–16 × 2000 回 (MFT 重点) で crash/ハングなし。
 - 限界: 失敗したマウントの後始末で inode 内部の確保物 (runlist 等) がリークしうる (fuzz テストは detect_leaks=0)。画像が 64MiB でほぼ空のため、
   実使用規模・Windows 作成イメージ・圧縮/暗号化属性に対するカバレッジは限定的。コード網羅 (coverage) は未計測。
+
+### 圧縮・巨大ボリューム・後始末 (2026-11-11)
+- **LZNT1 圧縮**: ntfs-3g (`-o compression` + ディレクトリ属性 0x800) で圧縮ファイル (テキスト / 非圧縮性 / 圧縮可・不可・全ゼロ混在) を作成し、
+  `fs/ntfs` 経由の読み出しを sha256 で照合。圧縮読み出しがブロックデバイス自身のページキャッシュ (`bd_mapping`) を使うため、その互換実装を追加。
+  ASan/UBSan 通過。上流 C には `-fwrapv`、UBSan の alignment/shift-base 検査のみ除外 (上流は HAVE_EFFICIENT_UNALIGNED_ACCESS と -fno-strict-overflow 前提。互換層には適用しない)。
+- **1TiB ボリューム** (`tools/ntfs_large_test.sh`): qcow2 + `nbdfuse -o allow_other` で、見かけ 1TiB / 実使用 ≈70MB の NTFS を tmpfs 上に作成。
+  `ntfs-3g` は setuid root で動くため nbdfuse に `allow_other` が必要 (/etc/fuse.conf に user_allow_other)。同じ内容 (809 ファイル、圧縮・スパース含む) を ASan で照合し、
+  破損 fuzz 300 回も通過。所要約 7 分 (ASan + FUSE) のため CTest には入れず手動実行。MFT ゾーン (≈1/8) の後ろの高位 LCN を実際に読む経路の検証になる。
+- printk 互換 (`%pV` 展開) を実装し、エラーログが読めるようになった。
+- 失敗したマウントの後始末: ページキャッシュ (folio) は解放するよう修正。**inode 内部の確保物 (MFT レコードのコピー、runlist) は失敗経路で残る** (解放には既に解放済みの vol が必要で、
+  UAF になるため安全側で許容)。早期に失敗する非 NTFS データでは発生しない。
+- **未検証のまま**: Windows が作成した NTFS (この環境に Windows がない)、暗号化 (EFS)、reparse/WOF 圧縮、システムの Documents UI。

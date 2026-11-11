@@ -11,6 +11,8 @@ extern "C" {
 int usbmem_module_init_ntfs(void);
 void usbmem_unimplemented(const char *fn);
 struct dentry *usbmem_d_alloc(struct super_block *, struct dentry *parent, const char *name, unsigned len);
+void usbmem_bdev_mapping_init(struct block_device *);
+void usbmem_bdev_mapping_free(struct block_device *);
 void usbmem_d_free(struct dentry *);
 void usbmem_compat_umount(struct super_block *);
 int usbmem_compat_mount(struct block_device *bdev, int read_only, struct super_block **out);

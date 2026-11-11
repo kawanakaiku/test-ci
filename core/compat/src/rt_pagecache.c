@@ -356,3 +356,29 @@ int utf8s_to_utf16s(const u8 *in, int inlen, int endian, void *outv, int maxout)
   }
   return o;
 }
+
+/* ---- ブロックデバイス自身のページキャッシュ (bd_mapping)。fs/ntfs の圧縮読み出しがデバイスのページを直接読む。 */
+static int bdev_read_folio(struct file *file, struct folio *f) {
+  (void)file;
+  struct block_device *bd = f->mapping->host_bdev_;
+  u64 off = (u64)f->index << PAGE_SHIFT, size = usbmem_bdev_size(bd->impl);
+  memset(f->data, 0, PAGE_SIZE);
+  int rc = 0;
+  if (off < size) {
+    size_t n = size - off < PAGE_SIZE ? (size_t)(size - off) : PAGE_SIZE;
+    rc = usbmem_bdev_read(bd->impl, off, f->data, n);
+  }
+  if (!rc) f->flags |= 1UL << FOLIO_UPTODATE;
+  folio_unlock(f);
+  return rc;
+}
+static const struct address_space_operations g_bdev_aops = { .read_folio = (void *)bdev_read_folio };
+void usbmem_bdev_mapping_init(struct block_device *bd) {
+  bd->bd_data_.host_bdev_ = bd;
+  bd->bd_data_.a_ops = &g_bdev_aops;
+  pthread_rwlock_init(&bd->bd_data_.invalidate_lock.l, NULL);
+  bd->bd_mapping = &bd->bd_data_;
+}
+void usbmem_bdev_mapping_free(struct block_device *bd) {
+  truncate_inode_pages_final(&bd->bd_data_);
+}

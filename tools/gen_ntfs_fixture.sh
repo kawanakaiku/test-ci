@@ -10,7 +10,7 @@ MKNTFS=$(command -v mkntfs || echo /sbin/mkntfs)
 mkdir -p "$OUT"; IMG=$OUT/ntfs_basic.img; MNT=$OUT/mnt.$$
 # USBMEM_NTFS_EXISTING_IMG=1: 既に用意されたデバイス/ファイル (nbdfuse 経由の大容量仮想ディスク等) をそのまま使う
 if [ "${USBMEM_NTFS_EXISTING_IMG:-0}" != 1 ]; then rm -f "$IMG"; truncate -s 64M "$IMG"; fi
-"$MKNTFS" -F -Q -q -s 512 -c 4096 -L TESTVOL "$IMG" >/dev/null 2>&1
+"$MKNTFS" -F -Q -q -s 512 -c "${USBMEM_NTFS_CLUSTER:-4096}" -L TESTVOL "$IMG" >/dev/null 2>&1
 mkdir -p "$MNT"; ntfs-3g -o rw,compression "$IMG" "$MNT"
 trap 'fusermount3 -u "$MNT" 2>/dev/null; rmdir "$MNT" 2>/dev/null' EXIT
 printf 'hello\n' > "$MNT/a.txt"

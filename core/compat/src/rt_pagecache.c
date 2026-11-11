@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // LinuxCompat 実行時 (2/3): ページキャッシュ(folio)・block/bio・iomap(読み取り)・NLS。
 // folio は常に PAGE_SIZE (4096) 固定。large folio は未対応。
+#include <stdio.h>
 #include <compat/kernel.h>
 #include <compat/usbmem_ntfs.h>
 
@@ -52,8 +53,14 @@ int folio_test_uptodate(const struct folio *f) { return (f->flags >> FOLIO_UPTOD
 int folio_test_writeback(const struct folio *f) { return (f->flags >> FOLIO_WRITEBACK) & 1; }
 void folio_mark_uptodate(struct folio *f) { f->flags |= 1UL << FOLIO_UPTODATE; }
 void folio_clear_uptodate(struct folio *f) { f->flags &= ~(1UL << FOLIO_UPTODATE); }
-void folio_mark_dirty(struct folio *f) { f->flags |= 1UL << FOLIO_DIRTY; }
-void folio_clear_dirty(struct folio *f) { f->flags &= ~(1UL << FOLIO_DIRTY); }
+void folio_mark_dirty(struct folio *f) { f->flags |= 1UL << FOLIO_DIRTY; f->dirty_blocks_ = 0xFF; }
+void folio_clear_dirty(struct folio *f) { f->flags &= ~(1UL << FOLIO_DIRTY); f->dirty_blocks_ = 0; }
+void usbmem_folio_dirty_range(struct folio *f, size_t off, size_t len) {
+  if (off >= PAGE_SIZE || !len) return;
+  size_t end = off + len; if (end > PAGE_SIZE) end = PAGE_SIZE;
+  for (size_t b = off / 512; b * 512 < end; b++) f->dirty_blocks_ |= (unsigned char)(1u << b);
+  f->flags |= 1UL << FOLIO_DIRTY;
+}
 void folio_start_writeback(struct folio *f) { f->flags |= 1UL << FOLIO_WRITEBACK; }
 void folio_end_writeback(struct folio *f) { f->flags &= ~(1UL << FOLIO_WRITEBACK); }
 void folio_wait_writeback(struct folio *f) { (void)f; }
@@ -340,7 +347,7 @@ void iomap_readahead(iomap_iter_next_fn next, struct iomap_read_folio_ctx *ctx, 
 /* ---- 書き込み (段階 1): dirty folio 管理と同期 writeback */
 bool iomap_dirty_folio(struct address_space *m, struct folio *f) {
   bool was = (f->flags >> FOLIO_DIRTY) & 1;
-  f->flags |= 1UL << FOLIO_DIRTY;
+  f->flags |= 1UL << FOLIO_DIRTY; f->dirty_blocks_ = 0xFF;
   if (m && m->host) m->host->i_state |= I_DIRTY_PAGES;
   return !was;
 }
@@ -380,6 +387,7 @@ struct folio *writeback_iter(struct address_space *m, struct writeback_control *
     folio_lock(f);
     if (!((f->flags >> FOLIO_DIRTY) & 1)) { folio_unlock(f); folio_put(f); continue; }
     f->flags &= ~(1UL << FOLIO_DIRTY);
+    f->wb_blocks_ = f->dirty_blocks_ ? f->dirty_blocks_ : 0xFF; f->dirty_blocks_ = 0;   /* ビット未設定の dirty は全体扱い (安全側) */
     *err = 0;
     return f;
   }
@@ -392,6 +400,17 @@ struct folio *writeback_iter(struct address_space *m, struct writeback_control *
 int iomap_add_to_ioend(struct iomap_writepage_ctx *wpc, struct folio *f, loff_t pos, loff_t end_pos, unsigned len) {
   (void)end_pos;
   const struct iomap *im = &wpc->iomap;
+  if (im->type == IOMAP_HOLE || im->type == IOMAP_UNWRITTEN) {
+    /* 穴/未初期化の範囲: 読めばゼロなので、folio 上でもゼロなら書くものが無い (クラスタ < 4096 では 1 folio にデータと穴が混在し、
+     * resident→non-resident 変換などで folio 全体が dirty になりうる)。ゼロ以外が載っているなら、捨てずにエラーにする。 */
+    loff_t me = (loff_t)(im->offset + im->length);
+    if (pos < (loff_t)im->offset || pos >= me) return -EIO;
+    unsigned n = len; if (pos + (loff_t)n > me) n = (unsigned)(me - pos);
+    size_t fo = offset_in_folio(f, pos); if (fo + n > PAGE_SIZE) n = (unsigned)(PAGE_SIZE - fo);
+    const unsigned char *d = (const unsigned char *)f->data + fo;
+    for (unsigned i = 0; i < n; i++) if (d[i]) return -EIO;
+    return (int)n;
+  }
   if (im->type != IOMAP_MAPPED || im->addr == IOMAP_NULL_ADDR || !im->bdev) return -EIO;
   loff_t map_end = (loff_t)(im->offset + im->length);
   if (pos < (loff_t)im->offset || pos >= map_end) return -EIO;
@@ -409,25 +428,43 @@ int iomap_add_to_ioend(struct iomap_writepage_ctx *wpc, struct folio *f, loff_t 
 }
 int iomap_ioend_writeback_submit(struct iomap_writepage_ctx *wpc, int error) { (void)wpc; return error; }
 
+/* 失敗した folio を dirty に戻す (dirty_blocks_ は呼び出し側が設定済みなので、全体 dirty にはしない) */
+static void folio_mark_dirty_keep_(struct folio *f) { f->flags |= 1UL << FOLIO_DIRTY; }
 int iomap_writepages(struct iomap_writepage_ctx *wpc) {
   struct inode *inode = wpc->inode;
   struct address_space *m = inode->i_mapping;
   unsigned bs = inode->i_sb->s_blocksize ? (unsigned)inode->i_sb->s_blocksize : 512;
   struct folio *f = NULL; int error = 0;
   while ((f = writeback_iter(m, wpc->wbc, f, &error))) {
-    loff_t pos = folio_pos(f), isize = inode->i_size;
+    loff_t fpos = folio_pos(f), isize = inode->i_size;
     folio_start_writeback(f);
     error = 0;
-    if (pos < isize) {
-      loff_t end_pos = pos + PAGE_SIZE < isize ? pos + PAGE_SIZE : isize;
+    if (fpos < isize) {
+      loff_t end_pos = fpos + PAGE_SIZE < isize ? fpos + PAGE_SIZE : isize;
       loff_t end_al = (end_pos + bs - 1) / bs * bs;
-      while (pos < end_al) {
-        ssize_t r = wpc->ops->writeback_range(wpc, f, (u64)pos, (unsigned)(end_al - pos), (u64)end_pos);
-        if (r <= 0) { error = r < 0 ? (int)r : -EIO; break; }
-        pos += r;
+      /* dirty な 512B ブロックの連続区間ごとに、ブロック長 (bs) へ外側へ丸めて書き戻す。実カーネルの iomap と同様に、書いていない範囲
+       * (穴・未初期化・別のエクステント) は要求しない。クラスタ < 4096 では 1 folio の中にそれらが混在する。 */
+      loff_t done_to = fpos;   /* ここまでは処理済み (丸めで重なった区間を二重に書かない) */
+      for (int b = 0; b < 8 && !error; b++) {
+        if (!((f->wb_blocks_ >> b) & 1)) continue;
+        int e = b; while (e + 1 < 8 && ((f->wb_blocks_ >> (e + 1)) & 1)) e++;
+        loff_t a = fpos + (loff_t)b * 512, z = fpos + (loff_t)(e + 1) * 512;
+        b = e;
+        if (a >= end_pos) break;
+        a = a / bs * bs; z = (z + bs - 1) / bs * bs;
+        if (z > end_al) z = end_al;
+        if (a < done_to) a = done_to;
+        loff_t pos = a;
+        while (pos < z) {
+          ssize_t r = wpc->ops->writeback_range(wpc, f, (u64)pos, (unsigned)(z - pos), (u64)end_pos);
+          if (r <= 0) { error = r < 0 ? (int)r : -EIO; break; }
+          pos += r;
+        }
+        if (pos > done_to) done_to = pos;
       }
     }
-    if (error) folio_mark_dirty(f);   /* 失敗した folio は dirty のまま残す (データを失わない) */
+    if (error) { f->dirty_blocks_ |= f->wb_blocks_; folio_mark_dirty_keep_(f); }   /* 失敗した folio は dirty のまま残す (データを失わない) */
+    f->wb_blocks_ = 0;
     folio_end_writeback(f);
     folio_unlock(f);
   }

@@ -46,6 +46,14 @@ check iter big.bin 3146505 100 6 || rc=1
 check iter big.bin 3200000 1000 7 || rc=1
 check iter big.bin 4194304 4096 8 || rc=1
 check iter big.bin 3146505 3000000 9 || rc=1
+# --- 小クラスタ向けの境界 (512/1024/2048/4096 の境目、隙間、新規ファイルの途中書き)
+check iter big.bin 2047 2 20 || rc=1
+check iter big.bin 2048 1 21 || rc=1
+check iter big.bin 511 3000 22 || rc=1
+check iter empty.txt 2500 10 23 || rc=1
+check iter empty.txt 1000 3000 24 || rc=1
+check iter a.txt 2047 3 25 || rc=1
+check iter a.txt 6000 1 26 || rc=1
 # --- 小さな常駐ファイル: 内部上書き / 常駐のまま拡張 / 非常駐へ昇格 / 空ファイルへ書く / 隙間付き
 check iter a.txt 0 3 10 || rc=1
 check iter a.txt 6 50 11 || rc=1
@@ -151,19 +159,37 @@ truncate /sparse.bin 4096
 truncate /many/file_1.txt 70000
 OPS
 ntfs_ops truncate "$W/s8" || rc=1
+cat > "$W/s9" <<'OPS'
+create /g.bin
+write /g.bin 3000 100 1
+write /g.bin 100 50 2
+truncate /g.bin 2500
+write /g.bin 2600 20 3
+truncate /g.bin 100000
+write /g.bin 4090 20 4
+truncate /g.bin 511
+write /g.bin 0 5000 5
+truncate /g.bin 1025
+mkdir /gd
+create /gd/h.bin
+write /gd/h.bin 7000 3 6
+write /gd/h.bin 1500 1500 7
+OPS
+ntfs_ops gaps_and_shrinks "$W/s9" || rc=1
 # --- 同じ操作列を USB Mass Storage (模擬 BOT) 越しに: BlockDevice → MscDevice (WRITE/SYNC) → fs/ntfs の全経路。結果は同じ独立検証 (ntfsfix + リファレンスとのツリー比較)
 export USBMEM_VIA_MSC=1
 for sn in "create_mkdir:s1" "delete_recreate:s2" "rename:s3" "many_files:s4" "unicode_names:s5" "truncate:s8"; do
   ntfs_ops "msc_${sn%%:*}" "$W/${sn##*:}" || rc=1
 done
 unset USBMEM_VIA_MSC
-# --- クラスタ < 4096 のボリュームは書き込みマウントを拒否する (読み取り専用なら読める)
-if command -v mkntfs >/dev/null 2>&1 || [ -x /sbin/mkntfs ]; then
-  M=$(command -v mkntfs || echo /sbin/mkntfs)
-  truncate -s 16M "$W/c512.img"; "$M" -F -Q -q -s 512 -c 512 "$W/c512.img" >/dev/null 2>&1
-  echo "create /x.txt" > "$W/s7"
-  if "$T" --ops "$W/c512.img" "$W/s7" 2>&1 | grep -aq "mount_rw failed: errno 30"; then :; else echo "FAIL[small_cluster] rw mount not refused"; rc=1; fi
-  "$T" --probe "$W/c512.img" >/dev/null 2>&1 || { echo "FAIL[small_cluster] ro mount broken"; rc=1; }
+# --- 小さなクラスタ (512B / 2048B: 1 folio に複数クラスタが入り、データ・未初期化・穴が混在する) のボリュームでも、同じテスト一式が通ること
+if [ -z "${USBMEM_WT_NESTED:-}" ]; then
+  for c in 512 2048; do
+    CD=$W/fix$c
+    USBMEM_NTFS_CLUSTER=$c "$HERE/gen_ntfs_fixture.sh" "$CD" >/dev/null 2>&1 || { echo "FAIL[cluster $c] fixture generation"; rc=1; continue; }
+    USBMEM_WT_NESTED=1 sh "$HERE/run_write_tests.sh" "$T" "$CD" >"$W/nested.out" 2>&1 || { echo "FAIL[cluster $c]:"; grep FAIL "$W/nested.out" | head -5 | cut -c1-200; rc=1; }
+    rm -rf "$CD"
+  done
 fi
 # --- 書き込み後に manifest が (書いたファイル以外) 全て保たれること
 cp "$IMG" "$W/w.img"; USBMEM_WRITE_ITER=1 "$T" --wtest "$W/w.img" big.bin 500000 20000 9 2>&1 | grep -v unimplemented | grep -v "wtest ok" || true

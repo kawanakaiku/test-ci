@@ -143,6 +143,7 @@ class MainActivity : ComponentActivity() {
 
     /** USB 上の NTFS パーティションを読み取り専用でマウントして SAF に公開する。 */
     private fun shareUsbPartition(offset: Long, size: Long, label: String) {
+        runOnUiThread { usbState = UiState.Failed(if (usbSession?.writable == true) "NTFS をマウント中です。書き込み可のマウントは、空きクラスタ数の計算のため、大きなディスクでは数分かかります。アプリを閉じないでください…" else "NTFS をマウント中です…") }
         Thread {
             val st = try {
                 val s = usbSession ?: throw IllegalStateException("not open")
@@ -213,6 +214,10 @@ class MainActivity : ComponentActivity() {
             }
             if (usbSession != null) Text("※ このスイッチは USB を開く前に切り替えます。変えるには USB の抜き差し、またはアプリの再起動が必要です。", style = MaterialTheme.typography.bodySmall)
             Button(onClick = { startActivity(android.content.Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS)) }) { Text("OS がマウント中の USB を取り出す(ストレージ設定を開く)") }
+            if (usbSession != null) {
+                Button(onClick = { Thread { closeUsb("USB を閉じました(NTFS をアンマウントし、書き込みを確定しました)。取り外せます。") }.start() }) { Text("USB を安全に閉じる(アンマウントして取り外し可能にする)") }
+                if (usbSession?.writable == true) Text("書き込み可で開いています。作業が終わったら必ず上のボタンで閉じてください(アプリを強制終了・USB を抜くと、NTFS がダーティのまま残り、Windows で chkdsk が走ります)。", style = MaterialTheme.typography.bodySmall)
+            }
             if (usbRows.isEmpty()) Text("対応する USB マスストレージ(Bulk-Only)は見つかりません。")
             usbRows.forEach { r -> Button(onClick = { requestUsb(r.device) }) { Text(r.title) } }
             when (val u = usbState) {

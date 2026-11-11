@@ -52,6 +52,10 @@ struct folio {
   struct page page;
   struct folio *hash_next_;
   int read_pending_, read_err_;
+  /* 512B 単位の dirty ビット (bit i = [512*i, 512*(i+1)))。実カーネルの iomap (iomap_folio_state) と同じく、書いた範囲だけを書き戻すために持つ。
+   * クラスタ < 4096 では 1 folio の中にデータ・未初期化・穴が混在し、folio 全体の書き戻しは穴/未初期化の範囲で失敗する。
+   * dirty_blocks_ = 次の書き戻し対象、wb_blocks_ = 書き戻し中に確定した対象 (失敗時は dirty_blocks_ へ戻す)。 */
+  unsigned char dirty_blocks_, wb_blocks_;
 };
 enum { FOLIO_LOCKED, FOLIO_UPTODATE, FOLIO_DIRTY, FOLIO_WRITEBACK };
 

@@ -58,6 +58,11 @@ if(USBMEM_BUILD_TESTS)
     # 電源断の模擬 (軽量版: 8 点 x {順序保持,キャッシュ} x {全セクタ,途中切断})。フル版は tools/run_crash_tests.sh <bin> <dir> 40
     add_test(NAME ntfs_crash COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_crash_tests.sh $<TARGET_FILE:usbmem_ntfs_tests> /dev/shm/usbmem_ntfs_$ENV{USER} 8)
     set_tests_properties(ntfs_crash PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
+    # クラスタ 2048B (1 folio に 2 クラスタ): 実機の RAID (7.3 TiB) がこのサイズだった。電源断の模擬も同じ検査を通すこと
+    add_test(NAME ntfs_gen_fixture_c2048 COMMAND ${CMAKE_COMMAND} -E env USBMEM_NTFS_CLUSTER=2048 ${CMAKE_CURRENT_LIST_DIR}/../../tools/gen_ntfs_fixture.sh /dev/shm/usbmem_ntfs_c2048_$ENV{USER})
+    set_tests_properties(ntfs_gen_fixture_c2048 PROPERTIES SKIP_RETURN_CODE 77 FIXTURES_SETUP ntfs_fixture_c2048)
+    add_test(NAME ntfs_crash_c2048 COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_crash_tests.sh $<TARGET_FILE:usbmem_ntfs_tests> /dev/shm/usbmem_ntfs_c2048_$ENV{USER} 8)
+    set_tests_properties(ntfs_crash_c2048 PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900 FIXTURES_REQUIRED ntfs_fixture_c2048)
   endif()
   add_test(NAME ntfs_fuzz COMMAND usbmem_ntfs_tests --fuzz ${NTFS_FIX_DIR} 150 1)
   set_tests_properties(ntfs_fuzz PROPERTIES FIXTURES_REQUIRED ntfs_fixture TIMEOUT 600

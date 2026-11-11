@@ -77,14 +77,16 @@ static void put_write_folio(struct iomap_iter *it, loff_t pos, size_t copied, st
   else { folio_unlock(f); folio_put(f); }
 }
 /* 書いた後の状態: uptodate + dirty (INLINE は MFT レコード側へ書き戻す)。 */
-static void finish_write(struct iomap_iter *it, struct folio *f, loff_t pos, size_t copied) {
+static void finish_write(struct iomap_iter *it, struct folio *f, loff_t pos, size_t copied, size_t dirty_len) {
   folio_mark_uptodate(f);
   if (it->iomap.type == IOMAP_INLINE) {
     size_t foff = offset_in_folio(f, pos);
     memcpy((char *)it->iomap.inline_data + (pos - (loff_t)it->iomap.offset), (char *)f->data + foff, copied);
     mark_inode_dirty(it->inode);
   } else {
-    iomap_dirty_folio(f->mapping, f);
+    /* 書いた範囲だけ dirty (実カーネルの iomap と同じ)。範囲外 (穴・未初期化) は書き戻さない */
+    usbmem_folio_dirty_range(f, offset_in_folio(f, pos), dirty_len);
+    if (it->inode && f->mapping && f->mapping->host) f->mapping->host->i_state |= I_DIRTY_PAGES;
   }
   if (pos + (loff_t)copied > it->inode->i_size) i_size_write(it->inode, pos + (loff_t)copied);
 }
@@ -108,7 +110,7 @@ ssize_t iomap_file_buffered_write(struct kiocb *iocb, struct iov_iter *from, iom
       int e = get_write_folio(&it, it.pos, bytes, ops, &f);
       if (e) { status = e; break; }
       size_t copied = copy_folio_from_iter_atomic(f, off, bytes, from);
-      finish_write(&it, f, it.pos, copied);
+      finish_write(&it, f, it.pos, copied, copied);
       put_write_folio(&it, it.pos, copied, f, ops);
       total += (ssize_t)copied;
       if (iomap_iter_advance(&it, copied)) { status = -EIO; break; }
@@ -140,7 +142,7 @@ int iomap_zero_range(struct inode *inode, loff_t pos, loff_t len, bool *did_zero
         struct folio *f; int e = get_write_folio(&it, it.pos, bytes, ops, &f);
         if (e) { status = e; break; }
         folio_zero_segment(f, off, off + bytes);
-        finish_write(&it, f, it.pos, 0);
+        finish_write(&it, f, it.pos, 0, bytes);
         put_write_folio(&it, it.pos, bytes, f, ops);
         if (did_zero) *did_zero = true;
       }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // ホスト向け VFS 風入口。Linux の VFS が行う「iget → i_op->lookup / i_fop->iterate_shared / read_mapping_folio」を直接呼ぶ。
+#include <stdlib.h>
 #include <compat/kernel.h>
 #include <compat/usbmem_ntfs.h>
 
@@ -32,11 +33,6 @@ int usbmem_ntfs_mount(struct usbmem_bdev *bdev, int ro, usbmem_ntfs **out) {
   struct super_block *sb = NULL;
   int rc = usbmem_compat_mount(bd, ro, &sb);
   if (rc) { usbmem_bdev_mapping_free(bd); free(bd); return rc; }
-  if (!ro && !sb_rdonly(sb) && NTFS_SB(sb)->cluster_size < 4096) {
-    /* 書き込み経路 (rt_write.c) は「1 folio (4096B) が 1 クラスタに収まる」ことを前提にする。クラスタ < 4096 は読み取り専用でのみ扱う */
-    usbmem_compat_umount(sb); usbmem_bdev_mapping_free(bd); free(bd);
-    return -EROFS;
-  }
   /* 書き込み可能なマウントでは、保留中の空きクラスタ数の計算 (全 $Bitmap の読み取り) をここで済ませる。
    * 最初の書き込み (割り当て) の中で突然数分止まるより、時間のかかる場所を「マウント」に固定する方が安全で分かりやすい。
    * 読み取り専用のマウントでは実行しない (空きクラスタ数は読み取りに不要。7 TiB の USB ディスクで 3 分以上かかる)。 */
@@ -151,7 +147,7 @@ int64_t usbmem_ntfs_write_inplace(usbmem_ntfs *v, uint64_t ino, uint64_t off, co
     if (n > len - done) n = len - done;
     folio_lock(f);
     memcpy((char *)f->data + po, (const char *)buf + done, n);
-    iomap_dirty_folio(i->i_mapping, f);
+    usbmem_folio_dirty_range(f, po, n); i->i_state |= I_DIRTY_PAGES;
     folio_unlock(f); folio_put(f);
     done += n;
   }

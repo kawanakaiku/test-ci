@@ -74,7 +74,7 @@ MFT は `ntfs_mft_writepages` (別系統) で書く。
 ### 段階 3 (名前空間の変更) 実装結果 (2026-11-11)
 - 互換層: `iomap_file_buffered_write` / `iomap_zero_range` (rt_write.c)、単一バッファの `iov_iter`、`generic_write_checks`、`kiocb_modified` 等 (更新時刻)。
   ホスト API: `usbmem_ntfs_write` (上流 `ntfs_file_write_iter` 経由 = 拡張・常駐→非常駐の昇格・隙間のゼロ埋めは上流)、`create` / `mkdir` / `unlink` / `rmdir` / `rename` (上流の inode_operations を VFS 同様に呼ぶ)。
-  前提: クラスタサイズ >= 4096 (1 folio が 1 クラスタに収まる)。512B クラスタの小容量ボリュームは書き込み未対応 (TODO)。
+  クラスタサイズ: 512B / 2048B / 4096B で検証済み (小クラスタは 1 folio に複数クラスタ。folio ごとに 512B 単位の dirty ビットを持ち、書いた範囲だけを書き戻す。穴/未初期化範囲でゼロしか載っていない書き戻しは I/O を省く)。
 - 検証 (`tools/run_write_tests.sh`): 同じ操作列を (a) 自前ドライバ、(b) ntfs-3g の POSIX で実行し、**ツリー全体 (名前・サイズ・sha256) を比較** + `ntfsfix -n`。
   全て一致: 作成 / mkdir (入れ子) / 削除と再作成 / rename (ファイル・ディレクトリ・別ディレクトリへ移動) / **1200 ファイルの一括作成と間引き削除 (索引の拡張・縮小)** / 日本語名・254 文字名・空白括弧名 /
   EOF 超えの拡張・隙間・数 MiB 拡張・常駐ファイルの昇格。
@@ -114,3 +114,10 @@ MFT は `ntfs_mft_writepages` (別系統) で書く。
   結果イメージを `adb exec-out run-as` で取り出し、ホストの `ntfsfix -n` と ntfs-3g (ro) で全 812 エントリの名前・サイズ・sha256 を期待値と照合 → **不一致 0**。
   既定 (書き込み無効) ビルドでは書き込みテストがスキップされ、既存の 8 件は成功。arm64-v8a は書き込み有効でもビルド成功 (実行は未検証)。
 - 環境メモ: JDK は `/run/media/u/disk9/usr` (JAVA_HOME)、SDK は `/run/media/u/disk31/android_home`。エミュレータは `-port 5556` で自前起動し、`ANDROID_SERIAL=emulator-5556` を必ず指定 (他のデバイスには触れない)。
+
+
+## USB 書き込み (作成のみ) と実機での発見 (2026-11-11)
+- 実機 RAID (Ratoc RS-EC32-U3R, 7.3 TiB NTFS) の**マウントが 3 分以上かかる**不具合: 互換層の `queue_work` が同期実行だったため、マウント時の「空きクラスタ数の事前計算」(全 $Bitmap 読み取り, 約 12 万回の READ) を待っていた。`queue_work` を保留にし、`wait_event` で待つ必要が出たときだけ実行 → 読み取り専用マウントは 3 TiB で 5 ms。書き込み可のマウントは、最初の書き込みで止まらないようマウント内で実行する。
+- 実機 RAID は**クラスタ 2048B**で、書き込みマウントが旧安全策 (クラスタ < 4096 を拒否) に当たった (ログの READ 回数 119344 ≒ 7.3TiB/2048/8/4096 から推定)。上記のとおり互換層を直した。
+- USB 書き込みは「作成のみ」: `NtfsVolume.createOnly` が、削除・名前変更・切り詰め・既存ファイルへの書き込みを拒否し (EPERM)、書き込みはこのセッションで作ったファイルだけに許す。書き込み可は USB を開く前のスイッチで決める (開き直すと OS が EFI を再マウントするため)。
+- 検証: 模擬 BOT (USB Mass Storage) 越しの NTFS 書き込み (SCSI opcode が既知のものだけ、WRITE/SYNC が出ていること + ntfsfix + ntfs-3g リファレンスとのツリー比較)、操作なしの rw マウントでメディア不変 (3 TiB 疎イメージ, ハッシュ)、Android の「作成のみ」計装テスト。

@@ -87,14 +87,8 @@ ssize_t generic_write_sync(struct kiocb * a0, ssize_t a1) {
 int get_write_access(struct inode * a0) {
   usbmem_unimplemented("get_write_access"); return (int)-ENOSYS;
 }
-int iomap_add_to_ioend(struct iomap_writepage_ctx * a0, struct folio * a1, loff_t a2, loff_t a3, unsigned a4) {
-  usbmem_unimplemented("iomap_add_to_ioend"); return (int)-ENOSYS;
-}
 ssize_t iomap_dio_rw(struct kiocb * a0, struct iov_iter * a1, iomap_iter_next_fn a2, const struct iomap_dio_ops * a3, unsigned a4, void * a5, size_t a6) {
   usbmem_unimplemented("iomap_dio_rw"); return (ssize_t)-ENOSYS;
-}
-bool iomap_dirty_folio(struct address_space * a0, struct folio * a1) {
-  usbmem_unimplemented("iomap_dirty_folio"); return false;
 }
 int iomap_fiemap(struct inode * a0, struct fiemap_extent_info * a1, u64 a2, u64 a3, iomap_iter_next_fn a4) {
   usbmem_unimplemented("iomap_fiemap"); return (int)-ENOSYS;
@@ -104,9 +98,6 @@ ssize_t iomap_file_buffered_write(struct kiocb * a0, struct iov_iter * a1, iomap
 }
 void iomap_invalidate_folio(struct folio * a0, size_t a1, size_t a2) {
   usbmem_unimplemented("iomap_invalidate_folio");
-}
-int iomap_ioend_writeback_submit(struct iomap_writepage_ctx * a0, int a1) {
-  usbmem_unimplemented("iomap_ioend_writeback_submit"); return (int)-ENOSYS;
 }
 bool iomap_is_partially_uptodate(struct folio * a0, size_t a1, size_t a2) {
   usbmem_unimplemented("iomap_is_partially_uptodate"); return false;
@@ -125,9 +116,6 @@ loff_t iomap_seek_hole(struct inode * a0, loff_t a1, iomap_iter_next_fn a2) {
 }
 int iomap_swapfile_activate(struct swap_info_struct * a0, struct file * a1, sector_t * a2, iomap_iter_next_fn a3) {
   usbmem_unimplemented("iomap_swapfile_activate"); return (int)-ENOSYS;
-}
-int iomap_writepages(struct iomap_writepage_ctx * a0) {
-  usbmem_unimplemented("iomap_writepages"); return (int)-ENOSYS;
 }
 int iomap_zero_range(struct inode * a0, loff_t a1, loff_t a2, bool * a3, iomap_iter_next_fn a4, const struct iomap_write_ops * a5, void * a6) {
   usbmem_unimplemented("iomap_zero_range"); return (int)-ENOSYS;
@@ -179,7 +167,4 @@ void * vmemdup_user(const void * a0, size_t a1) {
 }
 void vunmap(const void * a0) {
   usbmem_unimplemented("vunmap");
-}
-struct folio * writeback_iter(struct address_space * a0, struct writeback_control * a1, struct folio * a2, int * a3) {
-  usbmem_unimplemented("writeback_iter"); return (struct folio *)0;
 }

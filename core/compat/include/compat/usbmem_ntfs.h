@@ -15,6 +15,9 @@ void usbmem_bdev_mapping_init(struct block_device *);
 void usbmem_bdev_mapping_free(struct block_device *);
 void usbmem_d_free(struct dentry *);
 void usbmem_compat_umount(struct super_block *);
+int usbmem_compat_sync(struct super_block *);   /* 書き込み: dirty inode/folio を全てデバイスへ書き flush */
+int usbmem_mapping_writeback(struct address_space *, int sync_all);
+int usbmem_mapping_has_dirty(struct address_space *);
 int usbmem_compat_mount(struct block_device *bdev, int read_only, struct super_block **out);
 
 /* BlockDevice ブリッジ (src/bdev_bridge.cpp) */

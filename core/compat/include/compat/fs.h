@@ -156,7 +156,7 @@ struct kstatfs {
   long f_type, f_bsize; u64 f_blocks, f_bfree, f_bavail, f_ffree; __kernel_fsid_t f_fsid;
   long f_namelen, f_frsize; u64 f_files;
 };
-struct writeback_control { int sync_mode; };
+struct writeback_control { int sync_mode; pgoff_t *snap_; size_t nsnap_, pos_; int saved_err_; };
 
 /* ---- iomap */
 struct iomap {

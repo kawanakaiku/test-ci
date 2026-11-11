@@ -9,6 +9,9 @@
 struct usbmem_ntfs { struct super_block *sb; };
 
 int usbmem_ntfs_mount(struct usbmem_bdev *bdev, int ro, usbmem_ntfs **out) {
+#ifndef USBMEM_NTFS_WRITE
+  if (!ro) return -EROFS;   /* 書き込みはビルドで無効 */
+#endif
   struct block_device *bd = calloc(1, sizeof *bd);
   if (!bd) return -ENOMEM;
   bd->impl = bdev;
@@ -100,6 +103,32 @@ int64_t usbmem_ntfs_read(usbmem_ntfs *v, uint64_t ino, uint64_t off, void *buf, 
     if (n > len - done) n = len - done;
     memcpy((char *)buf + done, (char *)f->data + po, n);
     folio_put(f);
+    done += n;
+  }
+  iput(i); return (int64_t)done;
+}
+
+int usbmem_ntfs_sync(usbmem_ntfs *v) { return v ? usbmem_compat_sync(v->sb) : -EINVAL; }
+
+int64_t usbmem_ntfs_write_inplace(usbmem_ntfs *v, uint64_t ino, uint64_t off, const void *buf, size_t len) {
+  if (sb_rdonly(v->sb)) return -EROFS;
+  int err = 0; struct inode *i = get_inode(v, ino, &err);
+  if (!i) return err;
+  if (S_ISDIR(i->i_mode)) { iput(i); return -EISDIR; }
+  struct ntfs_inode *ni = NTFS_I(i);
+  if (!NInoNonResident(ni) || NInoCompressed(ni) || NInoSparse(ni) || NInoEncrypted(ni) || NInoWofCompressed(ni)) { iput(i); return -EOPNOTSUPP; }
+  if (off + len > (uint64_t)i->i_size) { iput(i); return -EINVAL; }
+  size_t done = 0;
+  while (done < len) {
+    uint64_t pos = off + done;
+    struct folio *f = read_mapping_folio(i->i_mapping, (pgoff_t)(pos >> PAGE_SHIFT), NULL);
+    if (IS_ERR(f)) { iput(i); return done ? (int64_t)done : PTR_ERR(f); }
+    size_t po = (size_t)(pos & (PAGE_SIZE - 1)), n = PAGE_SIZE - po;
+    if (n > len - done) n = len - done;
+    folio_lock(f);
+    memcpy((char *)f->data + po, (const char *)buf + done, n);
+    iomap_dirty_folio(i->i_mapping, f);
+    folio_unlock(f); folio_put(f);
     done += n;
   }
   iput(i); return (int64_t)done;

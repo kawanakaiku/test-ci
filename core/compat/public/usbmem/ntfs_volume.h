@@ -17,6 +17,10 @@ class NtfsVolume {
  public:
   // 読み取り専用でマウント。失敗時 nullptr と errno を *err に返す(負の errno ではなく正の値)。
   static std::unique_ptr<NtfsVolume> mount(BlockDevicePtr dev, int* err = nullptr);
+  // 読み書きでマウント (実験的)。ビルドで USBMEM_NTFS_WRITE=ON が必要。無効なら err=EROFS。
+  static std::unique_ptr<NtfsVolume> mount_rw(BlockDevicePtr dev, int* err = nullptr);
+  int sync();
+  int64_t write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len);
   ~NtfsVolume();
   uint64_t root() const { return 5; }
   int lookup(uint64_t dir, const std::string& name, uint64_t* ino);
@@ -27,6 +31,7 @@ class NtfsVolume {
   int resolve(const std::string& path, uint64_t* ino);
 
  private:
+  friend std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr, int, int*);
   NtfsVolume() = default;
   struct Impl;
   std::unique_ptr<Impl> impl_;

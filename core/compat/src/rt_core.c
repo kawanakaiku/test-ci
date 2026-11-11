@@ -251,16 +251,62 @@ static void drop_inodes_sb(struct super_block *sb) {
 /* マウント解除: VFS の generic_shutdown_super と同順 (evict_inodes → put_super → 残り退避 → 解放)。 */
 void usbmem_compat_umount(struct super_block *sb) {
   if (!sb) return;
+  usbmem_compat_sync(sb);
   evict_inodes_sb(sb);
   if (sb->s_root) { usbmem_d_free_root(sb->s_root); sb->s_root = NULL; }
   if (sb->s_op && sb->s_op->put_super) ((void (*)(struct super_block *))sb->s_op->put_super)(sb);
   evict_inodes_sb(sb);
   free(sb);
 }
-void mark_inode_dirty(struct inode *i) { (void)i; }
-void mark_inode_dirty_sync(struct inode *i) { (void)i; }
-void __mark_inode_dirty(struct inode *i, int f) { (void)i; (void)f; }
-int write_inode_now(struct inode *i, int s) { (void)i; (void)s; return 0; }
+void __mark_inode_dirty(struct inode *i, int f) { i->i_state |= (unsigned long)(f & I_DIRTY_ALL); }
+void mark_inode_dirty(struct inode *i) { __mark_inode_dirty(i, I_DIRTY_SYNC | I_DIRTY_DATASYNC); }
+void mark_inode_dirty_sync(struct inode *i) { __mark_inode_dirty(i, I_DIRTY_SYNC); }
+/* inode 1 個の書き出し: write_inode (メタデータ) → ページ。 */
+int write_inode_now(struct inode *i, int sync) {
+  struct super_block *sb = i->i_sb; int rc = 0;
+  if (sb_rdonly(sb)) return 0;
+  unsigned long st = i->i_state;
+  if ((st & (I_DIRTY_SYNC | I_DIRTY_DATASYNC)) && sb->s_op && sb->s_op->write_inode) {
+    i->i_state &= ~(unsigned long)(I_DIRTY_SYNC | I_DIRTY_DATASYNC);
+    struct writeback_control wbc = { .sync_mode = sync ? WB_SYNC_ALL : 0 };
+    rc = ((int (*)(struct inode *, struct writeback_control *))sb->s_op->write_inode)(i, &wbc);
+    if (rc) i->i_state |= I_DIRTY_SYNC;
+  }
+  int r2 = usbmem_mapping_writeback(i->i_mapping, sync);
+  if (!r2) i->i_state &= ~(unsigned long)I_DIRTY_PAGES;
+  return rc ? rc : r2;
+}
+/* sb の全 inode を書き出す。write_inode が MFT のページを汚すので、不動点まで繰り返す (上限あり)。
+ * 通常 inode → メタデータ inode ($MFT 等は ino が小さい) の順にはせず、収束で順序問題を吸収する。 */
+int usbmem_compat_sync(struct super_block *sb) {
+  if (!sb || sb_rdonly(sb)) return 0;
+  int first_err = 0;
+  for (int pass = 0; pass < 8; pass++) {
+    int did = 0;
+    struct inode **list = NULL; size_t n = 0, cap = 0;
+    pthread_mutex_lock(&g_inode_lock);
+    for (int b = 0; b < 1024; b++) for (struct inode *i = g_inode_hash[b]; i; i = i->i_hash_next_) {
+      if (i->i_sb != sb || (i->i_state & (I_FREEING | I_WILL_FREE | I_NEW))) continue;
+      if (n == cap) { cap = cap ? cap * 2 : 64; list = realloc(list, cap * sizeof *list); }
+      atomic_inc(&i->i_count); list[n++] = i;
+    }
+    pthread_mutex_unlock(&g_inode_lock);
+    for (size_t k = 0; k < n; k++) {
+      struct inode *i = list[k];
+      if ((i->i_state & I_DIRTY_ALL) || usbmem_mapping_has_dirty(i->i_mapping)) {
+        int rc = write_inode_now(i, 1);
+        if (rc && !first_err) first_err = rc;
+        did = 1;
+      }
+      iput(i);
+    }
+    free(list);
+    if (!did) break;
+  }
+  if (sb->s_op && sb->s_op->sync_fs) { int rc = ((int (*)(struct super_block *, int))sb->s_op->sync_fs)(sb, 1); if (rc && !first_err) first_err = rc; }
+  if (sb->s_bdev) { int rc = usbmem_bdev_flush(sb->s_bdev->impl); if (rc && !first_err) first_err = rc; }
+  return first_err;
+}
 void inode_attach_wb(struct inode *i, struct folio *f) { (void)i; (void)f; }
 void inode_dio_wait(struct inode *i) { (void)i; }
 void init_special_inode(struct inode *i, umode_t m, dev_t d) { (void)d; i->i_mode = m; }

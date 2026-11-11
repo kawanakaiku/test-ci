@@ -319,6 +319,111 @@ out:
 }
 void iomap_readahead(iomap_iter_next_fn next, struct iomap_read_folio_ctx *ctx, void *private) { (void)next; (void)ctx; (void)private; usbmem_unimplemented("iomap_readahead"); }
 
+
+/* ---- 書き込み (段階 1): dirty folio 管理と同期 writeback */
+bool iomap_dirty_folio(struct address_space *m, struct folio *f) {
+  bool was = (f->flags >> FOLIO_DIRTY) & 1;
+  f->flags |= 1UL << FOLIO_DIRTY;
+  if (m && m->host) m->host->i_state |= I_DIRTY_PAGES;
+  return !was;
+}
+static int cmp_idx(const void *a, const void *b) { pgoff_t x = *(const pgoff_t *)a, y = *(const pgoff_t *)b; return x < y ? -1 : x > y; }
+int usbmem_mapping_has_dirty(struct address_space *m) {
+  struct pcache *p = m->pages; if (!p) return 0;
+  int r = 0;
+  pthread_mutex_lock(&p->mu);
+  for (int i = 0; i < NB && !r; i++) for (struct folio *f = p->b[i]; f; f = f->hash_next_) if ((f->flags >> FOLIO_DIRTY) & 1) { r = 1; break; }
+  pthread_mutex_unlock(&p->mu);
+  return r;
+}
+/* Linux の writeback_iter と同じ契約: dirty folio を index 昇順で、lock 済み・dirty クリア済みで返す。
+ * 呼び出し側は処理後に unlock する (ここで前回の folio の参照を外す)。最初の呼び出しで dirty 一覧を確定する。 */
+struct folio *writeback_iter(struct address_space *m, struct writeback_control *wbc, struct folio *prev, int *err) {
+  struct pcache *p = m->pages;
+  if (!prev) {
+    wbc->pos_ = 0; wbc->nsnap_ = 0; wbc->saved_err_ = 0; free(wbc->snap_); wbc->snap_ = NULL;
+    *err = 0;
+    if (!p) return NULL;
+    size_t cap = 0, n = 0;
+    pthread_mutex_lock(&p->mu);
+    for (int i = 0; i < NB; i++) for (struct folio *f = p->b[i]; f; f = f->hash_next_) if ((f->flags >> FOLIO_DIRTY) & 1) cap++;
+    wbc->snap_ = cap ? malloc(cap * sizeof(pgoff_t)) : NULL;
+    if (wbc->snap_) for (int i = 0; i < NB; i++) for (struct folio *f = p->b[i]; f; f = f->hash_next_) if (((f->flags >> FOLIO_DIRTY) & 1) && n < cap) wbc->snap_[n++] = f->index;
+    pthread_mutex_unlock(&p->mu);
+    wbc->nsnap_ = n;
+    if (n) qsort(wbc->snap_, n, sizeof(pgoff_t), cmp_idx);
+  } else {
+    if (*err && !wbc->saved_err_) wbc->saved_err_ = *err;
+    folio_put(prev);
+  }
+  while (wbc->pos_ < wbc->nsnap_) {
+    pgoff_t idx = wbc->snap_[wbc->pos_++];
+    pthread_mutex_lock(&p->mu); struct folio *f = pc_find_locked(p, idx); pthread_mutex_unlock(&p->mu);
+    if (!f) continue;
+    folio_lock(f);
+    if (!((f->flags >> FOLIO_DIRTY) & 1)) { folio_unlock(f); folio_put(f); continue; }
+    f->flags &= ~(1UL << FOLIO_DIRTY);
+    *err = 0;
+    return f;
+  }
+  free(wbc->snap_); wbc->snap_ = NULL; wbc->nsnap_ = 0;
+  *err = wbc->saved_err_;
+  return NULL;
+}
+
+/* 同期 writeback: iomap の ioend は束ねず、1 範囲 = 1 bio をその場で書く。 */
+int iomap_add_to_ioend(struct iomap_writepage_ctx *wpc, struct folio *f, loff_t pos, loff_t end_pos, unsigned len) {
+  (void)end_pos;
+  const struct iomap *im = &wpc->iomap;
+  if (im->type != IOMAP_MAPPED || im->addr == IOMAP_NULL_ADDR || !im->bdev) return -EIO;
+  loff_t map_end = (loff_t)(im->offset + im->length);
+  if (pos < (loff_t)im->offset || pos >= map_end) return -EIO;
+  if (pos + (loff_t)len > map_end) len = (unsigned)(map_end - pos);
+  loff_t disk = (loff_t)im->addr + (pos - (loff_t)im->offset);
+  size_t foff = offset_in_folio(f, pos);
+  if (foff + len > PAGE_SIZE) len = (unsigned)(PAGE_SIZE - foff);
+  struct bio *bio = bio_alloc(im->bdev, 1, REQ_OP_WRITE, 0);
+  if (!bio) return -ENOMEM;
+  bio->bi_iter.bi_sector = (sector_t)(disk >> SECTOR_SHIFT);
+  bio_add_folio(bio, f, len, foff);
+  int rc = submit_bio_wait(bio);
+  bio_put(bio);
+  return rc ? rc : (int)len;
+}
+int iomap_ioend_writeback_submit(struct iomap_writepage_ctx *wpc, int error) { (void)wpc; return error; }
+
+int iomap_writepages(struct iomap_writepage_ctx *wpc) {
+  struct inode *inode = wpc->inode;
+  struct address_space *m = inode->i_mapping;
+  unsigned bs = inode->i_sb->s_blocksize ? (unsigned)inode->i_sb->s_blocksize : 512;
+  struct folio *f = NULL; int error = 0;
+  while ((f = writeback_iter(m, wpc->wbc, f, &error))) {
+    loff_t pos = folio_pos(f), isize = inode->i_size;
+    folio_start_writeback(f);
+    error = 0;
+    if (pos < isize) {
+      loff_t end_pos = pos + PAGE_SIZE < isize ? pos + PAGE_SIZE : isize;
+      loff_t end_al = (end_pos + bs - 1) / bs * bs;
+      while (pos < end_al) {
+        ssize_t r = wpc->ops->writeback_range(wpc, f, (u64)pos, (unsigned)(end_al - pos), (u64)end_pos);
+        if (r <= 0) { error = r < 0 ? (int)r : -EIO; break; }
+        pos += r;
+      }
+    }
+    if (error) folio_mark_dirty(f);   /* 失敗した folio は dirty のまま残す (データを失わない) */
+    folio_end_writeback(f);
+    folio_unlock(f);
+  }
+  return wpc->ops->writeback_submit(wpc, error);
+}
+int usbmem_mapping_writeback(struct address_space *m, int sync_all) {
+  if (!m || !m->host || !m->a_ops || !m->a_ops->writepages || !usbmem_mapping_has_dirty(m)) return 0;
+  struct writeback_control wbc = { .sync_mode = sync_all ? WB_SYNC_ALL : 0 };
+  int rc = ((int (*)(struct address_space *, struct writeback_control *))m->a_ops->writepages)(m, &wbc);
+  free(wbc.snap_);
+  return rc;
+}
+
 /* ---- NLS / UTF (UTF-16LE <-> UTF-8) */
 static struct nls_table g_nls_default = { "utf8", NULL, NULL };
 struct nls_table *load_nls(const char *cs) { (void)cs; return &g_nls_default; }

@@ -24,6 +24,11 @@ int usbmem_ntfs_stat_ino(usbmem_ntfs *, uint64_t ino, usbmem_ntfs_stat *st);
 int usbmem_ntfs_readdir(usbmem_ntfs *, uint64_t dir_ino, usbmem_ntfs_dir_cb cb, void *user);
 int64_t usbmem_ntfs_read(usbmem_ntfs *, uint64_t ino, uint64_t off, void *buf, size_t len);
 
+/* 書き込み (実験的。ビルドで USBMEM_NTFS_WRITE=ON、かつ usbmem_ntfs_mount(read_only=0) のときだけ有効。それ以外は -EROFS)。 */
+int usbmem_ntfs_sync(usbmem_ntfs *);
+/* 非常駐・非圧縮・非暗号の既存ファイルの [off, off+len) を上書き (サイズ拡張なし)。段階 2 の足場。 */
+int64_t usbmem_ntfs_write_inplace(usbmem_ntfs *, uint64_t ino, uint64_t off, const void *buf, size_t len);
+
 /* BlockDevice ブリッジ。dev は usbmem::BlockDevicePtr を指す不透明ポインタ(C++ ラッパが渡す)。 */
 struct usbmem_bdev *usbmem_bdev_wrap(void *shared_ptr_copy_owner);
 void usbmem_bdev_free(struct usbmem_bdev *);

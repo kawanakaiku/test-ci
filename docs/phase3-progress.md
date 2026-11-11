@@ -48,3 +48,13 @@ MFT は `ntfs_mft_writepages` (別系統) で書く。
 3. 拡張・新規作成・削除・rename・mkdir (上流の `ntfs_create`/`unlink` 等と `$LogFile`/`$MFTMirr`/ビットマップ更新の確認)。
 4. 電源断模擬 (書き込み途中の任意位置で打ち切り) で `ntfsfix -n`/chkdsk が許容できる状態か確認。
 注意: 64KiB クラスタで `$MFTMirr` 警告 (上流の偽陽性) が書き込み有効化時に読み取り専用化を引き起こさないか段 1 で確認する。
+
+### 段階 1・2(足場) 実装結果 (2026-11-11)
+- 実装: `iomap_dirty_folio` / `writeback_iter` (dirty を index 昇順、lock・dirty クリア済みで返す) / `iomap_writepages` + `iomap_add_to_ioend` (同期 1 範囲 1 bio) /
+  `mark_inode_dirty*` / `write_inode_now` / `usbmem_compat_sync` (全 inode の write_inode → ページ書き出し → 不動点まで反復 → `sync_fs` → デバイス flush)。アンマウント時にも sync。
+- ガード: CMake `USBMEM_NTFS_WRITE` (既定 OFF)。OFF では `read_only=0` のマウントは `-EROFS`。ON でも `NtfsVolume::mount_rw` で明示したときだけ書き込み可。
+- 足場 API: `write_inplace` (非常駐・非圧縮・非暗号・非スパースの既存範囲の上書きのみ。サイズ拡張なし、mtime 等は更新しない)。
+- 検証 (`tools/run_write_tests.sh`, ctest `ntfs_write`): 自前ドライバで書いたイメージを独立実装の **`ntfsfix -n` と `ntfs-3g` で検証**。1 バイト、ページ境界、70000B、EOF 直前、1MiB 境界またぎ。
+  書いた範囲が期待パターン、`big.bin` 以外の 807 ファイルの sha256 が不変、`ntfsfix -n` OK。変更バイトは書いた 70000B の窓のみ (メタデータ不変)。ASan/UBSan・リークなし。
+- 未対応: サイズ拡張、新規作成/削除/rename/mkdir、`$LogFile`・ボリュームダーティビットの扱い (rw マウントで上流が何を書くかは未精査 — 今回の差分は書いた窓のみ)、
+  Windows 製イメージ (64KiB クラスタの `$MFTMirr` 警告含む)・圧縮/疎への書き込み、電源断模擬。

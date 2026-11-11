@@ -68,7 +68,10 @@
 #define I_FREEING (1 << 5)
 #define I_WILL_FREE (1 << 6)
 #define I_CREATING (1 << 15)
+#define I_DIRTY_SYNC (1 << 0)
 #define I_DIRTY_DATASYNC (1 << 1)
+#define I_DIRTY_PAGES (1 << 2)
+#define I_DIRTY_ALL (I_DIRTY_SYNC | I_DIRTY_DATASYNC | I_DIRTY_PAGES)
 #define I_MUTEX_PARENT 1
 
 /* fallocate / ioctl / fs flags */

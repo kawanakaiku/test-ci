@@ -12,11 +12,16 @@ struct NtfsVolume::Impl {
   usbmem_bdev* bd = nullptr;
 };
 
-std::unique_ptr<NtfsVolume> NtfsVolume::mount(BlockDevicePtr dev, int* err) {
+std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr dev, int ro, int* err);
+std::unique_ptr<NtfsVolume> NtfsVolume::mount(BlockDevicePtr dev, int* err) { return mount_impl_(std::move(dev), 1, err); }
+std::unique_ptr<NtfsVolume> NtfsVolume::mount_rw(BlockDevicePtr dev, int* err) { return mount_impl_(std::move(dev), 0, err); }
+int NtfsVolume::sync() { return usbmem_ntfs_sync(impl_->v); }
+int64_t NtfsVolume::write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len) { return usbmem_ntfs_write_inplace(impl_->v, ino, off, buf, len); }
+std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr dev, int ro, int* err) {
   std::unique_ptr<NtfsVolume> vol(new NtfsVolume());
-  vol->impl_.reset(new Impl());
+  vol->impl_.reset(new NtfsVolume::Impl());
   vol->impl_->bd = usbmem_bdev_wrap(&dev);
-  int rc = usbmem_ntfs_mount(vol->impl_->bd, /*read_only=*/1, &vol->impl_->v);
+  int rc = usbmem_ntfs_mount(vol->impl_->bd, ro, &vol->impl_->v);
   if (rc) {
     if (err) *err = -rc;
     usbmem_bdev_free(vol->impl_->bd);

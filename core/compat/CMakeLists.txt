@@ -4,6 +4,8 @@ set(NTFS_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/ntfs-resurrection)
 file(GLOB NTFS_SRC ${NTFS_ROOT}/fs-ntfs/*.c ${NTFS_ROOT}/fs-ntfs/lib/*.c)
 set(COMPAT_SRC src/rt_core.c src/rt_pagecache.c src/rt_stubs.c src/rt_vfs.c src/bdev_bridge.cpp src/ntfs_volume.cpp)
 
+# 書き込み経路は既定で無効 (未検証)。ON でも実行時に read_only=0 で明示マウントしたときだけ有効。
+option(USBMEM_NTFS_WRITE "NTFS 書き込み経路を有効にする (実験的・未検証)" OFF)
 add_library(usbmem_ntfs STATIC ${NTFS_SRC} ${COMPAT_SRC})
 # 上流 fs/ntfs は CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS 前提 (x86/arm64 は非整列アクセス可) で u16/u32 を直接読む。
 # UBSan の alignment 検査だけ上流コードで外す (他の UB 検査は有効のまま)。互換層 (src/rt_*.c) には適用しない。
@@ -25,6 +27,9 @@ target_compile_options(usbmem_ntfs PRIVATE
   "$<$<COMPILE_LANGUAGE:C>:SHELL:-iquote ${NTFS_ROOT}/fs-ntfs/lib>")
 target_compile_definitions(usbmem_ntfs PRIVATE CONFIG_NTFS_FS_WOF_COMPRESSION=1
   CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=1)
+if(USBMEM_NTFS_WRITE)
+  target_compile_definitions(usbmem_ntfs PRIVATE USBMEM_NTFS_WRITE=1)
+endif()
 target_link_libraries(usbmem_ntfs PUBLIC usbmem_core Threads::Threads)
 
 if(USBMEM_BUILD_TESTS)
@@ -44,6 +49,10 @@ if(USBMEM_BUILD_TESTS)
   add_test(NAME ntfs_windows_images COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_win_fixture_tests.sh $<TARGET_FILE:usbmem_ntfs_tests>)
   set_tests_properties(ntfs_windows_images PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900
     ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
+  if(USBMEM_NTFS_WRITE)
+    add_test(NAME ntfs_write COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_write_tests.sh $<TARGET_FILE:usbmem_ntfs_tests>)
+    set_tests_properties(ntfs_write PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+  endif()
   add_test(NAME ntfs_fuzz COMMAND usbmem_ntfs_tests --fuzz ${NTFS_FIX_DIR} 150 1)
   set_tests_properties(ntfs_fuzz PROPERTIES FIXTURES_REQUIRED ntfs_fixture TIMEOUT 600
     # 失敗したマウントの後始末は inode 内部の確保物を解放しきれない (既知)。メモリ安全性 (UAF/OOB/ハング) の検査に集中する。

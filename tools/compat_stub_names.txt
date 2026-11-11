@@ -26,20 +26,16 @@ generic_update_time
 generic_write_checks
 generic_write_sync
 get_write_access
-iomap_add_to_ioend
 iomap_dio_rw
-iomap_dirty_folio
 iomap_fiemap
 iomap_file_buffered_write
 iomap_invalidate_folio
-iomap_ioend_writeback_submit
 iomap_is_partially_uptodate
 iomap_page_mkwrite
 iomap_release_folio
 iomap_seek_data
 iomap_seek_hole
 iomap_swapfile_activate
-iomap_writepages
 iomap_zero_range
 iter_file_splice_write
 kiocb_modified
@@ -57,4 +53,3 @@ vma_desc_test_all
 vmap
 vmemdup_user
 vunmap
-writeback_iter

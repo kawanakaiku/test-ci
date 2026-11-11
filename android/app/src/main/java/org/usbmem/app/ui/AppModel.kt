@@ -1,0 +1,36 @@
+package org.usbmem.app.ui
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import org.usbmem.app.PartitionTable
+
+/** 接続されている USB マスストレージ (一覧表示用)。device は MainActivity 側が持つ UsbDevice を引くためのキー。 */
+data class UsbDeviceRow(val key: String, val title: String, val vidPid: String)
+
+/** 公開 (SAF) 中のボリューム。 */
+data class PublishedVolume(val label: String, val modeText: String, val writable: Boolean)
+
+/**
+ * 画面が読む状態をまとめたもの (Compose の状態保持)。ロジックは MainActivity が持ち、ここは値を更新するだけ。
+ * 機能を足すときは、ここに状態を足し、対応する画面 (ui パッケージの各 Screen) に表示を足す。
+ */
+class AppModel {
+    // ---- USB
+    var usbDevices by mutableStateOf<List<UsbDeviceRow>>(emptyList())
+    var osMountedUsb by mutableIntStateOf(0)                 // OS がマウント中の USB ボリューム数 (0 でないと、開く前に取り出しが必要)
+    var allowUsbWrite by mutableStateOf(false)               // USB を開く時の書き込み許可 (新規作成のみ)。毎回の起動で明示的に許可し、保存しない
+    var usbOpenKey by mutableStateOf<String?>(null)          // 開いているデバイスのキー (null = 未接続)
+    var usbWritable by mutableStateOf(false)                 // 開いているセッションが書き込み可か
+    var usbLabel by mutableStateOf("")
+    var table by mutableStateOf<PartitionTable?>(null)
+    var published by mutableStateOf<PublishedVolume?>(null)
+    var busy by mutableStateOf<String?>(null)                // 処理中の説明 (null = なし)
+    var usbNotice by mutableStateOf<Notice?>(null)
+
+    // ---- 診断
+    var ops by mutableStateOf("")                            // 送信した SCSI 命令の集計
+    var tuneLog by mutableStateOf("")                        // 速度計測 / 最適化の結果
+    var tuningSaved by mutableStateOf("既定 (USB 16K / コマンド 64K)")
+}

@@ -34,9 +34,22 @@ android {
         }
     }
 
+    // リリースビルドは R8 でコード縮小・難読化 + 未使用リソースの削除 (APK を小さくする)。
+    // 署名鍵はリポジトリに置かない。手元で動作確認するときだけ -PusbmemSignWithDebugKey=true で debug 鍵で署名する (配布用ではない)。
+    signingConfigs {
+        if (providers.gradleProperty("usbmemSignWithDebugKey").orNull == "true") {
+            create("localRelease") {
+                storeFile = file(System.getProperty("user.home") + "/.android/debug.keystore")
+                storePassword = "android"; keyAlias = "androiddebugkey"; keyPassword = "android"
+            }
+        }
+    }
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfigs.findByName("localRelease")?.let { signingConfig = it }
         }
     }
     compileOptions {

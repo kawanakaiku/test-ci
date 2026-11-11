@@ -1,0 +1,6 @@
+<resources>
+    <!-- Compose 側でテーマを描くので、ウィンドウ側は枠だけ (ライト) -->
+    <style name="Theme.UsbStorage" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>

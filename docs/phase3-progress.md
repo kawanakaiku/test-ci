@@ -154,3 +154,8 @@ MFT は `ntfs_mft_writepages` (別系統) で書く。
 - Xperia 実機: 65.7 / 115.3 / 127.1 / 140.6 MB/s (全てハッシュ一致)、128K/512K は io-error (先の計測ボタンでは 183 MB/s で通っていたので、ぎりぎりの設定は不安定) → best=128K/256K、failed=128K/512K を保存。USB は切れなかった。次回 open で「saved read tuning applied」を確認、rw マウント 8.6 秒 (READ コマンド 7,497 → 1,909 回、USB 読み取り 7.2 秒、処理 1.5 秒)。
 - 速度の計測 (140 MB/s) よりマウント中の読み取り (68.6 MB/s) が遅いのは、$Bitmap のあるディスク領域の実速度の可能性 (未確認)。
 - 未確認: J9260 で最適化を試したときの挙動 (EPROTO で USB が切れる想定)。
+
+### UI の作り直しと APK の minify (2026-11-11)
+- UI を Material 3 で再構成: タブ 3 つ (USB / イメージ / 診断)、重さで色が変わるバナー (情報/成功/警告/エラー)、セクションカード、手順の案内、書き込みモードの明示、処理中の進行バー、ダークテーマ・動的カラー対応。ロジックは MainActivity、画面は `ui/` パッケージ (AppModel = 画面が読む状態、*Screen = 表示、*Actions = 操作の口)。機能を足すときは、AppModel に状態、Screen にカード、Actions に操作を足す。
+- 安全面: OS が USB ボリュームをマウント中のときは開く前に警告し、ストレージ設定へ誘導。書き込み可で開いているときの「USB を閉じる」は確認ダイアログ付き。速度計測・最適化は、公開前の読み取りのみの状態でだけ押せる。
+- minify: リリースは R8 (コード縮小・難読化) + リソース縮小。JNI の `NativeBridge` は keep (dex の native メソッド 26 = Kotlin の宣言 26 = ネイティブの実装 26 を確認)。APK は debug 12.1 MB → release 2.4 MB。署名は手元確認用に `-PusbmemSignWithDebugKey=true` (配布用の鍵は未設定)。

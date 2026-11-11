@@ -117,7 +117,6 @@ void folio_fill_tail(struct folio *f, size_t off, const char *from, size_t len) 
   if (off + len > PAGE_SIZE) len = PAGE_SIZE - off;
   memcpy((char *)f->data + off, from, len); folio_zero_segment(f, off + len, PAGE_SIZE);
 }
-size_t offset_in_folio(const struct folio *f, loff_t pos) { (void)f; return (size_t)pos & (PAGE_SIZE - 1); }
 void *kmap_local_folio(struct folio *f, size_t off) { return (char *)f->data + off; }
 void *kmap_local_page(struct page *p) { return p->folio_->data; }
 void flush_dcache_folio(struct folio *f) { (void)f; }

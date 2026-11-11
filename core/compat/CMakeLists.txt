@@ -2,11 +2,16 @@
 # LinuxCompat + NTFS Resurrection (無改変) を静的ライブラリ usbmem_ntfs としてビルドする。
 set(NTFS_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/ntfs-resurrection)
 set(EXFAT_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/exfat)
+set(EXT2_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/ext2)
 file(GLOB NTFS_SRC ${NTFS_ROOT}/fs-ntfs/*.c ${NTFS_ROOT}/fs-ntfs/lib/*.c)
 file(GLOB EXFAT_SRC ${EXFAT_ROOT}/fs-exfat/*.c)
+# ext2: カーネルの Makefile の ext2-y (xattr / ACL / security は CONFIG なし = 含めない)
+foreach(f balloc dir file ialloc inode ioctl namei super symlink trace)
+  list(APPEND EXT2_SRC ${EXT2_ROOT}/fs-ext2/${f}.c)
+endforeach()
 
 # ---- 共通ランタイム (LinuxCompat 本体: inode/ページキャッシュ/bio/buffer_head/VFS 風マウント)。FS ごとの上流コードはここに入れない。
-set(COMPAT_RT_SRC src/rt_core.c src/rt_pagecache.c src/rt_write.c src/rt_stubs.c src/rt_bh.c src/bdev_bridge.cpp src/fs_volume.cpp)
+set(COMPAT_RT_SRC src/rt_core.c src/rt_pagecache.c src/rt_write.c src/rt_stubs.c src/rt_bh.c src/rt_buffer.c src/bdev_bridge.cpp src/fs_volume.cpp)
 add_library(usbmem_compat_rt STATIC ${COMPAT_RT_SRC})
 target_include_directories(usbmem_compat_rt PUBLIC public)
 # 互換シム(<linux/errno.h> 等)は C ソース専用。C++ に見せると glibc の <errno.h> が奪われ std ヘッダと衝突する。
@@ -27,6 +32,7 @@ add_library(usbmem_ntfs STATIC ${NTFS_SRC} src/rt_vfs.c src/ntfs_volume.cpp)
 if(USBMEM_SANITIZE)
   set_source_files_properties(${NTFS_SRC} PROPERTIES COMPILE_OPTIONS "-fno-sanitize=alignment;-fno-sanitize=shift-base;-fno-sanitize=nonnull-attribute")
   # 破損 runlist の巨大値で符号付き左シフトが溢れる (上流は -fno-strict-overflow 前提 = wrap)。実カーネルのビルドと同じ扱いにする。
+  set_source_files_properties(${EXT2_SRC} PROPERTIES COMPILE_OPTIONS "-fno-sanitize=alignment;-fno-sanitize=shift-base;-fno-sanitize=nonnull-attribute")
   set_source_files_properties(${EXFAT_SRC} PROPERTIES COMPILE_OPTIONS "-fno-sanitize=alignment;-fno-sanitize=shift-base;-fno-sanitize=nonnull-attribute")
 endif()
 target_include_directories(usbmem_ntfs PUBLIC public)
@@ -59,6 +65,19 @@ target_compile_options(usbmem_exfat PRIVATE
 target_compile_definitions(usbmem_exfat PRIVATE CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=1
   USBMEM_MODULE_INIT_NAME=usbmem_module_init_exfat "CONFIG_EXFAT_DEFAULT_IOCHARSET=\"utf8\"")
 target_link_libraries(usbmem_exfat PUBLIC usbmem_compat_rt)
+
+# ---- ext2 (Linux fs/ext2, 無改変)。読み取り専用マウントのみ (ext3/ext4 の機能を持つボリュームは上流が拒否する)。
+add_library(usbmem_ext2 STATIC ${EXT2_SRC} src/rt_vfs_ext2.c src/ext2_volume.cpp)
+target_include_directories(usbmem_ext2 PUBLIC public)
+target_include_directories(usbmem_ext2 PRIVATE ${EXT2_ROOT}/include)
+target_compile_options(usbmem_ext2 PRIVATE
+  $<$<COMPILE_LANGUAGE:C>:-std=gnu11>
+  $<$<COMPILE_LANGUAGE:C>:-w>
+  $<$<COMPILE_LANGUAGE:C>:-fno-strict-aliasing>
+  $<$<COMPILE_LANGUAGE:C>:-fwrapv>
+  "$<$<COMPILE_LANGUAGE:C>:SHELL:-iquote ${EXT2_ROOT}/fs-ext2>")
+target_compile_definitions(usbmem_ext2 PRIVATE CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=1 USBMEM_MODULE_INIT_NAME=usbmem_module_init_ext2)
+target_link_libraries(usbmem_ext2 PUBLIC usbmem_compat_rt)
 
 if(USBMEM_BUILD_TESTS)
   add_executable(usbmem_exfat_tests tests/test_exfat.cpp)
@@ -114,4 +133,24 @@ if(USBMEM_BUILD_TESTS)
   set_tests_properties(ntfs_fuzz PROPERTIES FIXTURES_REQUIRED ntfs_fixture TIMEOUT 600
     # 失敗したマウントの後始末は inode 内部の確保物を解放しきれない (既知)。メモリ安全性 (UAF/OOB/ハング) の検査に集中する。
     ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
+endif()
+
+# ---- ext2 のテスト: mke2fs -d + tools/gen_ext2_fixture.py でイメージを作り (e2fsck -fn で clean を確認)、fs/ext2 の読み取りを全項目検証
+if(USBMEM_BUILD_TESTS)
+  add_executable(usbmem_ext2_tests tests/test_ext2.cpp)
+  target_link_libraries(usbmem_ext2_tests PRIVATE usbmem_ext2)
+  find_package(Python3 COMPONENTS Interpreter)
+  if(Python3_FOUND AND EXISTS /dev/shm)
+    set(EXT2_FIX_DIR /dev/shm/usbmem_ext2_$ENV{USER})
+    add_test(NAME ext2_gen_fixture COMMAND ${CMAKE_COMMAND} -E env "PATH=$ENV{PATH}:/sbin:/usr/sbin" ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_LIST_DIR}/../../tools/gen_ext2_fixture.py ${EXT2_FIX_DIR})
+    set_tests_properties(ext2_gen_fixture PROPERTIES FIXTURES_SETUP ext2_fixture)
+    add_test(NAME ext2_read COMMAND usbmem_ext2_tests ${EXT2_FIX_DIR})
+    add_test(NAME ext2_corrupt COMMAND usbmem_ext2_tests --corrupt ${EXT2_FIX_DIR})
+    add_test(NAME ext2_ioerr COMMAND usbmem_ext2_tests --ioerr ${EXT2_FIX_DIR})
+    add_test(NAME ext2_fuzz COMMAND usbmem_ext2_tests --fuzz ${EXT2_FIX_DIR} 600 1)
+    set_tests_properties(ext2_read ext2_corrupt ext2_ioerr ext2_fuzz PROPERTIES FIXTURES_REQUIRED ext2_fixture TIMEOUT 900)
+    # 失敗したマウントの後始末は inode 内部の確保物を解放しきれない (NTFS / exFAT と同じ既知事項)。メモリ安全性 (UAF/OOB/ハング) の検査に集中する。
+    set_tests_properties(ext2_corrupt ext2_ioerr ext2_fuzz PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
+    set_tests_properties(ext2_read PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+  endif()
 endif()

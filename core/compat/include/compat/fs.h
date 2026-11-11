@@ -82,6 +82,9 @@ struct qstr { const unsigned char *name; unsigned int len; unsigned int hash; };
 struct inode_operations; struct file_operations; struct address_space_operations;
 struct super_operations; struct export_operations; struct dentry_operations; struct posix_acl;
 
+/* ext2/ext4 の i_metadata_bhs (カーネルでは linux/fs.h で定義)。読み取り専用では何も追跡しない。 */
+struct mapping_metadata_bhs { struct address_space *mapping; };
+
 struct address_space {
   struct inode *host;
   const struct address_space_operations *a_ops;
@@ -117,6 +120,8 @@ struct inode {
   struct inode *i_hash_next_;
   bool i_hashed_;
   unsigned long i_hashval_;
+  char *i_link;          /* 高速シンボリックリンクのターゲット (ext2 は i_data を指す) */
+  dev_t i_rdev;
 };
 struct dentry {
   struct qstr d_name;
@@ -140,6 +145,9 @@ struct super_block {
   const struct super_operations *s_op;
   const struct export_operations *s_export_op;
   const void *s_xattr;
+  unsigned long s_iflags;
+  unsigned int s_max_links;
+  atomic_long_t s_remove_count;
   struct backing_dev_info *s_bdi;
   struct file_system_type *s_type;   /* get_tree_bdev が設定。umount / fill_super 失敗時に kill_sb を呼ぶ (exfat は sbi をここで解放) */
   s64 s_time_min, s_time_max;
@@ -181,7 +189,7 @@ struct iomap {
 };
 
 /* ---- mount (fs_context) */
-struct fs_context { unsigned int sb_flags; void *s_fs_info; struct dentry *root; unsigned int purpose; const void *ops; };
+struct fs_context { unsigned int sb_flags; void *s_fs_info; struct dentry *root; unsigned int purpose; const void *ops; void *fs_private; const char *source; };
 struct fs_parameter { const char *key; char *string; };
 
 #ifdef __cplusplus

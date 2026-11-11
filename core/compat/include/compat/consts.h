@@ -89,6 +89,11 @@
 #define FS_SHUTDOWN_FLAGS_DEFAULT 0
 #define FS_SHUTDOWN_FLAGS_LOGFLUSH 1
 #define FS_SHUTDOWN_FLAGS_NOLOGFLUSH 2
+#define FS_SECRM_FL 0x1
+#define FS_UNRM_FL 0x2
+#define FS_SYNC_FL 0x8
+#define FS_DIRSYNC_FL 0x10000
+#define FS_TOPDIR_FL 0x20000
 #define FS_COMPR_FL 0x4
 #define FS_IMMUTABLE_FL 0x10
 #define FS_APPEND_FL 0x20
@@ -148,4 +153,48 @@
 #define RB_ROOT ((struct rb_root){ NULL })
 #define VMA_MAYWRITE_BIT 5
 #define VMA_SHARED_BIT 3
+
+/* ---- fs/ext2 移植で追加 */
+#define _IOC_NRBITS 8
+#define _IOC_TYPEBITS 8
+#define _IOC_SIZEBITS 14
+#define _IOC_NRSHIFT 0
+#define _IOC_TYPESHIFT (_IOC_NRSHIFT + _IOC_NRBITS)
+#define _IOC_SIZESHIFT (_IOC_TYPESHIFT + _IOC_TYPEBITS)
+#define _IOC_DIRSHIFT (_IOC_SIZESHIFT + _IOC_SIZEBITS)
+#define _IOC(dir, type, nr, size) (((dir) << _IOC_DIRSHIFT) | ((type) << _IOC_TYPESHIFT) | ((nr) << _IOC_NRSHIFT) | ((size) << _IOC_SIZESHIFT))
+#define _IOR(type, nr, size) _IOC(2U, (type), (nr), sizeof(size))
+#define _IOW(type, nr, size) _IOC(1U, (type), (nr), sizeof(size))
+#define FS_IOC_GETVERSION _IOR('v', 1, long)
+#define FS_IOC_SETVERSION _IOW('v', 2, long)
+#define FS_BTREE_FL 0x1000
+#define FS_COMPRBLK_FL 0x200
+#define FS_NOCOMP_FL 0x400
+#define FS_JOURNAL_DATA_FL 0x4000
+#define FS_NOTAIL_FL 0x8000
+#define FS_FL_USER_VISIBLE 0x0003DFFF
+#define FS_FL_USER_MODIFIABLE 0x000380FF
+#define S_SYNC (1 << 0)
+#define S_DIRSYNC (1 << 6)
+#define S_NOQUOTA (1 << 5)
+#define S_IRWXUGO 0777
+#define SB_I_CGROUPWB 0x00000001
+#define IOMAP_F_DIRTY (1u << 1)
+#define IOMAP_DIO_FORCE_WAIT (1u << 3)
+#define KERN_EMERG ""
+#define KERN_ALERT ""
+#define KERN_CRIT ""
+#define KERN_ERR ""
+#define KERN_WARNING ""
+#define KERN_NOTICE ""
+#define KERN_INFO ""
+#define KERN_DEBUG ""
+#define BLOCK_SIZE_BITS 10
+#define BLOCK_SIZE (1 << BLOCK_SIZE_BITS)
+#define CAP_SYS_RESOURCE 24
+#ifndef S32_MAX
+#define S32_MAX INT32_MAX
+#define S32_MIN INT32_MIN
+#endif
+
 #endif

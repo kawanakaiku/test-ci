@@ -13,6 +13,8 @@ struct address_space_operations {
   void *readahead;
   void *release_folio;
   void *swap_activate;
+  void *write_begin;
+  void *write_end;
   void *writepages;
 };
 struct dentry_operations {
@@ -31,6 +33,7 @@ struct file_operations {
   void *compat_ioctl;
   void *fallocate;
   void *fsync;
+  void *get_unmapped_area;
   void *iterate_shared;
   void *llseek;
   void *mmap_prepare;
@@ -56,6 +59,7 @@ struct inode_operations {
   void *fileattr_get;
   void *fileattr_set;
   void *get_acl;
+  void *get_inode_acl;
   void *get_link;
   void *getattr;
   void *link;
@@ -69,6 +73,7 @@ struct inode_operations {
   void *set_acl;
   void *setattr;
   void *symlink;
+  void *tmpfile;
   void *unlink;
   void *update_time;
 };
@@ -77,11 +82,17 @@ struct super_operations {
   void *drop_inode;
   void *evict_inode;
   void *free_inode;
+  void *freeze_fs;
+  void *get_dquots;
   void *put_super;
+  void *quota_read;
+  void *quota_write;
   void *show_options;
   void *shutdown;
   void *statfs;
   void *sync_fs;
+  void *sync_inode_metadata;
+  void *unfreeze_fs;
   void *write_inode;
 };
 struct vm_operations_struct {

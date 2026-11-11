@@ -28,6 +28,12 @@ static inline int atomic_cmpxchg(atomic_t *v, int o, int n) {
 #define atomic64_sub(i, v) ((void)__atomic_sub_fetch(&(v)->counter, (i), __ATOMIC_SEQ_CST))
 #define ATOMIC_INIT(i) { (i) }
 
+typedef struct { long counter; } atomic_long_t;
+static inline long atomic_long_read(const atomic_long_t *a) { return a->counter; }
+static inline void atomic_long_set(atomic_long_t *a, long v) { a->counter = v; }
+static inline void atomic_long_inc(atomic_long_t *a) { a->counter++; }
+static inline void atomic_long_dec(atomic_long_t *a) { a->counter--; }
+
 /* ---- mutex / rwsem / spinlock / rwlock */
 struct mutex { pthread_mutex_t m; };
 #define mutex_init(x) pthread_mutex_init(&(x)->m, NULL)

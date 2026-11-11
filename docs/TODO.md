@@ -56,4 +56,4 @@
 - [ ] exFAT の実機 USB ディスクでの確認 (数 TiB のボリュームの mount 時間: exfat_load_bitmap が全ビットマップを読む)。
 - [ ] exFAT の書き込み: bd_mapping の writeback、ダーティフラグ (VolumeFlags) の先行確定、クラッシュテスト (NTFS と同じ方針) が必要。それまで読み取り専用。
 - [ ] ピン表 (ino → inode) の上限 / LRU (巨大ディレクトリでメモリが増える)。
-- [ ] ext2/ext4、ntfs3 (NTFS の第二のバックエンドとして選択可能に)、isofs/udf/squashfs/erofs。tools/fs_compat_probe.py の見積もり: ext2 は buffer_head 層が使えるので次の候補、ntfs3 は 33k 行で iomap/folio 前提 (gcc エラー 618 件)、ext4 は jbd2 込みで 70k 行 (14,750 件)。
+- [x] ext2 (読み取り専用、docs/ext2-port.md。ホスト4構成+AVD通過、実機未確認) / [ ] ext4 (見積もりは docs/ext2-port.md)、ntfs3 (NTFS の第二のバックエンドとして選択可能に)、isofs/udf/squashfs/erofs。tools/fs_compat_probe.py の見積もり: ext2 は buffer_head 層が使えるので次の候補、ntfs3 は 33k 行で iomap/folio 前提 (gcc エラー 618 件)、ext4 は jbd2 込みで 70k 行 (14,750 件)。

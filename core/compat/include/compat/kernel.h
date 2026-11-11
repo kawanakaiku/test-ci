@@ -132,5 +132,6 @@ typedef unsigned int fmode_t;
 #include <compat/vfs_api.h>
 #include <compat/misc.h>
 #include <compat/more.h>
+#include <compat/more_blockfs.h>
 
 #endif

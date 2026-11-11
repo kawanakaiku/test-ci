@@ -10,6 +10,7 @@ extern "C" {
 
 int usbmem_module_init_ntfs(void);
 int usbmem_module_init_exfat(void);
+int usbmem_module_init_ext2(void);
 void usbmem_unimplemented(const char *fn);
 struct dentry *usbmem_d_alloc(struct super_block *, struct dentry *parent, const char *name, unsigned len);
 void usbmem_bdev_mapping_init(struct block_device *);

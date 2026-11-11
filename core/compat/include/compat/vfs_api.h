@@ -152,7 +152,8 @@ void folio_redirty_for_writepage(struct writeback_control *, struct folio *);
 void folio_zero_segment(struct folio *, size_t start, size_t end);
 void folio_zero_segments(struct folio *, size_t s1, size_t e1, size_t s2, size_t e2);
 void folio_fill_tail(struct folio *, size_t off, const char *from, size_t len);
-size_t offset_in_folio(const struct folio *, loff_t);
+/* カーネルと同じく、ファイル内オフセットでもメモリポインタでも「folio 内のオフセット」を返す (folio のデータは PAGE_SIZE 境界に置く)。 */
+#define offset_in_folio(f, p) ((size_t)((unsigned long)(p) & (PAGE_SIZE - 1)))
 #define offset_in_page(p) ((unsigned long)(p) & (PAGE_SIZE - 1))
 #define page_offset(p) ((loff_t)(p)->folio_->index << PAGE_SHIFT)
 void *kmap_local_folio(struct folio *, size_t off);
@@ -350,7 +351,7 @@ void *vmemdup_user(const void *, size_t);
 char *strndup_user(const char *, long);
 int fatal_signal_pending_(void);
 #define fatal_signal_pending(t) 0
-extern struct task_struct { int unused; struct fs_struct *fs; } *current;
+extern struct task_struct { int unused; struct fs_struct *fs; int pid; } *current;
 bool capable(int);
 int inode_permission(struct mnt_idmap *, struct inode *, int);
 bool inode_owner_or_capable(struct mnt_idmap *, const struct inode *);

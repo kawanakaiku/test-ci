@@ -263,8 +263,9 @@ static void drop_inodes_sb(struct super_block *sb) {
 void usbmem_compat_umount(struct super_block *sb) {
   if (!sb) return;
   usbmem_compat_sync(sb);
-  evict_inodes_sb(sb);
+  /* カーネルと同じく dentry (ルート) を先に落としてから evict_inodes する。put_super 後に evict_inode が走ると s_fs_info が解放済みになる (ext2) */
   if (sb->s_root) { usbmem_d_free_root(sb->s_root); sb->s_root = NULL; }
+  evict_inodes_sb(sb);
   if (sb->s_op && sb->s_op->put_super) ((void (*)(struct super_block *))sb->s_op->put_super)(sb);
   evict_inodes_sb(sb);
   if (sb->s_bdev && !sb_rdonly(sb)) usbmem_bdev_flush(sb->s_bdev->impl);   /* put_super が書いた最終状態 (ダーティ解除) を確定 */
@@ -515,9 +516,13 @@ static int mount_locked(int (*init_fn)(void), struct block_device *bdev, int rea
   g_pending_bdev = bdev;
   rc = ((const struct fs_context_operations *)fc->ops)->get_tree ? ((int (*)(struct fs_context *))((const struct fs_context_operations *)fc->ops)->get_tree)(fc) : -ENOSYS;
   g_pending_bdev = NULL;
-  if (rc) { free(fc); return rc; }
+  /* put_fs_context 相当: fs が fc->fs_private に持つ解析済みオプション等を ops->free で解放する (ext2 は ctx を確保する。NTFS/exFAT は NULL か fill_super 側で処理) */
+  void (*free_fc)(struct fs_context *) = (void (*)(struct fs_context *))((const struct fs_context_operations *)fc->ops)->free;
+  if (rc) { if (free_fc) free_fc(fc); free(fc); return rc; }
   *out = fc->root->d_sb;
-  (*out)->s_fc_ = NULL; free(fc);
+  (*out)->s_fc_ = NULL;
+  if (free_fc) free_fc(fc);
+  free(fc);
   return 0;
 }
 

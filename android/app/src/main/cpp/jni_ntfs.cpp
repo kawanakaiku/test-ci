@@ -2,6 +2,7 @@
 // NTFS (読み取り専用) の JNI。文字列は UTF-8 byte[] で受け渡す。
 #include <jni.h>
 #include <android/log.h>
+#include <cerrno>
 #include <chrono>
 
 #include <memory>
@@ -9,6 +10,7 @@
 
 #include "usbmem/c_api_internal.h"
 #include "usbmem/devices.h"
+#include "usbmem/ext2_volume.h"
 #include "usbmem/exfat_volume.h"
 #include "usbmem/fs_probe.h"
 #include "usbmem/ntfs_volume.h"
@@ -16,13 +18,22 @@
 namespace {
 struct Vol { std::unique_ptr<usbmem::FsVolume> v; };
 
-// dev 全体のファイルシステムを判別してマウントする。exFAT と判別できたときだけ exFAT (読み取り専用)。それ以外は従来どおり NTFS として試す
+// dev 全体のファイルシステムを判別してマウントする。exFAT / ext2 と判別できたときだけそれぞれ読み取り専用でマウントし、ext3/ext4 は拒否する。それ以外は従来どおり NTFS として試す
 // (壊れた NTFS のブート領域でも、NTFS ドライバ側の検査・復旧の挙動を変えないため)。失敗時 nullptr と正の errno。
 std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, bool rw, int* err) {
   usbmem::FsType t = usbmem::probe_filesystem(*dev, 0, dev->size());
   if (t == usbmem::FsType::Exfat) {
     // exFAT の書き込みは未対応: rw を要求されても読み取り専用でマウントする (NTFS が異常で読み取り専用に落ちるときと同じく、writable() == false で分かる)
     return usbmem::ExfatVolume::mount(dev, err);
+  }
+  if (t == usbmem::FsType::Ext2) {
+    // ext2 (ジャーナルなし・extent なし) は fs/ext2 で読み取り専用。書き込みは未対応: rw を要求されても読み取り専用 (writable() == false)
+    return usbmem::Ext2Volume::mount(dev, err);
+  }
+  if (t == usbmem::FsType::Ext3 || t == usbmem::FsType::Ext4) {
+    // ext3/ext4 は未対応 (ジャーナルの未再生や extent を ext2 ドライバで読むと壊れた内容を返しうる)。NTFS として試さずに明示的に拒否する
+    if (err) *err = ENODEV;
+    return nullptr;
   }
   return rw ? usbmem::NtfsVolume::mount_rw(dev, err) : usbmem::NtfsVolume::mount(dev, err);
 }
@@ -74,7 +85,7 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountRw(JNIEn
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
 }
 
-// マウントしたファイルシステムの名前 ("ntfs" / "exfat")
+// マウントしたファイルシステムの名前 ("ntfs" / "exfat" / "ext2")
 JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_NativeBridge_nativeFsName(JNIEnv* env, jclass, jlong h) {
   return bytes(env, reinterpret_cast<Vol*>(h)->v->fs_name());
 }

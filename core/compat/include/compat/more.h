@@ -162,6 +162,16 @@ static inline vm_fault_t vmf_fs_error(int err) { (void)err; return VM_FAULT_SIGB
 static inline int d_move_(struct dentry *a, struct dentry *b) { (void)a; (void)b; return 0; }
 #define d_move(a, b) d_move_(a, b)
 
+
+/* ---- fs/ext2 移植で追加 (docs/ext2-port.md) */
+#ifndef __guarded_by
+#define __guarded_by(x)
+#define __must_hold(x)
+#define __acquires(x)
+#define __releases(x)
+#define __must_check
+#endif
+
 #ifdef __cplusplus
 }
 #endif

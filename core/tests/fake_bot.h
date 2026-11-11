@@ -27,6 +27,7 @@ struct Faults {
   bool short_cbw_accept = false;     // CBW の bulk_out が 30 バイトしか進まない
   bool lie_residue = false;          // CSW の residue を len より大きく返す
   bool no_sync_cache = false;        // SYNCHRONIZE CACHE を ILLEGAL REQUEST にする
+  bool short_cap16 = false;          // READ CAPACITY(16) を規格の最小 12 バイトだけ返す (実機の RAID ブリッジの挙動)
 };
 
 class BotDevice : public BulkTransport {
@@ -168,7 +169,7 @@ class BotDevice : public BulkTransport {
         data_in(d); break;
       }
       case 0x9E: {  // SERVICE ACTION IN(16): READ CAPACITY(16)
-        std::vector<uint8_t> d(32, 0);
+        std::vector<uint8_t> d(f.short_cap16 ? 12 : 32, 0);
         wbe64(&d[0], blocks_ - 1); wbe32(&d[8], bs_);
         data_in(d); break;
       }

@@ -67,7 +67,7 @@ class MscDevice final : public BlockDevice {
   MscDevice(std::unique_ptr<BulkTransport> t, const MscOptions& o) : t_(std::move(t)), opt_(o) {}
   struct Cmd;
   Status exec(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* data, size_t len, size_t* transferred, uint32_t timeout_ms, bool* check_condition);
-  Status exec_checked(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* data, size_t len, uint32_t timeout_ms);
+  Status exec_checked(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* data, size_t len, uint32_t timeout_ms, size_t min_len = SIZE_MAX);
   Status request_sense(ScsiSense* s);
   Status reset_recovery();
   Status rw_blocks(bool write, uint64_t lba, uint32_t nblocks, void* buf, const IoOptions& io);

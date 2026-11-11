@@ -99,6 +99,16 @@ TEST(msc_read_only_never_sends_anything_but_read_class_commands) {
   CHECK_EQ(r.bot->log_ops.size(), before);
 }
 
+TEST(msc_read_capacity16_short_response_is_accepted) {
+  // 実機 (Ratoc RS-EC32-U3R, 4TB): READ CAPACITY(16) に 32 バイトを要求しても 12 バイトしか返らない。規格上の最小は 12 バイト
+  uint64_t blocks = 7814037168ull;  // 4TB @512
+  auto r = make(blocks, 512, [](BotDevice& b) { b.f.short_cap16 = true; });
+  CHECK(r.st.ok());
+  CHECK_EQ(r.dev->size(), blocks * 512);
+  std::vector<uint8_t> b(512);
+  CHECK(r.dev->read_at(0, b.data(), 512).ok());
+}
+
 TEST(msc_write_requires_opt_in_and_does_read_modify_write) {
   auto ro = make(256, 512);
   uint8_t x = 1;

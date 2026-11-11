@@ -166,13 +166,15 @@ Status MscDevice::map_sense(const ScsiSense& s) {
 }
 
 // CHECK CONDITION を REQUEST SENSE で解釈し、UNIT ATTENTION (6) は 2 回まで自動再試行する。
-Status MscDevice::exec_checked(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* data, size_t len, uint32_t timeout_ms) {
+// min_len: 応答がこの長さ以上なら、要求 (len) より短くても受け入れる。既定 (SIZE_MAX) は「len ちょうど」。
+// 実機の RAID ブリッジは READ CAPACITY(16) に 32 バイトを要求しても、規格上の最小 12 バイトしか返さない。
+Status MscDevice::exec_checked(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* data, size_t len, uint32_t timeout_ms, size_t min_len) {
   for (int attempt = 0; attempt < 3; attempt++) {
     size_t n = 0;
     bool cc = false;
     Status st = exec(cdb, cdb_len, dir, data, len, &n, timeout_ms, &cc);
     if (!cc) {
-      if (st.ok() && n != len) return Status::Make(Errc::Io, EIO);  // 成功なのにデータ不足は信用しない
+      if (st.ok() && (min_len == SIZE_MAX ? n != len : (n < min_len || n > len))) return Status::Make(Errc::Io, EIO);  // 成功なのにデータ不足は信用しない
       return st;
     }
     ScsiSense s;
@@ -222,7 +224,7 @@ Status MscDevice::initialize() {
     uint8_t cap16[32] = {0};
     uint8_t cdb_c16[16] = {0x9E, 0x10};
     put32be(cdb_c16 + 10, sizeof cap16);
-    st = exec_checked(cdb_c16, 16, UsbDir::In, cap16, sizeof cap16, opt_.io_timeout_ms);
+    st = exec_checked(cdb_c16, 16, UsbDir::In, cap16, sizeof cap16, opt_.io_timeout_ms, 12);   // 12 = 最終 LBA (8) + ブロック長 (4)
     if (!st.ok()) return st;
     last = get64be(cap16);
     bs = get32be(cap16 + 8);

@@ -24,3 +24,29 @@ byteorder/min/max マクロだけ**で `gcc -fsyntax-only` した。残ったエ
 3. 1 が想定より膨らむ場合のみ B(部分移植)へ切替。切替理由は本書に追記する。
 
 再現: `tools/ntfs_compat_spike.sh`。
+
+## 進捗ログ: 互換レイヤー実装 (方式 A, 読み取り専用優先)
+
+`tools/ntfs_compat_build.sh` で `fs/ntfs/*.c` を `-fsyntax-only` した総エラー数(少ないほど互換面が埋まっている)。
+
+| 段階 | 内容 | 総エラー |
+|---|---|---|
+| 0 | 空スタブのみ | 17,085 |
+| 1 | 基本型・エンディアン・マクロ | 5,030 |
+| 2 | `compat/kernel.h`(型・属性・byteorder) | 4,347 |
+| 3 | `compat/sync.h`(atomic/mutex/rwsem/list/bitops/alloc/ERR_PTR)+ `compat/fs.h`(inode/super_block/folio/bio/iomap 等の構造体) | 2,267 |
+| 4 | include 経路の修正(`-iquote`)、static_assert/wait_event | **1,488** |
+
+内訳(段階 4): 未宣言識別子 361 / 暗黙関数宣言 575 / 不完全型 49 / メンバ不足 171。
+残りの大半は関数プロトタイプ(`inode_*`, `folio_*`, `iomap_*`, `bio_*`, `d_*`, `generic_*`)と、`DECLARE_IOMAP_ITER_NEXT` など iomap 補助マクロ。
+
+### 次にやること(未着手)
+1. 残りの関数プロトタイプと定数(`docs/ntfs-spike-missing-*.txt` を参照)を宣言し、全 `.c` が構文通過する状態にする。
+2. 実行時実装(`core/compat/src/`): ページキャッシュ(address_space→folio)、`bio`→`BlockDevice` ブリッジ、inode ハッシュ(`iget5_locked`)、`iomap_read_folio`。
+3. 書き込み・xattr・DIO・swapfile・workqueue 系は読み取り専用段階ではスタブ(`-ENOSYS`)にする。
+4. 最初のリンク可能な到達点: `runlist.c` `mst.c` `unistr.c` `upcase.c` `collate.c` と LZX/XPRESS を単体テスト付きでリンク。
+5. その後 `$MFT` → ルート列挙 → ファイル読み出し。
+
+### 現時点の状態(正直な記録)
+- **NTFS はまだマウントも読み取りもできない。** `core/compat` は CMake に未接続で、アプリ・テストには影響しない。
+- 互換面の下限見積り(関数 約 430 / 定数 約 200 / 構造体 十数個)は変わらず、実装量は数千行規模。

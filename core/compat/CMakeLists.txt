@@ -52,6 +52,9 @@ if(USBMEM_BUILD_TESTS)
   if(USBMEM_NTFS_WRITE)
     add_test(NAME ntfs_write COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_write_tests.sh $<TARGET_FILE:usbmem_ntfs_tests>)
     set_tests_properties(ntfs_write PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+    # 電源断の模擬 (軽量版: 8 点 x {順序保持,キャッシュ} x {全セクタ,途中切断})。フル版は tools/run_crash_tests.sh <bin> <dir> 40
+    add_test(NAME ntfs_crash COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_crash_tests.sh $<TARGET_FILE:usbmem_ntfs_tests> /dev/shm/usbmem_ntfs_$ENV{USER} 8)
+    set_tests_properties(ntfs_crash PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
   endif()
   add_test(NAME ntfs_fuzz COMMAND usbmem_ntfs_tests --fuzz ${NTFS_FIX_DIR} 150 1)
   set_tests_properties(ntfs_fuzz PROPERTIES FIXTURES_REQUIRED ntfs_fixture TIMEOUT 600

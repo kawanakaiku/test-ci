@@ -84,3 +84,20 @@ MFT は `ntfs_mft_writepages` (別系統) で書く。
 - UBSan: 上流の `memcpy(NULL, ..., 0)` (nonnull-attribute) だけ上流 C で除外。
 - 未対応/次: 64KiB クラスタの `$MFTMirr` 偽陽性 (自動で読み取り専用)、電源断模擬、圧縮・疎ファイルへの書き込み、fsync/flush の意味づけ、`usbmem_ntfs_write` の mtime 等の属性、
   書き込み中の USB 抜去時の整合性、実機 USB。
+
+### 電源断の模擬 (2026-11-11)
+- `CrashDevice` (test_ntfs.cpp, `USBMEM_CRASH_AT/MODE/TORN/SEED`): N 回目の write_at で電源が落ち、以降の書き込みは消える。
+  `prefix` = 発行順に反映する素直なデバイス / `cache` = flush までバッファし、電源断時に未 flush 分のランダムな部分集合だけ反映 (順序保証のない USB キャッシュ) /
+  `torn` = 落ちる瞬間の書き込みを 512B セクタ境界で途中まで反映。
+- **最初の発見**: 上流の `ntfs_set_volume_flags` は非同期なので、`cache` モードでは「他の更新は届いたのにダーティ印だけ届かない」状態が起きた
+  (Windows の `chkdsk` は修復前に「MFT ビットマップが正しくありません」「$I30 のインデックス エントリが正しくありません」を報告)。
+  → **`begin_write()`**: 最初の変更系 API の前に `VOLUME_IS_DIRTY` をメディアへ書いて flush まで確定してから処理を始める (失敗なら書き込み拒否)。アンマウント時は最終状態 (ダーティ解除) の後にもデバイス flush。
+  修正後、`run_crash_tests.sh` の不変条件「意味のある差分がメディアに届いているならダーティ印も届いている」が全試行で成立。
+- 不変条件の検証 (`tools/run_crash_tests.sh`, ctest `ntfs_crash` は軽量版): 213 回の書き込みになる操作列 (mkdir/create/write/rename/unlink 混在) を、
+  序盤を密に全域を粗くサンプリングした点で切断 → (A) 元ファイル全件が manifest どおり読める (B) ダーティ印がある。80 試行で違反 0。
+- **Windows による検証** (旧実装でダーティ印なしのまま落とした 6 イメージ、`USBMEM_VERIFY_FIX=1 tools/winpe/verify_with_windows.sh`): `chkdsk` が指摘 (索引エントリ不正・MFT ビットマップ) を `chkdsk /f` で修正し、
+  **修復後の 2 回目 chkdsk は 6 件すべて「問題は見つかりませんでした」、Windows が読み戻した元 1020 ファイルは全件 manifest と一致、修復後イメージを自前ドライバで読んでも全件一致**。
+  (データを失うのは電源断で書きかけだった新規ファイルだけ。)
+- 既知の限界: MFT レコード (1024B) がセクタ境界で途中までしか書かれると (`torn=1`) `$Volume` の fixup が食い違いマウントできないことがある (80 試行中 2)。
+  `ntfsfix` も「Incomplete multi sector transfer detected in $Volume」で拒否 = ジャーナル無しの書き込みに共通の限界。
+  緩和案 (TODO): MFT のシステムレコード 0-3 の fixup 失敗時は `$MFTMirr` のコピーで読む (読み取り専用)。Windows の `chkdsk` が直せるかは未確認。

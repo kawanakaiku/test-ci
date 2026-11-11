@@ -5,8 +5,21 @@
 
 #include "usbmem/ntfs_c.h"
 #include "inode.h"   /* ntfs_iget (fs/ntfs, -iquote で解決) */
+#include "ntfs.h"    /* ntfs_set_volume_flags / NTFS_SB */
 
-struct usbmem_ntfs { struct super_block *sb; };
+struct usbmem_ntfs { struct super_block *sb; int dirty_marked; };
+
+/* 書き込みの前提: **最初の変更の前に** VOLUME_IS_DIRTY をメディアへ確定 (書き込み + デバイス flush) する。
+ * 順序を保証しない USB キャッシュが他の更新だけ先に反映して電源断になっても、ダーティ印が残れば次回 Windows が chkdsk を走らせられる。
+ * (上流の ntfs_set_volume_flags は非同期で、フラグが他の更新より後にメディアへ届きうる。) 失敗時は書き込みを拒否する。 */
+static int begin_write(usbmem_ntfs *v) {
+  if (sb_rdonly(v->sb)) return -EROFS;
+  if (v->dirty_marked) return 0;
+  int rc = ntfs_set_volume_flags(NTFS_SB(v->sb), VOLUME_IS_DIRTY);
+  if (!rc) rc = usbmem_compat_sync(v->sb);
+  if (!rc) v->dirty_marked = 1;
+  return rc;
+}
 
 int usbmem_ntfs_mount(struct usbmem_bdev *bdev, int ro, usbmem_ntfs **out) {
 #ifndef USBMEM_NTFS_WRITE
@@ -111,7 +124,7 @@ int64_t usbmem_ntfs_read(usbmem_ntfs *v, uint64_t ino, uint64_t off, void *buf, 
 int usbmem_ntfs_sync(usbmem_ntfs *v) { return v ? usbmem_compat_sync(v->sb) : -EINVAL; }
 
 int64_t usbmem_ntfs_write_inplace(usbmem_ntfs *v, uint64_t ino, uint64_t off, const void *buf, size_t len) {
-  if (sb_rdonly(v->sb)) return -EROFS;
+  { int e = begin_write(v); if (e) return e; }
   int err = 0; struct inode *i = get_inode(v, ino, &err);
   if (!i) return err;
   if (S_ISDIR(i->i_mode)) { iput(i); return -EISDIR; }
@@ -135,7 +148,7 @@ int64_t usbmem_ntfs_write_inplace(usbmem_ntfs *v, uint64_t ino, uint64_t off, co
 }
 
 int64_t usbmem_ntfs_write(usbmem_ntfs *v, uint64_t ino, uint64_t off, const void *buf, size_t len) {
-  if (sb_rdonly(v->sb)) return -EROFS;
+  { int e = begin_write(v); if (e) return e; }
   int err = 0; struct inode *i = get_inode(v, ino, &err);
   if (!i) return err;
   if (S_ISDIR(i->i_mode)) { iput(i); return -EISDIR; }
@@ -166,7 +179,7 @@ static int lookup_d(struct inode *dir, const char *name, size_t len, struct dent
   *out = d; return 0;
 }
 static int ns_op(usbmem_ntfs *v, int kind, uint64_t dir_ino, const char *name, size_t len, uint32_t mode, uint64_t *ino) {
-  if (sb_rdonly(v->sb)) return -EROFS;
+  { int e = begin_write(v); if (e) return e; }
   int err = 0; struct inode *dir = get_inode(v, dir_ino, &err);
   if (!dir) return err;
   struct dentry *d = NULL;
@@ -205,7 +218,7 @@ int usbmem_ntfs_mkdir(usbmem_ntfs *v, uint64_t d, const char *n, size_t l, uint3
 int usbmem_ntfs_unlink(usbmem_ntfs *v, uint64_t d, const char *n, size_t l) { return ns_op(v, 2, d, n, l, 0, NULL); }
 int usbmem_ntfs_rmdir(usbmem_ntfs *v, uint64_t d, const char *n, size_t l) { return ns_op(v, 3, d, n, l, 0, NULL); }
 int usbmem_ntfs_rename(usbmem_ntfs *v, uint64_t od, const char *on, size_t ol, uint64_t nd, const char *nn, size_t nl) {
-  if (sb_rdonly(v->sb)) return -EROFS;
+  { int e = begin_write(v); if (e) return e; }
   int err = 0; struct inode *odir = get_inode(v, od, &err); if (!odir) return err;
   struct inode *ndir = (nd == od) ? (ihold(odir), odir) : get_inode(v, nd, &err);
   if (!ndir) { iput(odir); return err; }

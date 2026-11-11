@@ -256,6 +256,7 @@ void usbmem_compat_umount(struct super_block *sb) {
   if (sb->s_root) { usbmem_d_free_root(sb->s_root); sb->s_root = NULL; }
   if (sb->s_op && sb->s_op->put_super) ((void (*)(struct super_block *))sb->s_op->put_super)(sb);
   evict_inodes_sb(sb);
+  if (sb->s_bdev && !sb_rdonly(sb)) usbmem_bdev_flush(sb->s_bdev->impl);   /* put_super が書いた最終状態 (ダーティ解除) を確定 */
   free(sb);
 }
 void __mark_inode_dirty(struct inode *i, int f) { i->i_state |= (unsigned long)(f & I_DIRTY_ALL); }

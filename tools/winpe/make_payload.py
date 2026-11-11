@@ -140,8 +140,9 @@ set T=
 for %%D in (C D E F G H I J K M N O P Q R S T U V W Y Z) do if exist %%D:\big.bin set T=%%D:
 echo TARGET=%T% >> %LOG%
 if "%T%"=="" goto fin
-echo --- chkdsk (read-only) >> %LOG%
+echo --- chkdsk (read-only, 1st) >> %LOG%
 chkdsk %T% >> %LOG% 2>&1
+@FIXBLOCK@
 echo --- dir >> %LOG%
 dir /s /a %T%\ 2>&1 | find "個のファイル" >> %LOG%
 echo --- Windows reads every file and copies it to the log disk >> %LOG%
@@ -155,14 +156,20 @@ fsutil volume dismount L: > nul 2>&1
 ping -n 5 127.0.0.1 > nul
 wpeutil shutdown
 """
-if variant == "verify":
-    cmd = VERIFY
+if variant in ("verify", "verifyfix"):
+    fixblock = r"""echo --- chkdsk /f (repair) >> %LOG%
+echo Y| chkdsk %T% /f /x >> %LOG% 2>&1
+echo --- chkdsk (read-only, 2nd after repair) >> %LOG%
+chkdsk %T% >> %LOG% 2>&1
+rem chkdsk /x はボリュームを外すので、再マウントされるまで待つ
+ping -n 4 127.0.0.1 > nul""" if variant == "verifyfix" else "rem (no repair)"
+    cmd = VERIFY.replace("@FIXBLOCK@", fixblock)
 else:
     cmd = HEAD + DISKS[variant] + POPULATE + TAIL
-cmd = cmd if variant == "verify" else cmd.replace("@LETTERS@", LETTERS[variant]).replace("@DIRTY@", "for %%L in (W) do fsutil dirty set %%L:" if variant == "dirty" else "rem (clean)")
+cmd = cmd if variant in ("verify", "verifyfix") else cmd.replace("@LETTERS@", LETTERS[variant]).replace("@DIRTY@", "for %%L in (W) do fsutil dirty set %%L:" if variant == "dirty" else "rem (clean)")
 open(os.path.join(pay, "usbmem_make.cmd"), "w", newline="\r\n").write(cmd.replace("@LONG@", LONG))
 shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), "autounattend.xml"), pay)
-if variant == "verify" and len(sys.argv) > 3:
+if variant in ("verify", "verifyfix") and len(sys.argv) > 3:
     shutil.copytree(sys.argv[3], os.path.join(pay, "expect"))
 with open(os.path.join(out, "manifest.txt"), "w") as f:
     for k, sz, sh, p in manifest:

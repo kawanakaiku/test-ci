@@ -9,10 +9,13 @@ ISO=${1:?usage: $0 <Win11.iso> <image>}; IMG=$2
 HERE=$(cd "$(dirname "$0")" && pwd)
 T=${USBMEM_TESTS_BIN:-$HERE/../../build/host/wsan/compat/usbmem_ntfs_tests}
 W=$(mktemp -d /dev/shm/usbmem_ver.XXXXXX); trap 'rm -rf "$W"' EXIT
-python3 -I "$HERE/make_payload.py" "$W" verify >/dev/null
+VARIANT=verify; [ -z "${USBMEM_VERIFY_FIX:-}" ] || VARIANT=verifyfix
+python3 -I "$HERE/make_payload.py" "$W" $VARIANT >/dev/null
 cp --reflink=auto "$IMG" "$W/target.raw"
 truncate -s ${USBMEM_LOG_DISK:-256M} "$W/usblog.raw"
 python3 -I "$HERE/run_vm.py" "$W" "$ISO" 600 >&2
+# USBMEM_KEEP_TARGET=<path>: 修復後のイメージを保存 (ホストで自前ドライバに読み直させる用)
+[ -z "${USBMEM_KEEP_TARGET:-}" ] || cp "$W/target.raw" "$USBMEM_KEEP_TARGET"
 # ログディスクは Windows が NTFS で作る → 自前ドライバで読む (ここでも Windows 製 NTFS の読み取り検証になる)
 ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0 "$T" --cat "$W/usblog.raw" verify.log 2>/dev/null | iconv -f CP932 -t UTF-8 -c | tr -d '\r'
 

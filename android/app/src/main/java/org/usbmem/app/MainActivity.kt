@@ -151,9 +151,11 @@ class MainActivity : ComponentActivity() {
                 VolumeRegistry.addVolume(label, "usb:" + s.deviceName, v)
                 notifyRoots()
                 updateOps("after ntfs mount")
+                android.util.Log.i("usbmem", "ntfs mount: sessionWritable=${s.writable} volumeWritable=${v.writable} createOnly=${v.createOnly}")
                 val mode = if (!s.writable) "読み取り専用" else if (v.writable) "新規作成のみ書き込み可(実験的。既存のファイルは変更・削除・名前変更できません)" else "読み取り専用(書き込み不可: ビルドで無効、またはボリュームに異常/ダーティあり)"
                 UiState.Failed("公開しました: $label — $mode")
             } catch (e: NativeException) {
+                android.util.Log.w("usbmem", "ntfs mount failed: code=${e.code} ${e.message}")
                 UiState.Failed("NTFS として開けません: ${e.message}")
             } catch (e: Exception) {
                 UiState.Failed(e.javaClass.simpleName)

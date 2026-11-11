@@ -70,7 +70,10 @@ struct lock_class_key { int unused; };
 typedef struct { pthread_mutex_t m; pthread_cond_t c; } wait_queue_head_t;
 #define init_waitqueue_head(w) do { pthread_mutex_init(&(w)->m, NULL); pthread_cond_init(&(w)->c, NULL); } while (0)
 #define wake_up_all(w) do { pthread_mutex_lock(&(w)->m); pthread_cond_broadcast(&(w)->c); pthread_mutex_unlock(&(w)->m); } while (0)
-#define wait_event(w, cond) do { pthread_mutex_lock(&(w).m); \
+void usbmem_compat_run_deferred_work(void);
+/* 待つ必要が出たときに、保留中のワーク (queue_work) を呼び出し元のスレッドで同期実行する。カーネルでは別スレッドのワーカーが実行し、
+ * 呼び出し元はその完了を待つ。ここは単一スレッド前提の互換層なので「待つ代わりに自分で実行する」。 */
+#define wait_event(w, cond) do { if (!(cond)) usbmem_compat_run_deferred_work(); pthread_mutex_lock(&(w).m); \
     while (!(cond)) pthread_cond_wait(&(w).c, &(w).m); pthread_mutex_unlock(&(w).m); } while (0)
 struct completion { int done; pthread_mutex_t m; pthread_cond_t c; };
 #define DECLARE_COMPLETION_ONSTACK(n) struct completion n = { 0, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER }

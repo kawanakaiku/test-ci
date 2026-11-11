@@ -25,7 +25,7 @@ struct user_namespace;
 struct mnt_idmap;
 struct fs_struct;
 struct workqueue_struct;
-struct work_struct { void (*func)(struct work_struct *); };
+struct work_struct { void (*func)(struct work_struct *); struct work_struct *dnext_; int pending_; };   /* dnext_/pending_: 互換層の保留リスト用 (rt_core.c) */
 struct delayed_call;
 #define from_kuid_munged(ns, u) ((u).val)
 #define from_kgid_munged(ns, g) ((g).val)

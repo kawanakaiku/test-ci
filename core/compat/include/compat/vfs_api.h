@@ -413,7 +413,7 @@ struct workqueue_struct *alloc_workqueue(const char *, unsigned, int, ...);
 void destroy_workqueue(struct workqueue_struct *);
 bool queue_work(struct workqueue_struct *, struct work_struct *);
 bool cancel_work_sync(struct work_struct *);
-#define INIT_WORK(w, f) ((w)->func = (f))
+#define INIT_WORK(w, f) ((w)->func = (f), (w)->pending_ = 0, (w)->dnext_ = 0)
 void seq_printf(struct seq_file *, const char *, ...);
 void seq_puts(struct seq_file *, const char *);
 struct nls_table *load_nls(const char *);

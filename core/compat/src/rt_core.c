@@ -405,8 +405,40 @@ int posix_acl_chmod(struct mnt_idmap *m, struct dentry *d, umode_t mode) { (void
 void simple_inode_init_ts(struct inode *i) { struct timespec64 t; usbmem_now(&t); i->i_atime_ = i->i_mtime_ = i->i_ctime_ = t; }
 struct workqueue_struct *alloc_workqueue(const char *n, unsigned f, int m, ...) { (void)n; (void)f; (void)m; return (struct workqueue_struct *)1; }
 void destroy_workqueue(struct workqueue_struct *w) { (void)w; }
-bool queue_work(struct workqueue_struct *w, struct work_struct *work) { (void)w; if (work->func) work->func(work); return true; } /* 同期実行 */
-bool cancel_work_sync(struct work_struct *w) { (void)w; return false; }
+/* queue_work は「保留」にするだけで実行しない。カーネルではワークキューが別スレッドで非同期に実行する (例: マウント時の空きクラスタ数の事前計算は
+ * 全 $Bitmap を読むため、7 TiB の USB ディスクでは同期実行すると数分かかる)。待つ必要が出た時 (wait_event) に usbmem_compat_run_deferred_work が実行する。
+ * 読み取り専用のマウントでは待つ場面が無いので、実行されることもない。 */
+static pthread_mutex_t g_work_mu = PTHREAD_MUTEX_INITIALIZER;
+static struct work_struct *g_work_head;
+bool queue_work(struct workqueue_struct *w, struct work_struct *work) {
+  (void)w;
+  pthread_mutex_lock(&g_work_mu);
+  if (work->pending_) { pthread_mutex_unlock(&g_work_mu); return false; }
+  work->pending_ = 1; work->dnext_ = NULL;
+  struct work_struct **pp = &g_work_head;
+  while (*pp) pp = &(*pp)->dnext_;
+  *pp = work;
+  pthread_mutex_unlock(&g_work_mu);
+  return true;
+}
+void usbmem_compat_run_deferred_work(void) {
+  for (;;) {
+    pthread_mutex_lock(&g_work_mu);
+    struct work_struct *work = g_work_head;
+    if (work) { g_work_head = work->dnext_; work->dnext_ = NULL; work->pending_ = 0; }
+    pthread_mutex_unlock(&g_work_mu);
+    if (!work) return;
+    if (work->func) work->func(work);
+  }
+}
+bool cancel_work_sync(struct work_struct *work) {
+  bool was = false;
+  pthread_mutex_lock(&g_work_mu);
+  for (struct work_struct **pp = &g_work_head; *pp; pp = &(*pp)->dnext_)
+    if (*pp == work) { *pp = work->dnext_; work->dnext_ = NULL; work->pending_ = 0; was = true; break; }
+  pthread_mutex_unlock(&g_work_mu);
+  return was;
+}
 
 /* ---- filesystem 登録 / マウント */
 static struct file_system_type *g_fs_type;

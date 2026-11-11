@@ -1,0 +1,27 @@
+#!/bin/sh
+# 大容量 (3 TiB の疎イメージ) の NTFS: (1) 読み取り専用マウントが $Bitmap 全体を読まずに即座に終わること (カーネルと同じく、空きクラスタ数の
+# 事前計算はマウント後の非同期ワーク。互換層が同期実行していた頃は 7.3 TiB の USB ディスクで 3 分以上かかった)、
+# (2) 書き込み (空きクラスタが必要な操作) では保留中の計算が実行され、正しく動くこと。
+# 使い方: run_large_volume_test.sh <usbmem_ntfs_tests>
+set -eu
+T=$1
+MKNTFS=$(command -v mkntfs || echo /sbin/mkntfs)
+[ -x "$MKNTFS" ] && command -v ntfsfix >/dev/null || { echo "skip: mkntfs/ntfsfix not available" >&2; exit 77; }
+W=$(mktemp -d /dev/shm/usbmem_big.XXXXXX); trap 'rm -rf "$W"' EXIT
+export ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0
+truncate -s 3T "$W/big.img" 2>/dev/null || { echo "skip: cannot create 3T sparse file here" >&2; exit 77; }
+"$MKNTFS" -F -Q -q -s 512 -c 4096 -L BIGVOL "$W/big.img" >/dev/null 2>&1
+: > "$W/empty.manifest"
+t0=$(date +%s.%N)
+"$T" --manifest "$W/big.img" "$W/empty.manifest" 2>&1 | grep -aq " 0 failures" || { echo "FAIL: read-only mount of the large volume"; exit 1; }
+t1=$(date +%s.%N)
+el=$(python3 -c "print(round($t1 - $t0, 3))")
+echo "3 TiB 読み取り専用マウント: ${el} 秒"
+python3 -c "import sys; sys.exit(0 if $t1 - $t0 < 1.5 else 1)" || { echo "FAIL: mount took ${el}s (> 1.5s): free-cluster precalc is running synchronously again?"; exit 1; }
+# 書き込み (ビルドが対応している場合のみ)
+printf 'mkdir /d\ncreate /d/f.txt\nwrite /d/f.txt 0 20000 5\n' > "$W/ops"
+out=$("$T" --ops "$W/big.img" "$W/ops" 2>&1 | grep -av unimplemented || true)
+if echo "$out" | grep -aq "mount_rw failed: errno 30"; then echo "(書き込み無効のビルド: 書き込み部分はスキップ)"; exit 0; fi
+echo "$out" | grep -aq "ops: 3 run, 0 failed" || { echo "FAIL: write on large volume: $out" | cut -c1-200; exit 1; }
+ntfsfix -n "$W/big.img" >/dev/null 2>&1 || { echo "FAIL: ntfsfix after write"; exit 1; }
+echo "large volume tests ok"

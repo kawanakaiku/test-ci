@@ -68,21 +68,4 @@ int NtfsVolume::readdir(uint64_t dir, std::vector<NtfsDirEntry>* out) {
 int64_t NtfsVolume::read(uint64_t ino, uint64_t off, void* buf, size_t len) {
   return usbmem_ntfs_read(impl_->v, ino, off, buf, len);
 }
-int NtfsVolume::resolve(const std::string& path, uint64_t* ino) {
-  uint64_t cur = root();
-  size_t i = 0;
-  while (i < path.size()) {
-    while (i < path.size() && path[i] == '/') i++;
-    size_t j = path.find('/', i);
-    if (j == std::string::npos) j = path.size();
-    if (j > i) {
-      int rc = lookup(cur, path.substr(i, j - i), &cur);
-      if (rc) return rc;
-    }
-    i = j;
-  }
-  *ino = cur;
-  return 0;
-}
-
 }  // namespace usbmem

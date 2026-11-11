@@ -6,7 +6,7 @@ file(GLOB NTFS_SRC ${NTFS_ROOT}/fs-ntfs/*.c ${NTFS_ROOT}/fs-ntfs/lib/*.c)
 file(GLOB EXFAT_SRC ${EXFAT_ROOT}/fs-exfat/*.c)
 
 # ---- 共通ランタイム (LinuxCompat 本体: inode/ページキャッシュ/bio/buffer_head/VFS 風マウント)。FS ごとの上流コードはここに入れない。
-set(COMPAT_RT_SRC src/rt_core.c src/rt_pagecache.c src/rt_write.c src/rt_stubs.c src/rt_bh.c src/bdev_bridge.cpp)
+set(COMPAT_RT_SRC src/rt_core.c src/rt_pagecache.c src/rt_write.c src/rt_stubs.c src/rt_bh.c src/bdev_bridge.cpp src/fs_volume.cpp)
 add_library(usbmem_compat_rt STATIC ${COMPAT_RT_SRC})
 target_include_directories(usbmem_compat_rt PUBLIC public)
 # 互換シム(<linux/errno.h> 等)は C ソース専用。C++ に見せると glibc の <errno.h> が奪われ std ヘッダと衝突する。
@@ -47,7 +47,7 @@ endif()
 target_link_libraries(usbmem_ntfs PUBLIC usbmem_compat_rt)
 
 # ---- exFAT (Linux fs/exfat, 無改変)。現状は読み取り専用マウントのみ (書き込みは未検証のため入口を用意しない)。
-add_library(usbmem_exfat STATIC ${EXFAT_SRC} src/rt_vfs_exfat.c)
+add_library(usbmem_exfat STATIC ${EXFAT_SRC} src/rt_vfs_exfat.c src/exfat_volume.cpp)
 target_include_directories(usbmem_exfat PUBLIC public)
 target_include_directories(usbmem_exfat PRIVATE ${EXFAT_ROOT}/include)
 target_compile_options(usbmem_exfat PRIVATE

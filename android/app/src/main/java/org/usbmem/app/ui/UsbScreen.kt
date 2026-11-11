@@ -167,8 +167,10 @@ private fun PartitionList(t: PartitionTable, label: String, canPublish: Boolean,
                         Chip(p.fs.uppercase())
                     }
                     Text(stringResource(if (p.extendedContainer) R.string.common_partition_detail_extended else R.string.common_partition_detail, formatBytes(p.sizeBytes), p.typeName, p.startLba), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (p.fs == "ntfs") {
-                        Button(onClick = { onPublish(p) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) { Text(stringResource(if (writable) R.string.usb_publish_write else R.string.usb_publish_read_only)) }
+                    if (p.fs == "ntfs" || p.fs == "exfat") {
+                        // exFAT は読み取り専用 (書き込みは未検証)。NTFS だけ、書き込み許可のスイッチに従う
+                        val canWrite = writable && p.fs == "ntfs"
+                        Button(onClick = { onPublish(p) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) { Text(stringResource(if (canWrite) R.string.usb_publish_write else R.string.usb_publish_read_only)) }
                     }
                 }
             }

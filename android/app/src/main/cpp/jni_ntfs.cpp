@@ -9,10 +9,23 @@
 
 #include "usbmem/c_api_internal.h"
 #include "usbmem/devices.h"
+#include "usbmem/exfat_volume.h"
+#include "usbmem/fs_probe.h"
 #include "usbmem/ntfs_volume.h"
 
 namespace {
-struct Vol { std::unique_ptr<usbmem::NtfsVolume> v; };
+struct Vol { std::unique_ptr<usbmem::FsVolume> v; };
+
+// dev 全体のファイルシステムを判別してマウントする。exFAT と判別できたときだけ exFAT (読み取り専用)。それ以外は従来どおり NTFS として試す
+// (壊れた NTFS のブート領域でも、NTFS ドライバ側の検査・復旧の挙動を変えないため)。失敗時 nullptr と正の errno。
+std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, bool rw, int* err) {
+  usbmem::FsType t = usbmem::probe_filesystem(*dev, 0, dev->size());
+  if (t == usbmem::FsType::Exfat) {
+    // exFAT の書き込みは未対応: rw を要求されても読み取り専用でマウントする (NTFS が異常で読み取り専用に落ちるときと同じく、writable() == false で分かる)
+    return usbmem::ExfatVolume::mount(dev, err);
+  }
+  return rw ? usbmem::NtfsVolume::mount_rw(dev, err) : usbmem::NtfsVolume::mount(dev, err);
+}
 
 std::string utf8(JNIEnv* env, jbyteArray a) {
   if (!a) return {};
@@ -45,7 +58,7 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMount(JNIEnv*
   usbmem::Status st = usbmem::RawImageDevice::open_fd(fd, true, true, 512, &dev);
   if (!st.ok()) return -22;
   int err = 0;
-  auto v = usbmem::NtfsVolume::mount(dev, &err);
+  auto v = mount_auto(dev, false, &err);
   if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
 }
@@ -56,9 +69,14 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountRw(JNIEn
   usbmem::Status st = usbmem::RawImageDevice::open_fd(fd, false, true, 512, &dev);
   if (!st.ok()) return -22;
   int err = 0;
-  auto v = usbmem::NtfsVolume::mount_rw(dev, &err);
+  auto v = mount_auto(dev, true, &err);
   if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
+}
+
+// マウントしたファイルシステムの名前 ("ntfs" / "exfat")
+JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_NativeBridge_nativeFsName(JNIEnv* env, jclass, jlong h) {
+  return bytes(env, reinterpret_cast<Vol*>(h)->v->fs_name());
 }
 
 // 上流の判断で読み取り専用に落ちていないか (1 = 書き込み可)
@@ -88,7 +106,7 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDevice(J
   int err = 0;
   auto ra = usbmem::ReadAheadDevice::wrap(sub);
   auto t0 = std::chrono::steady_clock::now();
-  auto v = usbmem::NtfsVolume::mount(ra, &err);
+  auto v = mount_auto(ra, false, &err);
   log_mount_stats("mount", ra, t0, v != nullptr);
   if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
@@ -104,7 +122,7 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDeviceRw
   int err = 0;
   auto ra = usbmem::ReadAheadDevice::wrap(sub);
   auto t0 = std::chrono::steady_clock::now();
-  auto v = usbmem::NtfsVolume::mount_rw(ra, &err);
+  auto v = mount_auto(ra, true, &err);
   log_mount_stats("mount_rw", ra, t0, v != nullptr);
   if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
@@ -120,14 +138,14 @@ JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsList(JNI
   auto* v = reinterpret_cast<Vol*>(h)->v.get();
   uint64_t ino = 0;
   int rc = v->resolve(utf8(env, path), &ino);
-  std::vector<usbmem::NtfsDirEntry> es;
+  std::vector<usbmem::FsDirEntry> es;
   if (!rc) rc = v->readdir(ino, &es);
   if (rc) { jint e = rc < 0 ? -rc : rc; env->SetIntArrayRegion(err, 0, 1, &e); return nullptr; }
   std::string o = "[";
   bool first = true;
   for (auto& e : es) {
     if (e.name == "." || e.name == "..") continue;
-    usbmem::NtfsStat st;
+    usbmem::FsStat st;
     if (v->stat(e.ino, &st)) continue;
     if (!first) o += ',';
     first = false;
@@ -144,7 +162,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsStat(JNI
                                                                            jbyteArray path, jintArray err) {
   auto* v = reinterpret_cast<Vol*>(h)->v.get();
   uint64_t ino = 0;
-  usbmem::NtfsStat st;
+  usbmem::FsStat st;
   int rc = v->resolve(utf8(env, path), &ino);
   if (!rc) rc = v->stat(ino, &st);
   if (rc) { jint e = rc < 0 ? -rc : rc; env->SetIntArrayRegion(err, 0, 1, &e); return nullptr; }
@@ -210,7 +228,7 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsRemove(JNIEnv
   std::string p = utf8(env, path), dir, name;
   split_path(p, &dir, &name);
   uint64_t d = 0, ino = 0;
-  usbmem::NtfsStat st;
+  usbmem::FsStat st;
   int rc = v->resolve(dir, &d);
   if (!rc) rc = v->resolve(p, &ino);
   if (!rc) rc = v->stat(ino, &st);

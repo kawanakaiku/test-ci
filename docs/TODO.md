@@ -50,3 +50,10 @@
 - [x] 署名鍵: ~/.android/usbmem-release.jks + ~/.gradle/gradle.properties (リポジトリ外)。**バックアップ必須** (無くすとアプリを更新できない)。debug 鍵で入れた端末は、一度アンインストールが必要。
 - [x] ディスクのスピンダウン: 手動 (「アンマウントして、ディスクを止める」) とアイドル自動 (しない/5/10/30 分、既定しない)。SCSI START STOP UNIT。止めた後の I/O は自動で START してから行う。F-51A + Ratoc RAID で実機確認済み (ユーザーが停止を確認、アイドル 5 分で自動停止、マウントで自動再開、復帰 3.3 秒)。未対応のブリッジは 1 度だけ試してあきらめる。
 - [ ] スピンダウンの実機確認: 他の端末 (J9260, Xperia) と、停止中に USB を抜いたときの挙動、書き込み可で止めた場合。
+
+## 他のファイルシステム (LinuxCompat に載せる)
+- [x] exFAT (fs/exfat 無改変) 読み取り専用: ホスト 4 構成のテスト、AVD (x86_64) と F-51A (arm64) の計装テスト (3 イメージ・314 ファイルをバイト一致)。アプリは USB パーティションの FS を判別して NTFS / exFAT を自動で切り替える (exFAT は書き込み許可スイッチが ON でも読み取り専用でマウント)。docs/exfat-port.md 参照。
+- [ ] exFAT の実機 USB ディスクでの確認 (数 TiB のボリュームの mount 時間: exfat_load_bitmap が全ビットマップを読む)。
+- [ ] exFAT の書き込み: bd_mapping の writeback、ダーティフラグ (VolumeFlags) の先行確定、クラッシュテスト (NTFS と同じ方針) が必要。それまで読み取り専用。
+- [ ] ピン表 (ino → inode) の上限 / LRU (巨大ディレクトリでメモリが増える)。
+- [ ] ext2/ext4、ntfs3 (NTFS の第二のバックエンドとして選択可能に)、isofs/udf/squashfs/erofs。tools/fs_compat_probe.py の見積もり: ext2 は buffer_head 層が使えるので次の候補、ntfs3 は 33k 行で iomap/folio 前提 (gcc エラー 618 件)、ext4 は jbd2 込みで 70k 行 (14,750 件)。

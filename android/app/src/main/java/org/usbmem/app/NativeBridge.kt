@@ -29,6 +29,7 @@ object NativeBridge {
     // --- 書き込み (実験的。ビルドで無効なら nativeNtfsMountRw が -EROFS(30) で失敗する)
     @JvmStatic external fun nativeNtfsMountRw(fd: Int): Long
     @JvmStatic external fun nativeNtfsMountDeviceRw(devHandle: Long, offset: Long, length: Long): Long
+    @JvmStatic external fun nativeFsName(handle: Long): ByteArray
     @JvmStatic external fun nativeNtfsWritable(handle: Long): Boolean
     @JvmStatic external fun nativeNtfsWrite(handle: Long, path: ByteArray, offset: Long, buf: ByteArray, len: Int): Long
     @JvmStatic external fun nativeNtfsCreate(handle: Long, parent: ByteArray, name: ByteArray, isDir: Boolean): Long
@@ -91,6 +92,8 @@ data class NtfsEntry(val name: String, val ino: Long, val isDir: Boolean, val si
  */
 class NtfsVolume private constructor(private var handle: Long, val writable: Boolean = false, val createOnly: Boolean = false) : AutoCloseable {
     private val createdHere = HashSet<String>()
+    /** マウントしたファイルシステム ("ntfs" / "exfat")。 */
+    val fsName: String = String(NativeBridge.nativeFsName(handle), Charsets.UTF_8)
     private fun bytes(p: String) = p.toByteArray(Charsets.UTF_8)
     private fun norm(path: String) = "/" + path.split('/').filter { it.isNotEmpty() }.joinToString("/")
     /** このセッションで作成したパスか (createOnly の書き込み許可の判定に使う)。 */

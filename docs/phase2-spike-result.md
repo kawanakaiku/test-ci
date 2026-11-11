@@ -80,3 +80,9 @@ byteorder/min/max マクロだけ**で `gcc -fsyntax-only` した。残ったエ
 - マウント/アンマウントの完全な後始末(inode 退避、メモリ解放)は未実装。読み取り専用固定。
 - 単一スレッド前提(inode hash の I_NEW 待ちなし)。
 - Android(NDK)ビルドへの接続と SAF DocumentsProvider への接続は未着手。
+
+### Codex 2 回目レビューの反映 (2026-11-11)
+修正済み: bdev ブリッジの戻り値を負の errno に統一 / UTF-8 の厳密検証 (overlong・サロゲート・U+10FFFF 超を拒否) /
+マウント失敗時の sb・fc 解放 / lookup の dentry 破棄時に inode 参照を返す。
+未対応 (記録): アンマウント時の inode・ページキャッシュ全回収、fill_super 失敗時の s_fs_info 解放、
+truncate_inode_pages と使用中 folio の参照分離 (読み取り専用 API からの到達は未確認)。

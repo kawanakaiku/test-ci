@@ -246,6 +246,7 @@ struct dentry *usbmem_d_alloc(struct super_block *sb, struct dentry *parent, con
 }
 void usbmem_d_free(struct dentry *d) {
   if (!d) return;
+  if (d->d_inode) iput(d->d_inode);  /* lookup が dentry に渡した inode 参照を返す */
   free((void *)d->d_name.name); free(d);
 }
 struct dentry *d_make_root(struct inode *i) {
@@ -332,7 +333,7 @@ int get_tree_bdev(struct fs_context *fc, int (*fill_super)(struct super_block *,
   strcpy(sb->s_id, "usbmem");
   sb->s_fc_ = fc;
   int rc = fill_super(sb, fc);
-  if (rc) { fprintf(stderr, "usbmem-compat: fill_super failed: %d\n", rc); return rc; }
+  if (rc) { fprintf(stderr, "usbmem-compat: fill_super failed: %d\n", rc); free(sb); return rc; }
   fc->root = sb->s_root;
   return 0;
 }
@@ -352,12 +353,12 @@ int usbmem_compat_mount(struct block_device *bdev, int read_only, struct super_b
   if (!fc) return -ENOMEM;
   int (*init_fc)(struct fs_context *) = (int (*)(struct fs_context *))g_fs_type->init_fs_context;
   int rc = init_fc(fc);
-  if (rc) return rc;
+  if (rc) { free(fc); return rc; }
   fc->sb_flags = (read_only ? SB_RDONLY : 0) | SB_SILENT;
   g_pending_bdev = bdev;
   rc = ((const struct fs_context_operations *)fc->ops)->get_tree ? ((int (*)(struct fs_context *))((const struct fs_context_operations *)fc->ops)->get_tree)(fc) : -ENOSYS;
   g_pending_bdev = NULL;
-  if (rc) return rc;
+  if (rc) { free(fc); return rc; }
   *out = fc->root->d_sb;
   return 0;
 }

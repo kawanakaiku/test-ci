@@ -21,7 +21,8 @@ void usbmem_bdev_free(struct usbmem_bdev *b) { delete b; }
 
 static int to_errno(const usbmem::Status &s) {
   if (s.ok()) return 0;
-  return s.sys_errno ? s.sys_errno : (s.code == usbmem::Errc::OutOfRange ? EINVAL : EIO);
+  int e = s.sys_errno ? s.sys_errno : (s.code == usbmem::Errc::OutOfRange ? EINVAL : EIO);
+  return e > 0 ? -e : e;  // カーネル規約: 負の errno
 }
 int usbmem_bdev_read(struct usbmem_bdev *b, uint64_t off, void *buf, size_t len) { return to_errno(b->dev->read_at(off, buf, len)); }
 int usbmem_bdev_write(struct usbmem_bdev *b, uint64_t off, const void *buf, size_t len) { return to_errno(b->dev->write_at(off, buf, len)); }

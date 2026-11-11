@@ -342,6 +342,8 @@ int utf8s_to_utf16s(const u8 *in, int inlen, int endian, void *outv, int maxout)
       c &= (0xFF >> (n + 1));
       for (int k = 1; k < n; k++) { if ((in[i + k] & 0xC0) != 0x80) return -EINVAL; c = (c << 6) | (in[i + k] & 0x3F); }
     }
+    /* 厳密検証: overlong / サロゲート / U+10FFFF 超を拒否 */
+    if ((n == 2 && c < 0x80) || (n == 3 && c < 0x800) || (n == 4 && c < 0x10000) || c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF)) return -EINVAL;
     i += n;
     if (c >= 0x10000) { if (o + 2 > maxout) break; c -= 0x10000; out[o++] = 0xD800 + (c >> 10); out[o++] = 0xDC00 + (c & 0x3FF); }
     else { if (o + 1 > maxout) break; out[o++] = (u16)c; }

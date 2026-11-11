@@ -56,7 +56,7 @@ class UsbStorageSession private constructor(
     private val volumes = mutableListOf<NtfsVolume>()
 
     fun partitionTable(): PartitionTable {
-        check(handle > 0) { "closed" }
+        check(Handle.valid(handle)) { "closed" }
         val err = IntArray(1)
         val bytes = NativeBridge.nativeListPartitions(handle, err)
             ?: throw NativeException(err[0], "partition scan failed: ${NativeBridge.nativeErrcName(err[0])}")
@@ -64,14 +64,14 @@ class UsbStorageSession private constructor(
     }
 
     /** 診断用: これまでに送った SCSI オペコードの集計 (例: "12x1 1ax1 25x1 28x4237")。WRITE 系 (2a/8a) や 35 が出ないことの確認用。 */
-    fun opStats(): String = if (handle > 0) NativeBridge.nativeUsbOpStats(handle) else ""
+    fun opStats(): String = if (Handle.valid(handle)) NativeBridge.nativeUsbOpStats(handle) else ""
 
     /** 診断用: 直近の SCSI センス [key, asc, ascq]。 */
-    fun lastSense(): IntArray = IntArray(3).also { if (handle > 0) NativeBridge.nativeUsbLastSense(handle, it) }
+    fun lastSense(): IntArray = IntArray(3).also { if (Handle.valid(handle)) NativeBridge.nativeUsbLastSense(handle, it) }
 
     @Synchronized
     fun mountNtfs(offsetBytes: Long, sizeBytes: Long): NtfsVolume {
-        check(handle > 0) { "closed" }
+        check(Handle.valid(handle)) { "closed" }
         return NtfsVolume.mountDeviceRange(handle, offsetBytes, sizeBytes).also { volumes += it }
     }
 
@@ -79,7 +79,7 @@ class UsbStorageSession private constructor(
     override fun close() {
         volumes.forEach { runCatching { it.close() } }
         volumes.clear()
-        if (handle > 0) NativeBridge.nativeClose(handle)
+        if (Handle.valid(handle)) NativeBridge.nativeClose(handle)
         handle = 0
         runCatching { conn.releaseInterface(intf) }
         conn.close()
@@ -117,7 +117,7 @@ class UsbStorageSession private constructor(
             // 他ドライバ(カーネルの usb-storage など)が掴んでいれば force=true で奪う。Android では通常は掴まれていない。
             if (!conn.claimInterface(intf, true)) { conn.close(); throw NativeException(2, "インタフェースを確保できません") }
             val h = NativeBridge.nativeOpenUsbMsc(conn.fileDescriptor, pick.epIn, pick.epOut, pick.interfaceNumber, 0, true)
-            if (h <= 0) {
+            if (Handle.isError(h)) {
                 val code = (-h).toInt()
                 // 失敗の原因調査用 (SCSI コマンドと結果のみ。個人情報なし)
                 android.util.Log.w("usbmem", "USB open failed: ${NativeBridge.nativeErrcName(code)} trace=${NativeBridge.nativeUsbLastOpenTrace()}")

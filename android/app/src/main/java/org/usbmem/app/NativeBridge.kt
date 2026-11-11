@@ -31,12 +31,22 @@ object NativeBridge {
     @JvmStatic external fun nativeNtfsSync(handle: Long): Long
 }
 
+/**
+ * ネイティブ側のハンドルはポインタをそのまま jlong にしたもの。Android 11 以降の arm64 ではヒープのポインタの上位バイトに
+ * タグ (0xb4…) が付くため、**符号付きでは負の値になる** (実機 F-51A で「開けたのにエラー扱い」になった不具合の原因)。
+ * エラーは小さな負の値 (-4095..0 = -errno / -Errc) だけで表す。0 は「無し / 閉じた」。
+ */
+object Handle {
+    fun isError(h: Long): Boolean = h in -4095L..0L
+    fun valid(h: Long): Boolean = h != 0L && !isError(h)
+}
+
 class NativeException(val code: Int, message: String) : Exception(message)
 
 /** fd の所有権を引き受ける(close でネイティブ側が閉じる)。 */
 class RawImage private constructor(private var handle: Long) : AutoCloseable {
     fun partitionTable(): PartitionTable {
-        check(handle > 0) { "closed" }
+        check(Handle.valid(handle)) { "closed" }
         val err = IntArray(1)
         val bytes = NativeBridge.nativeListPartitions(handle, err)
             ?: throw NativeException(err[0], "partition scan failed: ${NativeBridge.nativeErrcName(err[0])}")
@@ -44,7 +54,7 @@ class RawImage private constructor(private var handle: Long) : AutoCloseable {
     }
 
     override fun close() {
-        if (handle > 0) NativeBridge.nativeClose(handle)
+        if (Handle.valid(handle)) NativeBridge.nativeClose(handle)
         handle = 0
     }
 
@@ -52,7 +62,7 @@ class RawImage private constructor(private var handle: Long) : AutoCloseable {
         /** 常に読み取り専用で開く(Phase 1)。 */
         fun openReadOnly(detachedFd: Int): RawImage {
             val h = NativeBridge.nativeOpenFd(detachedFd, true)
-            if (h <= 0) {
+            if (Handle.isError(h)) {
                 val code = (-h).toInt()
                 throw NativeException(code, "open failed: ${NativeBridge.nativeErrcName(code)}")
             }
@@ -66,7 +76,7 @@ data class NtfsEntry(val name: String, val ino: Long, val isDir: Boolean, val si
 /** NTFS をマウントしたボリューム (既定は読み取り専用)。fd の所有権を引き受ける。[writable] は実際に書き込み可能でマウントされたときだけ true。 */
 class NtfsVolume private constructor(private var handle: Long, val writable: Boolean = false) : AutoCloseable {
     private fun bytes(p: String) = p.toByteArray(Charsets.UTF_8)
-    private fun checkWritable() { check(handle > 0) { "closed" }; if (!writable) throw NativeException(30, "read-only volume") }
+    private fun checkWritable() { check(Handle.valid(handle)) { "closed" }; if (!writable) throw NativeException(30, "read-only volume") }
     private fun ok(op: String, r: Long): Long { if (r < 0) throw NativeException((-r).toInt(), "$op failed: errno ${-r}"); return r }
 
     /** path のファイルへ書く (範囲が EOF を超えれば拡張)。書けたバイト数。 */
@@ -91,7 +101,7 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
 
     @Synchronized
     fun list(path: String): List<NtfsEntry> {
-        check(handle > 0) { "closed" }
+        check(Handle.valid(handle)) { "closed" }
         val err = IntArray(1)
         val b = NativeBridge.nativeNtfsList(handle, path.toByteArray(Charsets.UTF_8), err)
             ?: throw NativeException(err[0], "list '$path' failed: errno ${err[0]}")
@@ -104,7 +114,7 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
 
     @Synchronized
     fun stat(path: String): NtfsEntry {
-        check(handle > 0) { "closed" }
+        check(Handle.valid(handle)) { "closed" }
         val err = IntArray(1)
         val b = NativeBridge.nativeNtfsStat(handle, path.toByteArray(Charsets.UTF_8), err)
             ?: throw NativeException(err[0], "stat '$path' failed: errno ${err[0]}")
@@ -115,7 +125,7 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
     /** off から buf.size バイトまで読む。EOF で 0。 */
     @Synchronized
     fun read(path: String, offset: Long, buf: ByteArray): Int {
-        check(handle > 0) { "closed" }
+        check(Handle.valid(handle)) { "closed" }
         val r = NativeBridge.nativeNtfsRead(handle, path.toByteArray(Charsets.UTF_8), offset, buf)
         if (r < 0) throw NativeException((-r).toInt(), "read '$path' failed: errno ${-r}")
         return r.toInt()
@@ -123,7 +133,7 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
 
     @Synchronized
     override fun close() {
-        if (handle > 0) NativeBridge.nativeNtfsUnmount(handle)
+        if (Handle.valid(handle)) NativeBridge.nativeNtfsUnmount(handle)
         handle = 0
     }
 
@@ -131,20 +141,20 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
         /** 開いているデバイス(USB 等)の一区間を NTFS として読み取り専用マウント。デバイスの close より先にこの volume を close すること。 */
         fun mountDeviceRange(deviceHandle: Long, offset: Long, length: Long): NtfsVolume {
             val h = NativeBridge.nativeNtfsMountDevice(deviceHandle, offset, length)
-            if (h <= 0) throw NativeException((-h).toInt(), "ntfs mount failed: errno ${-h}")
+            if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs mount failed: errno ${-h}")
             return NtfsVolume(h)
         }
 
         /** 書き込み可能で試みる (実験的)。ビルドで無効、またはボリュームがダーティ等で上流が読み取り専用に落とした場合は [writable] = false で返す。 */
         fun mountReadWrite(detachedFd: Int): NtfsVolume {
             val h = NativeBridge.nativeNtfsMountRw(detachedFd)
-            if (h <= 0) throw NativeException((-h).toInt(), "ntfs rw mount failed: errno ${-h}")
+            if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs rw mount failed: errno ${-h}")
             return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h))
         }
 
         fun mountReadOnly(detachedFd: Int): NtfsVolume {
             val h = NativeBridge.nativeNtfsMount(detachedFd)
-            if (h <= 0) throw NativeException((-h).toInt(), "ntfs mount failed: errno ${-h}")
+            if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs mount failed: errno ${-h}")
             return NtfsVolume(h)
         }
     }

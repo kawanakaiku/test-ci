@@ -1,0 +1,18 @@
+ntfs: report a sane, roomy free-inode count in statfs
+
+f_ffree only counted spare records in the current MFT, so tools requiring a
+minimum number of free inodes failed on a nearly-empty NTFS, and a bogus
+free_mft_records could make df show a NEGATIVE 'used inodes'. Clamp f_ffree
+to [0, f_files] and add the records that still fit in free space (the MFT
+grows on demand).
+
+--- a/fs/ntfs/super.c	2026-08-02 01:02:45.000000000 +0900
++++ b/fs/ntfs/super.c	2026-08-02 21:43:58.941028679 +0900
+@@ -2131,6 +2131,7 @@
+ 
+ 	/* Free inodes in fs (based on current total count). */
+ 	sfs->f_ffree = atomic64_read(&vol->free_mft_records);
++	{ s64 ff = (s64)sfs->f_ffree, tot = (s64)sfs->f_files, ex = (size << vol->cluster_size_bits) >> vol->mft_record_size_bits; if (ff < 0) ff = 0; if (ff > tot) ff = tot; sfs->f_ffree = ff + ex; sfs->f_files = tot + ex; }
+ 
+ 	/*
+ 	 * File system id. This is extremely *nix flavour dependent and even

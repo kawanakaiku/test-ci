@@ -1,0 +1,16 @@
+ntfs: only enforce Windows name restrictions with -o windows_names
+
+Gate the invalid-character check behind the windows_names mount option so a
+default mount accepts any name the Linux VFS allows (e.g. containing ':').
+
+--- a/fs/ntfs/namei.c	2026-08-02 01:02:45.000000000 +0900
++++ b/fs/ntfs/namei.c	2026-08-02 20:57:01.445084338 +0900
+@@ -61,7 +61,7 @@
+ 				       const __le16 *wc,
+ 				       unsigned int wc_len)
+ {
+-	if (ntfs_check_bad_char(wc, wc_len))
++	if (NVolCheckWindowsNames(vol) && ntfs_check_bad_char(wc, wc_len))
+ 		return -EINVAL;
+ 
+ 	if (!NVolCheckWindowsNames(vol))

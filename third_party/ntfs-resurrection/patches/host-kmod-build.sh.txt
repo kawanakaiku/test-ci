@@ -1,0 +1,92 @@
+#!/bin/bash
+# Rebuild the in-kernel `ntfs` (resurrection) module for the RUNNING cachyos
+# kernel, with three source fixes, WITHOUT rebuilding the whole kernel:
+#   1) MFT/cluster-allocator spurious -ENOSPC (leaves free space unused)   [always]
+#   2) statfs: report a roomy free-inode count (MFT grows on demand)       [always]
+#   3) windows_names: only enforce invalid-char check with -o windows_names [WITH_WINNAMES=1]
+#
+# Fixes are applied with sed keyed on unique, stable expressions, so they keep
+# working across -rc source drift (they only break if the anchored expression
+# itself changes -- which is the signal that upstream touched that code).
+#
+# Requirements on the build host (all already true here):
+#   - clang/lld/llvm-* matching the kernel's LLVM major (kernel: clang 22.x).
+#     MODVERSIONS is OFF and MODULE_SIG_FORCE is OFF, so only vermagic must match.
+#   - Kernel source tree for fs/ntfs (mainline 7.2-rc; self-contained headers).
+#   - The MATCHING -headers package for the RUNNING kernel, which supplies the
+#     prepared build tree (Module.symvers, .config, correct utsrelease/vermagic).
+#     NOTE: the running kernel is $(uname -r); the headers package MUST match it.
+set -eu
+
+KVER=$(uname -r)
+SRC=${SRC:-/home/u/Downloads/linux/fs/ntfs}
+# headers package: pass HDR_PKG=... or drop the matching *headers*.pkg.tar.zst in ~/Downloads
+HDR_PKG=${HDR_PKG:-$(ls -1 /home/u/Downloads/linux-cachyos*headers*.pkg.tar.zst 2>/dev/null | head -1 || true)}
+PATCHDIR=$(dirname "$(readlink -f "$0")")
+WITH_WINNAMES=${WITH_WINNAMES:-0}
+export TMPDIR=${TMPDIR:-/tmp}        # keep work off the (inode-tight) NTFS scratch
+
+[ -n "$HDR_PKG" ] && [ -f "$HDR_PKG" ] || {
+	echo "ERROR: headers package for $KVER not found."
+	echo "  Provide it via HDR_PKG=/path/to/linux-cachyos-rc-headers-<ver>.pkg.tar.zst"
+	echo "  (cachyos repo; MUST match the running kernel $KVER)."
+	exit 1
+}
+echo "[*] kernel : $KVER"
+echo "[*] headers: $HDR_PKG"
+echo "[*] source : $SRC"
+
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
+# 1) Extract headers -> prepared build tree
+tar --use-compress-program=unzstd -xf "$HDR_PKG" -C "$WORK"
+KDIR=$(dirname "$(find "$WORK" -path '*/build/Module.symvers' | head -1)")
+[ -n "$KDIR" ] || { echo "build tree not found in headers pkg"; exit 1; }
+UTS=$(grep -h UTS_RELEASE "$KDIR"/include/generated/utsrelease.h 2>/dev/null | grep -o '"[^"]*"' | tr -d '"')
+[ "$UTS" = "$KVER" ] || echo "WARNING: headers vermagic ($UTS) != running kernel ($KVER); module may not load."
+
+# 2) clang wrapper: cachyos clang injects -fuse-ld=lld, which becomes a fatal
+#    error under cc-option's -Werror (breaks CC_USING_FENTRY etc.). Silence it.
+mkdir -p "$WORK/bin"
+printf '#!/bin/bash\nexec %s -Qunused-arguments "$@"\n' "$(command -v clang)" > "$WORK/bin/clang"
+chmod +x "$WORK/bin/clang"
+export PATH="$WORK/bin:$PATH"
+
+# 3) Assemble module sources + apply fixes via sed (anchor-checked)
+mkdir -p "$WORK/m"
+cp "$SRC"/*.c "$SRC"/*.h "$SRC"/Makefile "$WORK/m"/
+
+# fix 1: clamp the bitmap search to the current zone window
+sed -i 's#max_empty_bit_range(buf, buf_size >> 3)#max_empty_bit_range(buf, (zone_end > bmp_pos \&\& ((zone_end - bmp_pos) >> 3) < (buf_size >> 3)) ? (int)((zone_end - bmp_pos) >> 3) : (buf_size >> 3))#' "$WORK/m/lcnalloc.c"
+grep -q 'zone_end - bmp_pos) >> 3) : (buf_size' "$WORK/m/lcnalloc.c" || { echo "fix1 (mft) anchor missing"; exit 1; }
+
+# fix 2: statfs reports a sane, roomy free-inode count.
+#   - clamp f_ffree to [0, f_files]  -> never a negative/garbage "used inodes"
+#   - add records that still fit in free space (MFT grows on demand) -> roomy
+sed -i '/sfs->f_ffree = atomic64_read(&vol->free_mft_records);/a\
+\t{ s64 ff = (s64)sfs->f_ffree, tot = (s64)sfs->f_files, ex = (size << vol->cluster_size_bits) >> vol->mft_record_size_bits; if (ff < 0) ff = 0; if (ff > tot) ff = tot; sfs->f_ffree = ff + ex; sfs->f_files = tot + ex; }' "$WORK/m/super.c"
+grep -q 'if (ff < 0) ff = 0; if (ff > tot)' "$WORK/m/super.c" || { echo "fix2 (statfs) anchor missing"; exit 1; }
+
+# fix 3 (optional): gate the invalid-char check behind -o windows_names
+if [ "$WITH_WINNAMES" = 1 ]; then
+	sed -i 's#if (ntfs_check_bad_char(wc, wc_len))#if (NVolCheckWindowsNames(vol) \&\& ntfs_check_bad_char(wc, wc_len))#' "$WORK/m/namei.c"
+	grep -q 'NVolCheckWindowsNames(vol) && ntfs_check_bad_char' "$WORK/m/namei.c" || { echo "fix3 (winnames) anchor missing"; exit 1; }
+fi
+
+# 4) Build just the module (BTF disabled -> no pahole dependency; not needed to load)
+make -C "$KDIR" M="$WORK/m" LLVM=1 CONFIG_DEBUG_INFO_BTF_MODULES= modules
+
+# 5) Strip + publish next to this script
+llvm-strip --strip-debug "$WORK/m/ntfs.ko" -o "$PATCHDIR/ntfs.ko"
+echo "[*] built: $PATCHDIR/ntfs.ko"
+modinfo "$PATCHDIR/ntfs.ko" 2>/dev/null | grep -E 'vermagic|name:' || true
+
+cat <<'EOF'
+
+Load (unmount all NTFS + detach loops first):
+    sudo umount -a -t ntfs ; sudo losetup -D
+    sudo rmmod ntfs && sudo insmod ./ntfs.ko
+Persist across reboots:
+    sudo cp ./ntfs.ko /lib/modules/$(uname -r)/kernel/fs/ntfs/ntfs.ko && sudo depmod -a
+EOF

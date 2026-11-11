@@ -83,7 +83,13 @@ int main(int argc, char** argv) {
     files++;
     if (path.find('/') == std::string::npos) CHECK(names.count(path) == 1);
   }
-  CHECK(files >= 5);
+  CHECK(files >= 800 + 5);
+  // many/ には 800 件が重複・欠落なく並ぶ (index allocation 経由の列挙)
+  uint64_t many = 0; CHECK(vol->resolve("many", &many) == 0);
+  std::vector<usbmem::NtfsDirEntry> me; CHECK(vol->readdir(many, &me) == 0);
+  std::set<std::string> mn; for (auto& e : me) if (e.name != "." && e.name != "..") mn.insert(e.name);  // dots は VFS 同様に含まれる
+  CHECK(mn.size() == 800 && me.size() == 802);
+  for (int k = 1; k <= 800; k++) CHECK(mn.count("file_" + std::to_string(k) + ".txt") == 1);
   uint64_t x; CHECK(vol->resolve("/nonexistent", &x) != 0);
   std::vector<usbmem::NtfsDirEntry> sub; CHECK(vol->readdir(vol->root(), &sub) == 0);
   std::fprintf(stderr, "%d files verified, %d failures\n", files, g_fail);

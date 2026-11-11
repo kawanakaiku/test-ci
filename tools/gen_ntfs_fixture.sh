@@ -8,7 +8,7 @@ MKNTFS=$(command -v mkntfs || echo /sbin/mkntfs)
 # 必要ツールが無い環境では CTest 上 SKIP (終了コード 77)
 { [ -x "$MKNTFS" ] && command -v ntfs-3g >/dev/null && command -v fusermount3 >/dev/null; } || { echo "skip: mkntfs/ntfs-3g/fusermount3 not available" >&2; exit 77; }
 mkdir -p "$OUT"; IMG=$OUT/ntfs_basic.img; MNT=$OUT/mnt.$$
-rm -f "$IMG"; truncate -s 32M "$IMG"
+rm -f "$IMG"; truncate -s 64M "$IMG"
 "$MKNTFS" -F -Q -q -s 512 -c 4096 -L TESTVOL "$IMG" >/dev/null 2>&1
 mkdir -p "$MNT"; ntfs-3g -o rw "$IMG" "$MNT"
 trap 'fusermount3 -u "$MNT" 2>/dev/null; rmdir "$MNT" 2>/dev/null' EXIT
@@ -25,6 +25,12 @@ for _ in range((3 * 1024 * 1024 + 777) // 8 + 1):
     out += x.to_bytes(8, "little")
 open(sys.argv[1], "wb").write(bytes(out[: 3 * 1024 * 1024 + 777]))
 PY
+# 800 ファイルのディレクトリ: $INDEX_ALLOCATION (B+ツリー) を使わせる
+mkdir "$MNT/many"
+i=1; while [ $i -le 800 ]; do printf 'file number %d\n' $i > "$MNT/many/file_$i.txt"; i=$((i+1)); done
+# スパースファイル 20MiB (末尾 4 バイトだけ実データ)
+truncate -s 20M "$MNT/sparse.bin"
+printf 'tail' | dd of="$MNT/sparse.bin" bs=1 seek=$((20*1024*1024-4)) conv=notrunc 2>/dev/null
 : > "$MNT/empty.txt"
 sync
 ( cd "$MNT" && find . -mindepth 1 | sort | while IFS= read -r p; do

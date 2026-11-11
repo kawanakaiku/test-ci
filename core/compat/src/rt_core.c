@@ -37,6 +37,36 @@ unsigned long bitmap_weight(const unsigned long *a, unsigned int bits) {
   unsigned long n = 0; for (unsigned i = 0; i < bits; i++) n += test_bit(i, a); return n;
 }
 
+/* ---- rbtree: 親ポインタ付きの二分探索木で代用 (色なし・非平衡)。
+ * 呼び出し側 (fs/ntfs dir.c) は rb_link_node で自前降下 → rb_insert_color という Linux の作法で使う。
+ * 機能は同一。挿入が単調だと偏るが、対象は index 先読みキャッシュ (小規模)。 */
+#define RB_PARENT(n) ((struct rb_node *)(n)->__rb_parent_color)
+void rb_insert_color(struct rb_node *n, struct rb_root *r) { (void)n; (void)r; }
+struct rb_node *rb_first(const struct rb_root *r) {
+  struct rb_node *n = r->rb_node; if (!n) return NULL;
+  while (n->rb_left) n = n->rb_left;
+  return n;
+}
+static void rb_transplant(struct rb_root *r, struct rb_node *u, struct rb_node *v) {
+  struct rb_node *p = RB_PARENT(u);
+  if (!p) r->rb_node = v; else if (p->rb_left == u) p->rb_left = v; else p->rb_right = v;
+  if (v) v->__rb_parent_color = (unsigned long)p;
+}
+void rb_erase(struct rb_node *n, struct rb_root *r) {
+  if (!n->rb_left) rb_transplant(r, n, n->rb_right);
+  else if (!n->rb_right) rb_transplant(r, n, n->rb_left);
+  else {
+    struct rb_node *s = n->rb_right;
+    while (s->rb_left) s = s->rb_left;
+    if (s != n->rb_right) {
+      rb_transplant(r, s, s->rb_right);
+      s->rb_right = n->rb_right; s->rb_right->__rb_parent_color = (unsigned long)s;
+    }
+    rb_transplant(r, n, s);
+    s->rb_left = n->rb_left; s->rb_left->__rb_parent_color = (unsigned long)s;
+  }
+}
+
 /* ---- メモリ */
 struct kmem_cache { size_t size; void (*ctor)(void *); };
 struct kmem_cache *kmem_cache_create(const char *name, size_t size, size_t align, unsigned long flags, void (*ctor)(void *)) {

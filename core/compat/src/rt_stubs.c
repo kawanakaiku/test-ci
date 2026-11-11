@@ -150,15 +150,6 @@ int notify_change(struct mnt_idmap * a0, struct dentry * a1, struct iattr * a2, 
 void put_write_access(struct inode * a0) {
   usbmem_unimplemented("put_write_access");
 }
-void rb_erase(struct rb_node * a0, struct rb_root * a1) {
-  usbmem_unimplemented("rb_erase");
-}
-struct rb_node * rb_first(const struct rb_root * a0) {
-  usbmem_unimplemented("rb_first"); return (struct rb_node *)0;
-}
-void rb_insert_color(struct rb_node * a0, struct rb_root * a1) {
-  usbmem_unimplemented("rb_insert_color");
-}
 int rw_verify_area(int a0, struct file * a1, const loff_t * a2, size_t a3) {
   usbmem_unimplemented("rw_verify_area"); return (int)-ENOSYS;
 }
@@ -170,6 +161,9 @@ int setattr_prepare(struct mnt_idmap * a0, struct dentry * a1, struct iattr * a2
 }
 void simple_rename_timestamp(struct inode * a0, struct dentry * a1, struct inode * a2, struct dentry * a3) {
   usbmem_unimplemented("simple_rename_timestamp");
+}
+char * strndup_user(const char * a0, long a1) {
+  usbmem_unimplemented("strndup_user"); return (char *)0;
 }
 void super_set_uuid(struct super_block * a0, const u8 * a1, unsigned a2) {
   usbmem_unimplemented("super_set_uuid");
@@ -188,7 +182,4 @@ void vunmap(const void * a0) {
 }
 struct folio * writeback_iter(struct address_space * a0, struct writeback_control * a1, struct folio * a2, int * a3) {
   usbmem_unimplemented("writeback_iter"); return (struct folio *)0;
-}
-char * strndup_user(const char * a0, long a1) {
-  usbmem_unimplemented("strndup_user"); return (char *)0;
 }

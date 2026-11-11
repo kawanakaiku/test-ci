@@ -1,0 +1,18 @@
+ntfs: fix spurious ENOSPC leaving free space unused (cluster allocator)
+
+max_empty_bit_range() returns only the single largest free run, ignoring
+zone_end; if it lies outside the current zone window the caller discards it
+and never uses the in-window free runs -> -ENOSPC with free space left.
+Limit the search to [bmp_pos, zone_end).
+
+--- a/fs/ntfs/lcnalloc.c	2026-08-02 01:02:45.000000000 +0900
++++ b/fs/ntfs/lcnalloc.c	2026-08-02 20:57:01.440936417 +0900
+@@ -364,7 +364,7 @@
+ 					break;
+ 				}
+ 			} else {
+-				lcn = max_empty_bit_range(buf, buf_size >> 3);
++				lcn = max_empty_bit_range(buf, (zone_end > bmp_pos && ((zone_end - bmp_pos) >> 3) < (buf_size >> 3)) ? (int)((zone_end - bmp_pos) >> 3) : (buf_size >> 3));
+ 				if (lcn < 0)
+ 					break;
+ 				has_guess = 1;

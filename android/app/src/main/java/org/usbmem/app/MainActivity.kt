@@ -44,6 +44,13 @@ class MainActivity : ComponentActivity() {
     private var usbSession: UsbStorageSession? = null
     private var usbState by mutableStateOf<UiState>(UiState.Idle)
     private var usbRows by mutableStateOf<List<UsbRow>>(emptyList())
+    private var usbOps by mutableStateOf("")   // 送信した SCSI 命令の集計 (読み取り専用で書き込み系が出ていないことの確認用)
+
+    private fun updateOps(tag: String) {
+        val o = usbSession?.opStats() ?: return
+        android.util.Log.i("usbmem", "SCSI ops [$tag]: $o")
+        runOnUiThread { usbOps = o }
+    }
 
     private val usbReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(c: android.content.Context, i: android.content.Intent) {
@@ -79,7 +86,9 @@ class MainActivity : ComponentActivity() {
                 closeUsbQuiet()
                 val s = UsbStorageSession.open(this, usbManager, dev)
                 usbSession = s
-                UiState.Loaded(dev.productName ?: "USB", s.partitionTable())
+                val loaded = UiState.Loaded(dev.productName ?: "USB", s.partitionTable())
+                updateOps("after open+partition scan")
+                loaded
             } catch (e: NativeException) {
                 UiState.Failed(e.message ?: "native error")
             } catch (e: Exception) {
@@ -113,6 +122,7 @@ class MainActivity : ComponentActivity() {
                 val v = s.mountNtfs(offset, size)
                 VolumeRegistry.addVolume(label, "usb:" + s.deviceName, v)
                 notifyRoots()
+                updateOps("after ntfs mount")
                 UiState.Failed("公開しました: $label(読み取り専用)")
             } catch (e: NativeException) {
                 UiState.Failed("NTFS として開けません: ${e.message}")
@@ -178,6 +188,11 @@ class MainActivity : ComponentActivity() {
                     TableView(u)
                     u.table.partitions.filter { it.fs == "ntfs" }.forEach { p ->
                         Button(onClick = { shareUsbPartition(p.startBytes, p.sizeBytes, "${u.label} #${p.index}") }) { Text("#${p.index} を他アプリに公開(NTFS・読み取り専用)") }
+                    }
+                    if (usbOps.isNotEmpty()) {
+                        Text("送信した SCSI 命令(16進オペコードx回数): $usbOps", style = MaterialTheme.typography.bodySmall)
+                        Text("読み取り系: 12 INQUIRY / 00 TUR / 03 SENSE / 1a MODE SENSE / 25,9e CAPACITY / 28,88 READ。書き込み系は 2a, 8a, 35(キャッシュ同期)。これらが無ければ書き込みなし。", style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = { Thread { updateOps("manual refresh") }.start() }) { Text("命令の集計を更新") }
                     }
                     if (u.table.wholeDeviceVolume) Button(onClick = { shareUsbPartition(0, u.table.diskBytes, u.label) }) { Text("デバイス全体を公開(読み取り専用)") }
                 }

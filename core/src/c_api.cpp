@@ -91,6 +91,26 @@ int usbmem_open_usb_msc(int fd, int ep_in, int ep_out, int interface_number, int
   return wrap(std::move(d), out);
 }
 
+int usbmem_usb_start_stop(usbmem_device* dev, int start) {
+  if (!dev) return static_cast<int>(Errc::InvalidArgument);
+  auto* m = dynamic_cast<MscDevice*>(dev->dev.get());
+  if (!m) return static_cast<int>(Errc::Unsupported);
+  Status st = m->start_stop(start != 0);
+  return st.ok() ? 0 : static_cast<int>(st.code);
+}
+
+int usbmem_usb_idle_stop(usbmem_device* dev, unsigned long long idle_ms) {
+  if (!dev) return -static_cast<int>(Errc::InvalidArgument);
+  auto* m = dynamic_cast<MscDevice*>(dev->dev.get());
+  if (!m) return 0;
+  return m->idle_stop(idle_ms);
+}
+
+int usbmem_usb_spun_down(usbmem_device* dev) {
+  auto* m = dev ? dynamic_cast<MscDevice*>(dev->dev.get()) : nullptr;
+  return m && m->spun_down() ? 1 : 0;
+}
+
 int usbmem_usb_tune(usbmem_device* dev, size_t transport_chunk, size_t max_transfer) {
   if (!dev) return static_cast<int>(Errc::InvalidArgument);
   auto* m = dynamic_cast<MscDevice*>(dev->dev.get());

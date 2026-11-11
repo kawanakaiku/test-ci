@@ -12,6 +12,9 @@ object NativeBridge {
     @JvmStatic external fun nativeUsbLastSense(handle: Long, out: IntArray)
     @JvmStatic external fun nativeNtfsMountDevice(devHandle: Long, offset: Long, length: Long): Long
     @JvmStatic external fun nativeUsbLastOpenTrace(): String
+    @JvmStatic external fun nativeUsbIdleStop(handle: Long, idleMs: Long): Int
+    @JvmStatic external fun nativeUsbSpunDown(handle: Long): Boolean
+    @JvmStatic external fun nativeUsbStartStop(handle: Long, start: Boolean): Int
     @JvmStatic external fun nativeUsbTune(handle: Long, chunkKiB: Int, maxTransferKiB: Int): Int
     @JvmStatic external fun nativeBenchRead(handle: Long, offset: Long, totalBytes: Long, bufKiB: Int): Long
     @JvmStatic external fun nativeBenchReadHash(handle: Long, offset: Long, totalBytes: Long, bufKiB: Int, outHash: LongArray): Long

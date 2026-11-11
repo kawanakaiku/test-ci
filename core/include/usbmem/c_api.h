@@ -25,6 +25,12 @@ void usbmem_usb_last_sense(usbmem_device* dev, int* key, int* asc, int* ascq);
 void usbmem_usb_last_open_trace(char* buf, size_t len);
 void usbmem_usb_op_stats(usbmem_device* dev, char* buf, size_t len);
 /* 転送サイズの調整 (USB マスストレージのみ。0 = 変更しない)。transport_chunk: 1 回の USB 転送要求 / max_transfer: 1 SCSI コマンドあたり (バイト)。 */
+/* ディスクの回転を止める (start=0) / 再開 (start=1)。SCSI START STOP UNIT (メディアの内容は変えない)。0 / <0 = -Errc (未対応は Unsupported) */
+int usbmem_usb_start_stop(usbmem_device* dev, int start);
+/* アイドル自動スピンダウン: 最後の I/O から idle_ms 以上たっていれば止める。1 = 止めた / 0 = 何もしない / <0 = -Errc。止めた後の I/O は自動で再開してから行う */
+int usbmem_usb_idle_stop(usbmem_device* dev, unsigned long long idle_ms);
+/* 回転を止めている (START STOP UNIT で止めた) なら 1 */
+int usbmem_usb_spun_down(usbmem_device* dev);
 int usbmem_usb_tune(usbmem_device* dev, size_t transport_chunk, size_t max_transfer);
 /* 読み取り専用の速度計測: offset から total バイトを buf_len ごとに順に読み、経過マイクロ秒を *out_us に返す。 */
 /* out_hash (NULL 可): 読んだデータ全体の 64 ビットハッシュ。転送サイズを変えても同じ内容が読めること (化けていないこと) の確認用 */

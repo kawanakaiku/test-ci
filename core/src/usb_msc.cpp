@@ -65,6 +65,7 @@ Status MscDevice::exec_impl(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, voi
   if (read_only_) {
     switch (cdb[0]) {
       case 0x00: case 0x03: case 0x12: case 0x1A: case 0x25: case 0x28: case 0x88: case 0x9E: break;
+      case 0x1B: if (allow_start_stop_) break; return Status::Make(Errc::ReadOnly);   // START STOP UNIT: start_stop() の中だけ (媒体の内容は変えない)
       default: return Status::Make(Errc::ReadOnly);
     }
     if (cdb[0] == 0x9E && (cdb_len < 2 || (cdb[1] & 0x1F) != 0x10)) return Status::Make(Errc::ReadOnly);   // SERVICE ACTION IN: READ CAPACITY(16) のみ
@@ -347,7 +348,10 @@ Status MscDevice::read_at(uint64_t off, void* buf, size_t len, const IoOptions& 
   if (closed_) return Status::Make(Errc::Closed);
   if (dead_) return Status::Make(Errc::Disconnected);
   if (!range_ok(size(), off, len)) return Status::Make(Errc::OutOfRange);
-  return read_locked(off, buf, len, io);
+  if (Status rs = resume_if_stopped_locked(); !rs.ok()) return rs;
+  Status rst = read_locked(off, buf, len, io);
+  last_io_ = std::chrono::steady_clock::now();
+  return rst;
 }
 
 Status MscDevice::write_at(uint64_t off, const void* buf, size_t len, const IoOptions& io) {
@@ -356,7 +360,10 @@ Status MscDevice::write_at(uint64_t off, const void* buf, size_t len, const IoOp
   if (closed_) return Status::Make(Errc::Closed);
   if (dead_) return Status::Make(Errc::Disconnected);
   if (!range_ok(size(), off, len)) return Status::Make(Errc::OutOfRange);
-  return write_locked(off, buf, len, io);
+  if (Status rs = resume_if_stopped_locked(); !rs.ok()) return rs;
+  Status wst = write_locked(off, buf, len, io);
+  last_io_ = std::chrono::steady_clock::now();
+  return wst;
 }
 
 Status MscDevice::flush() {
@@ -364,6 +371,7 @@ Status MscDevice::flush() {
   std::lock_guard<std::mutex> lk(mu_);
   if (closed_) return Status::Make(Errc::Closed);
   if (dead_) return Status::Make(Errc::Disconnected);
+  if (spun_down_) return Status::Ok();   // 止める前に SYNCHRONIZE CACHE 済み。以後の書き込みは自動再開してから行うので、ここで起こさない
   uint8_t cdb[10] = {0x35};  // SYNCHRONIZE CACHE(10): LBA 0 / 長さ 0 = 全体
   size_t n = 0;
   bool cc = false;
@@ -374,6 +382,61 @@ Status MscDevice::flush() {
   if (!rs.ok()) return rs;
   if (s.key == 0x05) return Status::Ok();  // 未対応デバイスは書き込みキャッシュなしとみなす
   return map_sense(s);
+}
+
+Status MscDevice::start_stop(bool start) {
+  std::lock_guard<std::mutex> lk(mu_);
+  return start_stop_locked(start);
+}
+
+bool MscDevice::spun_down() const {
+  std::lock_guard<std::mutex> lk(mu_);
+  return spun_down_;
+}
+
+Status MscDevice::resume_if_stopped_locked() {
+  last_io_ = std::chrono::steady_clock::now();
+  if (!spun_down_) return Status::Ok();
+  Status st = start_stop_locked(true);   // 失敗したら I/O もエラー (停止したまま READ しても失敗するため)
+  last_io_ = std::chrono::steady_clock::now();
+  return st;
+}
+
+int MscDevice::idle_stop(uint64_t idle_ms) {
+  std::unique_lock<std::mutex> lk(mu_, std::try_to_lock);
+  if (!lk.owns_lock()) return 0;   // I/O 実行中 = 使用中
+  if (closed_ || dead_ || spun_down_ || stop_unsupported_) return 0;
+  auto idle = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - last_io_).count();
+  if (idle < 0 || static_cast<uint64_t>(idle) < idle_ms) return 0;
+  Status st = start_stop_locked(false);
+  if (st.ok()) return 1;
+  if (st.code == Errc::Unsupported) stop_unsupported_ = true;
+  return -static_cast<int>(st.code);
+}
+
+Status MscDevice::start_stop_locked(bool start) {
+  if (closed_) return Status::Make(Errc::Closed);
+  if (dead_) return Status::Make(Errc::Disconnected);
+  size_t n = 0;
+  bool cc = false;
+  if (!start && !read_only_) {   // 止める前に、書き込みキャッシュをディスクへ (未対応なら無視)
+    uint8_t sc[10] = {0x35};
+    Status fs = exec(sc, 10, UsbDir::Out, nullptr, 0, &n, opt_.io_timeout_ms, &cc);
+    if (cc) { ScsiSense fsn; Status rs = request_sense(&fsn); if (!rs.ok()) return rs; if (fsn.key != 0x05) { Status ms = map_sense(fsn); if (!ms.ok()) return ms; } }
+    else if (!fs.ok()) return fs;
+  }
+  uint8_t cdb[6] = {0x1B, 0x00 /* IMMED=0: 完了まで待つ */, 0, 0, static_cast<uint8_t>(start ? 0x01 : 0x00) /* START ビット、LOEJ=0 */, 0};
+  allow_start_stop_ = true;
+  Status st = exec(cdb, 6, UsbDir::Out, nullptr, 0, &n, std::max<uint32_t>(opt_.io_timeout_ms, 30000), &cc);   // 回転の停止/開始は時間がかかる
+  allow_start_stop_ = false;
+  if (!cc) { if (st.ok()) { spun_down_ = !start; if (start) last_io_ = std::chrono::steady_clock::now(); } return st; }
+  ScsiSense s;
+  Status rs = request_sense(&s);
+  if (!rs.ok()) return rs;
+  if (s.key == 0x05) { stop_unsupported_ = true; return Status::Make(Errc::Unsupported); }   // ILLEGAL REQUEST: このデバイス (ブリッジ) は START STOP UNIT に対応していない
+  Status ms = map_sense(s);
+  if (ms.ok()) { spun_down_ = !start; if (start) last_io_ = std::chrono::steady_clock::now(); }   // 手動の再開もアイドル時計をリセット
+  return ms;
 }
 
 Status MscDevice::close() {

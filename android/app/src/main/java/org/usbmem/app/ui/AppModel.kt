@@ -26,6 +26,9 @@ class AppModel {
     var usbLabel by mutableStateOf("")
     var table by mutableStateOf<PartitionTable?>(null)
     var published by mutableStateOf<PublishedVolume?>(null)
+    var idleSpinDownMin by mutableStateOf(0)                 // アイドル自動スピンダウン (分、0 = オフ)。設定として保存する
+    var diskIdleStopped by mutableStateOf(false)             // アイドルで止まっている (次のアクセスで自動再開)
+    var diskStopped by mutableStateOf(false)                 // ディスクの回転を止めた状態 (再開するまで公開などはできない)
     var busy by mutableStateOf<String?>(null)                // 処理中の説明 (null = なし)
     var usbNotice by mutableStateOf<Notice?>(null)
 

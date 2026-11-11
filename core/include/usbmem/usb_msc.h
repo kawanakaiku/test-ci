@@ -5,6 +5,7 @@
 // READ CAPACITY(10/16), MODE SENSE(6), READ/WRITE(10/16), SYNCHRONIZE CACHE(10))。
 #pragma once
 #include <cstdint>
+#include <chrono>
 #include <mutex>
 #include <string>
 
@@ -56,6 +57,16 @@ class MscDevice final : public BlockDevice {
   bool is_read_only() const override { return read_only_; }
   std::string describe() const override;
 
+  /** ディスクの回転を止める (start=false) / 再開する (start=true)。SCSI START STOP UNIT (LOEJ=0: メディアは取り出さない)。
+   *  メディアの内容は変えないので、読み取り専用でも送れる (専用のこの関数の中だけで許可リストを一時的に緩める)。
+   *  書き込み可で止める前には SYNCHRONIZE CACHE を送る。未対応のデバイスは Unsupported。止めた後は、再開 (start=true) するまで READ は失敗しうる。 */
+  Status start_stop(bool start);
+  /** アイドル自動スピンダウン用。最後の I/O から idle_ms 以上たっていて、まだ停止していなければ止める (I/O 中は待たずに 0 を返す)。
+   *  戻り値: 1 = 止めた / 0 = 何もしなかった (まだ使用中・すでに停止中・非対応と判明済み・I/O 実行中) / <0 = -Errc (未対応は Unsupported。以後は試さない)。
+   *  止めた後の READ/WRITE/flush は、先に自動で START を送ってから実行する (呼び出し側は何もしなくてよい)。 */
+  int idle_stop(uint64_t idle_ms);
+  bool spun_down() const;
+
   ScsiSense last_sense() const { return last_sense_; }
   /** 送った SCSI オペコードの集計 (例: "12x1 1ax1 25x1 28x4237")。読み取り専用で WRITE 系が 0 であることの実機での証拠。 */
   std::string op_stats() const;
@@ -89,6 +100,11 @@ class MscDevice final : public BlockDevice {
   uint64_t blocks_ = 0;
   uint32_t block_size_ = 0;
   bool read_only_ = true, write_protected_ = false, dead_ = false, closed_ = false;
+  bool spun_down_ = false, stop_unsupported_ = false;
+  std::chrono::steady_clock::time_point last_io_ = std::chrono::steady_clock::now();
+  Status start_stop_locked(bool start);
+  Status resume_if_stopped_locked();   // I/O の前に呼ぶ: 停止中なら START を送る。最終 I/O 時刻も更新
+  bool allow_start_stop_ = false;   // start_stop() の実行中だけ true (読み取り専用の許可リストに START STOP UNIT を通す)
   ScsiSense last_sense_;
   uint32_t op_counts_[256] = {0};
   std::string trace_;

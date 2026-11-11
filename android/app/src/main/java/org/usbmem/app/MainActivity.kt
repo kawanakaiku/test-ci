@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         devices = list.associateBy { it.deviceName }
         model.usbDevices = list.map { UsbDeviceRow(it.deviceName, it.productName ?: getString(R.string.usb_device_default_name), String.format("%04x:%04x", it.vendorId, it.productId)) }
         // OS が USB ボリュームをマウント中か (開く前に取り出してもらう)
+        usbSession?.let { model.diskIdleStopped = model.idleSpinDownMin > 0 && !model.diskStopped && it.isSpunDown() }
         model.osMountedUsb = runCatching { UsbStorageSession.osMountedUsbVolumes(java.io.File("/proc/mounts").readText()).size }.getOrDefault(0)
     }
 
@@ -93,6 +94,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 closeUsbQuiet()
                 val s = UsbStorageSession.open(this, usbManager, dev, writable = model.allowUsbWrite)
                 usbSession = s
+                applyIdleSpinDown(s)
                 table = s.partitionTable()
                 updateOps("after open+partition scan")
                 ui { model.tuningSaved = describeTuning(s) }
@@ -152,6 +154,60 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         }.start()
     }
 
+    /**
+     * ディスクを止める: 公開中のボリュームを閉じて (アンマウント + 書き込みの確定)、SCSI START STOP UNIT で回転を止める。
+     * セッション (USB の確保) は保つ: 閉じると OS の usb-storage が戻って FAT をマウントし、ディスクがまた動くため。止めた後は、USB を抜く。
+     */
+    private fun settingsPrefs() = getSharedPreferences("usbmem_settings", MODE_PRIVATE)
+
+    /** アイドル自動スピンダウンの設定 (分、0 = オフ)。保存して、開いているセッションにも反映する。 */
+    override fun setIdleSpinDown(minutes: Int) {
+        model.idleSpinDownMin = minutes
+        runCatching { settingsPrefs().edit().putInt("idle_spindown_min", minutes).apply() }
+        applyIdleSpinDown(usbSession)
+    }
+
+    private fun applyIdleSpinDown(s: UsbStorageSession?) {
+        s?.setIdleSpinDown(model.idleSpinDownMin) { stopped -> ui { if (stopped && !model.diskIdleStopped) model.usbNotice = null; model.diskIdleStopped = stopped } }
+        if (model.idleSpinDownMin == 0) model.diskIdleStopped = false
+    }
+
+    override fun stopDisk() {
+        val s = usbSession ?: return
+        model.busy = getString(R.string.busy_stopping_disk)
+        model.usbNotice = null
+        Thread {
+            var notice: Notice
+            var stopped = false
+            VolumeRegistry.removeByKey("usb:" + s.deviceName)   // アンマウント + 書き込みの確定
+            notifyRoots()
+            try {
+                s.startStop(false)
+                stopped = true
+                notice = Notice(Severity.Success, getString(R.string.notice_disk_stopped), getString(R.string.notice_disk_stopped_detail))
+            } catch (e: NativeException) {
+                android.util.Log.w("usbmem", "stop disk failed: code=${e.code} ${e.message}")
+                notice = if (e.code == 9) Notice(Severity.Warning, getString(R.string.notice_disk_stop_unsupported), getString(R.string.notice_disk_stop_unsupported_detail))
+                else Notice(Severity.Error, getString(R.string.notice_disk_stop_failed), e.message)
+            }
+            updateOps("after stop disk")
+            ui { model.busy = null; model.published = null; model.diskStopped = stopped; model.usbNotice = notice }
+        }.start()
+    }
+
+    override fun resumeDisk() {
+        val s = usbSession ?: return
+        model.busy = getString(R.string.busy_resuming_disk)
+        Thread {
+            var notice: Notice
+            var ok = false
+            try { s.startStop(true); ok = true; notice = Notice(Severity.Success, getString(R.string.notice_disk_resumed)) }
+            catch (e: NativeException) { notice = Notice(Severity.Error, getString(R.string.notice_disk_stop_failed), e.message) }
+            updateOps("after resume disk")
+            ui { model.busy = null; if (ok) model.diskStopped = false; model.usbNotice = notice }
+        }.start()
+    }
+
     override fun closeUsb() {
         model.busy = getString(R.string.busy_closing_usb)
         Thread { closeUsbWith(Notice(Severity.Success, getString(R.string.notice_usb_closed), getString(R.string.notice_usb_closed_detail))) }.start()
@@ -167,7 +223,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         closeUsbQuiet()
         notifyRoots()
         ui {
-            model.busy = null; model.usbOpenKey = null; model.usbWritable = false; model.table = null; model.published = null
+            model.busy = null; model.usbOpenKey = null; model.usbWritable = false; model.table = null; model.published = null; model.diskStopped = false; model.diskIdleStopped = false
             model.usbNotice = notice; model.ops = ""; model.tuneLog = ""; model.tuningSaved = null
             refreshUsb()
         }
@@ -325,6 +381,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        model.idleSpinDownMin = runCatching { settingsPrefs().getInt("idle_spindown_min", 0) }.getOrDefault(0)
         setContent { AppTheme { AppScaffold(model, this, this, this) } }
     }
 }

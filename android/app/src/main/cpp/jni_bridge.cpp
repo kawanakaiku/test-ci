@@ -53,6 +53,22 @@ JNIEXPORT void JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbLastSense(JNIEn
   if (out && env->GetArrayLength(out) >= 3) env->SetIntArrayRegion(out, 0, 3, v);
 }
 
+// アイドル自動スピンダウン: 1 = 止めた / 0 = 何もしない / <0 = -Errc
+JNIEXPORT jint JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbIdleStop(JNIEnv*, jclass, jlong handle, jlong idleMs) {
+  if (idleMs < 0) return -22;
+  return usbmem_usb_idle_stop(reinterpret_cast<usbmem_device*>(handle), static_cast<unsigned long long>(idleMs));
+}
+
+JNIEXPORT jboolean JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbSpunDown(JNIEnv*, jclass, jlong handle) {
+  return usbmem_usb_spun_down(reinterpret_cast<usbmem_device*>(handle)) ? JNI_TRUE : JNI_FALSE;
+}
+
+// ディスクの回転を止める (start=0) / 再開 (start=1)。SCSI START STOP UNIT。0 / <0 = -Errc (未対応は -9)
+JNIEXPORT jint JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbStartStop(JNIEnv*, jclass, jlong handle, jboolean start) {
+  int rc = usbmem_usb_start_stop(reinterpret_cast<usbmem_device*>(handle), start ? 1 : 0);
+  return rc ? -rc : 0;
+}
+
 // 転送サイズの調整 (KiB 単位。0 = 変更しない)。0 / <0 = -Errc
 JNIEXPORT jint JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbTune(JNIEnv*, jclass, jlong handle, jint chunkKiB, jint maxTransferKiB) {
   if (chunkKiB < 0 || maxTransferKiB < 0 || chunkKiB > 16384 || maxTransferKiB > 16384) return -22;

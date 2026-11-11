@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -31,6 +32,9 @@ interface UsbActions {
     fun openUsb(key: String)
     fun publishPartition(startBytes: Long, sizeBytes: Long, label: String)
     fun closeUsb()
+    fun stopDisk()
+    fun resumeDisk()
+    fun setIdleSpinDown(minutes: Int)
     fun setAllowWrite(v: Boolean)
 }
 
@@ -96,10 +100,34 @@ fun UsbScreen(m: AppModel, a: UsbActions, modifier: Modifier = Modifier) {
             }
         }
 
+        // ---- ディスクの電源 (スピンダウン)。開いていて、書き込み確定のために公開中のボリュームを閉じてから止める
+        if (isOpen) {
+            SectionCard(stringResource(R.string.usb_power_title), subtitle = stringResource(R.string.usb_power_subtitle), trailing = { if (m.diskStopped) Chip(stringResource(R.string.usb_power_stopped_chip), severity = Severity.Warning) else if (m.diskIdleStopped) Chip(stringResource(R.string.usb_idle_stopped_chip), severity = Severity.Warning) }) {
+                if (m.diskStopped) {
+                    Text(stringResource(R.string.usb_power_stopped_desc), style = MaterialTheme.typography.bodyMedium)
+                    FilledTonalButton(onClick = a::resumeDisk, enabled = m.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_power_resume)) }
+                } else {
+                    Text(stringResource(R.string.usb_power_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedButton(onClick = a::stopDisk, enabled = m.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_power_stop)) }
+                    Text(stringResource(R.string.usb_idle_title), style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.usb_idle_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(0, 5, 10, 30).forEach { min ->
+                            FilterChip(
+                                selected = m.idleSpinDownMin == min,
+                                onClick = { a.setIdleSpinDown(min) },
+                                label = { Text(if (min == 0) stringResource(R.string.usb_idle_off) else stringResource(R.string.usb_idle_minutes, min)) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // ---- パーティション
         val t = m.table
         if (isOpen && t != null) {
-            PartitionList(t, m.usbLabel, canPublish = pub == null && m.busy == null, writable = m.usbWritable) { p -> a.publishPartition(p.startBytes, p.sizeBytes, "${m.usbLabel} #${p.index}") }
+            PartitionList(t, m.usbLabel, canPublish = pub == null && m.busy == null && !m.diskStopped, writable = m.usbWritable) { p -> a.publishPartition(p.startBytes, p.sizeBytes, "${m.usbLabel} #${p.index}") }
             if (t.wholeDeviceVolume && pub == null) OutlinedButton(onClick = { a.publishPartition(0, t.diskBytes, m.usbLabel) }, enabled = m.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_publish_whole_device)) }
             if (pub == null) OutlinedButton(onClick = { if (m.usbWritable) confirmClose = true else a.closeUsb() }, enabled = m.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_close_without_publish)) }
         }

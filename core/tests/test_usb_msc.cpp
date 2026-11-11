@@ -2,6 +2,9 @@
 #include "fake_bot.h"
 #include "test_util.h"
 
+#include <chrono>
+#include <thread>
+
 using namespace usbmem;
 using fake::BotDevice;
 
@@ -287,4 +290,79 @@ TEST(msc_partition_table_over_usb_device) {
   CHECK(pt.kind == TableKind::Mbr);
   CHECK_EQ(pt.partitions.size(), 1u);
   CHECK_EQ(pt.partitions[0].start_lba, 2048u);
+}
+
+TEST(msc_start_stop_works_even_when_read_only_and_flushes_first_when_writable) {
+  // 読み取り専用: 許可リストを通り (専用の入口だけ)、媒体は変えない。SYNCHRONIZE CACHE は送らない
+  auto ro = make(256, 512);
+  auto* m = dynamic_cast<MscDevice*>(ro.dev.get());
+  CHECK(m->start_stop(false).ok());
+  CHECK(ro.bot->spun_down);
+  CHECK_EQ(m->op_count(0x1B), 1);
+  CHECK_EQ(m->op_count(0x35), 0);
+  CHECK(m->start_stop(true).ok());
+  CHECK(!ro.bot->spun_down);
+  CHECK(ro.bot->written.empty());
+  // 書き込み可: 止める前に SYNCHRONIZE CACHE。再開では送らない
+  MscOptions wo; wo.read_only = false;
+  auto rw = make(256, 512, {}, wo);
+  auto* mw = dynamic_cast<MscDevice*>(rw.dev.get());
+  CHECK(mw->start_stop(false).ok());
+  CHECK_EQ(rw.bot->sync_count, 1);
+  CHECK_EQ(mw->op_count(0x35), 1);
+  CHECK(mw->start_stop(true).ok());
+  CHECK_EQ(rw.bot->sync_count, 1);
+}
+
+TEST(msc_start_stop_unsupported_and_read_only_allowlist_still_blocks_other_opcodes) {
+  auto r = make(256, 512, [](BotDevice& b) { b.f.no_start_stop = true; });
+  auto* m = dynamic_cast<MscDevice*>(r.dev.get());
+  CHECK_EQ(m->start_stop(false).code, Errc::Unsupported);   // ILLEGAL REQUEST → 未対応 (データには影響しない)
+  // 書き込み系は、start_stop を試した後も、読み取り専用では送られない
+  uint8_t x = 1;
+  CHECK_EQ(r.dev->write_at(0, &x, 1).code, Errc::ReadOnly);
+  CHECK_EQ(r.bot->start_stop_count, 1);
+  CHECK(r.dev->flush().ok());                                // 読み取り専用の flush は何も送らない
+  CHECK_EQ(m->op_count(0x35), 0);
+  CHECK_EQ(m->op_count(0x2a), 0);
+}
+
+TEST(msc_idle_stop_resumes_automatically_on_next_io) {
+  MscOptions wo; wo.read_only = false;
+  auto r = make(256, 512, {}, wo);
+  auto* m = dynamic_cast<MscDevice*>(r.dev.get());
+  CHECK_EQ(m->idle_stop(60000), 0);                       // 使用直後 = まだ止めない
+  CHECK(!m->spun_down());
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  CHECK_EQ(m->idle_stop(10), 1);                          // アイドル超過 → 止める
+  CHECK(m->spun_down());
+  CHECK(r.bot->spun_down);
+  CHECK_EQ(m->idle_stop(10), 0);                          // 二重には止めない
+  CHECK(r.dev->flush().ok());                             // 停止中の flush は起こさない
+  CHECK(r.bot->spun_down);
+  std::vector<uint8_t> b(4096);
+  CHECK(r.dev->read_at(0, b.data(), b.size()).ok());      // READ の前に自動で START
+  CHECK(!r.bot->spun_down);
+  CHECK(!m->spun_down());
+  CHECK(std::vector<uint8_t>(b.begin(), b.begin() + 4096) == expect(0, 4096, 512));
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  CHECK_EQ(m->idle_stop(10), 1);
+  CHECK(m->start_stop(true).ok());                        // 手動の再開もアイドル時計をリセットする
+  CHECK_EQ(m->idle_stop(60000), 0);
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  CHECK_EQ(m->idle_stop(10), 1);
+  std::vector<uint8_t> w(512, 0x77);
+  CHECK(r.dev->write_at(512, w.data(), w.size()).ok());   // WRITE の前にも自動で START
+  CHECK(!r.bot->spun_down);
+}
+
+TEST(msc_idle_stop_gives_up_when_unsupported) {
+  auto r = make(256, 512, [](BotDevice& b) { b.f.no_start_stop = true; });
+  auto* m = dynamic_cast<MscDevice*>(r.dev.get());
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  CHECK_EQ(m->idle_stop(5), -static_cast<int>(Errc::Unsupported));
+  CHECK_EQ(m->idle_stop(5), 0);                           // 以後は試さない (ディスクに無駄な命令を送り続けない)
+  CHECK_EQ(r.bot->start_stop_count, 1);
+  std::vector<uint8_t> b(512);
+  CHECK(r.dev->read_at(0, b.data(), b.size()).ok());      // 読み書きは普通に動く
 }

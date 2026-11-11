@@ -27,6 +27,7 @@ struct Faults {
   bool short_cbw_accept = false;     // CBW の bulk_out が 30 バイトしか進まない
   bool lie_residue = false;          // CSW の residue を len より大きく返す
   bool no_sync_cache = false;        // SYNCHRONIZE CACHE を ILLEGAL REQUEST にする
+  bool no_start_stop = false;        // START STOP UNIT を ILLEGAL REQUEST にする (対応しないブリッジ)
   bool short_cap16 = false;          // READ CAPACITY(16) を規格の最小 12 バイトだけ返す (実機の RAID ブリッジの挙動)
 };
 
@@ -40,6 +41,8 @@ class BotDevice : public BulkTransport {
   std::vector<uint8_t> log_ops;                       // 受け取った SCSI opcode の履歴
   int resets = 0, clear_in = 0, clear_out = 0, max_data_len = 0;
   int sync_count = 0;
+  int start_stop_count = 0;
+  bool spun_down = false;            // 直近の START STOP UNIT が停止 (start=0) だったか
 
   // 設定すると、未書き込みブロックの内容をこの関数から得る (実イメージを USB デバイスとして見せる統合テスト用)
   std::function<void(uint64_t lba, uint8_t* out)> backing;
@@ -194,6 +197,11 @@ class BotDevice : public BulkTransport {
         if (f.write_protected) { fail(0x07, 0x27, 0x00); return; }
         state_ = dlen_ ? St::DataOut : St::Csw;
         break;
+      case 0x1B:  // START STOP UNIT
+        start_stop_count++;
+        if (f.no_start_stop) { fail(0x05, 0x20, 0x00); return; }
+        spun_down = (cdb_[4] & 0x01) == 0;
+        state_ = St::Csw; break;
       case 0x35:  // SYNCHRONIZE CACHE(10)
         sync_count++;
         if (f.no_sync_cache) { fail(0x05, 0x20, 0x00); return; }

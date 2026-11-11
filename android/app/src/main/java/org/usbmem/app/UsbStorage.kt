@@ -83,6 +83,46 @@ class UsbStorageSession private constructor(
         return v.also { volumes += it }
     }
 
+    /** ディスクの回転を止める (false) / 再開する (true)。SCSI START STOP UNIT。公開中のボリュームは、呼び出し側が先に閉じておくこと。未対応は NativeException(9)。 */
+    @Synchronized
+    fun startStop(start: Boolean) {
+        check(Handle.valid(handle)) { "closed" }
+        val r = NativeBridge.nativeUsbStartStop(handle, start)
+        if (r != 0) throw NativeException(-r, "start/stop failed: ${NativeBridge.nativeErrcName(-r)}")
+    }
+
+    /** 回転を止めている状態か (手動・自動どちらでも)。次の I/O で自動的に再開する。 */
+    @Synchronized
+    fun isSpunDown(): Boolean = Handle.valid(handle) && NativeBridge.nativeUsbSpunDown(handle)
+
+    private var idleWatcher: Thread? = null
+
+    /**
+     * アイドル自動スピンダウンの監視。最後の I/O から idleMinutes 分たったら止める (0 = 監視しない)。
+     * 止めた後の読み書きは MscDevice が先に START を送るので、呼び出し側は何もしなくてよい。
+     * 未対応のディスクは 1 度だけ試してあきらめる。onStopped は止めたとき (UI スレッドではない) に呼ぶ。
+     */
+    @Synchronized
+    fun setIdleSpinDown(idleMinutes: Int, onStopped: (Boolean) -> Unit = {}) {
+        idleWatcher?.interrupt()
+        idleWatcher = null
+        if (idleMinutes <= 0) return
+        val idleMs = idleMinutes * 60_000L
+        val t = Thread {
+            try {
+                while (true) {
+                    Thread.sleep(minOf(30_000L, maxOf(1_000L, idleMs / 4)))
+                    val rc = synchronized(this) { if (Handle.valid(handle)) NativeBridge.nativeUsbIdleStop(handle, idleMs) else return@Thread }
+                    if (rc == 1) android.util.Log.i("usbmem", "idle spin-down after ${idleMinutes} min")
+                    if (rc >= 0) onStopped(isSpunDown())   // 止めた/再開した、どちらも UI に反映する
+                    else { android.util.Log.w("usbmem", "idle spin-down not available: ${NativeBridge.nativeErrcName(-rc)}"); return@Thread }
+                }
+            } catch (_: InterruptedException) {}
+        }
+        t.isDaemon = true; t.name = "usbmem-idle-spindown"; t.start()
+        idleWatcher = t
+    }
+
     /** 転送サイズの調整 (速度計測用)。KiB。0 = 変更しない。 */
     @Synchronized
     fun tune(chunkKiB: Int, maxTransferKiB: Int) {
@@ -111,6 +151,7 @@ class UsbStorageSession private constructor(
 
     @Synchronized
     override fun close() {
+        idleWatcher?.interrupt(); idleWatcher = null
         volumes.forEach { runCatching { it.close() } }
         volumes.clear()
         if (Handle.valid(handle)) NativeBridge.nativeClose(handle)

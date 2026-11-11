@@ -383,7 +383,6 @@ bool dir_emit_dots(struct file *f, struct dir_context *ctx) {
 }
 
 /* ---- file / VFS 小物 */
-size_t iov_iter_count(const struct iov_iter *i) { return i->count; }
 int generic_file_open(struct inode *i, struct file *f) { (void)i; (void)f; return 0; }
 loff_t vfs_setpos(struct file *f, loff_t off, loff_t max) { if (off > max) return -EINVAL; f->f_pos = off; return off; }
 int inode_permission(struct mnt_idmap *m, struct inode *i, int mask) { (void)m; (void)i; (void)mask; return 0; }

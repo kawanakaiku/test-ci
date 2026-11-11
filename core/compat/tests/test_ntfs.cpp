@@ -211,7 +211,7 @@ static int wtest(const std::string& img, const std::string& path, uint64_t off, 
   if (!vol) { std::fprintf(stderr, "mount_rw failed: errno %d\n", err); return 1; }
   uint64_t ino = 0; if (vol->resolve(path, &ino)) { std::fprintf(stderr, "resolve failed\n"); return 1; }
   std::vector<uint8_t> b(len); for (uint64_t i = 0; i < len; i++) b[i] = (uint8_t)(((off + i) * 7 + seed) & 255);
-  int64_t n = vol->write_inplace(ino, off, b.data(), b.size());
+  int64_t n = std::getenv("USBMEM_WRITE_ITER") ? vol->write(ino, off, b.data(), b.size()) : vol->write_inplace(ino, off, b.data(), b.size());
   if (n != (int64_t)len) { std::fprintf(stderr, "write_inplace -> %lld\n", (long long)n); return 1; }
   int rc = vol->sync();
   if (rc) { std::fprintf(stderr, "sync -> %d\n", rc); return 1; }

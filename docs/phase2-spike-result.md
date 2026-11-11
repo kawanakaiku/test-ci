@@ -158,7 +158,7 @@ CTest `ntfs_windows_images` (イメージが無ければ SKIP)。
 - **EFS**: 暗号化したファイル・ディレクトリ配下のファイル 3 件は、いずれも読み出しが **-EOPNOTSUPP (95) で安全に拒否**。平文ファイルは正常に読める。fuzz 200 回 crash/ハングなし。
   (EFS の作成は対話セッションの鍵が必要で、ssh 経由 (セッション 0) では「アクセス拒否」。`./w11 desk` で実行する。)
 - **BitLocker** (XTS-AES-128、パスワード保護、`-UsedSpaceOnly`): パーティションは `FsType::BitLocker` と判別され、NTFS としてはマウント対象外。復号は Phase 4。
-- **重要な発見 — LogFile v2.0**: Windows 11 本体で `Format-Volume` した NTFS は `$LogFile` が **バージョン 2.0** で、上流ドライバは 1.1 のみ対応。
-  読み取り専用では警告のみで全データを読めるが、書き込みマウントは上流が「Errors were recorded during mount. Mounting read-only」で**自動的に読み取り専用に落ちる** (`write_inplace -> -EROFS`、イメージは無変更 = 安全側)。
-  WinPE の `diskpart format` は LFS 1.1 だったので、**最近の Windows 11 でフォーマットした USB メモリには書き込めない**可能性が高い。Phase 3 の書き込み対応範囲に直結するため、
-  LFS 2.0 の対応 (またはログを使わない安全な書き込み手段) を別途検討する必要がある。
+- **LogFile v2.0 (訂正あり)**: ダーティのままデタッチした Windows 11 製イメージでは `$LogFile` の restart page が **v2.0** で、上流 (1.1 のみ対応) が書き込みマウントを自動的に読み取り専用に落とす
+  (読み取りは全データ可、イメージ無変更)。当初「最近の Windows 11 でフォーマットした USB には書き込めない」と書いたが**誤り**: Windows は**クリーンにディスマウントすると restart page を v1.1 に戻し**、
+  その状態のボリュームには `ntfs-3g` も自前ドライバも書き込めた (書いた範囲の内容と `ntfsfix -n` を確認)。v2.0 が問題になるのはダーティ (未再生ログあり) のボリュームだけで、
+  そこは元々書き込まない方針。`ntfs-3g` もダーティなこのイメージでは「unclean file system, refused to mount」と読み取り専用に落ちる。

@@ -146,7 +146,7 @@ struct file {
   void *private_data;
 };
 struct kiocb { struct file *ki_filp; loff_t ki_pos; unsigned int ki_flags; };
-struct iov_iter { size_t count; };
+struct iov_iter { const char *buf; size_t count; };   /* 単一の連続バッファのみ (ホスト API 用) */
 struct kstat {
   u32 result_mask; umode_t mode; u64 attributes, attributes_mask;
   u32 blksize, dio_mem_align, dio_offset_align; u64 blocks, size;

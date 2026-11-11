@@ -15,6 +15,7 @@ struct NtfsVolume::Impl {
 std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr dev, int ro, int* err);
 std::unique_ptr<NtfsVolume> NtfsVolume::mount(BlockDevicePtr dev, int* err) { return mount_impl_(std::move(dev), 1, err); }
 std::unique_ptr<NtfsVolume> NtfsVolume::mount_rw(BlockDevicePtr dev, int* err) { return mount_impl_(std::move(dev), 0, err); }
+int64_t NtfsVolume::write(uint64_t ino, uint64_t off, const void* buf, size_t len) { return usbmem_ntfs_write(impl_->v, ino, off, buf, len); }
 int NtfsVolume::sync() { return usbmem_ntfs_sync(impl_->v); }
 int64_t NtfsVolume::write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len) { return usbmem_ntfs_write_inplace(impl_->v, ino, off, buf, len); }
 std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr dev, int ro, int* err) {

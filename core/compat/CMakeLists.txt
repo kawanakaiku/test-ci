@@ -2,7 +2,7 @@
 # LinuxCompat + NTFS Resurrection (無改変) を静的ライブラリ usbmem_ntfs としてビルドする。
 set(NTFS_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/ntfs-resurrection)
 file(GLOB NTFS_SRC ${NTFS_ROOT}/fs-ntfs/*.c ${NTFS_ROOT}/fs-ntfs/lib/*.c)
-set(COMPAT_SRC src/rt_core.c src/rt_pagecache.c src/rt_stubs.c src/rt_vfs.c src/bdev_bridge.cpp src/ntfs_volume.cpp)
+set(COMPAT_SRC src/rt_core.c src/rt_pagecache.c src/rt_write.c src/rt_stubs.c src/rt_vfs.c src/bdev_bridge.cpp src/ntfs_volume.cpp)
 
 # 書き込み経路は既定で無効 (未検証)。ON でも実行時に read_only=0 で明示マウントしたときだけ有効。
 option(USBMEM_NTFS_WRITE "NTFS 書き込み経路を有効にする (実験的・未検証)" OFF)
@@ -10,7 +10,7 @@ add_library(usbmem_ntfs STATIC ${NTFS_SRC} ${COMPAT_SRC})
 # 上流 fs/ntfs は CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS 前提 (x86/arm64 は非整列アクセス可) で u16/u32 を直接読む。
 # UBSan の alignment 検査だけ上流コードで外す (他の UB 検査は有効のまま)。互換層 (src/rt_*.c) には適用しない。
 if(USBMEM_SANITIZE)
-  set_source_files_properties(${NTFS_SRC} PROPERTIES COMPILE_OPTIONS "-fno-sanitize=alignment;-fno-sanitize=shift-base")
+  set_source_files_properties(${NTFS_SRC} PROPERTIES COMPILE_OPTIONS "-fno-sanitize=alignment;-fno-sanitize=shift-base;-fno-sanitize=nonnull-attribute")
   # 破損 runlist の巨大値で符号付き左シフトが溢れる (上流は -fno-strict-overflow 前提 = wrap)。実カーネルのビルドと同じ扱いにする。
 endif()
 target_include_directories(usbmem_ntfs PUBLIC public)

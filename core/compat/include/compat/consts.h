@@ -51,6 +51,7 @@
 #define FMODE_NOWAIT (1u << 5)
 #define FMODE_CAN_ODIRECT (1u << 22)
 #define IOCB_DIRECT (1 << 17)
+#define IOCB_APPEND (1 << 1)
 #define IOCB_NOWAIT (1 << 7)
 #define MAY_EXEC 1
 #define MAY_WRITE 2

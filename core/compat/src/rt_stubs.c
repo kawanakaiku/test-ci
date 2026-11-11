@@ -9,26 +9,11 @@ int blkdev_issue_discard(struct block_device * a0, sector_t a1, sector_t a2, gfp
 int blkdev_issue_zeroout(struct block_device * a0, sector_t a1, sector_t a2, gfp_t a3, unsigned a4) {
   usbmem_unimplemented("blkdev_issue_zeroout"); return (int)-ENOSYS;
 }
-size_t copy_folio_from_iter_atomic(struct folio * a0, size_t a1, size_t a2, struct iov_iter * a3) {
-  usbmem_unimplemented("copy_folio_from_iter_atomic"); return (size_t)-ENOSYS;
-}
-size_t fault_in_iov_iter_readable(const struct iov_iter * a0, size_t a1) {
-  usbmem_unimplemented("fault_in_iov_iter_readable"); return (size_t)-ENOSYS;
-}
 void file_accessed(struct file * a0) {
   usbmem_unimplemented("file_accessed");
 }
 struct mnt_idmap * file_mnt_idmap(const struct file * a0) {
   usbmem_unimplemented("file_mnt_idmap"); return (struct mnt_idmap *)0;
-}
-int file_modified(struct file * a0) {
-  usbmem_unimplemented("file_modified"); return (int)-ENOSYS;
-}
-int file_remove_privs(struct file * a0) {
-  usbmem_unimplemented("file_remove_privs"); return (int)-ENOSYS;
-}
-int file_update_time(struct file * a0) {
-  usbmem_unimplemented("file_update_time"); return (int)-ENOSYS;
 }
 void fileattr_fill_flags(struct file_kattr * a0, u32 a1) {
   usbmem_unimplemented("fileattr_fill_flags");
@@ -78,12 +63,6 @@ int generic_setlease(struct file * a0, int a1, void ** a2, void ** a3) {
 int generic_update_time(struct inode * a0, enum fs_update_time a1, unsigned a2) {
   usbmem_unimplemented("generic_update_time"); return (int)-ENOSYS;
 }
-int generic_write_checks(struct kiocb * a0, struct iov_iter * a1) {
-  usbmem_unimplemented("generic_write_checks"); return (int)-ENOSYS;
-}
-ssize_t generic_write_sync(struct kiocb * a0, ssize_t a1) {
-  usbmem_unimplemented("generic_write_sync"); return (ssize_t)-ENOSYS;
-}
 int get_write_access(struct inode * a0) {
   usbmem_unimplemented("get_write_access"); return (int)-ENOSYS;
 }
@@ -92,9 +71,6 @@ ssize_t iomap_dio_rw(struct kiocb * a0, struct iov_iter * a1, iomap_iter_next_fn
 }
 int iomap_fiemap(struct inode * a0, struct fiemap_extent_info * a1, u64 a2, u64 a3, iomap_iter_next_fn a4) {
   usbmem_unimplemented("iomap_fiemap"); return (int)-ENOSYS;
-}
-ssize_t iomap_file_buffered_write(struct kiocb * a0, struct iov_iter * a1, iomap_iter_next_fn a2, const struct iomap_write_ops * a3, void * a4) {
-  usbmem_unimplemented("iomap_file_buffered_write"); return (ssize_t)-ENOSYS;
 }
 void iomap_invalidate_folio(struct folio * a0, size_t a1, size_t a2) {
   usbmem_unimplemented("iomap_invalidate_folio");
@@ -117,14 +93,8 @@ loff_t iomap_seek_hole(struct inode * a0, loff_t a1, iomap_iter_next_fn a2) {
 int iomap_swapfile_activate(struct swap_info_struct * a0, struct file * a1, sector_t * a2, iomap_iter_next_fn a3) {
   usbmem_unimplemented("iomap_swapfile_activate"); return (int)-ENOSYS;
 }
-int iomap_zero_range(struct inode * a0, loff_t a1, loff_t a2, bool * a3, iomap_iter_next_fn a4, const struct iomap_write_ops * a5, void * a6) {
-  usbmem_unimplemented("iomap_zero_range"); return (int)-ENOSYS;
-}
 ssize_t iter_file_splice_write(struct pipe_inode_info * a0, struct file * a1, loff_t * a2, size_t a3, unsigned a4) {
   usbmem_unimplemented("iter_file_splice_write"); return (ssize_t)-ENOSYS;
-}
-int kiocb_modified(struct kiocb * a0) {
-  usbmem_unimplemented("kiocb_modified"); return (int)-ENOSYS;
 }
 void mnt_drop_write_file(struct file * a0) {
   usbmem_unimplemented("mnt_drop_write_file");

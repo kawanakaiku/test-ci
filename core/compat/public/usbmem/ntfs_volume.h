@@ -20,6 +20,7 @@ class NtfsVolume {
   // 読み書きでマウント (実験的)。ビルドで USBMEM_NTFS_WRITE=ON が必要。無効なら err=EROFS。
   static std::unique_ptr<NtfsVolume> mount_rw(BlockDevicePtr dev, int* err = nullptr);
   int sync();
+  int64_t write(uint64_t ino, uint64_t off, const void* buf, size_t len);   // 実験的: 拡張可。sync() で永続化
   int64_t write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len);
   ~NtfsVolume();
   uint64_t root() const { return 5; }

@@ -29,6 +29,9 @@ int usbmem_ntfs_sync(usbmem_ntfs *);
 /* 非常駐・非圧縮・非暗号の既存ファイルの [off, off+len) を上書き (サイズ拡張なし)。段階 2 の足場。 */
 int64_t usbmem_ntfs_write_inplace(usbmem_ntfs *, uint64_t ino, uint64_t off, const void *buf, size_t len);
 
+/* 上流の write_iter 経由の書き込み (拡張可)。書いたバイト数 / 負の errno。要 sync。 */
+int64_t usbmem_ntfs_write(usbmem_ntfs *, uint64_t ino, uint64_t off, const void *buf, size_t len);
+
 /* BlockDevice ブリッジ。dev は usbmem::BlockDevicePtr を指す不透明ポインタ(C++ ラッパが渡す)。 */
 struct usbmem_bdev *usbmem_bdev_wrap(void *shared_ptr_copy_owner);
 void usbmem_bdev_free(struct usbmem_bdev *);

@@ -133,3 +133,23 @@ int64_t usbmem_ntfs_write_inplace(usbmem_ntfs *v, uint64_t ino, uint64_t off, co
   }
   iput(i); return (int64_t)done;
 }
+
+int64_t usbmem_ntfs_write(usbmem_ntfs *v, uint64_t ino, uint64_t off, const void *buf, size_t len) {
+  if (sb_rdonly(v->sb)) return -EROFS;
+  int err = 0; struct inode *i = get_inode(v, ino, &err);
+  if (!i) return err;
+  if (S_ISDIR(i->i_mode)) { iput(i); return -EISDIR; }
+  if (!i->i_fop || !i->i_fop->write_iter) { iput(i); return -EOPNOTSUPP; }
+  struct file f; memset(&f, 0, sizeof f);
+  f.f_inode = i; f.f_mapping = i->i_mapping; f.f_mode = FMODE_READ | FMODE_WRITE;
+  int rc = 0;
+  if (i->i_fop->open) rc = ((int (*)(struct inode *, struct file *))i->i_fop->open)(i, &f);
+  int64_t ret = rc;
+  if (!rc) {
+    struct kiocb kio = { .ki_filp = &f, .ki_pos = (loff_t)off, .ki_flags = 0 };
+    struct iov_iter it = { .buf = buf, .count = len };
+    ret = ((ssize_t (*)(struct kiocb *, struct iov_iter *))i->i_fop->write_iter)(&kio, &it);
+    if (i->i_fop->release) ((int (*)(struct inode *, struct file *))i->i_fop->release)(i, &f);
+  }
+  iput(i); return ret;
+}

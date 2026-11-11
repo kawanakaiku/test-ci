@@ -33,3 +33,10 @@
 - [ ] 電源断模擬を Windows 製イメージ (gpt64k/4Kn) と、より長い操作列・大きなファイル書き込み (ランダム/シーケンシャル混在) に拡大。フル版 (`run_crash_tests.sh <bin> <dir> 40`) を定期実行。
 - [x] クラスタサイズ < 4096 のボリュームは書き込みマウントを拒否 (`mount_rw` が -EROFS。読み取り専用マウントは可。run_write_tests.sh で検証)
 - [ ] 書き込みの `fsync` / SAF 側の flush の意味づけ、書き込み途中の USB 抜去 (I/O エラー) 時の挙動テスト。
+
+## Android 書き込みの残課題 (2026-11-11 追加)
+- [ ] USB 経路の書き込み (SubRangeDevice を rw で開き `mount_rw`)。実機 USB メモリ + 抜去テストが先。
+- [ ] SAF 書き込み中の抜去 / ボリューム close と ProxyFileDescriptor の競合 (onRelease が close 後に呼ばれる) の挙動確認。
+- [ ] Documents UI (システムのファイルアプリ) での実操作確認、`FLAG_SUPPORTS_MOVE/COPY` の対応検討、`wa` (追記) モード。
+- [ ] 大きなファイルの書き込み性能 (onWrite 128KiB ごとの JNI コピー、sync の頻度) の計測。
+- [ ] 書き込み有効ビルドの配布方針 (既定ビルドでは無効のまま。警告 UI と同意の文言)。

@@ -19,7 +19,11 @@ android {
         // 64bit ABI のみ (Google Play 要件)。x86_64 はエミュレータ用。
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         externalNativeBuild {
-            cmake { arguments += listOf("-DANDROID_STL=c++_static") }
+            cmake {
+                arguments += listOf("-DANDROID_STL=c++_static")
+                // NTFS 書き込みは実験的: 既定では無効 (-PusbmemNtfsWrite=true で書き込み可能なビルドにする)。無効ビルドでは書き込みマウントが -EROFS で失敗する
+                if (providers.gradleProperty("usbmemNtfsWrite").orNull == "true") arguments += "-DUSBMEM_NTFS_WRITE=ON"
+            }
         }
     }
 

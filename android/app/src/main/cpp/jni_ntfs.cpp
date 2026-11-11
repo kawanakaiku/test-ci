@@ -48,6 +48,22 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMount(JNIEnv*
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
 }
 
+// 書き込み可能でマウント (実験的。ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS)。fd の所有権を引き取る。戻り値: >0 ハンドル / <=0 = -errno
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountRw(JNIEnv*, jclass, jint fd) {
+  usbmem::BlockDevicePtr dev;
+  usbmem::Status st = usbmem::RawImageDevice::open_fd(fd, false, true, 512, &dev);
+  if (!st.ok()) return -22;
+  int err = 0;
+  auto v = usbmem::NtfsVolume::mount_rw(dev, &err);
+  if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
+  return reinterpret_cast<jlong>(new Vol{std::move(v)});
+}
+
+// 上流の判断で読み取り専用に落ちていないか (1 = 書き込み可)
+JNIEXPORT jboolean JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsWritable(JNIEnv*, jclass, jlong h) {
+  return reinterpret_cast<Vol*>(h)->v->writable() ? JNI_TRUE : JNI_FALSE;
+}
+
 // 既に開いているデバイス (USB 等) の [offset, offset+length) を NTFS として読み取り専用マウント。ハンドルは消費しない
 // (呼び出し側が NTFS を unmount してからデバイスを close する)。戻り値: >0 ハンドル / <=0 = -errno
 JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDevice(JNIEnv*, jclass, jlong devHandle, jlong offset, jlong length) {
@@ -117,6 +133,83 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsRead(JNIEnv* 
   int64_t r = v->read(ino, static_cast<uint64_t>(off), n ? &tmp[0] : nullptr, static_cast<size_t>(n));
   if (r > 0) env->SetByteArrayRegion(buf, 0, static_cast<jsize>(r), reinterpret_cast<const jbyte*>(tmp.data()));
   return r;
+}
+
+}  // extern "C"
+
+namespace {
+// "/a/b" -> ("/a", "b"); "/x" -> ("/", "x")
+void split_path(const std::string& p, std::string* dir, std::string* name) {
+  size_t i = p.find_last_of('/');
+  if (i == std::string::npos) { *dir = "/"; *name = p; return; }
+  *dir = i == 0 ? "/" : p.substr(0, i); *name = p.substr(i + 1);
+}
+inline jlong neg(int rc) { return rc < 0 ? rc : -rc; }
+}  // namespace
+
+extern "C" {
+
+// path のファイルへ off から書く。戻り値: 書けたバイト数 / <0 = -errno
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsWrite(JNIEnv* env, jclass, jlong h, jbyteArray path,
+                                                                       jlong off, jbyteArray buf, jint len) {
+  auto* v = reinterpret_cast<Vol*>(h)->v.get();
+  uint64_t ino = 0;
+  int rc = v->resolve(utf8(env, path), &ino);
+  if (rc) return neg(rc);
+  if (len < 0 || len > env->GetArrayLength(buf) || off < 0) return -22;
+  std::string tmp(static_cast<size_t>(len), '\0');
+  if (len) env->GetByteArrayRegion(buf, 0, len, reinterpret_cast<jbyte*>(&tmp[0]));
+  return v->write(ino, static_cast<uint64_t>(off), tmp.data(), static_cast<size_t>(len));
+}
+
+// parent ディレクトリに name のファイル/ディレクトリを作る。戻り値: ino / <0 = -errno
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsCreate(JNIEnv* env, jclass, jlong h, jbyteArray parent,
+                                                                        jbyteArray name, jboolean isDir) {
+  auto* v = reinterpret_cast<Vol*>(h)->v.get();
+  uint64_t dir = 0, ino = 0;
+  int rc = v->resolve(utf8(env, parent), &dir);
+  if (!rc) rc = isDir ? v->mkdir(dir, utf8(env, name), 0755, &ino) : v->create(dir, utf8(env, name), 0644, &ino);
+  return rc ? neg(rc) : static_cast<jlong>(ino);
+}
+
+// path を削除 (ファイルは unlink、ディレクトリは空なら rmdir)。0 / <0 = -errno
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsRemove(JNIEnv* env, jclass, jlong h, jbyteArray path) {
+  auto* v = reinterpret_cast<Vol*>(h)->v.get();
+  std::string p = utf8(env, path), dir, name;
+  split_path(p, &dir, &name);
+  uint64_t d = 0, ino = 0;
+  usbmem::NtfsStat st;
+  int rc = v->resolve(dir, &d);
+  if (!rc) rc = v->resolve(p, &ino);
+  if (!rc) rc = v->stat(ino, &st);
+  if (!rc) rc = st.is_dir() ? v->rmdir(d, name) : v->unlink(d, name);
+  return rc ? neg(rc) : 0;
+}
+
+// 同じディレクトリ内での名前変更。0 / <0 = -errno
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsRename(JNIEnv* env, jclass, jlong h, jbyteArray path, jbyteArray newName) {
+  auto* v = reinterpret_cast<Vol*>(h)->v.get();
+  std::string dir, name;
+  split_path(utf8(env, path), &dir, &name);
+  uint64_t d = 0;
+  int rc = v->resolve(dir, &d);
+  if (!rc) rc = v->rename(d, name, d, utf8(env, newName));
+  return rc ? neg(rc) : 0;
+}
+
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsTruncate(JNIEnv* env, jclass, jlong h, jbyteArray path, jlong size) {
+  auto* v = reinterpret_cast<Vol*>(h)->v.get();
+  uint64_t ino = 0;
+  if (size < 0) return -22;
+  int rc = v->resolve(utf8(env, path), &ino);
+  if (!rc) rc = v->truncate(ino, static_cast<uint64_t>(size));
+  return rc ? neg(rc) : 0;
+}
+
+// 変更をメディアへ確定 (書き込み + デバイス flush)。0 / <0 = -errno
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsSync(JNIEnv*, jclass, jlong h) {
+  int rc = reinterpret_cast<Vol*>(h)->v->sync();
+  return rc ? neg(rc) : 0;
 }
 
 }  // extern "C"

@@ -111,12 +111,6 @@ void put_write_access(struct inode * a0) {
 int rw_verify_area(int a0, struct file * a1, const loff_t * a2, size_t a3) {
   usbmem_unimplemented("rw_verify_area"); return (int)-ENOSYS;
 }
-void setattr_copy(struct mnt_idmap * a0, struct inode * a1, const struct iattr * a2) {
-  usbmem_unimplemented("setattr_copy");
-}
-int setattr_prepare(struct mnt_idmap * a0, struct dentry * a1, struct iattr * a2) {
-  usbmem_unimplemented("setattr_prepare"); return (int)-ENOSYS;
-}
 void simple_rename_timestamp(struct inode * a0, struct dentry * a1, struct inode * a2, struct dentry * a3) {
   usbmem_unimplemented("simple_rename_timestamp");
 }

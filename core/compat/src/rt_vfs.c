@@ -40,6 +40,8 @@ int usbmem_ntfs_mount(struct usbmem_bdev *bdev, int ro, usbmem_ntfs **out) {
   usbmem_ntfs *v = calloc(1, sizeof *v);
   v->sb = sb; *out = v; return 0;
 }
+/* 書き込み可能でマウントされているか (rw 要求でも、上流が異常を見つけて読み取り専用に落ちていることがある) */
+int usbmem_ntfs_writable(usbmem_ntfs *v) { return v && !sb_rdonly(v->sb); }
 void usbmem_ntfs_unmount(usbmem_ntfs *v) {
   if (!v) return;
   struct block_device *bd = v->sb->s_bdev;
@@ -170,6 +172,27 @@ int64_t usbmem_ntfs_write(usbmem_ntfs *v, uint64_t ino, uint64_t off, const void
     if (i->i_fop->release) ((int (*)(struct inode *, struct file *))i->i_fop->release)(i, &f);
   }
   iput(i); return ret;
+}
+
+/* ファイルサイズの変更 (SAF の "w" = 切り詰め)。圧縮・暗号化ファイルは上流が -EOPNOTSUPP。 */
+int usbmem_ntfs_truncate(usbmem_ntfs *v, uint64_t ino, uint64_t size) {
+  { int e = begin_write(v); if (e) return e; }
+  int err = 0; struct inode *i = get_inode(v, ino, &err);
+  if (!i) return err;
+  if (S_ISDIR(i->i_mode)) { iput(i); return -EISDIR; }
+  if (!i->i_op || !i->i_op->setattr) { iput(i); return -EOPNOTSUPP; }
+  if ((uint64_t)i->i_size == size) { iput(i); return 0; }
+  struct dentry *d = usbmem_d_alloc(i->i_sb, NULL, "t", 1);
+  if (!d) { iput(i); return -ENOMEM; }
+  ihold(i); d->d_inode = i;   /* usbmem_d_free が d の inode を 1 つ iput する */
+  struct iattr a; memset(&a, 0, sizeof a);
+  a.ia_valid = ATTR_SIZE; a.ia_size = (loff_t)size;
+  down_write(&i->i_rwsem);
+  int rc = ((int (*)(const struct mnt_idmap *, struct dentry *, struct iattr *))i->i_op->setattr)(NULL, d, &a);
+  up_write(&i->i_rwsem);
+  if (!rc) { struct timespec64 t = current_time(i); inode_set_mtime_to_ts(i, t); inode_set_ctime_to_ts(i, t); mark_inode_dirty(i); }
+  usbmem_d_free(d); iput(i);
+  return rc;
 }
 
 /* ---- 名前空間の変更: VFS の vfs_create / vfs_mkdir / vfs_unlink / vfs_rmdir / vfs_rename 相当 */

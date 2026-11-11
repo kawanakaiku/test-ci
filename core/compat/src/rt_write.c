@@ -31,6 +31,18 @@ int file_modified(struct file *f) { return touch_times(f->f_mapping->host); }
 int file_update_time(struct file *f) { return touch_times(f->f_mapping->host); }
 int file_remove_privs(struct file *f) { (void)f; return 0; }
 
+/* ---- setattr: 実用はサイズ変更 (truncate) と mode。権限検査は無い (単一ユーザの端末内利用) */
+int setattr_prepare(struct mnt_idmap *idmap, struct dentry *d, struct iattr *a) {
+  (void)idmap; (void)d;
+  if ((a->ia_valid & ATTR_SIZE) && a->ia_size < 0) return -EINVAL;
+  return 0;
+}
+void setattr_copy(struct mnt_idmap *idmap, struct inode *i, const struct iattr *a) {
+  (void)idmap;
+  if (a->ia_valid & ATTR_MODE) i->i_mode = (i->i_mode & S_IFMT) | (a->ia_mode & ~S_IFMT);
+  mark_inode_dirty(i);
+}
+
 /* ---- 1 folio 分の準備 (iomap_write_begin 相当) */
 static int fill_folio(const struct iomap_iter *it, struct folio *f) {
   loff_t fpos = folio_pos(f), isize = it->inode->i_size;

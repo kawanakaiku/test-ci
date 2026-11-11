@@ -101,3 +101,16 @@ MFT は `ntfs_mft_writepages` (別系統) で書く。
 - 既知の限界: MFT レコード (1024B) がセクタ境界で途中までしか書かれると (`torn=1`) `$Volume` の fixup が食い違いマウントできないことがある (80 試行中 2)。
   `ntfsfix` も「Incomplete multi sector transfer detected in $Volume」で拒否 = ジャーナル無しの書き込みに共通の限界。
   緩和案 (TODO): MFT のシステムレコード 0-3 の fixup 失敗時は `$MFTMirr` のコピーで読む (読み取り専用)。Windows の `chkdsk` が直せるかは未確認。
+
+### Android (SAF) 経由の書き込み (2026-11-11, 実験的・既定は無効)
+- **二重の安全弁**: (1) ビルド: `-PusbmemNtfsWrite=true` を付けたビルドだけ書き込み可能 (既定は無効 → `mount_rw` が -EROFS)。(2) 実行時: UI の「書き込みを許可」スイッチ (保存しない = 起動のたびに明示許可)。
+  永続化された URI の復元は常に読み取り専用。上流が異常 (ダーティ等) で読み取り専用に落とした場合は `NtfsVolume.writable = false` となり SAF の書き込み系は拒否される。USB 経路は読み取り専用のまま (実機検証前)。
+- 追加: `truncate` (SAF の "wt")、`writable()`、JNI `nativeNtfsMountRw/Write/Create/Remove/Rename/Truncate/Sync`、Kotlin `NtfsVolume.write/create/remove/rename/truncate/sync`。
+  `NtfsDocumentsProvider`: `createDocument` (重複名は " (1)")、`deleteDocument`、`renameDocument`、`openDocument` の "w"/"wt"/"rw"/"rwt" (ProxyFileDescriptorCallback の `onWrite`/`onFsync`/`onRelease` で sync)。
+  名前の検査 (`/` `\` 制御文字 `.` `..` を拒否)、ルートは削除・名前変更不可、空でないディレクトリの削除は上流が拒否。名前空間の変更は直後に sync。
+  注意: Android 10 以降 "w" は切り詰めない ("wt" が切り詰め)。プロバイダはこの規約どおり。
+- 検証 (x86_64 エミュレータ, ContentResolver = 他アプリと同じバインダ経路, `tools/run_android_write_test.sh`): mkdir / 日本語名の作成 / 300KB 書き込み・読み戻し / 重複名 / 切り詰め上書き /
+  "rw" の途中書き込み / 既存ファイルの上書き / rename / 削除 / 不正名の拒否 / 読み取り専用ボリュームでの create・delete 拒否 → すべて成功。
+  結果イメージを `adb exec-out run-as` で取り出し、ホストの `ntfsfix -n` と ntfs-3g (ro) で全 812 エントリの名前・サイズ・sha256 を期待値と照合 → **不一致 0**。
+  既定 (書き込み無効) ビルドでは書き込みテストがスキップされ、既存の 8 件は成功。arm64-v8a は書き込み有効でもビルド成功 (実行は未検証)。
+- 環境メモ: JDK は `/run/media/u/disk9/usr` (JAVA_HOME)、SDK は `/run/media/u/disk31/android_home`。エミュレータは `-port 5556` で自前起動し、`ANDROID_SERIAL=emulator-5556` を必ず指定 (他のデバイスには触れない)。

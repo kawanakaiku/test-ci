@@ -18,8 +18,9 @@ import android.webkit.MimeTypeMap
 import java.io.FileNotFoundException
 
 /**
- * 他アプリ(ファイルマネージャ等)に NTFS ボリュームを読み取り専用で見せる SAF プロバイダ。
- * documentId = "<volumeId>:<絶対パス>" (ルートは "<volumeId>:/")。書き込み系はすべて未対応。
+ * 他アプリ(ファイルマネージャ等)に NTFS ボリュームを見せる SAF プロバイダ。既定は読み取り専用。
+ * 書き込み (作成・削除・名前変更・書き込み・切り詰め) は、**書き込み可能でマウントされたボリュームにだけ**許可する (実験的。VolumeRegistry の writable)。
+ * documentId = "<volumeId>:<絶対パス>" (ルートは "<volumeId>:/")。
  */
 class NtfsDocumentsProvider : DocumentsProvider() {
     private val ioThread by lazy { HandlerThread("ntfs-io").apply { start() } }
@@ -36,10 +37,10 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         val c = MatrixCursor(projection ?: rootCols)
         for (e in VolumeRegistry.all(ctx)) {
             c.newRow().add(Root.COLUMN_ROOT_ID, e.id)
-                .add(Root.COLUMN_FLAGS, Root.FLAG_LOCAL_ONLY or Root.FLAG_SUPPORTS_IS_CHILD)
+                .add(Root.COLUMN_FLAGS, Root.FLAG_LOCAL_ONLY or Root.FLAG_SUPPORTS_IS_CHILD or (if (e.volume.writable) Root.FLAG_SUPPORTS_CREATE else 0))
                 .add(Root.COLUMN_TITLE, e.label)
                 .add(Root.COLUMN_DOCUMENT_ID, "${e.id}:/")
-                .add(Root.COLUMN_SUMMARY, "NTFS (読み取り専用)")
+                .add(Root.COLUMN_SUMMARY, if (e.volume.writable) "NTFS (読み書き・実験的)" else "NTFS (読み取り専用)")
                 .add(Root.COLUMN_ICON, android.R.drawable.ic_menu_save)
         }
         return c
@@ -63,13 +64,21 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
     }
 
-    private fun addRow(c: MatrixCursor, id: String, e: NtfsEntry, nameOverride: String? = null) {
+    private fun flagsOf(vol: VolumeRegistry.Entry, e: NtfsEntry, isRoot: Boolean): Int {
+        if (!vol.volume.writable) return 0
+        var f = 0
+        if (e.isDir) f = f or Document.FLAG_DIR_SUPPORTS_CREATE else f = f or Document.FLAG_SUPPORTS_WRITE
+        if (!isRoot) f = f or Document.FLAG_SUPPORTS_DELETE or Document.FLAG_SUPPORTS_RENAME
+        return f
+    }
+
+    private fun addRow(c: MatrixCursor, id: String, e: NtfsEntry, flags: Int, nameOverride: String? = null) {
         c.newRow().add(Document.COLUMN_DOCUMENT_ID, id)
             .add(Document.COLUMN_DISPLAY_NAME, nameOverride ?: e.name)
             .add(Document.COLUMN_MIME_TYPE, mimeOf(e))
             .add(Document.COLUMN_SIZE, if (e.isDir) null else e.size)
             .add(Document.COLUMN_LAST_MODIFIED, e.mtimeSec * 1000)
-            .add(Document.COLUMN_FLAGS, 0)  // 書き込み・削除・名前変更などは一切許可しない
+            .add(Document.COLUMN_FLAGS, flags)   // 読み取り専用ボリュームでは常に 0
     }
 
     private fun fail(e: NativeException, id: String): Nothing = throw FileNotFoundException("$id (errno ${e.code})")
@@ -79,7 +88,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         val c = MatrixCursor(projection ?: docCols)
         try {
             val e = vol.volume.stat(path)
-            addRow(c, documentId, e, if (path == "/") vol.label else null)
+            addRow(c, documentId, e, flagsOf(vol, e, path == "/"), if (path == "/") vol.label else null)
         } catch (ex: NativeException) { fail(ex, documentId) }
         return c
     }
@@ -88,7 +97,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         val (vol, path) = parse(parentDocumentId)
         val c = MatrixCursor(projection ?: docCols)
         try {
-            for (e in vol.volume.list(path)) addRow(c, childId(parentDocumentId, e.name), e)
+            for (e in vol.volume.list(path)) addRow(c, childId(parentDocumentId, e.name), e, flagsOf(vol, e, false))
         } catch (ex: NativeException) { fail(ex, parentDocumentId) }
         return c
     }
@@ -101,14 +110,65 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         return p2.startsWith(base)
     }
 
-    override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
-        if (mode != "r") throw SecurityException("read-only provider")  // 書き込みモードは拒否
+    /** 表示名として安全か (区切り・制御文字・"."/".." を含まない)。NTFS が使えない文字は上流が拒否する。 */
+    private fun checkName(name: String) {
+        if (name.isEmpty() || name == "." || name == ".." || name.any { it == '/' || it == '\\' || it.code < 0x20 }) throw IllegalArgumentException("bad name")
+    }
+    private fun requireWritable(vol: VolumeRegistry.Entry) { if (!vol.volume.writable) throw UnsupportedOperationException("read-only volume") }
+    private fun wrap(ex: NativeException, id: String): Nothing = throw FileNotFoundException("$id (errno ${ex.code})")
+
+    override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
+        val (vol, parent) = parse(parentDocumentId)
+        requireWritable(vol)
+        checkName(displayName)
+        val isDir = mimeType == Document.MIME_TYPE_DIR
+        try {
+            if (!vol.volume.stat(parent).isDir) throw FileNotFoundException("$parentDocumentId is not a directory")
+            // 同名があれば " (1)", " (2)" ... を付けて重複を避ける (DocumentsProvider の約束)
+            var name = displayName; var n = 0
+            while (true) {
+                val p = if (parent.endsWith("/")) parent + name else "$parent/$name"
+                val exists = try { vol.volume.stat(p); true } catch (e: NativeException) { if (e.code == 2) false else throw e }
+                if (!exists) break
+                n++
+                val dot = if (isDir) -1 else displayName.lastIndexOf('.').let { if (it <= 0) -1 else it }
+                name = if (dot < 0) "$displayName ($n)" else displayName.substring(0, dot) + " ($n)" + displayName.substring(dot)
+                if (n > 1000) throw FileNotFoundException("too many duplicates")
+            }
+            vol.volume.create(parent, name, isDir)
+            return childId(parentDocumentId, name)
+        } catch (ex: NativeException) { wrap(ex, parentDocumentId) }
+    }
+
+    override fun deleteDocument(documentId: String) {
         val (vol, path) = parse(documentId)
+        requireWritable(vol)
+        if (path == "/") throw UnsupportedOperationException("root")
+        try { vol.volume.remove(path) } catch (ex: NativeException) { wrap(ex, documentId) }
+    }
+
+    override fun renameDocument(documentId: String, displayName: String): String? {
+        val (vol, path) = parse(documentId)
+        requireWritable(vol)
+        if (path == "/") throw UnsupportedOperationException("root")
+        checkName(displayName)
+        try { vol.volume.rename(path, displayName) } catch (ex: NativeException) { wrap(ex, documentId) }
+        return documentId.substringBeforeLast('/') + "/" + displayName   // "<vol>:/a/b" -> "<vol>:/a/new", "<vol>:/b" -> "<vol>:/new"
+    }
+
+    override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
+        val (vol, path) = parse(documentId)
+        val pfdMode = ParcelFileDescriptor.parseMode(mode)   // "r" / "w"(切り詰め) / "wt" / "wa" / "rw" / "rwt"
+        val write = (pfdMode and ParcelFileDescriptor.MODE_WRITE_ONLY) != 0 || (pfdMode and ParcelFileDescriptor.MODE_READ_WRITE) == ParcelFileDescriptor.MODE_READ_WRITE
+        val canRead = mode.contains('r')
+        if (write) requireWritable(vol)
         val st = try { vol.volume.stat(path) } catch (ex: NativeException) { fail(ex, documentId) }
         if (st.isDir) throw FileNotFoundException("is a directory")
+        val truncate = write && (pfdMode and ParcelFileDescriptor.MODE_TRUNCATE) != 0
+        try { if (truncate && st.size != 0L) vol.volume.truncate(path, 0) } catch (ex: NativeException) { wrap(ex, documentId) }
         val sm = ctx.getSystemService(Context.STORAGE_SERVICE) as StorageManager
         val cb = object : ProxyFileDescriptorCallback() {
-            override fun onGetSize(): Long = st.size
+            override fun onGetSize(): Long = try { vol.volume.stat(path).size } catch (e: NativeException) { throw ErrnoException("onGetSize", OsConstants.EIO) }
             override fun onRead(offset: Long, size: Int, data: ByteArray): Int {
                 try {
                     var done = 0
@@ -122,9 +182,24 @@ class NtfsDocumentsProvider : DocumentsProvider() {
                     return done
                 } catch (e: NativeException) { throw ErrnoException("onRead", OsConstants.EIO) }
             }
-            override fun onRelease() {}
+            override fun onWrite(offset: Long, size: Int, data: ByteArray): Int {
+                if (!write) throw ErrnoException("onWrite", OsConstants.EBADF)
+                try {
+                    var done = 0
+                    while (done < size) {
+                        val chunk = if (done == 0 && size == data.size) data else data.copyOfRange(done, size)
+                        val n = vol.volume.write(path, offset + done, chunk, size - done)
+                        if (n <= 0) throw ErrnoException("onWrite", OsConstants.EIO)
+                        done += n
+                    }
+                    return done
+                } catch (e: NativeException) { throw ErrnoException("onWrite", if (e.code == 28) OsConstants.ENOSPC else OsConstants.EIO) }
+            }
+            override fun onFsync() { if (write) try { vol.volume.sync() } catch (e: NativeException) { throw ErrnoException("onFsync", OsConstants.EIO) } }
+            override fun onRelease() { if (write) try { vol.volume.sync() } catch (_: Exception) { /* 閉じる時の失敗は報告先が無い。次回マウント時にダーティで検出される */ } }
         }
-        return sm.openProxyFileDescriptor(ParcelFileDescriptor.MODE_READ_ONLY, cb, ioHandler)
+        val fdMode = if (!write) ParcelFileDescriptor.MODE_READ_ONLY else if (canRead) ParcelFileDescriptor.MODE_READ_WRITE else ParcelFileDescriptor.MODE_WRITE_ONLY
+        return sm.openProxyFileDescriptor(fdMode, cb, ioHandler)
     }
 
     override fun shutdown() { ioThread.quitSafely() }

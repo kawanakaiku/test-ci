@@ -27,6 +27,8 @@ class NtfsVolume {
   int rmdir(uint64_t dir, const std::string& name);
   int rename(uint64_t old_dir, const std::string& old_name, uint64_t new_dir, const std::string& new_name);
   int64_t write(uint64_t ino, uint64_t off, const void* buf, size_t len);   // 実験的: 拡張可。sync() で永続化
+  bool writable() const;                        // rw 要求でも、異常 (ダーティ等) で読み取り専用に落ちていれば false
+  int truncate(uint64_t ino, uint64_t size);   // 実験的: 0 / 負の errno
   int64_t write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len);
   ~NtfsVolume();
   uint64_t root() const { return 5; }

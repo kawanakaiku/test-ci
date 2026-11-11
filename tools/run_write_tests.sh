@@ -126,6 +126,20 @@ if "$T" --ops "$W/w.img" "$W/s6" >/dev/null 2>&1; then echo "FAIL[unsupported_de
   ntfs-3g -o ro "$W/w.img" "$W/m" 2>/dev/null && python3 -I "$HERE/ops_ref.py" --tree "$W/m" > "$W/after.tree"; fusermount3 -u "$W/m" 2>/dev/null || true
   cmp -s "$W/before.tree" "$W/after.tree" || { echo "FAIL[unsupported_delete] tree changed"; rc=1; }
 fi
+cat > "$W/s8" <<'OPS'
+truncate /a.txt 0
+truncate /big.bin 100000
+truncate /empty.txt 5000
+create /t1.bin
+write /t1.bin 0 50000 3
+truncate /t1.bin 10
+truncate /t1.bin 300000
+write /t1.bin 299990 20 4
+truncate /dir1/b.txt 1
+truncate /sparse.bin 4096
+truncate /many/file_1.txt 70000
+OPS
+ntfs_ops truncate "$W/s8" || rc=1
 # --- クラスタ < 4096 のボリュームは書き込みマウントを拒否する (読み取り専用なら読める)
 if command -v mkntfs >/dev/null 2>&1 || [ -x /sbin/mkntfs ]; then
   M=$(command -v mkntfs || echo /sbin/mkntfs)

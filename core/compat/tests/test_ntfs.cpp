@@ -318,6 +318,8 @@ static int ops_run(const std::string& img, const std::string& script) {
     if (op == "mkdir" || op == "create" || op == "unlink" || op == "rmdir") {
       split(a, &d, &nm); rc = dir_ino(d, &di);
       if (!rc) rc = op == "mkdir" ? vol->mkdir(di, nm, 0755, &ino) : op == "create" ? vol->create(di, nm, 0644, &ino) : op == "unlink" ? vol->unlink(di, nm) : vol->rmdir(di, nm);
+    } else if (op == "truncate") {
+      uint64_t sz; is >> sz; rc = vol->resolve(a, &ino); if (!rc) rc = vol->truncate(ino, sz);
     } else if (op == "write") {
       uint64_t off, len; unsigned seed; is >> off >> len >> seed;
       rc = vol->resolve(a, &ino);

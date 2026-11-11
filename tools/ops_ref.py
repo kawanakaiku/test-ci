@@ -31,6 +31,7 @@ for line in open(script):
     elif op == "unlink": os.unlink(P(f[1]))
     elif op == "rmdir": os.rmdir(P(f[1]))
     elif op == "rename": os.rename(P(f[1]), P(f[2]))
+    elif op == "truncate": os.truncate(P(f[1]), int(f[2]))
     elif op == "write":
         off, ln, seed = int(f[2]), int(f[3]), int(f[4])
         with open(P(f[1]), "r+b") as fh:

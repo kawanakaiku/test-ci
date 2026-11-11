@@ -34,8 +34,6 @@ mnt_want_write_file
 notify_change
 put_write_access
 rw_verify_area
-setattr_copy
-setattr_prepare
 simple_rename_timestamp
 strndup_user
 super_set_uuid

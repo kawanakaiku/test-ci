@@ -156,13 +156,18 @@ class MainActivity : ComponentActivity() {
         val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri != null) scope.launch { state = withContext(Dispatchers.IO) { load(uri) } }
         }
+        var allowWrite by remember { mutableStateOf(false) }   // 書き込みは毎回の起動で明示的に許可する (保存しない)
         val sharePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-            if (uri != null) scope.launch { state = withContext(Dispatchers.IO) { share(uri) } }
+            if (uri != null) scope.launch { state = withContext(Dispatchers.IO) { share(uri, allowWrite) } }
         }
         Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("ディスクイメージ(読み取り専用)", style = MaterialTheme.typography.titleLarge)
             Button(onClick = { picker.launch(arrayOf("*/*")) }) { Text("RAW イメージを開く") }
-            Button(onClick = { sharePicker.launch(arrayOf("*/*")) }) { Text("NTFS イメージを他アプリに公開(読み取り専用)") }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                androidx.compose.material3.Switch(checked = allowWrite, onCheckedChange = { allowWrite = it })
+                Text("  書き込みを許可(実験的・データ破損の恐れ。バックアップ推奨)")
+            }
+            Button(onClick = { sharePicker.launch(arrayOf("*/*")) }) { Text(if (allowWrite) "NTFS イメージを他アプリに公開(書き込み可・実験的)" else "NTFS イメージを他アプリに公開(読み取り専用)") }
             Text("USB ストレージ(読み取り専用)", style = MaterialTheme.typography.titleMedium)
             if (usbRows.isEmpty()) Text("対応する USB マスストレージ(Bulk-Only)は見つかりません。")
             usbRows.forEach { r -> Button(onClick = { requestUsb(r.device) }) { Text(r.title) } }
@@ -186,11 +191,13 @@ class MainActivity : ComponentActivity() {
     }
 
     /** NTFS イメージをマウントし、SAF プロバイダ経由でファイルマネージャ等へ公開する。 */
-    private fun share(uri: Uri): UiState = try {
-        try { contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: SecurityException) { }
-        val e = VolumeRegistry.addUri(this, uri)
+    private fun share(uri: Uri, writable: Boolean): UiState = try {
+        val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or (if (writable) android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+        try { contentResolver.takePersistableUriPermission(uri, flags) } catch (_: SecurityException) { }
+        val e = VolumeRegistry.addUri(this, uri, writable)
         android.provider.DocumentsContract.buildRootsUri("org.usbmem.app.documents").let { contentResolver.notifyChange(it, null) }
-        UiState.Failed("公開しました: ${e.label}(ファイルアプリの一覧に表示されます)")
+        val mode = if (!writable) "読み取り専用" else if (e.volume.writable) "書き込み可(実験的)" else "読み取り専用(書き込み不可: ビルドで無効、またはボリュームに未処理の異常/ダーティあり)"
+        UiState.Failed("公開しました: ${e.label} — $mode(ファイルアプリの一覧に表示されます)")
     } catch (e: NativeException) {
         UiState.Failed("NTFS として開けません: ${e.message}")
     } catch (e: Exception) {

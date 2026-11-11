@@ -31,6 +31,8 @@ int64_t usbmem_ntfs_write_inplace(usbmem_ntfs *, uint64_t ino, uint64_t off, con
 
 /* 上流の write_iter 経由の書き込み (拡張可)。書いたバイト数 / 負の errno。要 sync。 */
 int64_t usbmem_ntfs_write(usbmem_ntfs *, uint64_t ino, uint64_t off, const void *buf, size_t len);
+int usbmem_ntfs_writable(usbmem_ntfs *);   /* 1 = 書き込み可能 (rw 要求でも読み取り専用に落ちることがある) */
+int usbmem_ntfs_truncate(usbmem_ntfs *, uint64_t ino, uint64_t size);   /* 実験的: 拡張・縮小 */
 
 /* 名前空間の変更 (実験的)。いずれも書き込みマウント時のみ。dir_ino の直下の name を対象にする。 */
 int usbmem_ntfs_create(usbmem_ntfs *, uint64_t dir_ino, const char *name, size_t len, uint32_t mode, uint64_t *ino);

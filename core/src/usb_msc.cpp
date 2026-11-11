@@ -134,6 +134,14 @@ Status MscDevice::reset_recovery() {
   return r;
 }
 
+void MscDevice::tune(size_t transport_chunk, uint32_t max_transfer) {
+  if (transport_chunk) t_->set_chunk(transport_chunk);
+  if (max_transfer) {
+    opt_.max_transfer = std::max<uint32_t>(max_transfer, block_size_);
+    opt_.max_transfer -= opt_.max_transfer % block_size_;
+  }
+}
+
 std::string MscDevice::op_stats() const {
   std::string o;
   for (int i = 0; i < 256; i++) if (op_counts_[i]) { char b[24]; snprintf(b, sizeof b, "%s%02xx%u", o.empty() ? "" : " ", i, op_counts_[i]); o += b; }

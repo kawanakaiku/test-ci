@@ -294,6 +294,18 @@ static int ops_run(const std::string& img, const std::string& script) {
   usbmem::BlockDevicePtr base;
   const char* bse = std::getenv("USBMEM_IMG_BS");
   if (!usbmem::RawImageDevice::open_path(img, false, bse ? (uint32_t)std::atoi(bse) : 512, &base).ok()) return 2;
+  // USBMEM_VIA_MSC=1: イメージを模擬 USB Mass Storage (BOT) デバイスとして見せ、書き込みも MscDevice (WRITE(10/16)・SYNCHRONIZE CACHE) 越しに行う。
+  // 模擬デバイスは書かれたブロックを保持するだけなので、最後にイメージへ書き戻して ntfsfix / ntfs-3g で検証できるようにする。
+  usbmem::BlockDevicePtr raw = base, msc;
+  fake::BotDevice* botp = nullptr; uint32_t bsz = bse ? (uint32_t)std::atoi(bse) : 512;
+  if (std::getenv("USBMEM_VIA_MSC")) {
+    auto bot = std::make_unique<fake::BotDevice>(raw->size() / bsz, bsz);
+    botp = bot.get();
+    bot->backing = [raw, bsz](uint64_t lba, uint8_t* out) { if (!raw->read_at(lba * bsz, out, bsz).ok()) std::memset(out, 0, bsz); };
+    usbmem::MscOptions mo; mo.retry_delay_ms = 1; mo.read_only = false;
+    if (!usbmem::MscDevice::open(std::move(bot), mo, &msc).ok() || msc->is_read_only()) { std::fprintf(stderr, "msc open failed\n"); return 2; }
+    base = msc;
+  }
   usbmem::BlockDevicePtr dev = base;
   { usbmem::PartitionTable pt; if (usbmem::read_partition_table(*base, &pt).ok() && !pt.whole_device_volume) {
       for (auto& p : pt.partitions) if (p.fs == usbmem::FsType::Ntfs) { if (!usbmem::SubRangeDevice::create(base, p.start_bytes, p.size_bytes, false, &dev).ok()) return 2; break; } } }
@@ -333,6 +345,10 @@ static int ops_run(const std::string& img, const std::string& script) {
   }
   int rc = vol->sync(); if (rc) { std::fprintf(stderr, "sync -> %d\n", rc); return 1; }
   vol.reset();
+  if (botp) {   // 模擬デバイスに書かれたブロックをイメージへ書き戻す。送った SCSI opcode の集計も出す (書き込み系が 2a/8a/35 だけであることの確認用)
+    for (auto& kv : botp->written) if (!raw->write_at(kv.first * bsz, kv.second.data(), kv.second.size()).ok()) { std::fprintf(stderr, "write-back failed\n"); return 1; }
+    std::fprintf(stderr, "msc ops: %s (written blocks: %zu)\n", static_cast<usbmem::MscDevice*>(msc.get())->op_stats().c_str(), botp->written.size());
+  }
   std::fprintf(stderr, "ops: %d run, %d failed\n", n, bad);
   if (crash) std::fprintf(stderr, "writes: %ld\n", crash->count());
   return (bad && !crash) ? 1 : 0;

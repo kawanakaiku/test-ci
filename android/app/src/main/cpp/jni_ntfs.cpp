@@ -78,6 +78,19 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDevice(J
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
 }
 
+// 開いているデバイスの一区間を書き込み可能で NTFS マウント (実験的。ビルドで無効なら -EROFS)。デバイス自体も read_only=false で開かれていること。
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDeviceRw(JNIEnv*, jclass, jlong devHandle, jlong offset, jlong length) {
+  auto* d = reinterpret_cast<usbmem_device*>(devHandle);
+  if (!d || offset < 0 || length <= 0) return -22;
+  usbmem::BlockDevicePtr sub;
+  usbmem::Status st = usbmem::SubRangeDevice::create(d->dev, static_cast<uint64_t>(offset), static_cast<uint64_t>(length), false, &sub);
+  if (!st.ok()) return -22;
+  int err = 0;
+  auto v = usbmem::NtfsVolume::mount_rw(sub, &err);
+  if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
+  return reinterpret_cast<jlong>(new Vol{std::move(v)});
+}
+
 JNIEXPORT void JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsUnmount(JNIEnv*, jclass, jlong h) {
   delete reinterpret_cast<Vol*>(h);
 }

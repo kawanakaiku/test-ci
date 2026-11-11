@@ -53,6 +53,22 @@ JNIEXPORT void JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbLastSense(JNIEn
   if (out && env->GetArrayLength(out) >= 3) env->SetIntArrayRegion(out, 0, 3, v);
 }
 
+// 転送サイズの調整 (KiB 単位。0 = 変更しない)。0 / <0 = -Errc
+JNIEXPORT jint JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbTune(JNIEnv*, jclass, jlong handle, jint chunkKiB, jint maxTransferKiB) {
+  if (chunkKiB < 0 || maxTransferKiB < 0 || chunkKiB > 16384 || maxTransferKiB > 16384) return -22;
+  int rc = usbmem_usb_tune(reinterpret_cast<usbmem_device*>(handle), static_cast<size_t>(chunkKiB) * 1024, static_cast<size_t>(maxTransferKiB) * 1024);
+  return rc ? -rc : 0;
+}
+
+// 読み取り専用の速度計測。戻り値: 経過マイクロ秒 (>0) / <=0 = -Errc
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeBenchRead(JNIEnv*, jclass, jlong handle, jlong offset, jlong totalBytes, jint bufKiB) {
+  if (offset < 0 || totalBytes <= 0 || bufKiB <= 0) return -22;
+  long long us = 0;
+  int rc = usbmem_bench_read(reinterpret_cast<usbmem_device*>(handle), static_cast<unsigned long long>(offset),
+                             static_cast<unsigned long long>(totalBytes), static_cast<size_t>(bufKiB) * 1024, &us);
+  return rc ? -static_cast<jlong>(rc) : static_cast<jlong>(us);
+}
+
 JNIEXPORT jstring JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbLastOpenTrace(JNIEnv* env, jclass) {
   char buf[3400];
   usbmem_usb_last_open_trace(buf, sizeof buf);

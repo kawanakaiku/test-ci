@@ -57,8 +57,19 @@ check iter a.txt 9000 100 15 || rc=1
 ntfs_ops() {  # ntfs_ops <名前> <script ファイル>
   name=$1; sc=$2
   cp "$IMG" "$W/w.img"
-  out=$("$T" --ops "$W/w.img" "$sc" 2>&1 | grep -v unimplemented | grep -v "^ops:" || true)
+  raw=$("$T" --ops "$W/w.img" "$sc" 2>&1 | grep -v unimplemented || true)
+  out=$(echo "$raw" | grep -v "^ops:" | grep -v "^msc ops:" || true)
   [ -z "$out" ] || { echo "FAIL[$name] driver: $out" | cut -c1-200; return 1; }
+  if [ -n "${USBMEM_VIA_MSC:-}" ]; then   # USB Mass Storage (模擬 BOT) 越し: 送った SCSI opcode は読み書き・同期・初期化の既知のものだけで、書き込みと同期が実際に出ていること
+    echo "$raw" | grep "^msc ops:" | python3 -I -c "
+import sys, re
+l = sys.stdin.read()
+ops = dict(re.findall(r'([0-9a-f]{2})x(\d+)', l.split('(')[0]))
+allowed = {'00','12','1a','25','9e','28','88','2a','8a','35','03'}
+bad = sorted(set(ops) - allowed)
+if bad or not ({'2a','8a'} & set(ops)) or '35' not in ops: print('unexpected SCSI ops:', l.strip()); sys.exit(1)
+" || { echo "FAIL[$name] SCSI opcodes"; return 1; }
+  fi
   ntfsfix -n "$W/w.img" >/dev/null 2>&1 || { echo "FAIL[$name] ntfsfix"; return 1; }
   cp "$IMG" "$W/ref.img"; mkdir -p "$W/r"
   ntfs-3g -o rw "$W/ref.img" "$W/r" 2>/dev/null || { echo "FAIL[$name] ref mount"; return 1; }
@@ -140,6 +151,12 @@ truncate /sparse.bin 4096
 truncate /many/file_1.txt 70000
 OPS
 ntfs_ops truncate "$W/s8" || rc=1
+# --- 同じ操作列を USB Mass Storage (模擬 BOT) 越しに: BlockDevice → MscDevice (WRITE/SYNC) → fs/ntfs の全経路。結果は同じ独立検証 (ntfsfix + リファレンスとのツリー比較)
+export USBMEM_VIA_MSC=1
+for sn in "create_mkdir:s1" "delete_recreate:s2" "rename:s3" "many_files:s4" "unicode_names:s5" "truncate:s8"; do
+  ntfs_ops "msc_${sn%%:*}" "$W/${sn##*:}" || rc=1
+done
+unset USBMEM_VIA_MSC
 # --- クラスタ < 4096 のボリュームは書き込みマウントを拒否する (読み取り専用なら読める)
 if command -v mkntfs >/dev/null 2>&1 || [ -x /sbin/mkntfs ]; then
   M=$(command -v mkntfs || echo /sbin/mkntfs)

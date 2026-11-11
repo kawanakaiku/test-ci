@@ -6,6 +6,9 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
+#include <vector>
+#include <chrono>
 #include <new>
 
 #include "usbmem/devices.h"
@@ -86,6 +89,31 @@ int usbmem_open_usb_msc(int fd, int ep_in, int ep_out, int interface_number, int
   Status st = MscDevice::open(std::move(t), o, &d);
   if (!st.ok()) return code(st);
   return wrap(std::move(d), out);
+}
+
+int usbmem_usb_tune(usbmem_device* dev, size_t transport_chunk, size_t max_transfer) {
+  if (!dev) return static_cast<int>(Errc::InvalidArgument);
+  auto* m = dynamic_cast<MscDevice*>(dev->dev.get());
+  if (!m) return static_cast<int>(Errc::Unsupported);
+  m->tune(transport_chunk, static_cast<uint32_t>(max_transfer));
+  return 0;
+}
+
+int usbmem_bench_read(usbmem_device* dev, unsigned long long offset, unsigned long long total, size_t buf_len, long long* out_us) {
+  if (!dev || !out_us || !buf_len || buf_len > (64u << 20)) return static_cast<int>(Errc::InvalidArgument);
+  try {
+    std::vector<uint8_t> buf(buf_len);
+    auto t0 = std::chrono::steady_clock::now();
+    unsigned long long done = 0;
+    while (done < total) {
+      size_t n = static_cast<size_t>(std::min<unsigned long long>(buf_len, total - done));
+      Status st = dev->dev->read_at(offset + done, buf.data(), n);
+      if (!st.ok()) return code(st);
+      done += n;
+    }
+    *out_us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
+    return 0;
+  } catch (...) { return static_cast<int>(Errc::NoMemory); }
 }
 
 void usbmem_usb_last_open_trace(char* buf, size_t len) {

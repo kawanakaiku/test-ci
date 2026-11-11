@@ -37,6 +37,10 @@ int usbmem_ntfs_mount(struct usbmem_bdev *bdev, int ro, usbmem_ntfs **out) {
     usbmem_compat_umount(sb); usbmem_bdev_mapping_free(bd); free(bd);
     return -EROFS;
   }
+  /* 書き込み可能なマウントでは、保留中の空きクラスタ数の計算 (全 $Bitmap の読み取り) をここで済ませる。
+   * 最初の書き込み (割り当て) の中で突然数分止まるより、時間のかかる場所を「マウント」に固定する方が安全で分かりやすい。
+   * 読み取り専用のマウントでは実行しない (空きクラスタ数は読み取りに不要。7 TiB の USB ディスクで 3 分以上かかる)。 */
+  if (!ro && !sb_rdonly(sb)) usbmem_compat_run_deferred_work();
   usbmem_ntfs *v = calloc(1, sizeof *v);
   v->sb = sb; *out = v; return 0;
 }

@@ -40,7 +40,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
                 .add(Root.COLUMN_FLAGS, Root.FLAG_LOCAL_ONLY or Root.FLAG_SUPPORTS_IS_CHILD or (if (e.volume.writable) Root.FLAG_SUPPORTS_CREATE else 0))
                 .add(Root.COLUMN_TITLE, e.label)
                 .add(Root.COLUMN_DOCUMENT_ID, "${e.id}:/")
-                .add(Root.COLUMN_SUMMARY, if (e.volume.writable) "NTFS (読み書き・実験的)" else "NTFS (読み取り専用)")
+                .add(Root.COLUMN_SUMMARY, if (!e.volume.writable) "NTFS (読み取り専用)" else if (e.volume.createOnly) "NTFS (新規作成のみ・実験的)" else "NTFS (読み書き・実験的)")
                 .add(Root.COLUMN_ICON, android.R.drawable.ic_menu_save)
         }
         return c
@@ -64,11 +64,13 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
     }
 
-    private fun flagsOf(vol: VolumeRegistry.Entry, e: NtfsEntry, isRoot: Boolean): Int {
+    private fun flagsOf(vol: VolumeRegistry.Entry, e: NtfsEntry, isRoot: Boolean, path: String): Int {
         if (!vol.volume.writable) return 0
         var f = 0
-        if (e.isDir) f = f or Document.FLAG_DIR_SUPPORTS_CREATE else f = f or Document.FLAG_SUPPORTS_WRITE
-        if (!isRoot) f = f or Document.FLAG_SUPPORTS_DELETE or Document.FLAG_SUPPORTS_RENAME
+        if (e.isDir) f = f or Document.FLAG_DIR_SUPPORTS_CREATE
+        // 作成のみモード: 書き込みはこのセッションで作ったファイルだけ。削除・名前変更は出さない
+        else if (!vol.volume.createOnly || vol.volume.isCreatedHere(path)) f = f or Document.FLAG_SUPPORTS_WRITE
+        if (!isRoot && !vol.volume.createOnly) f = f or Document.FLAG_SUPPORTS_DELETE or Document.FLAG_SUPPORTS_RENAME
         return f
     }
 
@@ -88,7 +90,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         val c = MatrixCursor(projection ?: docCols)
         try {
             val e = vol.volume.stat(path)
-            addRow(c, documentId, e, flagsOf(vol, e, path == "/"), if (path == "/") vol.label else null)
+            addRow(c, documentId, e, flagsOf(vol, e, path == "/", path), if (path == "/") vol.label else null)
         } catch (ex: NativeException) { fail(ex, documentId) }
         return c
     }
@@ -97,7 +99,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         val (vol, path) = parse(parentDocumentId)
         val c = MatrixCursor(projection ?: docCols)
         try {
-            for (e in vol.volume.list(path)) addRow(c, childId(parentDocumentId, e.name), e, flagsOf(vol, e, false))
+            for (e in vol.volume.list(path)) addRow(c, childId(parentDocumentId, e.name), e, flagsOf(vol, e, false, if (path.endsWith("/")) path + e.name else "$path/${e.name}"))
         } catch (ex: NativeException) { fail(ex, parentDocumentId) }
         return c
     }
@@ -115,6 +117,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         if (name.isEmpty() || name == "." || name == ".." || name.any { it == '/' || it == '\\' || it.code < 0x20 }) throw IllegalArgumentException("bad name")
     }
     private fun requireWritable(vol: VolumeRegistry.Entry) { if (!vol.volume.writable) throw UnsupportedOperationException("read-only volume") }
+    private fun requireNotCreateOnly(vol: VolumeRegistry.Entry, what: String) { if (vol.volume.createOnly) throw SecurityException("作成のみモード: ${what}はできません") }
     private fun wrap(ex: NativeException, id: String): Nothing = throw FileNotFoundException("$id (errno ${ex.code})")
 
     override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
@@ -143,6 +146,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
     override fun deleteDocument(documentId: String) {
         val (vol, path) = parse(documentId)
         requireWritable(vol)
+        requireNotCreateOnly(vol, "削除")
         if (path == "/") throw UnsupportedOperationException("root")
         try { vol.volume.remove(path) } catch (ex: NativeException) { wrap(ex, documentId) }
     }
@@ -150,6 +154,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
     override fun renameDocument(documentId: String, displayName: String): String? {
         val (vol, path) = parse(documentId)
         requireWritable(vol)
+        requireNotCreateOnly(vol, "名前変更")
         if (path == "/") throw UnsupportedOperationException("root")
         checkName(displayName)
         try { vol.volume.rename(path, displayName) } catch (ex: NativeException) { wrap(ex, documentId) }
@@ -162,6 +167,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         val write = (pfdMode and ParcelFileDescriptor.MODE_WRITE_ONLY) != 0 || (pfdMode and ParcelFileDescriptor.MODE_READ_WRITE) == ParcelFileDescriptor.MODE_READ_WRITE
         val canRead = mode.contains('r')
         if (write) requireWritable(vol)
+        if (write && vol.volume.createOnly && !vol.volume.isCreatedHere(path)) throw SecurityException("作成のみモード: 既存のファイルは書き換えられません")
         val st = try { vol.volume.stat(path) } catch (ex: NativeException) { fail(ex, documentId) }
         if (st.isDir) throw FileNotFoundException("is a directory")
         val truncate = write && (pfdMode and ParcelFileDescriptor.MODE_TRUNCATE) != 0

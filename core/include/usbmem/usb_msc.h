@@ -17,6 +17,8 @@ enum class UsbDir { In, Out };
 // 1 つの Mass Storage インタフェースの bulk エンドポイント対。実装はスレッドセーフでなくてよい (MscDevice が直列化する)。
 class BulkTransport {
  public:
+  /** 1 回の bulk 転送要求の最大バイト数 (実装が分割するときの単位)。実行時の調整用。既定は実装依存。 */
+  virtual void set_chunk(size_t bytes) { (void)bytes; }
   virtual ~BulkTransport() = default;
   // 転送できたバイト数を *done へ。短い転送は Ok のまま done < len。
   // STALL は Errc::Io + sys_errno=EPIPE、タイムアウトは Errc::Timeout、抜去は Errc::Disconnected。
@@ -56,6 +58,8 @@ class MscDevice final : public BlockDevice {
   ScsiSense last_sense() const { return last_sense_; }
   /** 送った SCSI オペコードの集計 (例: "12x1 1ax1 25x1 28x4237")。読み取り専用で WRITE 系が 0 であることの実機での証拠。 */
   std::string op_stats() const;
+  /** 転送サイズの調整 (速度計測・チューニング用)。transport_chunk = 1 回の USB 転送要求 (16KiB の倍数)、max_transfer = 1 SCSI コマンドあたり (ブロック長の倍数に丸める)。 */
+  void tune(size_t transport_chunk, uint32_t max_transfer);
   /** 診断用: 直近の open() 中に送った SCSI コマンドと結果の記録 (失敗時の原因調査用)。 */
   static std::string last_open_trace();
   uint32_t op_count(uint8_t opcode) const { return op_counts_[opcode]; }

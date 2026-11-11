@@ -19,6 +19,13 @@ el=$(python3 -c "print(round($t1 - $t0, 3))")
 echo "3 TiB 読み取り専用マウント: ${el} 秒"
 python3 -c "import sys; sys.exit(0 if $t1 - $t0 < 1.5 else 1)" || { echo "FAIL: mount took ${el}s (> 1.5s): free-cluster precalc is running synchronously again?"; exit 1; }
 # 書き込み (ビルドが対応している場合のみ)
+# 操作なしの rw マウント → アンマウントで、メディアの内容が 1 バイトも変わらないこと (実機の RAID に rw で触れる前提条件)
+: > "$W/noop.ops"
+h0=$(python3 "$(dirname "$0")/sparse_hash.py" "$W/big.img")
+if "$T" --ops "$W/big.img" "$W/noop.ops" 2>&1 | grep -aq "mount_rw failed: errno 30"; then echo "(書き込み無効のビルド: 書き込み部分はスキップ)"; exit 0; fi
+h1=$(python3 "$(dirname "$0")/sparse_hash.py" "$W/big.img")
+[ "$h0" = "$h1" ] || { echo "FAIL: no-op rw mount changed the media"; exit 1; }
+echo "操作なしの rw マウントでメディア不変: ok"
 printf 'mkdir /d\ncreate /d/f.txt\nwrite /d/f.txt 0 20000 5\n' > "$W/ops"
 out=$("$T" --ops "$W/big.img" "$W/ops" 2>&1 | grep -av unimplemented || true)
 if echo "$out" | grep -aq "mount_rw failed: errno 30"; then echo "(書き込み無効のビルド: 書き込み部分はスキップ)"; exit 0; fi

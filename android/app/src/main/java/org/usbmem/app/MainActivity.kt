@@ -44,6 +44,8 @@ class MainActivity : ComponentActivity() {
     private var usbSession: UsbStorageSession? = null
     private var usbState by mutableStateOf<UiState>(UiState.Idle)
     private var usbRows by mutableStateOf<List<UsbRow>>(emptyList())
+    private var allowUsbWrite by mutableStateOf(false)   // USB を開く時の書き込み許可 (新規作成のみ)。毎回の起動で明示的に許可し、保存しない
+    private var usbBench by mutableStateOf("")           // 速度計測の結果 (読み取りのみ)
     private var usbOps by mutableStateOf("")   // 送信した SCSI 命令の集計 (読み取り専用で書き込み系が出ていないことの確認用)
 
     private fun updateOps(tag: String) {
@@ -84,7 +86,7 @@ class MainActivity : ComponentActivity() {
         Thread {
             val st = try {
                 closeUsbQuiet()
-                val s = UsbStorageSession.open(this, usbManager, dev)
+                val s = UsbStorageSession.open(this, usbManager, dev, writable = allowUsbWrite)
                 usbSession = s
                 val loaded = UiState.Loaded(dev.productName ?: "USB", s.partitionTable())
                 updateOps("after open+partition scan")
@@ -95,6 +97,31 @@ class MainActivity : ComponentActivity() {
                 UiState.Failed(e.javaClass.simpleName)
             }
             runOnUiThread { usbState = st }
+        }.start()
+    }
+
+    /** 読み取り専用の速度計測。転送サイズの組を順に試し、MB/s を表示・ログへ出す。パーティションの先頭付近 (デバイス先頭から) を読むだけで、何も書かない。 */
+    private fun benchUsb() {
+        Thread {
+            val s = usbSession ?: return@Thread
+            val sb = StringBuilder()
+            try {
+                val total = 128L shl 20
+                // (USB 1 回の転送要求 KiB, 1 SCSI コマンド KiB)。0,0 = 既定のまま。区間はずらして、デバイス側のキャッシュ効果を避ける
+                val configs = listOf(0 to 0, 64 to 256, 256 to 512, 512 to 1024, 1024 to 2048)
+                configs.forEachIndexed { i, (chunk, mt) ->
+                    val off = (1L shl 30) + i * (256L shl 20)
+                    val line = try {
+                        if (chunk != 0 || mt != 0) s.tune(chunk, mt)
+                        val us = s.benchRead(off, total, 1024)
+                        "chunk=${if (chunk == 0) "既定" else "${chunk}K"} cmd=${if (mt == 0) "既定" else "${mt}K"}: %.1f MB/s".format(total / 1048576.0 / (us / 1e6))
+                    } catch (e: NativeException) { "chunk=${chunk}K cmd=${mt}K: 失敗 ${e.message}" }
+                    android.util.Log.i("usbmem", "bench $line"); sb.appendLine(line)
+                }
+                s.tune(16, 64)   // 既定へ戻す (USB 転送要求 16KiB / 1 コマンド 64KiB)
+            } catch (e: Exception) { sb.appendLine("失敗: ${e.javaClass.simpleName}") }
+            updateOps("after bench")
+            runOnUiThread { usbBench = sb.toString().trim() }
         }.start()
     }
 
@@ -119,11 +146,12 @@ class MainActivity : ComponentActivity() {
         Thread {
             val st = try {
                 val s = usbSession ?: throw IllegalStateException("not open")
-                val v = s.mountNtfs(offset, size)
+                val v = s.mountNtfs(offset, size, writable = s.writable)   // 書き込み可で開いたセッションだけ rw (作成のみ)
                 VolumeRegistry.addVolume(label, "usb:" + s.deviceName, v)
                 notifyRoots()
                 updateOps("after ntfs mount")
-                UiState.Failed("公開しました: $label(読み取り専用)")
+                val mode = if (!s.writable) "読み取り専用" else if (v.writable) "新規作成のみ書き込み可(実験的。既存のファイルは変更・削除・名前変更できません)" else "読み取り専用(書き込み不可: ビルドで無効、またはボリュームに異常/ダーティあり)"
+                UiState.Failed("公開しました: $label — $mode")
             } catch (e: NativeException) {
                 UiState.Failed("NTFS として開けません: ${e.message}")
             } catch (e: Exception) {
@@ -178,7 +206,13 @@ class MainActivity : ComponentActivity() {
                 Text("  書き込みを許可(実験的・データ破損の恐れ。バックアップ推奨)")
             }
             Button(onClick = { sharePicker.launch(arrayOf("*/*")) }) { Text(if (allowWrite) "NTFS イメージを他アプリに公開(書き込み可・実験的)" else "NTFS イメージを他アプリに公開(読み取り専用)") }
-            Text("USB ストレージ(読み取り専用)", style = MaterialTheme.typography.titleMedium)
+            Text(if (allowUsbWrite) "USB ストレージ(新規作成のみ書き込み可・実験的)" else "USB ストレージ(読み取り専用)", style = MaterialTheme.typography.titleMedium)
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                androidx.compose.material3.Switch(checked = allowUsbWrite, onCheckedChange = { allowUsbWrite = it }, enabled = usbSession == null)
+                Text("  USB への書き込みを許可(新規作成のみ・実験的。既存のファイルは変更しません)")
+            }
+            if (usbSession != null) Text("※ このスイッチは USB を開く前に切り替えます。変えるには USB の抜き差し、またはアプリの再起動が必要です。", style = MaterialTheme.typography.bodySmall)
+            Button(onClick = { startActivity(android.content.Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS)) }) { Text("OS がマウント中の USB を取り出す(ストレージ設定を開く)") }
             if (usbRows.isEmpty()) Text("対応する USB マスストレージ(Bulk-Only)は見つかりません。")
             usbRows.forEach { r -> Button(onClick = { requestUsb(r.device) }) { Text(r.title) } }
             when (val u = usbState) {
@@ -187,13 +221,15 @@ class MainActivity : ComponentActivity() {
                 is UiState.Loaded -> {
                     TableView(u)
                     u.table.partitions.filter { it.fs == "ntfs" }.forEach { p ->
-                        Button(onClick = { shareUsbPartition(p.startBytes, p.sizeBytes, "${u.label} #${p.index}") }) { Text("#${p.index} を他アプリに公開(NTFS・読み取り専用)") }
+                        Button(onClick = { shareUsbPartition(p.startBytes, p.sizeBytes, "${u.label} #${p.index}") }) { Text(if (allowUsbWrite) "#${p.index} を他アプリに公開(NTFS・新規作成のみ書き込み可)" else "#${p.index} を他アプリに公開(NTFS・読み取り専用)") }
                     }
                     if (usbOps.isNotEmpty()) {
                         Text("送信した SCSI 命令(16進オペコードx回数): $usbOps", style = MaterialTheme.typography.bodySmall)
                         Text("読み取り系: 12 INQUIRY / 00 TUR / 03 SENSE / 1a MODE SENSE / 25,9e CAPACITY / 28,88 READ。書き込み系は 2a, 8a, 35(キャッシュ同期)。これらが無ければ書き込みなし。", style = MaterialTheme.typography.bodySmall)
                         Button(onClick = { Thread { updateOps("manual refresh") }.start() }) { Text("命令の集計を更新") }
                     }
+                    Button(onClick = { benchUsb() }) { Text("読み取り速度を計測(読み取りのみ・約 1 分)") }
+                    if (usbBench.isNotEmpty()) Text(usbBench, style = MaterialTheme.typography.bodySmall)
                     if (u.table.wholeDeviceVolume) Button(onClick = { shareUsbPartition(0, u.table.diskBytes, u.label) }) { Text("デバイス全体を公開(読み取り専用)") }
                 }
             }

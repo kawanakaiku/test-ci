@@ -11,7 +11,7 @@ namespace usbmem {
 namespace {
 // usbdevfs の USBDEVFS_BULK は 1 回の長さに実装上の上限がある (古いカーネルは 16KiB)。
 // 16KiB は 64/512/1024 の全 max packet size の倍数なので、チャンク分割しても IN の babble 判定を壊さない。
-constexpr size_t kChunk = 16 * 1024;
+constexpr size_t kChunk = 16 * 1024;   // 既定。set_chunk() で実行時に変えられる (速度計測の結果で調整する)
 
 Status map_errno(int e) {
   switch (e) {
@@ -33,6 +33,7 @@ class UsbdevfsTransport final : public BulkTransport {
   Status bulk_in(void* buf, size_t len, size_t* done, uint32_t timeout_ms) override {
     return xfer(eps_.ep_in, buf, len, done, timeout_ms);
   }
+  void set_chunk(size_t bytes) override { chunk_ = std::max<size_t>(kChunk, bytes - bytes % kChunk); }   // 16KiB の倍数 (max packet size の倍数)
   Status clear_halt(UsbDir ep) override {
     unsigned int addr = ep == UsbDir::In ? eps_.ep_in : eps_.ep_out;
     if (::ioctl(fd_, USBDEVFS_CLEAR_HALT, &addr) != 0) return map_errno(errno);
@@ -56,7 +57,7 @@ class UsbdevfsTransport final : public BulkTransport {
     *done = 0;
     auto* p = static_cast<uint8_t*>(buf);
     while (*done < len) {
-      size_t n = std::min(len - *done, kChunk);
+      size_t n = std::min(len - *done, chunk_);
       struct usbdevfs_bulktransfer b = {};
       b.ep = ep;
       b.len = static_cast<unsigned int>(n);
@@ -75,6 +76,7 @@ class UsbdevfsTransport final : public BulkTransport {
   }
   int fd_;
   UsbEndpoints eps_;
+  size_t chunk_ = kChunk;
 };
 }  // namespace
 

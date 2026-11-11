@@ -52,6 +52,8 @@ class UsbStorageSession private constructor(
     private val conn: UsbDeviceConnection,
     private val intf: UsbInterface,
     private var handle: Long,
+    /** true = 書き込み可能で開いている (MSC が WRITE を送れる)。既定は読み取り専用。 */
+    val writable: Boolean = false,
 ) : AutoCloseable {
     private val volumes = mutableListOf<NtfsVolume>()
 
@@ -70,9 +72,28 @@ class UsbStorageSession private constructor(
     fun lastSense(): IntArray = IntArray(3).also { if (Handle.valid(handle)) NativeBridge.nativeUsbLastSense(handle, it) }
 
     @Synchronized
-    fun mountNtfs(offsetBytes: Long, sizeBytes: Long): NtfsVolume {
+    fun mountNtfs(offsetBytes: Long, sizeBytes: Long, writable: Boolean = false): NtfsVolume {
         check(Handle.valid(handle)) { "closed" }
-        return NtfsVolume.mountDeviceRange(handle, offsetBytes, sizeBytes).also { volumes += it }
+        if (writable && !this.writable) throw NativeException(30, "このセッションは読み取り専用で開かれています")
+        val v = if (writable) NtfsVolume.mountDeviceRangeReadWrite(handle, offsetBytes, sizeBytes) else NtfsVolume.mountDeviceRange(handle, offsetBytes, sizeBytes)
+        return v.also { volumes += it }
+    }
+
+    /** 転送サイズの調整 (速度計測用)。KiB。0 = 変更しない。 */
+    @Synchronized
+    fun tune(chunkKiB: Int, maxTransferKiB: Int) {
+        check(Handle.valid(handle)) { "closed" }
+        val r = NativeBridge.nativeUsbTune(handle, chunkKiB, maxTransferKiB)
+        if (r != 0) throw NativeException(-r, "tune failed")
+    }
+
+    /** 読み取り専用の速度計測: offset から totalBytes を bufKiB ごとに読み、経過マイクロ秒を返す。 */
+    @Synchronized
+    fun benchRead(offset: Long, totalBytes: Long, bufKiB: Int): Long {
+        check(Handle.valid(handle)) { "closed" }
+        val us = NativeBridge.nativeBenchRead(handle, offset, totalBytes, bufKiB)
+        if (us <= 0) throw NativeException((-us).toInt(), "bench failed: ${NativeBridge.nativeErrcName((-us).toInt())}")
+        return us
     }
 
     @Synchronized
@@ -104,7 +125,7 @@ class UsbStorageSession private constructor(
             mountsText.lineSequence().map { it.substringBefore(' ') }.filter { it.startsWith("/dev/block/vold/public:8,") }.distinct().toList()
 
         /** USB パーミッション取得済みのデバイスを読み取り専用で開く。 */
-        fun open(ctx: Context, usb: UsbManager, device: UsbDevice): UsbStorageSession {
+        fun open(ctx: Context, usb: UsbManager, device: UsbDevice, writable: Boolean = false): UsbStorageSession {
             val pick = UsbMscSelector.pick(UsbMscSelector.describe(device)) ?: throw NativeException(9, "Mass Storage (Bulk-Only) インタフェースがありません")
             if (!usb.hasPermission(device)) throw SecurityException("USB permission not granted")
             // 安全策: OS がこのような USB ボリュームをマウント中は、ドライバの強制切り離しをしない (取り出してから再試行する)。
@@ -116,7 +137,7 @@ class UsbStorageSession private constructor(
             val conn = usb.openDevice(device) ?: throw NativeException(2, "USB デバイスを開けません")
             // 他ドライバ(カーネルの usb-storage など)が掴んでいれば force=true で奪う。Android では通常は掴まれていない。
             if (!conn.claimInterface(intf, true)) { conn.close(); throw NativeException(2, "インタフェースを確保できません") }
-            val h = NativeBridge.nativeOpenUsbMsc(conn.fileDescriptor, pick.epIn, pick.epOut, pick.interfaceNumber, 0, true)
+            val h = NativeBridge.nativeOpenUsbMsc(conn.fileDescriptor, pick.epIn, pick.epOut, pick.interfaceNumber, 0, !writable)
             if (Handle.isError(h)) {
                 val code = (-h).toInt()
                 // 失敗の原因調査用 (SCSI コマンドと結果のみ。個人情報なし)
@@ -125,7 +146,7 @@ class UsbStorageSession private constructor(
                 conn.close()
                 throw NativeException(code, "USB 初期化に失敗: ${NativeBridge.nativeErrcName(code)}")
             }
-            return UsbStorageSession(device.deviceName, conn, intf, h)
+            return UsbStorageSession(device.deviceName, conn, intf, h, writable)
         }
     }
 }

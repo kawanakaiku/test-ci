@@ -12,6 +12,8 @@ object NativeBridge {
     @JvmStatic external fun nativeUsbLastSense(handle: Long, out: IntArray)
     @JvmStatic external fun nativeNtfsMountDevice(devHandle: Long, offset: Long, length: Long): Long
     @JvmStatic external fun nativeUsbLastOpenTrace(): String
+    @JvmStatic external fun nativeUsbTune(handle: Long, chunkKiB: Int, maxTransferKiB: Int): Int
+    @JvmStatic external fun nativeBenchRead(handle: Long, offset: Long, totalBytes: Long, bufKiB: Int): Long
     @JvmStatic external fun nativeUsbOpStats(handle: Long): String
     @JvmStatic external fun nativeClose(handle: Long)
     @JvmStatic external fun nativeErrcName(code: Int): String
@@ -22,6 +24,7 @@ object NativeBridge {
     @JvmStatic external fun nativeNtfsRead(handle: Long, path: ByteArray, offset: Long, buf: ByteArray): Long
     // --- 書き込み (実験的。ビルドで無効なら nativeNtfsMountRw が -EROFS(30) で失敗する)
     @JvmStatic external fun nativeNtfsMountRw(fd: Int): Long
+    @JvmStatic external fun nativeNtfsMountDeviceRw(devHandle: Long, offset: Long, length: Long): Long
     @JvmStatic external fun nativeNtfsWritable(handle: Long): Boolean
     @JvmStatic external fun nativeNtfsWrite(handle: Long, path: ByteArray, offset: Long, buf: ByteArray, len: Int): Long
     @JvmStatic external fun nativeNtfsCreate(handle: Long, parent: ByteArray, name: ByteArray, isDir: Boolean): Long
@@ -73,28 +76,48 @@ class RawImage private constructor(private var handle: Long) : AutoCloseable {
 
 data class NtfsEntry(val name: String, val ino: Long, val isDir: Boolean, val size: Long, val mtimeSec: Long)
 
-/** NTFS をマウントしたボリューム (既定は読み取り専用)。fd の所有権を引き受ける。[writable] は実際に書き込み可能でマウントされたときだけ true。 */
-class NtfsVolume private constructor(private var handle: Long, val writable: Boolean = false) : AutoCloseable {
+/**
+ * NTFS をマウントしたボリューム (既定は読み取り専用)。fd の所有権を引き受ける。[writable] は実際に書き込み可能でマウントされたときだけ true。
+ *
+ * [createOnly] = true (実機の既存データを守る書き込みモード): 許可するのは**新規作成だけ**。
+ *  - create: 既存のディレクトリの下に新規ファイル/ディレクトリを作る (ディレクトリ索引への追加は避けられない)。
+ *  - write: このセッションで自分が create したファイルへの書き込みだけ。既存ファイルの内容は変えない。
+ *  - remove / rename / truncate: 常に拒否 (EPERM)。
+ * 制限はこのクラスで強制する (呼び出し側の実装ミスで既存データが変わらないよう、プロバイダではなくここ)。
+ */
+class NtfsVolume private constructor(private var handle: Long, val writable: Boolean = false, val createOnly: Boolean = false) : AutoCloseable {
+    private val createdHere = HashSet<String>()
     private fun bytes(p: String) = p.toByteArray(Charsets.UTF_8)
+    private fun norm(path: String) = "/" + path.split('/').filter { it.isNotEmpty() }.joinToString("/")
+    /** このセッションで作成したパスか (createOnly の書き込み許可の判定に使う)。 */
+    @Synchronized
+    fun isCreatedHere(path: String): Boolean = norm(path) in createdHere
     private fun checkWritable() { check(Handle.valid(handle)) { "closed" }; if (!writable) throw NativeException(30, "read-only volume") }
+    private fun denyIfCreateOnly(op: String) { if (createOnly) throw NativeException(1, "$op is not allowed in create-only mode") }
     private fun ok(op: String, r: Long): Long { if (r < 0) throw NativeException((-r).toInt(), "$op failed: errno ${-r}"); return r }
 
     /** path のファイルへ書く (範囲が EOF を超えれば拡張)。書けたバイト数。 */
     @Synchronized
     fun write(path: String, offset: Long, buf: ByteArray, len: Int = buf.size): Int {
-        checkWritable(); return ok("write '$path'", NativeBridge.nativeNtfsWrite(handle, bytes(path), offset, buf, len)).toInt()
+        checkWritable()
+        if (createOnly && !isCreatedHere(path)) throw NativeException(1, "write to an existing file is not allowed in create-only mode: '$path'")
+        return ok("write '$path'", NativeBridge.nativeNtfsWrite(handle, bytes(path), offset, buf, len)).toInt()
     }
     /** parent の下に新規ファイル/ディレクトリを作り、その inode 番号を返す。 */
     @Synchronized
     fun create(parent: String, name: String, isDir: Boolean): Long {
-        checkWritable(); return ok("create '$name'", NativeBridge.nativeNtfsCreate(handle, bytes(parent), bytes(name), isDir)).also { sync() }
+        checkWritable()
+        val ino = ok("create '$name'", NativeBridge.nativeNtfsCreate(handle, bytes(parent), bytes(name), isDir))
+        createdHere += norm(parent + "/" + name)
+        sync()
+        return ino
     }
     @Synchronized
-    fun remove(path: String) { checkWritable(); ok("remove '$path'", NativeBridge.nativeNtfsRemove(handle, bytes(path))); sync() }
+    fun remove(path: String) { checkWritable(); denyIfCreateOnly("remove"); ok("remove '$path'", NativeBridge.nativeNtfsRemove(handle, bytes(path))); sync() }
     @Synchronized
-    fun rename(path: String, newName: String) { checkWritable(); ok("rename '$path'", NativeBridge.nativeNtfsRename(handle, bytes(path), bytes(newName))); sync() }
+    fun rename(path: String, newName: String) { checkWritable(); denyIfCreateOnly("rename"); ok("rename '$path'", NativeBridge.nativeNtfsRename(handle, bytes(path), bytes(newName))); sync() }
     @Synchronized
-    fun truncate(path: String, size: Long) { checkWritable(); ok("truncate '$path'", NativeBridge.nativeNtfsTruncate(handle, bytes(path), size)) }
+    fun truncate(path: String, size: Long) { checkWritable(); denyIfCreateOnly("truncate"); ok("truncate '$path'", NativeBridge.nativeNtfsTruncate(handle, bytes(path), size)) }
     /** 変更をメディアへ確定する (書き込み + デバイス flush)。 */
     @Synchronized
     fun sync() { checkWritable(); ok("sync", NativeBridge.nativeNtfsSync(handle)) }
@@ -145,11 +168,18 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
             return NtfsVolume(h)
         }
 
+        /** USB 等の開いているデバイスの一区間を書き込み可能で試みる (実験的)。デバイスも書き込み可能で開いていること。[writable] は実際に書き込み可能なときだけ true。 */
+        fun mountDeviceRangeReadWrite(deviceHandle: Long, offset: Long, length: Long, createOnly: Boolean = true): NtfsVolume {
+            val h = NativeBridge.nativeNtfsMountDeviceRw(deviceHandle, offset, length)
+            if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs rw mount failed: errno ${-h}")
+            return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly)
+        }
+
         /** 書き込み可能で試みる (実験的)。ビルドで無効、またはボリュームがダーティ等で上流が読み取り専用に落とした場合は [writable] = false で返す。 */
-        fun mountReadWrite(detachedFd: Int): NtfsVolume {
+        fun mountReadWrite(detachedFd: Int, createOnly: Boolean = false): NtfsVolume {
             val h = NativeBridge.nativeNtfsMountRw(detachedFd)
             if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs rw mount failed: errno ${-h}")
-            return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h))
+            return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly)
         }
 
         fun mountReadOnly(detachedFd: Int): NtfsVolume {

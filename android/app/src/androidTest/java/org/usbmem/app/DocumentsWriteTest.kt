@@ -40,6 +40,46 @@ class DocumentsWriteTest {
         return out
     }
 
+    /** 実機の RAID に使う「作成のみ」モード: 新規作成と、作ったファイルへの書き込みだけ。既存ファイルの変更・削除・名前変更・切り詰めは拒否され、メディアに触れない。 */
+    @Test
+    fun createOnlyModeProtectsExistingData() {
+        val img = File(ctx.cacheDir, "rw_createonly.img")
+        assumeTrue("fixture not pushed", copy("/data/local/tmp/ntfs_basic.img", img))
+        val e = try { VolumeRegistry.addFd("CoNTFS", "co-key", ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_WRITE).detachFd(), writable = true, createOnly = true) }
+            catch (ex: NativeException) { assumeTrue("write support disabled in this build (errno ${ex.code})", ex.code != 30); throw ex }
+        assumeTrue("volume mounted read-only", e.volume.writable)
+        val vid = e.id; val root = "$vid:/"
+        try {
+            // 既存のファイルを 1 つ探す (内容を後で比較する)
+            val existing = e.volume.list("/").first { !it.isDir && it.size > 0 }
+            val exId = "$vid:/${existing.name}"
+            val before = ByteArray(existing.size.toInt().coerceAtMost(4096)).also { e.volume.read("/${existing.name}", 0, it) }
+            // 既存ファイル: 書き込みフラグなし、削除・名前変更フラグなし
+            cr.query(uri(exId), arrayOf(Document.COLUMN_FLAGS), null, null, null)!!.use { c -> c.moveToFirst(); val f = c.getInt(0)
+                assertEquals(0, f and Document.FLAG_SUPPORTS_WRITE); assertEquals(0, f and Document.FLAG_SUPPORTS_DELETE); assertEquals(0, f and Document.FLAG_SUPPORTS_RENAME) }
+            // 拒否される操作
+            for (m in listOf("w", "wt", "rw")) try { cr.openFileDescriptor(uri(exId), m)?.close(); fail("open '$m' of existing file must be refused") } catch (_: SecurityException) { } catch (_: java.io.FileNotFoundException) { }
+            try { DocumentsContract.deleteDocument(cr, uri(exId)); fail("delete must be refused") } catch (_: Exception) { }
+            try { DocumentsContract.renameDocument(cr, uri(exId), "renamed.bin"); fail("rename must be refused") } catch (_: Exception) { }
+            for (op in listOf<() -> Unit>({ e.volume.remove("/${existing.name}") }, { e.volume.rename("/${existing.name}", "x") }, { e.volume.truncate("/${existing.name}", 0) }, { e.volume.write("/${existing.name}", 0, ByteArray(8), 8) })) {
+                try { op(); fail("must be refused") } catch (ex: NativeException) { assertEquals(1, ex.code) }
+            }
+            assertTrue(e.volume.stat("/${existing.name}").size == existing.size)
+            // 許可される操作: 新規フォルダ・新規ファイルの作成と、そのファイルへの書き込み
+            val dirUri = DocumentsContract.createDocument(cr, uri(root), Document.MIME_TYPE_DIR, "new_dir")!!
+            val fileUri = DocumentsContract.createDocument(cr, dirUri, "application/octet-stream", "new.bin")!!
+            cr.query(fileUri, arrayOf(Document.COLUMN_FLAGS), null, null, null)!!.use { c -> c.moveToFirst(); val f = c.getInt(0)
+                assertTrue(f and Document.FLAG_SUPPORTS_WRITE != 0); assertEquals(0, f and Document.FLAG_SUPPORTS_DELETE) }
+            val data = pattern(100_000, 3)
+            cr.openFileDescriptor(fileUri, "wt")!!.use { p -> java.io.FileOutputStream(p.fileDescriptor).use { it.write(data); it.fd.sync() } }
+            assertArrayEquals(data, cr.openInputStream(fileUri)!!.use { it.readBytes() })
+            // 既存ファイルは変わっていない
+            val after = ByteArray(before.size).also { e.volume.read("/${existing.name}", 0, it) }
+            assertArrayEquals(before, after)
+            assertTrue("new_dir" in names(root))
+        } finally { VolumeRegistry.remove(ctx, vid) }
+    }
+
     @Test
     fun createWriteRenameDelete() {
         val img = File(ctx.cacheDir, "rw_result.img")

@@ -34,10 +34,10 @@ object VolumeRegistry {
 
     /** テスト・内部用: 既にある fd(所有権を渡す)を登録する。永続化しない。 */
     @Synchronized
-    fun addFd(label: String, key: String, detachedFd: Int, writable: Boolean = false): Entry {
+    fun addFd(label: String, key: String, detachedFd: Int, writable: Boolean = false, createOnly: Boolean = false): Entry {
         val id = idOf(key)
         volumes.remove(id)?.volume?.close()
-        val e = Entry(id, label, if (writable) NtfsVolume.mountReadWrite(detachedFd) else NtfsVolume.mountReadOnly(detachedFd))
+        val e = Entry(id, label, if (writable) NtfsVolume.mountReadWrite(detachedFd, createOnly) else NtfsVolume.mountReadOnly(detachedFd))
         volumes[id] = e
         return e
     }

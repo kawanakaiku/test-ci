@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -201,7 +201,7 @@ class MainActivity : ComponentActivity() {
         val sharePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri != null) scope.launch { state = withContext(Dispatchers.IO) { share(uri, allowWrite) } }
         }
-        Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("ディスクイメージ(読み取り専用)", style = MaterialTheme.typography.titleLarge)
             Button(onClick = { picker.launch(arrayOf("*/*")) }) { Text("RAW イメージを開く") }
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -277,8 +277,9 @@ class MainActivity : ComponentActivity() {
     private fun TableView(s: UiState.Loaded) {
         val t = s.table
         Text("${s.label}: ${t.kind.uppercase()} / ${formatBytes(t.diskBytes)} / セクタ ${t.sectorSize}B")
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(t.partitions) { p ->
+        // 画面全体がスクロールするので LazyColumn (無限の高さで例外) は使わず、通常の Column で並べる
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            t.partitions.forEach { p ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
                         Row { Text("#${p.index} ${p.name}".trim(), style = MaterialTheme.typography.titleMedium) }
@@ -287,7 +288,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            items(t.diagnostics) { d -> Text("${d.severity}: ${d.message}") }
+            t.diagnostics.forEach { d -> Text("${d.severity}: ${d.message}") }
         }
     }
 }

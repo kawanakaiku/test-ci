@@ -99,19 +99,29 @@ int usbmem_usb_tune(usbmem_device* dev, size_t transport_chunk, size_t max_trans
   return 0;
 }
 
-int usbmem_bench_read(usbmem_device* dev, unsigned long long offset, unsigned long long total, size_t buf_len, long long* out_us) {
+int usbmem_bench_read(usbmem_device* dev, unsigned long long offset, unsigned long long total, size_t buf_len, long long* out_us, unsigned long long* out_hash) {
   if (!dev || !out_us || !buf_len || buf_len > (64u << 20)) return static_cast<int>(Errc::InvalidArgument);
   try {
     std::vector<uint8_t> buf(buf_len);
     auto t0 = std::chrono::steady_clock::now();
-    unsigned long long done = 0;
+    unsigned long long done = 0, hash = 1469598103934665603ull;   // FNV-1a (8 バイト単位)
+    long long hash_us = 0;
     while (done < total) {
       size_t n = static_cast<size_t>(std::min<unsigned long long>(buf_len, total - done));
       Status st = dev->dev->read_at(offset + done, buf.data(), n);
       if (!st.ok()) return code(st);
+      if (out_hash) {   // ハッシュの計算時間は速度に含めない
+        auto h0 = std::chrono::steady_clock::now();
+        size_t i = 0;
+        for (; i + 8 <= n; i += 8) { uint64_t w; std::memcpy(&w, buf.data() + i, 8); hash = (hash ^ w) * 1099511628211ull; }
+        for (; i < n; i++) hash = (hash ^ buf[i]) * 1099511628211ull;
+        hash_us += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - h0).count();
+      }
       done += n;
     }
-    *out_us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
+    if (out_hash) *out_hash = hash;
+    *out_us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count() - hash_us;
+    if (*out_us < 1) *out_us = 1;
     return 0;
   } catch (...) { return static_cast<int>(Errc::NoMemory); }
 }

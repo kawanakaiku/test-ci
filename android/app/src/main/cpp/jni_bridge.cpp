@@ -65,8 +65,20 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeBenchRead(JNIEnv*
   if (offset < 0 || totalBytes <= 0 || bufKiB <= 0) return -22;
   long long us = 0;
   int rc = usbmem_bench_read(reinterpret_cast<usbmem_device*>(handle), static_cast<unsigned long long>(offset),
-                             static_cast<unsigned long long>(totalBytes), static_cast<size_t>(bufKiB) * 1024, &us);
+                             static_cast<unsigned long long>(totalBytes), static_cast<size_t>(bufKiB) * 1024, &us, nullptr);
   return rc ? -static_cast<jlong>(rc) : static_cast<jlong>(us);
+}
+
+// 同上 + 読んだデータのハッシュ (outHash[0])。転送サイズを変えても同じデータが読めるかの確認用
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeBenchReadHash(JNIEnv* env, jclass, jlong handle, jlong offset, jlong totalBytes, jint bufKiB, jlongArray outHash) {
+  if (offset < 0 || totalBytes <= 0 || bufKiB <= 0 || !outHash || env->GetArrayLength(outHash) < 1) return -22;
+  long long us = 0; unsigned long long h = 0;
+  int rc = usbmem_bench_read(reinterpret_cast<usbmem_device*>(handle), static_cast<unsigned long long>(offset),
+                             static_cast<unsigned long long>(totalBytes), static_cast<size_t>(bufKiB) * 1024, &us, &h);
+  if (rc) return -static_cast<jlong>(rc);
+  jlong hv = static_cast<jlong>(h);
+  env->SetLongArrayRegion(outHash, 0, 1, &hv);
+  return static_cast<jlong>(us);
 }
 
 JNIEXPORT jstring JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbLastOpenTrace(JNIEnv* env, jclass) {

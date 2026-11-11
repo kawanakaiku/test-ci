@@ -54,6 +54,10 @@ class UsbStorageSession private constructor(
     private var handle: Long,
     /** true = 書き込み可能で開いている (MSC が WRITE を送れる)。既定は読み取り専用。 */
     val writable: Boolean = false,
+    /** 保存した転送サイズの設定を使っている場合の LADDER の添字 (-1 = 既定)。マウント失敗時に、保存を捨てるかの判断に使う。 */
+    val tuningIndex: Int = -1,
+    val vendorId: Int = 0,
+    val productId: Int = 0,
 ) : AutoCloseable {
     private val volumes = mutableListOf<NtfsVolume>()
 
@@ -85,6 +89,15 @@ class UsbStorageSession private constructor(
         check(Handle.valid(handle)) { "closed" }
         val r = NativeBridge.nativeUsbTune(handle, chunkKiB, maxTransferKiB)
         if (r != 0) throw NativeException(-r, "tune failed")
+    }
+
+    /** 速度計測 + 読んだデータのハッシュ (転送サイズを変えても同じ内容が読めるかの確認用)。戻り値: 経過マイクロ秒、hash[0] = ハッシュ。 */
+    @Synchronized
+    fun benchReadHash(offset: Long, totalBytes: Long, bufKiB: Int, hash: LongArray): Long {
+        check(Handle.valid(handle)) { "closed" }
+        val us = NativeBridge.nativeBenchReadHash(handle, offset, totalBytes, bufKiB, hash)
+        if (us <= 0) throw NativeException((-us).toInt(), "bench failed: ${NativeBridge.nativeErrcName((-us).toInt())}")
+        return us
     }
 
     /** 読み取り専用の速度計測: offset から totalBytes を bufKiB ごとに読み、経過マイクロ秒を返す。 */
@@ -158,9 +171,15 @@ class UsbStorageSession private constructor(
                 conn.close()
                 throw NativeException(code, "USB 初期化に失敗: ${NativeBridge.nativeErrcName(code)}")
             }
-            // 転送サイズは既定 (USB 16K / コマンド 64K) のまま。大きな転送 (64K/256K) は F-51A では速いが、J9260 では EPROTO(71) で読み取りが失敗した。
-            // 端末ごとに「計測」ボタンで確かめてから使う (自動では変えない)。
-            return UsbStorageSession(device.deviceName, conn, intf, h, writable)
+            // 転送サイズは既定 (USB 16K / コマンド 64K)。「最適化」で、この端末・この USB 機器で実際に通った設定が保存されていれば、読み取りだけそれを使う
+            // (自動では試さない: J9260 では 64K/256K で EPROTO になり、USB が切れて OS が FAT を再マウントした)。書き込みの転送サイズは変えない。
+            val saved = TransferTuning.load(ctx, device.vendorId, device.productId)
+            var tuningIndex = -1
+            if (saved != null && runCatching { NativeBridge.nativeUsbTune(h, saved.first, saved.second) }.getOrDefault(-1) == 0) {
+                tuningIndex = TransferTuning.LADDER.indexOf(saved)
+                android.util.Log.i("usbmem", "saved read tuning applied: chunk=${saved.first}K cmd=${saved.second}K")
+            }
+            return UsbStorageSession(device.deviceName, conn, intf, h, writable, tuningIndex, device.vendorId, device.productId)
         }
     }
 }

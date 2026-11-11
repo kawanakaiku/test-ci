@@ -125,6 +125,67 @@ class MainActivity : ComponentActivity() {
         }.start()
     }
 
+    /**
+     * 読み取り転送サイズの最適化 (読み取りのみ。何も書かない)。小さい設定から順に、同じ区間を読んでハッシュが一致するか + 速度を確かめ、**通った中で最速**を、この端末・この USB 機器用に保存する。
+     * 保存した設定は次回から USB を開くたびに使われる (書き込みの転送サイズは変えない)。失敗した設定は記録して二度と試さない。
+     * 失敗すると USB が切れて OS が FAT を再マウントすることがある (J9260)。その場合は「USB を安全に閉じる」→ OS の FAT を取り出し → 開き直す。
+     */
+    private fun optimizeUsb() {
+        Thread {
+            val s = usbSession ?: return@Thread
+            val sb = StringBuilder()
+            val ladder = TransferTuning.LADDER
+            val vid = s.vendorId; val pid = s.productId
+            var best = 0; var bestMbps = 0.0
+            try {
+                val limit = TransferTuning.failedFrom(this, vid, pid)
+                if (limit < ladder.size) {   // 前回、その設定の試行中に落ちた/失敗した → 失敗として確定
+                    TransferTuning.markFailed(this, vid, pid, limit)
+                    sb.appendLine("前回失敗した設定 (chunk=${ladder[limit].first}K cmd=${ladder[limit].second}K 以上) は試しません")
+                }
+                val mb = 1L shl 20
+                val refOff = 1024 * mb; val refLen = 4 * mb
+                val h = LongArray(1)
+                s.tune(ladder[0].first, ladder[0].second)
+                s.benchReadHash(refOff, refLen, 1024, h); val refHash = h[0]
+                for (i in 0 until minOf(limit, ladder.size)) {
+                    val (chunk, mt) = ladder[i]
+                    if (i > 0) {
+                        TransferTuning.markTrying(this, vid, pid, i)   // 落ちたら、次回この設定以上を試さない
+                        s.tune(chunk, mt)
+                        s.benchReadHash(refOff, refLen, 1024, h)
+                        if (h[0] != refHash) {   // 転送サイズを変えたら内容が変わった = 化けている。使わない
+                            TransferTuning.markFailed(this, vid, pid, i)
+                            sb.appendLine("chunk=${chunk}K cmd=${mt}K: 読めたデータが一致しません。この設定は使いません")
+                            break
+                        }
+                    }
+                    val off = 1024 * mb + 64 * mb + i * 96 * mb   // 区間はずらして、デバイス側のキャッシュ効果を避ける
+                    val us = s.benchReadHash(off, 64 * mb, 1024, h)
+                    val mbps = 64.0 / (us / 1e6)
+                    sb.appendLine("chunk=${chunk}K cmd=${mt}K: %.1f MB/s (データ一致)".format(mbps))
+                    android.util.Log.i("usbmem", "optimize chunk=${chunk}K cmd=${mt}K: %.1f MB/s".format(mbps))
+                    if (mbps > bestMbps * 1.03) { best = i; bestMbps = mbps }
+                    TransferTuning.markOk(this, vid, pid, best)   // 途中経過も保存 (試行中の印はここで消える)
+                }
+                s.tune(ladder[best].first, ladder[best].second)
+                sb.appendLine("→ 保存: chunk=${ladder[best].first}K cmd=${ladder[best].second}K (%.1f MB/s)。次回から USB を開くときに使います".format(bestMbps))
+            } catch (e: Exception) {
+                val code = (e as? NativeException)?.code
+                android.util.Log.w("usbmem", "optimize failed: ${e.message}")
+                // 失敗した試行は「試行中」の印が残っている → 次回の最適化で失敗として扱われる。ここでも確定させておく
+                val trying = TransferTuning.failedFrom(this, vid, pid)
+                if (trying < ladder.size) TransferTuning.markFailed(this, vid, pid, trying)
+                runCatching { s.tune(ladder[best].first, ladder[best].second) }
+                sb.appendLine("失敗しました (${e.message}${if (code != null) ", code=$code" else ""})。この設定は使いません。")
+                sb.appendLine("USB が切れた場合は、「USB を安全に閉じる」→ OS が FAT をマウントしていたら取り出し → もう一度 USB を開いてください。")
+                sb.appendLine("ここまでに通った最速: chunk=${ladder[best].first}K cmd=${ladder[best].second}K (保存済み)")
+            }
+            updateOps("after optimize")
+            runOnUiThread { usbBench = sb.toString().trim() }
+        }.start()
+    }
+
     private fun closeUsbQuiet() {
         VolumeRegistry.removeByKey("usb:" + (usbSession?.deviceName ?: ""))
         runCatching { usbSession?.close() }
@@ -145,8 +206,9 @@ class MainActivity : ComponentActivity() {
     private fun shareUsbPartition(offset: Long, size: Long, label: String) {
         runOnUiThread { usbState = UiState.Failed(if (usbSession?.writable == true) "NTFS をマウント中です。書き込み可のマウントは、空きクラスタ数の計算のため、大きなディスクでは数分かかります。アプリを閉じないでください…" else "NTFS をマウント中です…") }
         Thread {
+            val sess = usbSession   // catch 側でも使う (保存した転送設定が原因なら既定に戻す)
             val st = try {
-                val s = usbSession ?: throw IllegalStateException("not open")
+                val s = sess ?: throw IllegalStateException("not open")
                 val v = s.mountNtfs(offset, size, writable = s.writable)   // 書き込み可で開いたセッションだけ rw (作成のみ)
                 VolumeRegistry.addVolume(label, "usb:" + s.deviceName, v)
                 notifyRoots()
@@ -156,7 +218,11 @@ class MainActivity : ComponentActivity() {
                 UiState.Failed("公開しました: $label — $mode")
             } catch (e: NativeException) {
                 android.util.Log.w("usbmem", "ntfs mount failed: code=${e.code} ${e.message}")
-                UiState.Failed("NTFS として開けません: ${e.message}")
+                if (sess != null && sess.tuningIndex >= 0) {   // 保存した転送設定が原因かもしれない → 既定に戻す (次の最適化で、その設定以上は試さない)
+                    TransferTuning.markFailed(this, sess.vendorId, sess.productId, sess.tuningIndex)
+                    TransferTuning.reset(this, sess.vendorId, sess.productId)
+                    UiState.Failed("NTFS として開けません: ${e.message}(保存した転送設定を使っていたため、既定に戻しました。USB を安全に閉じて、開き直してください)")
+                } else UiState.Failed("NTFS として開けません: ${e.message}")
             } catch (e: Exception) {
                 UiState.Failed(e.javaClass.simpleName)
             }
@@ -236,6 +302,8 @@ class MainActivity : ComponentActivity() {
                         Button(onClick = { Thread { updateOps("manual refresh") }.start() }) { Text("命令の集計を更新") }
                     }
                     Button(onClick = { benchUsb() }) { Text("読み取り速度を計測(読み取りのみ・約 1 分)") }
+                    Button(onClick = { optimizeUsb() }) { Text("読み取りを最適化して保存(読み取りのみ・約 1 分)") }
+                    Text("端末ごとに通る転送サイズが違います。小さい設定から順に確かめ、通った中で最速を保存します。失敗すると USB が切れることがあります。", style = MaterialTheme.typography.bodySmall)
                     if (usbBench.isNotEmpty()) Text(usbBench, style = MaterialTheme.typography.bodySmall)
                     if (u.table.wholeDeviceVolume) Button(onClick = { shareUsbPartition(0, u.table.diskBytes, u.label) }) { Text("デバイス全体を公開(読み取り専用)") }
                 }

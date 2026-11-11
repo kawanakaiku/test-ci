@@ -27,7 +27,8 @@ void usbmem_usb_op_stats(usbmem_device* dev, char* buf, size_t len);
 /* 転送サイズの調整 (USB マスストレージのみ。0 = 変更しない)。transport_chunk: 1 回の USB 転送要求 / max_transfer: 1 SCSI コマンドあたり (バイト)。 */
 int usbmem_usb_tune(usbmem_device* dev, size_t transport_chunk, size_t max_transfer);
 /* 読み取り専用の速度計測: offset から total バイトを buf_len ごとに順に読み、経過マイクロ秒を *out_us に返す。 */
-int usbmem_bench_read(usbmem_device* dev, unsigned long long offset, unsigned long long total, size_t buf_len, long long* out_us);
+/* out_hash (NULL 可): 読んだデータ全体の 64 ビットハッシュ。転送サイズを変えても同じ内容が読めること (化けていないこと) の確認用 */
+int usbmem_bench_read(usbmem_device* dev, unsigned long long offset, unsigned long long total, size_t buf_len, long long* out_us, unsigned long long* out_hash);
 /* *out_json は usbmem_free で解放する(UTF-8, NUL 終端)。 */
 int usbmem_list_partitions_json(usbmem_device* dev, char** out_json);
 void usbmem_close(usbmem_device* dev);

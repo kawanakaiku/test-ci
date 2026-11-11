@@ -14,6 +14,7 @@ object NativeBridge {
     @JvmStatic external fun nativeUsbLastOpenTrace(): String
     @JvmStatic external fun nativeUsbTune(handle: Long, chunkKiB: Int, maxTransferKiB: Int): Int
     @JvmStatic external fun nativeBenchRead(handle: Long, offset: Long, totalBytes: Long, bufKiB: Int): Long
+    @JvmStatic external fun nativeBenchReadHash(handle: Long, offset: Long, totalBytes: Long, bufKiB: Int, outHash: LongArray): Long
     @JvmStatic external fun nativeUsbOpStats(handle: Long): String
     @JvmStatic external fun nativeClose(handle: Long)
     @JvmStatic external fun nativeErrcName(code: Int): String

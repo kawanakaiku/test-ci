@@ -257,3 +257,20 @@ TEST(readahead_tail_and_failure_semantics) {
   // 本当に読めない所はエラーのまま
   CHECK(!ra2->read_at(512 * 1024, b.data(), 4096).ok());
 }
+
+// 速度計測のハッシュ: 読み取りの単位 (buf_len) を変えても同じ内容は同じハッシュ、内容が違えば違うハッシュ
+TEST(bench_read_hash_independent_of_buffer_size) {
+  std::string p = temp_image(1 << 20);
+  usbmem_device* h = nullptr;
+  CHECK_EQ(usbmem_open_path(p.c_str(), 1, &h), 0);
+  long long us = 0; unsigned long long h1 = 0, h2 = 0, h3 = 0;
+  CHECK_EQ(usbmem_bench_read(h, 4096, 300000, 4096, &us, &h1), 0);
+  CHECK_EQ(usbmem_bench_read(h, 4096, 300000, 65536, &us, &h2), 0);   // 単位が違う (端数あり)
+  CHECK_EQ(usbmem_bench_read(h, 4096 + 1, 300000, 4096, &us, &h3), 0);    // 位置が違う (テスト画像の模様は 256 バイト周期なので、1 バイトずらす)
+  CHECK(h1 == h2);
+  CHECK(h1 != h3);
+  CHECK(us >= 1);
+  CHECK_EQ(usbmem_bench_read(h, 4096, 100, 4096, &us, nullptr), 0);   // out_hash なしも可
+  usbmem_close(h);
+  unlink(p.c_str());
+}

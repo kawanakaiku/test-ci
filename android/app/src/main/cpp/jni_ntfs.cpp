@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // NTFS (読み取り専用) の JNI。文字列は UTF-8 byte[] で受け渡す。
 #include <jni.h>
+#include <android/log.h>
+#include <chrono>
 
 #include <memory>
 #include <string>
@@ -64,6 +66,17 @@ JNIEXPORT jboolean JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsWritable(J
   return reinterpret_cast<Vol*>(h)->v->writable() ? JNI_TRUE : JNI_FALSE;
 }
 
+// マウントにかかった時間と、そのうち下位デバイス (USB) の読み取りに使った時間・回数・バイト数を logcat に出す (どこで時間を使っているかの診断用)
+static void log_mount_stats(const char* what, const usbmem::BlockDevicePtr& ra, std::chrono::steady_clock::time_point t0, bool ok) {
+  long total = (long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+  uint64_t reads = 0, bytes = 0, ns = 0;
+  if (usbmem::ReadAheadDevice::stats(ra, &reads, &bytes, &ns))
+    __android_log_print(ANDROID_LOG_INFO, "usbmem", "%s %s: total %ld ms, device reads %llu (%llu MiB) in %lld ms (%.1f MB/s), other %lld ms", what, ok ? "ok" : "FAILED", total,
+                        (unsigned long long)reads, (unsigned long long)(bytes >> 20), (long long)(ns / 1000000), ns ? (double)bytes / ((double)ns / 1e9) / 1e6 : 0.0, total - (long long)(ns / 1000000));
+  else
+    __android_log_print(ANDROID_LOG_INFO, "usbmem", "%s %s: total %ld ms", what, ok ? "ok" : "FAILED", total);
+}
+
 // 既に開いているデバイス (USB 等) の [offset, offset+length) を NTFS として読み取り専用マウント。ハンドルは消費しない
 // (呼び出し側が NTFS を unmount してからデバイスを close する)。戻り値: >0 ハンドル / <=0 = -errno
 JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDevice(JNIEnv*, jclass, jlong devHandle, jlong offset, jlong length) {
@@ -73,7 +86,10 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDevice(J
   usbmem::Status st = usbmem::SubRangeDevice::create(d->dev, static_cast<uint64_t>(offset), static_cast<uint64_t>(length), true, &sub);
   if (!st.ok()) return -22;
   int err = 0;
-  auto v = usbmem::NtfsVolume::mount(usbmem::ReadAheadDevice::wrap(sub), &err);
+  auto ra = usbmem::ReadAheadDevice::wrap(sub);
+  auto t0 = std::chrono::steady_clock::now();
+  auto v = usbmem::NtfsVolume::mount(ra, &err);
+  log_mount_stats("mount", ra, t0, v != nullptr);
   if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
 }
@@ -86,7 +102,10 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDeviceRw
   usbmem::Status st = usbmem::SubRangeDevice::create(d->dev, static_cast<uint64_t>(offset), static_cast<uint64_t>(length), false, &sub);
   if (!st.ok()) return -22;
   int err = 0;
-  auto v = usbmem::NtfsVolume::mount_rw(usbmem::ReadAheadDevice::wrap(sub), &err);
+  auto ra = usbmem::ReadAheadDevice::wrap(sub);
+  auto t0 = std::chrono::steady_clock::now();
+  auto v = usbmem::NtfsVolume::mount_rw(ra, &err);
+  log_mount_stats("mount_rw", ra, t0, v != nullptr);
   if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
 }

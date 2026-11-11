@@ -25,16 +25,25 @@ void wait_for_completion(struct completion *c) {
 }
 
 /* ---- ビット操作 */
-unsigned long find_next_bit(const unsigned long *a, unsigned long size, unsigned long off) {
-  for (; off < size; off++) if (test_bit(off, a)) return off;
-  return size;
+/* ワード (unsigned long) 単位で走査する。ビット単位だと、7 TiB 級の NTFS ($Bitmap 約 500 MB = 40 億ビット) の空きクラスタ数の計算 (bitmap_weight) だけで
+ * 実機 (Xperia) のマウントが約 40 秒かかった。ビットの並びは test_bit と同じ (ワード nr/64 の下位から nr%64 ビット目)。 */
+static unsigned long find_next_(const unsigned long *a, unsigned long size, unsigned long off, unsigned long invert) {
+  if (off >= size) return size;
+  unsigned long w = off / BITS_PER_LONG, last = (size - 1) / BITS_PER_LONG;
+  unsigned long v = (a[w] ^ invert) & (~0UL << (off % BITS_PER_LONG));
+  for (;;) {
+    if (v) { unsigned long r = w * BITS_PER_LONG + (unsigned long)__builtin_ctzl(v); return r < size ? r : size; }
+    if (++w > last) return size;
+    v = a[w] ^ invert;
+  }
 }
-unsigned long find_next_zero_bit(const unsigned long *a, unsigned long size, unsigned long off) {
-  for (; off < size; off++) if (!test_bit(off, a)) return off;
-  return size;
-}
+unsigned long find_next_bit(const unsigned long *a, unsigned long size, unsigned long off) { return find_next_(a, size, off, 0); }
+unsigned long find_next_zero_bit(const unsigned long *a, unsigned long size, unsigned long off) { return find_next_(a, size, off, ~0UL); }
 unsigned long bitmap_weight(const unsigned long *a, unsigned int bits) {
-  unsigned long n = 0; for (unsigned i = 0; i < bits; i++) n += test_bit(i, a); return n;
+  unsigned long n = 0, full = bits / BITS_PER_LONG;
+  for (unsigned long i = 0; i < full; i++) n += (unsigned long)__builtin_popcountl(a[i]);
+  if (bits % BITS_PER_LONG) n += (unsigned long)__builtin_popcountl(a[full] & ((1UL << (bits % BITS_PER_LONG)) - 1));
+  return n;
 }
 
 /* ---- rbtree: 親ポインタ付きの二分探索木で代用 (色なし・非平衡)。

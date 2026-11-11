@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cerrno>
 #include <cstring>
 
@@ -196,6 +197,20 @@ BlockDevicePtr ReadAheadDevice::wrap(BlockDevicePtr inner, size_t window) {
 }
 
 uint64_t ReadAheadDevice::inner_reads() const { std::lock_guard<std::mutex> g(mu_); return inner_reads_; }
+bool ReadAheadDevice::stats(const BlockDevicePtr& dev, uint64_t* reads, uint64_t* bytes, uint64_t* ns) {
+  auto* r = dynamic_cast<ReadAheadDevice*>(dev.get());
+  if (!r) return false;
+  std::lock_guard<std::mutex> g(r->mu_);
+  *reads = r->inner_reads_; *bytes = r->inner_bytes_; *ns = r->inner_ns_;
+  return true;
+}
+Status ReadAheadDevice::timed_read_(uint64_t off, void* buf, size_t len, const IoOptions& io) {
+  auto t0 = std::chrono::steady_clock::now();
+  Status st = inner_->read_at(off, buf, len, io);
+  inner_ns_ += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count());
+  inner_bytes_ += len;
+  return st;
+}
 
 Status ReadAheadDevice::read_at(uint64_t off, void* buf, size_t len, const IoOptions& io) {
   if (!len) return Status::Ok();
@@ -213,7 +228,7 @@ Status ReadAheadDevice::read_at(uint64_t off, void* buf, size_t len, const IoOpt
   last_end_ = end;
   if (streak_ < 2 || len >= window_) {   // 連続とは言えない / 窓より大きい要求はそのまま下位へ
     ++inner_reads_;
-    return inner_->read_at(off, buf, len, io);
+    return timed_read_(off, buf, len, io);
   }
   // 連続読み: off から window バイトを先読みして窓に入れる (デバイス末尾は切り詰める)
   const uint32_t bs = inner_->logical_block_size() ? inner_->logical_block_size() : 512;
@@ -222,15 +237,15 @@ Status ReadAheadDevice::read_at(uint64_t off, void* buf, size_t len, const IoOpt
   want -= want % bs;
   if (start + want < end) {   // 末尾の端数: 先読みせず直接読む
     ++inner_reads_;
-    return inner_->read_at(off, buf, len, io);
+    return timed_read_(off, buf, len, io);
   }
   if (win_.size() != window_) win_.assign(window_, 0);
   ++inner_reads_;
   win_len_ = 0;   // 失敗したら窓は無効
-  Status st = inner_->read_at(start, win_.data(), static_cast<size_t>(want), io);
+  Status st = timed_read_(start, win_.data(), static_cast<size_t>(want), io);
   if (!st.ok()) {   // 先読みの失敗は、要求した範囲だけ読み直して本来のエラーを返す (先読みのせいで読めたはずの所が失敗しない)
     ++inner_reads_;
-    return inner_->read_at(off, buf, len, io);
+    return timed_read_(off, buf, len, io);
   }
   win_off_ = start; win_len_ = want;
   std::memcpy(buf, win_.data() + (off - start), len);

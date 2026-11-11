@@ -103,6 +103,8 @@ class ReadAheadDevice final : public BlockDevice {
   std::string describe() const override { return "readahead(" + inner_->describe() + ")"; }
   /** 下位への読み取り回数 (テスト・診断用) */
   uint64_t inner_reads() const;
+  /** 下位への読み取りに使った時間 (ナノ秒の合計。診断用)。wrap() の戻り値が ReadAheadDevice でなければ false */
+  static bool stats(const BlockDevicePtr& dev, uint64_t* reads, uint64_t* bytes, uint64_t* ns);
 
  private:
   ReadAheadDevice(BlockDevicePtr in, size_t window);
@@ -112,7 +114,8 @@ class ReadAheadDevice final : public BlockDevice {
   std::vector<uint8_t> win_;
   uint64_t win_off_ = 0, win_len_ = 0, last_end_ = UINT64_MAX;
   int streak_ = 0;
-  uint64_t inner_reads_ = 0;
+  uint64_t inner_reads_ = 0, inner_bytes_ = 0, inner_ns_ = 0;
+  Status timed_read_(uint64_t off, void* buf, size_t len, const IoOptions& io);
 };
 
 }  // namespace usbmem

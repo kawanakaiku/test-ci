@@ -213,6 +213,18 @@ TEST(readahead_random_reads_are_not_amplified) {
   CHECK(mem->bytes <= (uint64_t)n * 4096 * 2);   // ほぼ素通し (偶然の連続だけ先読みされる)
 }
 
+TEST(readahead_stats_count_device_reads) {
+  auto mem = std::make_shared<CountingMem>(1u << 20);
+  auto ra = ReadAheadDevice::wrap(mem, 256 * 1024);
+  std::vector<uint8_t> b(4096);
+  for (uint64_t off = 0; off < 64 * 4096; off += 4096) CHECK(ra->read_at(off, b.data(), 4096).ok());
+  uint64_t reads = 0, bytes = 0, ns = 0;
+  CHECK(ReadAheadDevice::stats(ra, &reads, &bytes, &ns));
+  CHECK_EQ(reads, mem->reads);
+  CHECK_EQ(bytes, mem->bytes);
+  CHECK(!ReadAheadDevice::stats(mem, &reads, &bytes, &ns));   // ラップされていないデバイスは false
+}
+
 TEST(readahead_write_invalidates_window) {
   auto mem = std::make_shared<CountingMem>(1u << 20);
   auto ra = ReadAheadDevice::wrap(mem, 256 * 1024);

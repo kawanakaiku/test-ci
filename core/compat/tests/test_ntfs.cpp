@@ -11,6 +11,7 @@
 #include <random>
 #include <set>
 #include <sstream>
+#include <vector>
 
 #include "../../tests/fake_bot.h"
 #include "usbmem/devices.h"
@@ -367,7 +368,39 @@ static int replay(const std::string& dir, const char* file) {
   return 0;
 }
 
+// ビット操作 (互換層の bitmap_weight / find_next_bit / find_next_zero_bit) を、1 ビットずつ数える素朴な実装と照合する。
+// 端数ビット・ワード境界・全 0 / 全 1 / ランダムで、size と off の組を網羅的に試す
+extern "C" {
+unsigned long find_next_bit(const unsigned long*, unsigned long, unsigned long);
+unsigned long find_next_zero_bit(const unsigned long*, unsigned long, unsigned long);
+unsigned long bitmap_weight(const unsigned long*, unsigned int);
+}
+static int bitops_test() {
+  std::mt19937_64 rng(12345);
+  int bad = 0;
+  auto tb = [](const std::vector<unsigned long>& a, unsigned long i) { return (a[i / 64] >> (i % 64)) & 1UL; };
+  for (int pat = 0; pat < 5; pat++) {
+    for (unsigned size : {0u, 1u, 7u, 63u, 64u, 65u, 127u, 128u, 129u, 200u, 1000u, 4096u, 5000u}) {
+      std::vector<unsigned long> a((size + 63) / 64 + 1);
+      for (auto& w : a) w = pat == 0 ? 0 : pat == 1 ? ~0UL : pat == 2 ? 0x8000000000000001UL : rng();
+      if (pat == 4) for (auto& w : a) if (rng() % 8) w = 0;   // まばら
+      unsigned long nw = 0; for (unsigned i = 0; i < size; i++) nw += tb(a, i);
+      if (bitmap_weight(a.data(), size) != nw) { std::printf("bitmap_weight mismatch pat=%d size=%u\n", pat, size); bad++; }
+      for (unsigned long off = 0; off <= size + 2; off++) {
+        unsigned long e1 = size, e0 = size;
+        for (unsigned long i = off; i < size; i++) { if (tb(a, i)) { e1 = i; break; } }
+        for (unsigned long i = off; i < size; i++) { if (!tb(a, i)) { e0 = i; break; } }
+        if (find_next_bit(a.data(), size, off) != e1) { std::printf("find_next_bit mismatch pat=%d size=%u off=%lu\n", pat, size, off); bad++; }
+        if (find_next_zero_bit(a.data(), size, off) != e0) { std::printf("find_next_zero_bit mismatch pat=%d size=%u off=%lu\n", pat, size, off); bad++; }
+      }
+    }
+  }
+  std::printf("bitops test: %s\n", bad ? "FAILED" : "ok");
+  return bad ? 1 : 0;
+}
+
 int main(int argc, char** argv) {
+  if (argc >= 2 && std::string(argv[1]) == "--bitops") return bitops_test();
   if (argc >= 7 && std::string(argv[1]) == "--wtest") return wtest(argv[2], argv[3], std::strtoull(argv[4], 0, 10), std::strtoull(argv[5], 0, 10), (unsigned)std::atoi(argv[6]));
   if (argc >= 3 && std::string(argv[1]) == "--probe") return probe_img(argv[2]);
   if (argc >= 4 && std::string(argv[1]) == "--ops") return ops_run(argv[2], argv[3]);

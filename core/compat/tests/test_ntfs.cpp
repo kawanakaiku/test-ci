@@ -11,6 +11,7 @@
 #include <set>
 #include <sstream>
 
+#include "../../tests/fake_bot.h"
 #include "usbmem/devices.h"
 #include "usbmem/ntfs_volume.h"
 
@@ -187,6 +188,27 @@ int main(int argc, char** argv) {
   uint64_t x; CHECK(vol->resolve("/nonexistent", &x) != 0);
   std::vector<usbmem::NtfsDirEntry> sub; CHECK(vol->readdir(vol->root(), &sub) == 0);
   vol.reset();
+  // 同じイメージを「USB Mass Storage デバイス」(模擬 BOT) 経由で読む: BlockDevice → MSC → fs/ntfs の全経路
+  {
+    auto bot = std::make_unique<fake::BotDevice>(dev->size() / 512, 512);
+    bot->backing = [dev](uint64_t lba, uint8_t* out) { if (!dev->read_at(lba * 512, out, 512).ok()) std::memset(out, 0, 512); };
+    usbmem::BlockDevicePtr usb;
+    usbmem::MscOptions mo; mo.retry_delay_ms = 1;
+    CHECK(usbmem::MscDevice::open(std::move(bot), mo, &usb).ok());
+    auto uv = usb ? usbmem::NtfsVolume::mount(usb, &err) : nullptr;
+    CHECK(uv != nullptr);
+    if (uv) {
+      for (const char* f : {"big.bin", "cdir/text.txt", "cdir/mixed.bin"}) {
+        uint64_t ino = 0; CHECK(uv->resolve(f, &ino) == 0);
+        Sha256 h; std::vector<uint8_t> b(70000); uint64_t off = 0;
+        for (;;) { int64_t n = uv->read(ino, off, b.data(), b.size()); if (n <= 0) break; h.update(b.data(), (size_t)n); off += (uint64_t)n; }
+        std::string want;
+        { std::ifstream m2(dir + "/ntfs_basic.manifest"); std::string l; while (std::getline(m2, l)) { std::istringstream is2(l); std::string k, sz, sh, pth; is2 >> k >> sz >> sh; std::getline(is2 >> std::ws, pth); if (pth == f) want = sh; } }
+        bool ok = !want.empty() && h.hex() == want; if (!ok) std::fprintf(stderr, "usb path sha mismatch %s\n", f);
+        CHECK(ok);
+      }
+    }
+  }
   // マウント/読み取り/アンマウントを繰り返してもリーク・UAF しない (ASan で検証)
   for (int k = 0; k < 20; k++) {
     auto v2 = usbmem::NtfsVolume::mount(dev, &err);

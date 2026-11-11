@@ -35,3 +35,16 @@
 1. 互換層に書き込み経路 (dirty folio / writeback / bio write / iomap write) を追加し、**イメージファイル上で** `ntfs-3g` / `ntfsfix -n` / `ntfsinfo` による独立検証と fuzz を通す。
 2. 通るまで書き込みはビルドオプション + 実行時の明示許可の二重ガードで無効のままにする。
 3. 実機検証は USB メモリを用意してもらったうえで、読み取り → 書き込みの順に進める。
+
+## NTFS 書き込み経路の実装計画 (調査結果, 2026-11-11)
+上流 `fs/ntfs` の書き込みが依存する、互換層でまだスタブ (`tools/compat_stub_names.txt`) の機能:
+`iomap_file_buffered_write` / `iomap_dirty_folio` / `iomap_writepages` + `iomap_add_to_ioend` + `iomap_ioend_writeback_submit` / `iomap_zero_range` /
+`iomap_invalidate_folio` / `iomap_release_folio` / `iomap_is_partially_uptodate` / `copy_folio_from_iter_atomic` / `generic_write_checks` / `file_modified` / `setattr_*` / `notify_change` ほか。
+MFT は `ntfs_mft_writepages` (別系統) で書く。
+
+段階 (各段で ntfs-3g / ntfsfix -n / WinPE chkdsk と fuzz で検証。書き込みは build オプション + 実行時 opt-in の二重ガードのまま):
+1. folio の dirty 管理と `iomap_dirty_folio`、ホスト API の `sync` (全 dirty folio を `writeback_range` 経由で BlockDevice へ bio 書き込み、flush)。
+2. `iomap_file_buffered_write` (既存ファイル内の上書きのみ。拡張なし) → `usbmem_ntfs_write` API。
+3. 拡張・新規作成・削除・rename・mkdir (上流の `ntfs_create`/`unlink` 等と `$LogFile`/`$MFTMirr`/ビットマップ更新の確認)。
+4. 電源断模擬 (書き込み途中の任意位置で打ち切り) で `ntfsfix -n`/chkdsk が許容できる状態か確認。
+注意: 64KiB クラスタで `$MFTMirr` 警告 (上流の偽陽性) が書き込み有効化時に読み取り専用化を引き起こさないか段 1 で確認する。

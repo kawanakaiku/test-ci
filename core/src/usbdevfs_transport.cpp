@@ -28,12 +28,15 @@ class UsbdevfsTransport final : public BulkTransport {
   UsbdevfsTransport(int fd, const UsbEndpoints& e) : fd_(fd), eps_(e) {}
 
   Status bulk_out(const void* buf, size_t len, size_t* done, uint32_t timeout_ms) override {
-    return xfer(eps_.ep_out, const_cast<void*>(buf), len, done, timeout_ms);
+    return xfer(eps_.ep_out, const_cast<void*>(buf), len, done, timeout_ms, chunk_out_);
   }
   Status bulk_in(void* buf, size_t len, size_t* done, uint32_t timeout_ms) override {
-    return xfer(eps_.ep_in, buf, len, done, timeout_ms);
+    return xfer(eps_.ep_in, buf, len, done, timeout_ms, chunk_in_);
   }
-  void set_chunk(size_t bytes) override { chunk_ = std::max<size_t>(kChunk, bytes - bytes % kChunk); }   // 16KiB の倍数 (max packet size の倍数)
+  void set_chunk(UsbDir dir, size_t bytes) override {   // 16KiB の倍数 (max packet size の倍数)。方向別 (読み取りだけ大きくできる)
+    size_t c = std::max<size_t>(kChunk, bytes - bytes % kChunk);
+    (dir == UsbDir::In ? chunk_in_ : chunk_out_) = c;
+  }
   Status clear_halt(UsbDir ep) override {
     unsigned int addr = ep == UsbDir::In ? eps_.ep_in : eps_.ep_out;
     if (::ioctl(fd_, USBDEVFS_CLEAR_HALT, &addr) != 0) return map_errno(errno);
@@ -53,11 +56,11 @@ class UsbdevfsTransport final : public BulkTransport {
   }
 
  private:
-  Status xfer(uint8_t ep, void* buf, size_t len, size_t* done, uint32_t timeout_ms) {
+  Status xfer(uint8_t ep, void* buf, size_t len, size_t* done, uint32_t timeout_ms, size_t chunk) {
     *done = 0;
     auto* p = static_cast<uint8_t*>(buf);
     while (*done < len) {
-      size_t n = std::min(len - *done, chunk_);
+      size_t n = std::min(len - *done, chunk);
       struct usbdevfs_bulktransfer b = {};
       b.ep = ep;
       b.len = static_cast<unsigned int>(n);
@@ -76,7 +79,7 @@ class UsbdevfsTransport final : public BulkTransport {
   }
   int fd_;
   UsbEndpoints eps_;
-  size_t chunk_ = kChunk;
+  size_t chunk_in_ = kChunk, chunk_out_ = kChunk;
 };
 }  // namespace
 

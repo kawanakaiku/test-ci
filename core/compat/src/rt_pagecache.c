@@ -5,8 +5,53 @@
 #include <compat/kernel.h>
 #include <compat/usbmem_ntfs.h>
 
+#include <sys/mman.h>
+#if defined(__SANITIZE_ADDRESS__)
+#define USBMEM_ASAN_BUILD 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define USBMEM_ASAN_BUILD 1
+#endif
+#endif
+
 #define NB 256
-struct pcache { struct folio *b[NB]; pthread_mutex_t mu; };
+struct pcache { struct folio *b[NB]; pthread_mutex_t mu; size_t count; unsigned clock; };
+
+/* 1 マッピングあたりのキャッシュ folio 数の上限 (既定 8192 = 32 MiB)。超えたら、キャッシュしか参照していない clean な folio を古い順に捨てる。
+ * 上限が無いと、巨大ファイルを読むだけでメモリが際限なく増える (7.3 TiB の NTFS で $Bitmap だけで約 490 MB)。環境変数 USBMEM_PCACHE_MAX で変更 (テスト用: 小さくして退避を酷使する)。 */
+static size_t pcache_max(void) {
+  static size_t v;
+  if (!v) { const char *e = getenv("USBMEM_PCACHE_MAX"); long n = e ? atol(e) : 8192; v = n < 64 ? 64 : (size_t)n; }
+  return v;
+}
+
+/* folio のデータ領域 (4096B・4096 境界)。posix_memalign(4096, 4096) は、アロケータによっては 1 ページあたり約 8 KiB を使う (実機で RSS が 2 倍になった)。
+ * 大きな領域 (1 MiB) から切り出して再利用する。ASan ビルドは境界検査のため通常の確保のまま。 */
+#ifndef USBMEM_ASAN_BUILD
+static pthread_mutex_t g_slab_mu = PTHREAD_MUTEX_INITIALIZER;
+static char *g_slab_cur, *g_slab_end;
+static void *g_slab_free;   /* 解放済みページの単方向リスト (ページ先頭に次のポインタ) */
+#define SLAB_BYTES (256 * PAGE_SIZE)
+static void *data_alloc(void) {
+  pthread_mutex_lock(&g_slab_mu);
+  void *pg = g_slab_free;
+  if (pg) g_slab_free = *(void **)pg;
+  else {
+    if (g_slab_cur == g_slab_end) {
+      void *base = mmap(NULL, SLAB_BYTES, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      if (base == MAP_FAILED) { pthread_mutex_unlock(&g_slab_mu); return NULL; }
+      g_slab_cur = base; g_slab_end = g_slab_cur + SLAB_BYTES;
+    }
+    pg = g_slab_cur; g_slab_cur += PAGE_SIZE;
+  }
+  pthread_mutex_unlock(&g_slab_mu);
+  return pg;
+}
+static void data_free(void *pg) { pthread_mutex_lock(&g_slab_mu); *(void **)pg = g_slab_free; g_slab_free = pg; pthread_mutex_unlock(&g_slab_mu); }
+#else
+static void *data_alloc(void) { void *p = NULL; return posix_memalign(&p, PAGE_SIZE, PAGE_SIZE) ? NULL : p; }
+static void data_free(void *pg) { free(pg); }
+#endif
 
 static struct pcache *pc_get(struct address_space *m) {
   if (!m->pages) {
@@ -19,7 +64,8 @@ static struct pcache *pc_get(struct address_space *m) {
 static struct folio *folio_new(struct address_space *m, pgoff_t idx) {
   struct folio *f = calloc(1, sizeof *f);
   if (!f) return NULL;
-  if (posix_memalign(&f->data, PAGE_SIZE, PAGE_SIZE)) { free(f); return NULL; }
+  f->data = data_alloc();
+  if (!f->data) { free(f); return NULL; }
   memset(f->data, 0, PAGE_SIZE);
   f->mapping = m; f->index = idx;
   atomic_set(&f->refcount, 1);
@@ -43,7 +89,7 @@ bool folio_contains(const struct folio *f, pgoff_t i) { return f->index == i; }
 struct page *folio_page(struct folio *f, unsigned long n) { (void)n; return &f->page; }
 struct folio *page_folio(struct page *p) { return p->folio_; }
 void folio_get(struct folio *f) { atomic_inc(&f->refcount); }
-static void folio_free(struct folio *f) { pthread_mutex_destroy(&f->lock_.m); free(f->data); free(f); }
+static void folio_free(struct folio *f) { pthread_mutex_destroy(&f->lock_.m); data_free(f->data); free(f); }
 /* 参照規約は Linux と同じ: キャッシュが 1、get 系 API が呼び出し側に +1。最後の put で解放。 */
 void folio_put(struct folio *f) { if (atomic_dec_return(&f->refcount) == 0) folio_free(f); }
 void folio_lock(struct folio *f) { pthread_mutex_lock(&f->lock_.m); f->flags |= 1UL << FOLIO_LOCKED; }
@@ -99,6 +145,25 @@ void filemap_invalidate_unlock(struct address_space *m) { pthread_rwlock_unlock(
 void filemap_invalidate_lock_shared(struct address_space *m) { pthread_rwlock_rdlock(&m->invalidate_lock.l); }
 void filemap_invalidate_unlock_shared(struct address_space *m) { pthread_rwlock_unlock(&m->invalidate_lock.l); }
 
+/* 上限を超えていたら、キャッシュだけが参照する clean な folio を捨てる (p->mu を持って呼ぶ)。
+ * 各ハッシュ鎖の末尾 (最も古く挿入されたもの) を優先する。refcount==1 は「キャッシュ以外に参照者がいない」ことを意味し、
+ * 参照の取得 (pc_find_locked) も p->mu の下で行うので、ここで解放しても競合しない。dirty / 書き戻し中 / ロック中 / 読み込み中は捨てない。 */
+static int pc_evictable(struct folio *f) {
+  return atomic_read(&f->refcount) == 1 && !f->read_pending_ &&
+         !(f->flags & ((1UL << FOLIO_DIRTY) | (1UL << FOLIO_WRITEBACK) | (1UL << FOLIO_LOCKED)));
+}
+static void pc_evict_locked(struct pcache *p, struct folio *keep) {
+  size_t max = pcache_max();
+  if (p->count <= max) return;
+  size_t target = max - max / 16;   /* 少し余裕を持って、毎回ではなくまとめて捨てる */
+  for (int pass = 0; pass < 4 * NB && p->count > target; pass++) {
+    struct folio **victim = NULL;
+    for (struct folio **pp = &p->b[p->clock++ % NB]; *pp; pp = &(*pp)->hash_next_)
+      if (*pp != keep && pc_evictable(*pp)) victim = pp;   /* 鎖で最後に見つかった (=最も古い) もの */
+    if (victim) { struct folio *f = *victim; *victim = f->hash_next_; p->count--; folio_free(f); }
+  }
+}
+
 /* folio を取得 (無ければ作る)。返す folio は未 lock / 未 uptodate。 */
 static struct folio *get_or_create(struct address_space *m, pgoff_t idx) {
   struct pcache *p = pc_get(m);
@@ -106,7 +171,7 @@ static struct folio *get_or_create(struct address_space *m, pgoff_t idx) {
   struct folio *f = pc_find_locked(p, idx);
   if (!f) {
     f = folio_new(m, idx);
-    if (f) { atomic_set(&f->refcount, 2); /* キャッシュ + 呼び出し側 */ f->hash_next_ = p->b[idx % NB]; p->b[idx % NB] = f; }
+    if (f) { atomic_set(&f->refcount, 2); /* キャッシュ + 呼び出し側 */ f->hash_next_ = p->b[idx % NB]; p->b[idx % NB] = f; p->count++; pc_evict_locked(p, f); }
   }
   pthread_mutex_unlock(&p->mu);
   return f;
@@ -159,7 +224,7 @@ void truncate_inode_pages(struct address_space *m, loff_t from) {
     struct folio **pp = &p->b[i];
     while (*pp) {
       struct folio *f = *pp;
-      if (f->index >= first) { *pp = f->hash_next_; folio_put(f); /* キャッシュ参照を外す。使用中なら最後の put で解放 */ } else pp = &f->hash_next_;
+      if (f->index >= first) { *pp = f->hash_next_; p->count--; folio_put(f); /* キャッシュ参照を外す。使用中なら最後の put で解放 */ } else pp = &f->hash_next_;
     }
   }
   pthread_mutex_unlock(&p->mu);

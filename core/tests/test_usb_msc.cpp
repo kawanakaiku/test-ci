@@ -110,15 +110,20 @@ TEST(msc_read_capacity16_short_response_is_accepted) {
 }
 
 TEST(msc_tune_changes_max_transfer) {
-  auto r = make(8192, 512);
+  MscOptions wo; wo.read_only = false;
+  auto r = make(8192, 512, {}, wo);
   CHECK(r.st.ok());
   auto* m = dynamic_cast<MscDevice*>(r.dev.get());
   std::vector<uint8_t> b(1 << 20);
   CHECK(r.dev->read_at(0, b.data(), b.size()).ok());
   CHECK_EQ(r.bot->max_data_len, 64 * 1024);          // 既定
-  m->tune(0, 256 * 1024);
+  m->tune(0, 256 * 1024);                            // 読み取りだけ変わる
   CHECK(r.dev->read_at(0, b.data(), b.size()).ok());
   CHECK_EQ(r.bot->max_data_len, 256 * 1024);
+  r.bot->max_data_len = 0;
+  std::vector<uint8_t> w(1 << 20, 0x5A);
+  CHECK(r.dev->write_at(0, w.data(), w.size()).ok());   // 書き込みは既定 (64KiB) のまま
+  CHECK_EQ(r.bot->max_data_len, 64 * 1024);
   CHECK(std::vector<uint8_t>(b.begin(), b.begin() + 4096) == expect(0, 4096, 512));   // 内容は変わらない
   m->tune(0, 100);                                    // ブロック長未満・非倍数は丸められる (512 以上の倍数)
   CHECK(r.dev->read_at(0, b.data(), 2048).ok());

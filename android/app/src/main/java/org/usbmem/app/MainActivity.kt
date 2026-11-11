@@ -108,17 +108,17 @@ class MainActivity : ComponentActivity() {
             try {
                 val total = 128L shl 20
                 // (USB 1 回の転送要求 KiB, 1 SCSI コマンド KiB)。0,0 = 既定のまま。区間はずらして、デバイス側のキャッシュ効果を避ける
-                val configs = listOf(0 to 0, 64 to 256, 256 to 512, 512 to 1024, 1024 to 2048)
+                val configs = listOf(16 to 64, 64 to 128, 64 to 256, 128 to 256, 128 to 512)
                 configs.forEachIndexed { i, (chunk, mt) ->
                     val off = (1L shl 30) + i * (256L shl 20)
                     val line = try {
                         if (chunk != 0 || mt != 0) s.tune(chunk, mt)
                         val us = s.benchRead(off, total, 1024)
-                        "chunk=${if (chunk == 0) "既定" else "${chunk}K"} cmd=${if (mt == 0) "既定" else "${mt}K"}: %.1f MB/s".format(total / 1048576.0 / (us / 1e6))
+                        "読み取り chunk=${chunk}K cmd=${mt}K: %.1f MB/s".format(total / 1048576.0 / (us / 1e6))
                     } catch (e: NativeException) { "chunk=${chunk}K cmd=${mt}K: 失敗 ${e.message}" }
                     android.util.Log.i("usbmem", "bench $line"); sb.appendLine(line)
                 }
-                s.tune(16, 64)   // 既定へ戻す (USB 転送要求 16KiB / 1 コマンド 64KiB)
+                s.tune(UsbStorageSession.READ_CHUNK_KIB, UsbStorageSession.READ_MAX_TRANSFER_KIB)   // 読み取りの既定へ戻す
             } catch (e: Exception) { sb.appendLine("失敗: ${e.javaClass.simpleName}") }
             updateOps("after bench")
             runOnUiThread { usbBench = sb.toString().trim() }

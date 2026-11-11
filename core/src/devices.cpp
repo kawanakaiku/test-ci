@@ -182,3 +182,65 @@ std::string SubRangeDevice::describe() const {
 }
 
 }  // namespace usbmem
+
+namespace usbmem {
+ReadAheadDevice::ReadAheadDevice(BlockDevicePtr in, size_t window) : inner_(std::move(in)), window_(window) {}
+
+BlockDevicePtr ReadAheadDevice::wrap(BlockDevicePtr inner, size_t window) {
+  if (!inner) return nullptr;
+  uint32_t bs = inner->logical_block_size();
+  if (!bs) bs = 512;
+  window -= window % bs;
+  if (window < 2 * bs) return inner;   // 窓が意味をなさない
+  return BlockDevicePtr(new ReadAheadDevice(std::move(inner), window));
+}
+
+uint64_t ReadAheadDevice::inner_reads() const { std::lock_guard<std::mutex> g(mu_); return inner_reads_; }
+
+Status ReadAheadDevice::read_at(uint64_t off, void* buf, size_t len, const IoOptions& io) {
+  if (!len) return Status::Ok();
+  std::lock_guard<std::mutex> g(mu_);
+  const uint64_t dev_size = inner_->size();
+  if (!range_ok(dev_size, off, len)) return Status::Make(Errc::OutOfRange);
+  const uint64_t end = off + len;
+  // 窓に収まっていればそこから返す
+  if (win_len_ && off >= win_off_ && end <= win_off_ + win_len_) {
+    std::memcpy(buf, win_.data() + (off - win_off_), len);
+    last_end_ = end; return Status::Ok();
+  }
+  const bool sequential = off == last_end_;
+  streak_ = sequential ? streak_ + 1 : 0;
+  last_end_ = end;
+  if (streak_ < 2 || len >= window_) {   // 連続とは言えない / 窓より大きい要求はそのまま下位へ
+    ++inner_reads_;
+    return inner_->read_at(off, buf, len, io);
+  }
+  // 連続読み: off から window バイトを先読みして窓に入れる (デバイス末尾は切り詰める)
+  const uint32_t bs = inner_->logical_block_size() ? inner_->logical_block_size() : 512;
+  const uint64_t start = off - off % bs;
+  uint64_t want = std::min<uint64_t>(window_, dev_size - start);
+  want -= want % bs;
+  if (start + want < end) {   // 末尾の端数: 先読みせず直接読む
+    ++inner_reads_;
+    return inner_->read_at(off, buf, len, io);
+  }
+  if (win_.size() != window_) win_.assign(window_, 0);
+  ++inner_reads_;
+  win_len_ = 0;   // 失敗したら窓は無効
+  Status st = inner_->read_at(start, win_.data(), static_cast<size_t>(want), io);
+  if (!st.ok()) {   // 先読みの失敗は、要求した範囲だけ読み直して本来のエラーを返す (先読みのせいで読めたはずの所が失敗しない)
+    ++inner_reads_;
+    return inner_->read_at(off, buf, len, io);
+  }
+  win_off_ = start; win_len_ = want;
+  std::memcpy(buf, win_.data() + (off - start), len);
+  return Status::Ok();
+}
+
+Status ReadAheadDevice::write_at(uint64_t off, const void* buf, size_t len, const IoOptions& io) {
+  { std::lock_guard<std::mutex> g(mu_); win_len_ = 0; streak_ = 0; last_end_ = UINT64_MAX; }   // 窓を捨てる (古い内容を返さない)
+  Status st = inner_->write_at(off, buf, len, io);
+  { std::lock_guard<std::mutex> g(mu_); win_len_ = 0; }   // 書き込み中に別スレッドが窓を作り直していても捨てる
+  return st;
+}
+}  // namespace usbmem

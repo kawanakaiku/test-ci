@@ -17,8 +17,8 @@ enum class UsbDir { In, Out };
 // 1 つの Mass Storage インタフェースの bulk エンドポイント対。実装はスレッドセーフでなくてよい (MscDevice が直列化する)。
 class BulkTransport {
  public:
-  /** 1 回の bulk 転送要求の最大バイト数 (実装が分割するときの単位)。実行時の調整用。既定は実装依存。 */
-  virtual void set_chunk(size_t bytes) { (void)bytes; }
+  /** 1 回の bulk 転送要求の最大バイト数 (実装が分割するときの単位)。方向別。実行時の調整用で、既定は実装依存。 */
+  virtual void set_chunk(UsbDir dir, size_t bytes) { (void)dir; (void)bytes; }
   virtual ~BulkTransport() = default;
   // 転送できたバイト数を *done へ。短い転送は Ok のまま done < len。
   // STALL は Errc::Io + sys_errno=EPIPE、タイムアウトは Errc::Timeout、抜去は Errc::Disconnected。
@@ -32,7 +32,8 @@ class BulkTransport {
 struct MscOptions {
   uint8_t lun = 0;
   bool read_only = true;                  // false でも書き込み禁止メディア (WP) なら読み取り専用になる
-  uint32_t max_transfer = 64 * 1024;      // 1 コマンドあたりの最大バイト数 (ブロックサイズの倍数に丸める)
+  uint32_t max_transfer = 64 * 1024;      // 1 コマンドあたりの最大バイト数 (ブロックサイズの倍数に丸める)。書き込みは常にこの値
+  uint32_t max_read_transfer = 0;         // 読み取り 1 コマンドあたりの最大バイト数。0 = max_transfer。読み取りだけ大きくして速度を上げられる (書き込みは変えない)
   uint32_t io_timeout_ms = 10000;
   uint32_t ready_wait_ms = 10000;         // TEST UNIT READY を待つ上限
   uint32_t retry_delay_ms = 200;
@@ -58,8 +59,9 @@ class MscDevice final : public BlockDevice {
   ScsiSense last_sense() const { return last_sense_; }
   /** 送った SCSI オペコードの集計 (例: "12x1 1ax1 25x1 28x4237")。読み取り専用で WRITE 系が 0 であることの実機での証拠。 */
   std::string op_stats() const;
-  /** 転送サイズの調整 (速度計測・チューニング用)。transport_chunk = 1 回の USB 転送要求 (16KiB の倍数)、max_transfer = 1 SCSI コマンドあたり (ブロック長の倍数に丸める)。 */
-  void tune(size_t transport_chunk, uint32_t max_transfer);
+  /** **読み取り**の転送サイズの調整 (速度計測・チューニング用。書き込みの設定は変えない)。0 = 変更しない。
+   *  read_chunk = 1 回の USB 転送要求 (IN, 16KiB の倍数)、read_max_transfer = 1 SCSI READ コマンドあたり (ブロック長の倍数に丸める)。 */
+  void tune(size_t read_chunk, uint32_t read_max_transfer);
   /** 診断用: 直近の open() 中に送った SCSI コマンドと結果の記録 (失敗時の原因調査用)。 */
   static std::string last_open_trace();
   uint32_t op_count(uint8_t opcode) const { return op_counts_[opcode]; }

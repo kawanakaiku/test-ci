@@ -26,6 +26,19 @@ if "$T" --ops "$W/big.img" "$W/noop.ops" 2>&1 | grep -aq "mount_rw failed: errno
 h1=$(python3 "$(dirname "$0")/sparse_hash.py" "$W/big.img")
 [ "$h0" = "$h1" ] || { echo "FAIL: no-op rw mount changed the media"; exit 1; }
 echo "操作なしの rw マウントでメディア不変: ok"
+# USB (模擬 BOT) 越しの rw マウントで、READ コマンドの数が先読みで抑えられること (先読みが無いと、ビットマップ全体を 4 KiB ずつ読んで数万回になる。実機 7.3 TiB では約 12 万回で 2 分 40 秒)
+reads=$(USBMEM_VIA_MSC=1 "$T" --ops "$W/big.img" "$W/noop.ops" 2>&1 | grep -a "^msc ops:" | grep -ao "8[8]x[0-9]*\|28x[0-9]*" | head -1 | sed 's/^[0-9a-f]*x//')
+[ -n "$reads" ] || { echo "FAIL: no READ count from msc ops"; exit 1; }
+echo "3 TiB rw マウントの READ コマンド数 (USB 越し): $reads"
+[ "$reads" -lt 4000 ] || { echo "FAIL: too many READ commands ($reads): read-ahead not effective?"; exit 1; }
+# メモリ使用量の上限: 実機の 7.3 TiB (クラスタ 2048B) で RSS が約 1.25 GB になった (ページキャッシュ無制限 + 確保の 2 倍使い)。
+# サニタイザなしのビルドだけで検査する (ASan は検査用の追加メモリで数百 MB になる)。キャッシュ上限 + 小さな固定メモリで収まること
+if ! ldd "$T" 2>/dev/null | grep -q asan && [ -x /usr/bin/time ]; then
+  truncate -s 7500G "$W/huge.img" && "$MKNTFS" -F -Q -q -s 512 -c 2048 -L HUGE "$W/huge.img" >/dev/null 2>&1
+  rss=$(USBMEM_VIA_MSC=1 /usr/bin/time -f "%M" "$T" --ops "$W/huge.img" "$W/noop.ops" 2>&1 >/dev/null | tail -1)
+  echo "7.3 TiB (クラスタ 2048B) rw マウントの最大 RSS: ${rss} KB"
+  [ "$rss" -lt 150000 ] || { echo "FAIL: RSS ${rss} KB (> 150 MB): page cache not bounded?"; exit 1; }
+fi
 printf 'mkdir /d\ncreate /d/f.txt\nwrite /d/f.txt 0 20000 5\n' > "$W/ops"
 out=$("$T" --ops "$W/big.img" "$W/ops" 2>&1 | grep -av unimplemented || true)
 if echo "$out" | grep -aq "mount_rw failed: errno 30"; then echo "(書き込み無効のビルド: 書き込み部分はスキップ)"; exit 0; fi

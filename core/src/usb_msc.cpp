@@ -134,11 +134,11 @@ Status MscDevice::reset_recovery() {
   return r;
 }
 
-void MscDevice::tune(size_t transport_chunk, uint32_t max_transfer) {
-  if (transport_chunk) t_->set_chunk(transport_chunk);
-  if (max_transfer) {
-    opt_.max_transfer = std::max<uint32_t>(max_transfer, block_size_);
-    opt_.max_transfer -= opt_.max_transfer % block_size_;
+void MscDevice::tune(size_t read_chunk, uint32_t read_max_transfer) {
+  if (read_chunk) t_->set_chunk(UsbDir::In, read_chunk);
+  if (read_max_transfer) {
+    opt_.max_read_transfer = std::max<uint32_t>(read_max_transfer, block_size_);
+    opt_.max_read_transfer -= opt_.max_read_transfer % block_size_;
   }
 }
 
@@ -257,6 +257,8 @@ Status MscDevice::initialize() {
 
   if (opt_.max_transfer < block_size_) opt_.max_transfer = block_size_;
   opt_.max_transfer -= opt_.max_transfer % block_size_;
+  if (opt_.max_read_transfer == 0) opt_.max_read_transfer = opt_.max_transfer;
+  else { if (opt_.max_read_transfer < block_size_) opt_.max_read_transfer = block_size_; opt_.max_read_transfer -= opt_.max_read_transfer % block_size_; }
   return Status::Ok();
 }
 
@@ -305,7 +307,7 @@ Status MscDevice::read_locked(uint64_t off, void* buf, size_t len, const IoOptio
       p += n; off += n; len -= n;
       continue;
     }
-    size_t chunk = std::min<size_t>(len - len % block_size_, opt_.max_transfer);
+    size_t chunk = std::min<size_t>(len - len % block_size_, opt_.max_read_transfer);
     Status st = rw_blocks(false, lba, static_cast<uint32_t>(chunk / block_size_), p, io);
     if (!st.ok()) return st;
     p += chunk; off += chunk; len -= chunk;

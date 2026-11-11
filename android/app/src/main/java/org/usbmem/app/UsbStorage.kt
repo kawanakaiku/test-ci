@@ -108,6 +108,9 @@ class UsbStorageSession private constructor(
 
     companion object {
         const val ACTION_PERMISSION = "org.usbmem.app.USB_PERMISSION"
+        /** 読み取りの転送サイズ (KiB): USB 1 回の転送要求 / 1 SCSI READ コマンド。256K 以上の転送要求は実機の RAID で io-error だった。 */
+        const val READ_CHUNK_KIB = 64
+        const val READ_MAX_TRANSFER_KIB = 256
 
         fun permissionIntent(ctx: Context): PendingIntent {
             // Android 14+ は暗黙のブロードキャスト PendingIntent を拒否するので、必ず自パッケージを明示する。
@@ -146,6 +149,9 @@ class UsbStorageSession private constructor(
                 conn.close()
                 throw NativeException(code, "USB 初期化に失敗: ${NativeBridge.nativeErrcName(code)}")
             }
+            // 読み取りだけ転送を大きくする (実機 RAID で約 60 → 115〜130 MB/s)。書き込みは既定の小さい転送のまま (未検証のため)。
+            // 失敗しても致命的ではない (既定のまま使える)
+            runCatching { NativeBridge.nativeUsbTune(h, READ_CHUNK_KIB, READ_MAX_TRANSFER_KIB) }
             return UsbStorageSession(device.deviceName, conn, intf, h, writable)
         }
     }

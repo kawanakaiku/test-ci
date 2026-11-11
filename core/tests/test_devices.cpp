@@ -159,3 +159,89 @@ TEST(usb_msc_open_rejects_bad_arguments_and_non_usb_fd) {
   ::close(fd);
   ::unlink(p.c_str());
 }
+
+// ---- ReadAheadDevice: 連続読みを先読みでまとめ、ランダム読みは増幅せず、書き込みで窓を捨てる
+namespace {
+class CountingMem final : public BlockDevice {
+ public:
+  explicit CountingMem(size_t n, uint32_t bs = 512) : d(n), bs_(bs) { for (size_t i = 0; i < n; i++) d[i] = (uint8_t)(i * 131 + (i >> 8) * 7); }
+  std::vector<uint8_t> d; uint64_t reads = 0, bytes = 0; bool fail_reads = false; uint64_t fail_from = UINT64_MAX;
+  Status read_at(uint64_t off, void* b, size_t len, const IoOptions& = {}) override {
+    if (!range_ok(d.size(), off, len)) return Status::Make(Errc::OutOfRange);
+    ++reads; bytes += len;
+    if (fail_reads || (off + len > fail_from)) return Status::Make(Errc::Io);
+    std::memcpy(b, d.data() + off, len); return Status::Ok();
+  }
+  Status write_at(uint64_t off, const void* b, size_t len, const IoOptions& = {}) override {
+    if (!range_ok(d.size(), off, len)) return Status::Make(Errc::OutOfRange);
+    std::memcpy(d.data() + off, b, len); return Status::Ok();
+  }
+  Status flush() override { return Status::Ok(); }
+  Status close() override { return Status::Ok(); }
+  uint64_t size() const override { return d.size(); }
+  uint32_t logical_block_size() const override { return bs_; }
+  bool is_read_only() const override { return false; }
+  std::string describe() const override { return "countingmem"; }
+ private: uint32_t bs_;
+};
+}  // namespace
+
+TEST(readahead_sequential_reads_are_batched_and_correct) {
+  auto mem = std::make_shared<CountingMem>(4u << 20);
+  auto ra = ReadAheadDevice::wrap(mem, 256 * 1024);
+  std::vector<uint8_t> b(4096);
+  for (uint64_t off = 0; off < mem->d.size(); off += 4096) {
+    CHECK(ra->read_at(off, b.data(), 4096).ok());
+    CHECK(std::memcmp(b.data(), mem->d.data() + off, 4096) == 0);
+  }
+  // 1024 回の 4 KiB 読みが、16 回の窓 + 立ち上がりの数回に収まる
+  CHECK(mem->reads <= 16 + 3);
+  CHECK(mem->bytes <= (4u << 20) + 3 * 4096);   // 読み過ぎ (増幅) は立ち上がりの数ブロックだけ
+}
+
+TEST(readahead_random_reads_are_not_amplified) {
+  auto mem = std::make_shared<CountingMem>(4u << 20);
+  auto ra = ReadAheadDevice::wrap(mem, 256 * 1024);
+  std::vector<uint8_t> b(4096);
+  uint64_t x = 88172645463325252ull; int n = 300;
+  for (int i = 0; i < n; i++) {
+    x ^= x << 13; x ^= x >> 7; x ^= x << 17;
+    uint64_t off = (x % (mem->d.size() / 4096)) * 4096;
+    CHECK(ra->read_at(off, b.data(), 4096).ok());
+    CHECK(std::memcmp(b.data(), mem->d.data() + off, 4096) == 0);
+  }
+  CHECK(mem->bytes <= (uint64_t)n * 4096 * 2);   // ほぼ素通し (偶然の連続だけ先読みされる)
+}
+
+TEST(readahead_write_invalidates_window) {
+  auto mem = std::make_shared<CountingMem>(1u << 20);
+  auto ra = ReadAheadDevice::wrap(mem, 256 * 1024);
+  std::vector<uint8_t> b(4096);
+  for (uint64_t off = 0; off < 5 * 4096; off += 4096) CHECK(ra->read_at(off, b.data(), 4096).ok());   // 窓ができる
+  std::vector<uint8_t> w(512, 0xEE);
+  CHECK(ra->write_at(4096 * 10, w.data(), w.size()).ok());   // 窓の中への書き込み
+  std::vector<uint8_t> r(4096);
+  CHECK(ra->read_at(4096 * 10, r.data(), 4096).ok());
+  CHECK(std::memcmp(r.data(), w.data(), 512) == 0);          // 古い内容ではなく、書いた内容が読める
+  CHECK(std::memcmp(r.data() + 512, mem->d.data() + 4096 * 10 + 512, 3584) == 0);
+}
+
+TEST(readahead_tail_and_failure_semantics) {
+  auto mem = std::make_shared<CountingMem>(300 * 1024 + 512);
+  auto ra = ReadAheadDevice::wrap(mem, 256 * 1024);
+  std::vector<uint8_t> b(4096);
+  // 末尾の端数まで連続で読めること (窓がデバイス末尾を越えない)
+  uint64_t off = 0;
+  for (; off + 4096 <= mem->d.size(); off += 4096) { CHECK(ra->read_at(off, b.data(), 4096).ok()); CHECK(std::memcmp(b.data(), mem->d.data() + off, 4096) == 0); }
+  std::vector<uint8_t> t(mem->d.size() - off);
+  CHECK(ra->read_at(off, t.data(), t.size()).ok());
+  CHECK(std::memcmp(t.data(), mem->d.data() + off, t.size()) == 0);
+  CHECK(!ra->read_at(mem->d.size() - 100, b.data(), 4096).ok());   // 範囲外は OutOfRange
+  // 先読みが失敗しても、要求した範囲だけで読めれば成功する (先読みのせいで読めたはずの所が失敗しない)
+  auto mem2 = std::make_shared<CountingMem>(1u << 20);
+  mem2->fail_from = 64 * 1024 + 4096;   // これより先を含む読み取りは失敗 (大きな窓は失敗し、4 KiB は成功する範囲)
+  auto ra2 = ReadAheadDevice::wrap(mem2, 256 * 1024);
+  for (uint64_t o = 0; o + 4096 <= 64 * 1024; o += 4096) CHECK(ra2->read_at(o, b.data(), 4096).ok());
+  // 本当に読めない所はエラーのまま
+  CHECK(!ra2->read_at(512 * 1024, b.data(), 4096).ok());
+}

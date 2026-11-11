@@ -73,7 +73,7 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDevice(J
   usbmem::Status st = usbmem::SubRangeDevice::create(d->dev, static_cast<uint64_t>(offset), static_cast<uint64_t>(length), true, &sub);
   if (!st.ok()) return -22;
   int err = 0;
-  auto v = usbmem::NtfsVolume::mount(sub, &err);
+  auto v = usbmem::NtfsVolume::mount(usbmem::ReadAheadDevice::wrap(sub), &err);
   if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
 }
@@ -86,7 +86,7 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDeviceRw
   usbmem::Status st = usbmem::SubRangeDevice::create(d->dev, static_cast<uint64_t>(offset), static_cast<uint64_t>(length), false, &sub);
   if (!st.ok()) return -22;
   int err = 0;
-  auto v = usbmem::NtfsVolume::mount_rw(sub, &err);
+  auto v = usbmem::NtfsVolume::mount_rw(usbmem::ReadAheadDevice::wrap(sub), &err);
   if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
 }

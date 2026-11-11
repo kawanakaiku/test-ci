@@ -304,7 +304,7 @@ static int ops_run(const std::string& img, const std::string& script) {
     bot->backing = [raw, bsz](uint64_t lba, uint8_t* out) { if (!raw->read_at(lba * bsz, out, bsz).ok()) std::memset(out, 0, bsz); };
     usbmem::MscOptions mo; mo.retry_delay_ms = 1; mo.read_only = false;
     if (!usbmem::MscDevice::open(std::move(bot), mo, &msc).ok() || msc->is_read_only()) { std::fprintf(stderr, "msc open failed\n"); return 2; }
-    base = msc;
+    base = usbmem::ReadAheadDevice::wrap(msc, 256 * 1024);   // 実機と同じ構成 (USB の上に先読み)。書き込みでは窓が捨てられること、先読みが NTFS の結果を変えないことも検証される
   }
   usbmem::BlockDevicePtr dev = base;
   { usbmem::PartitionTable pt; if (usbmem::read_partition_table(*base, &pt).ok() && !pt.whole_device_volume) {

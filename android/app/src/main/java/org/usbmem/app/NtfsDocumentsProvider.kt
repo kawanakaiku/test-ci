@@ -9,6 +9,7 @@ import android.os.HandlerThread
 import android.os.ParcelFileDescriptor
 import android.os.ProxyFileDescriptorCallback
 import android.os.storage.StorageManager
+import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import android.provider.DocumentsContract.Root
 import android.provider.DocumentsProvider
@@ -25,6 +26,8 @@ import java.io.FileNotFoundException
 class NtfsDocumentsProvider : DocumentsProvider() {
     private val ioThread by lazy { HandlerThread("ntfs-io").apply { start() } }
     private val ioHandler by lazy { Handler(ioThread.looper) }
+
+    private companion object { const val AUTHORITY = "org.usbmem.app.documents" }
 
     override fun onCreate(): Boolean = true
 
@@ -54,6 +57,16 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         val path = documentId.substring(i + 1)
         if (!path.startsWith("/") || path.split('/').any { it == ".." || it == "." }) throw FileNotFoundException(documentId)
         return vol to path
+    }
+
+    /** 一覧を見ているクライアント (ファイルアプリ) へ「この親の子が変わった」と知らせる。これが無いと、手動で更新するまで一覧が変わらない。 */
+    private fun notifyChildren(parentDocumentId: String) {
+        try { ctx.contentResolver.notifyChange(DocumentsContract.buildChildDocumentsUri(AUTHORITY, parentDocumentId), null) } catch (_: Exception) { }
+    }
+    private fun parentIdOf(documentId: String): String {
+        val i = documentId.indexOf(':'); val path = documentId.substring(i + 1)
+        val up = path.substringBeforeLast('/', "")
+        return documentId.substring(0, i + 1) + (if (up.isEmpty()) "/" else up)
     }
 
     private fun childId(parentId: String, name: String) = if (parentId.endsWith("/")) parentId + name else "$parentId/$name"
@@ -98,6 +111,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
     override fun queryChildDocuments(parentDocumentId: String, projection: Array<out String>?, sortOrder: String?): Cursor {
         val (vol, path) = parse(parentDocumentId)
         val c = MatrixCursor(projection ?: docCols)
+        c.setNotificationUri(ctx.contentResolver, DocumentsContract.buildChildDocumentsUri(AUTHORITY, parentDocumentId))
         try {
             for (e in vol.volume.list(path)) addRow(c, childId(parentDocumentId, e.name), e, flagsOf(vol, e, false, if (path.endsWith("/")) path + e.name else "$path/${e.name}"))
         } catch (ex: NativeException) { fail(ex, parentDocumentId) }
@@ -139,6 +153,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
                 if (n > 1000) throw FileNotFoundException("too many duplicates")
             }
             vol.volume.create(parent, name, isDir)
+            notifyChildren(parentDocumentId)
             return childId(parentDocumentId, name)
         } catch (ex: NativeException) { wrap(ex, parentDocumentId) }
     }
@@ -149,6 +164,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         requireNotCreateOnly(vol, "削除")
         if (path == "/") throw UnsupportedOperationException("root")
         try { vol.volume.remove(path) } catch (ex: NativeException) { wrap(ex, documentId) }
+        notifyChildren(parentIdOf(documentId))
     }
 
     override fun renameDocument(documentId: String, displayName: String): String? {
@@ -158,6 +174,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         if (path == "/") throw UnsupportedOperationException("root")
         checkName(displayName)
         try { vol.volume.rename(path, displayName) } catch (ex: NativeException) { wrap(ex, documentId) }
+        notifyChildren(parentIdOf(documentId))
         return documentId.substringBeforeLast('/') + "/" + displayName   // "<vol>:/a/b" -> "<vol>:/a/new", "<vol>:/b" -> "<vol>:/new"
     }
 
@@ -202,7 +219,10 @@ class NtfsDocumentsProvider : DocumentsProvider() {
                 } catch (e: NativeException) { throw ErrnoException("onWrite", if (e.code == 28) OsConstants.ENOSPC else OsConstants.EIO) }
             }
             override fun onFsync() { if (write) try { vol.volume.sync() } catch (e: NativeException) { throw ErrnoException("onFsync", OsConstants.EIO) } }
-            override fun onRelease() { if (write) try { vol.volume.sync() } catch (_: Exception) { /* 閉じる時の失敗は報告先が無い。次回マウント時にダーティで検出される */ } }
+            override fun onRelease() {
+                if (write) { try { vol.volume.sync() } catch (_: Exception) { /* 閉じる時の失敗は報告先が無い。次回マウント時にダーティで検出される */ }
+                    notifyChildren(parentIdOf(documentId)) }   // サイズ・更新日時の変化を一覧へ反映
+            }
         }
         val fdMode = if (!write) ParcelFileDescriptor.MODE_READ_ONLY else if (canRead) ParcelFileDescriptor.MODE_READ_WRITE else ParcelFileDescriptor.MODE_WRITE_ONLY
         return sm.openProxyFileDescriptor(fdMode, cb, ioHandler)

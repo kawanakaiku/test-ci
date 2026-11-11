@@ -80,6 +80,41 @@ class DocumentsWriteTest {
         } finally { VolumeRegistry.remove(ctx, vid) }
     }
 
+    /** 一覧を見ているクライアント (ファイルアプリ) へ変更が通知されること。通知が無いと、手動で更新するまで一覧が変わらない。 */
+    @Test
+    fun changesNotifyChildListObservers() {
+        val img = File(ctx.cacheDir, "rw_notify.img")
+        assumeTrue("fixture not pushed", copy("/data/local/tmp/ntfs_basic.img", img))
+        val e = try { VolumeRegistry.addFd("NfNTFS", "nf-key", ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_WRITE).detachFd(), writable = true) }
+            catch (ex: NativeException) { assumeTrue("write support disabled in this build (errno ${ex.code})", ex.code != 30); throw ex }
+        assumeTrue("volume mounted read-only", e.volume.writable)
+        val root = "${e.id}:/"
+        val hits = java.util.concurrent.atomic.AtomicInteger()
+        val thread = android.os.HandlerThread("obs").also { it.start() }
+        val obs = object : android.database.ContentObserver(android.os.Handler(thread.looper)) { override fun onChange(selfChange: Boolean, uri: android.net.Uri?) { hits.incrementAndGet() } }
+        // 操作の「前」に件数を取る (通知の配信が操作の戻りより先に終わることがあるため、後で数えると取りこぼす)
+        fun <T> notified(what: String, action: () -> T): T {
+            val before = hits.get()
+            val r = action()
+            val deadline = System.currentTimeMillis() + 3000
+            while (hits.get() == before && System.currentTimeMillis() < deadline) Thread.sleep(20)
+            assertTrue("no change notification after $what", hits.get() > before)
+            return r
+        }
+        try {
+            // 子一覧を一度クエリして、カーソルの通知 URI を登録させる (クライアントが一覧を開いた状態)
+            val childrenUri = DocumentsContract.buildChildDocumentsUri(auth, root)
+            val c = cr.query(childrenUri, arrayOf(Document.COLUMN_DISPLAY_NAME), null, null, null)!!
+            cr.registerContentObserver(childrenUri, false, obs)
+            c.close()
+            val f = notified("create") { DocumentsContract.createDocument(cr, uri(root), "application/octet-stream", "notify.bin")!! }
+            notified("write+close") { cr.openFileDescriptor(f, "wt")!!.use { p -> java.io.FileOutputStream(p.fileDescriptor).use { it.write(ByteArray(1000) { 1 }); it.fd.sync() } } }
+            val renamed = notified("rename") { DocumentsContract.renameDocument(cr, f, "notify2.bin") }
+            assertNotNull("rename returned null (failed)", renamed)
+            notified("delete") { DocumentsContract.deleteDocument(cr, DocumentsContract.buildDocumentUri(auth, "${root.trimEnd('/')}/notify2.bin")) }
+        } finally { cr.unregisterContentObserver(obs); thread.quitSafely(); VolumeRegistry.remove(ctx, e.id) }
+    }
+
     @Test
     fun createWriteRenameDelete() {
         val img = File(ctx.cacheDir, "rw_result.img")

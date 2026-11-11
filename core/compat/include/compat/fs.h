@@ -61,7 +61,7 @@ enum { FOLIO_LOCKED, FOLIO_UPTODATE, FOLIO_DIRTY, FOLIO_WRITEBACK };
 
 /* ---- ブロックデバイス / bio */
 struct usbmem_bdev;  /* core の BlockDevice ブリッジ (src/bdev_bridge.cpp) */
-struct address_space; struct block_device;
+struct address_space; struct block_device; struct file_system_type;
 struct bio_vec { struct page *bv_page; unsigned bv_len, bv_offset; };
 struct bvec_iter { sector_t bi_sector; unsigned bi_size; };
 struct bio {
@@ -89,8 +89,9 @@ struct address_space {
   struct list_head private_list;
   struct block_device *host_bdev_;  /* bd_mapping の場合のみ */
   void *pages;  /* 実装依存: ページキャッシュ (src/pagecache.cpp) */
+  unsigned long nrpages;
 };
-struct block_device { struct usbmem_bdev *impl; struct address_space *bd_mapping; struct address_space bd_data_; };
+struct block_device { struct usbmem_bdev *impl; struct address_space *bd_mapping; struct address_space bd_data_; u32 bd_dev; };
 struct inode {
   struct super_block *i_sb;
   struct address_space *i_mapping;
@@ -122,6 +123,7 @@ struct dentry {
   struct inode *d_inode;
   struct dentry *d_parent;
   struct super_block *d_sb;
+  void *d_fsdata;
 };
 struct super_block {
   struct block_device *s_bdev;
@@ -138,10 +140,16 @@ struct super_block {
   const struct super_operations *s_op;
   const struct export_operations *s_export_op;
   const void *s_xattr;
+  struct backing_dev_info *s_bdi;
+  struct file_system_type *s_type;   /* get_tree_bdev が設定。umount / fill_super 失敗時に kill_sb を呼ぶ (exfat は sbi をここで解放) */
+  s64 s_time_min, s_time_max;
   int s_active_;
   struct fs_context *s_fc_;
 };
+struct vfsmount;
+struct path { struct vfsmount *mnt; struct dentry *dentry; };
 struct file {
+  struct path f_path;
   struct address_space *f_mapping;
   fmode_t f_mode;
   unsigned int f_flags;
@@ -153,10 +161,13 @@ struct kiocb { struct file *ki_filp; loff_t ki_pos; unsigned int ki_flags; };
 struct iov_iter { const char *buf; size_t count; };   /* 単一の連続バッファのみ (ホスト API 用) */
 struct kstat {
   u32 result_mask; umode_t mode; u64 attributes, attributes_mask;
+  struct timespec64 atime, mtime, ctime;
   u32 blksize, dio_mem_align, dio_offset_align; u64 blocks, size;
   struct timespec64 btime;
 };
-struct iattr { unsigned int ia_valid; umode_t ia_mode; kuid_t ia_uid; kgid_t ia_gid; loff_t ia_size; struct file *ia_file; };
+typedef struct { uid_t val; } vfsuid_t;
+typedef struct { gid_t val; } vfsgid_t;
+struct iattr { unsigned int ia_valid; umode_t ia_mode; kuid_t ia_uid; kgid_t ia_gid; vfsuid_t ia_vfsuid; vfsgid_t ia_vfsgid; loff_t ia_size; struct timespec64 ia_atime, ia_mtime, ia_ctime; struct file *ia_file; };
 struct kstatfs {
   long f_type, f_bsize; u64 f_blocks, f_bfree, f_bavail, f_ffree; __kernel_fsid_t f_fsid;
   long f_namelen, f_frsize; u64 f_files;

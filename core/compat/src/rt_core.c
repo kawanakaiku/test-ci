@@ -6,7 +6,9 @@
 #include <sched.h>
 #include <time.h>
 
-struct task_struct *current;
+static struct fs_struct g_fs = { 022 };
+static struct task_struct g_task = { 0, &g_fs };
+struct task_struct *current = &g_task;   /* current->fs->umask (exfat の既定 umask) など最小限 */
 
 /* ---- 未実装機能の記録 (スタブから呼ばれる) */
 void usbmem_unimplemented(const char *fn) {
@@ -266,6 +268,7 @@ void usbmem_compat_umount(struct super_block *sb) {
   if (sb->s_op && sb->s_op->put_super) ((void (*)(struct super_block *))sb->s_op->put_super)(sb);
   evict_inodes_sb(sb);
   if (sb->s_bdev && !sb_rdonly(sb)) usbmem_bdev_flush(sb->s_bdev->impl);   /* put_super が書いた最終状態 (ダーティ解除) を確定 */
+  if (sb->s_type && sb->s_type->kill_sb) sb->s_type->kill_sb(sb);   /* VFS の deactivate_locked_super 相当 (exfat: sbi・upcase テーブルの解放。ntfs は kill_block_super = 何もしない) */
   free(sb);
 }
 void __mark_inode_dirty(struct inode *i, int f) { i->i_state |= (unsigned long)(f & I_DIRTY_ALL); }
@@ -411,7 +414,7 @@ void sb_end_pagefault(struct super_block *s) { (void)s; }
 void set_delayed_call(struct delayed_call *c, void (*fn)(void *), void *a) { c->fn = fn; c->arg = a; }
 void kfree_link(void *p) { free(p); }
 int posix_acl_chmod(struct mnt_idmap *m, struct dentry *d, umode_t mode) { (void)m; (void)d; (void)mode; return 0; }
-void simple_inode_init_ts(struct inode *i) { struct timespec64 t; usbmem_now(&t); i->i_atime_ = i->i_mtime_ = i->i_ctime_ = t; }
+struct timespec64 simple_inode_init_ts(struct inode *i) { struct timespec64 t; usbmem_now(&t); i->i_atime_ = i->i_mtime_ = i->i_ctime_ = t; return t; }
 struct workqueue_struct *alloc_workqueue(const char *n, unsigned f, int m, ...) { (void)n; (void)f; (void)m; return (struct workqueue_struct *)1; }
 void destroy_workqueue(struct workqueue_struct *w) { (void)w; }
 /* queue_work は「保留」にするだけで実行しない。カーネルではワークキューが別スレッドで非同期に実行する (例: マウント時の空きクラスタ数の事前計算は
@@ -454,9 +457,12 @@ static struct file_system_type *g_fs_type;
 int register_filesystem(void *t) { g_fs_type = t; return 0; }
 int unregister_filesystem(void *t) { (void)t; g_fs_type = NULL; return 0; }
 static struct block_device *g_pending_bdev;
+static struct backing_dev_info g_bdi = { 32, 32 };   /* exfat の先読み量の計算 (sb->s_bdi->ra_pages) が参照する */
 int get_tree_bdev(struct fs_context *fc, int (*fill_super)(struct super_block *, struct fs_context *)) {
   struct super_block *sb = calloc(1, sizeof *sb);
   if (!sb) return -ENOMEM;
+  sb->s_bdi = &g_bdi;
+  sb->s_type = g_fs_type;
   sb->s_bdev = g_pending_bdev;
   sb->s_fs_info = fc->s_fs_info; fc->s_fs_info = NULL;
   sb->s_flags = fc->sb_flags | SB_ACTIVE;
@@ -465,7 +471,7 @@ int get_tree_bdev(struct fs_context *fc, int (*fill_super)(struct super_block *,
   strcpy(sb->s_id, "usbmem");
   sb->s_fc_ = fc;
   int rc = fill_super(sb, fc);
-  if (rc) { fprintf(stderr, "usbmem-compat: fill_super failed: %d\n", rc); drop_inodes_sb(sb); free(sb); return rc; }
+  if (rc) { fprintf(stderr, "usbmem-compat: fill_super failed: %d\n", rc); drop_inodes_sb(sb); if (sb->s_type && sb->s_type->kill_sb) sb->s_type->kill_sb(sb); free(sb); return rc; }
   fc->root = sb->s_root;
   return 0;
 }
@@ -479,8 +485,27 @@ int fs_parse(struct fs_context *fc, const struct fs_parameter_spec *s, struct fs
   (void)fc; (void)s; (void)p; (void)r; return -ENOPARAM;
 }
 
-int usbmem_compat_mount(struct block_device *bdev, int read_only, struct super_block **out) {
-  if (!g_fs_type) { int (*init)(void) = usbmem_module_init_ntfs; if (!init || init()) return -ENODEV; }
+/* FS モジュールごとの init は 1 度だけ実行する (register_filesystem で file_system_type を得る)。2 回目以降は記録から引く。 */
+static struct { int (*init)(void); struct file_system_type *type; } g_mods[8];
+static pthread_mutex_t g_mount_mu = PTHREAD_MUTEX_INITIALIZER;
+static int mount_locked(int (*init_fn)(void), struct block_device *bdev, int read_only, struct super_block **out);
+int usbmem_compat_mount_fs(int (*init_fn)(void), struct block_device *bdev, int read_only, struct super_block **out) {
+  pthread_mutex_lock(&g_mount_mu);
+  int rc = mount_locked(init_fn, bdev, read_only, out);
+  pthread_mutex_unlock(&g_mount_mu);
+  return rc;
+}
+static int mount_locked(int (*init_fn)(void), struct block_device *bdev, int read_only, struct super_block **out) {
+  int known = -1;
+  for (int k = 0; k < 8 && g_mods[k].init; k++) if (g_mods[k].init == init_fn) known = k;
+  if (known >= 0) g_fs_type = g_mods[known].type;
+  else {
+    int k = 0; while (k < 8 && g_mods[k].init) k++;
+    if (k == 8 || !init_fn) return -ENODEV;
+    g_fs_type = NULL;
+    if (init_fn() || !g_fs_type) return -ENODEV;
+    g_mods[k].init = init_fn; g_mods[k].type = g_fs_type;
+  }
   struct fs_context *fc = calloc(1, sizeof *fc);
   if (!fc) return -ENOMEM;
   int (*init_fc)(struct fs_context *) = (int (*)(struct fs_context *))g_fs_type->init_fs_context;

@@ -16,14 +16,14 @@ struct rb_node { unsigned long __rb_parent_color; struct rb_node *rb_right, *rb_
 struct rb_root { struct rb_node *rb_node; };
 struct fid; struct pipe_inode_info; struct vm_fault_; struct folio_batch; struct vm_fault; struct vm_area_struct { struct file *vm_file; }; struct fiemap_extent_info;
 struct swap_info_struct; struct seq_file; struct file_ra_state; struct readahead_control;
-struct fs_parse_result { union { bool boolean; int int_32; unsigned uint_32; u64 uint_64; }; };
+struct fs_parse_result { bool negated; union { bool boolean; int int_32; unsigned uint_32; u64 uint_64; }; kuid_t uid; kgid_t gid; };
 struct fs_parameter_spec; struct constant_table { const char *name; int value; };
 struct file_kattr { u32 flags; u32 fsx_xflags; };
 struct dir_context;
 typedef bool (*filldir_t)(struct dir_context *, const char *, int, loff_t, u64, unsigned);
 struct dir_context { filldir_t actor; loff_t pos; void *user; };
 struct delayed_call { void (*fn)(void *); void *arg; };
-struct pt_regs; struct poll_table_struct; struct kobject; struct xattr_handler; struct path { struct vfsmount *mnt; struct dentry *dentry; };
+struct pt_regs; struct poll_table_struct; struct kobject; struct xattr_handler;
 struct vfsmount;
 struct writeback_iter_ctx; struct bio_set;
 
@@ -350,7 +350,7 @@ void *vmemdup_user(const void *, size_t);
 char *strndup_user(const char *, long);
 int fatal_signal_pending_(void);
 #define fatal_signal_pending(t) 0
-extern struct task_struct { int unused; } *current;
+extern struct task_struct { int unused; struct fs_struct *fs; } *current;
 bool capable(int);
 int inode_permission(struct mnt_idmap *, struct inode *, int);
 bool inode_owner_or_capable(struct mnt_idmap *, const struct inode *);
@@ -392,7 +392,7 @@ loff_t vfs_setpos(struct file *, loff_t, loff_t);
 void fileattr_fill_flags(struct file_kattr *, u32);
 bool fileattr_has_fsx(const struct file_kattr *);
 int posix_acl_chmod(struct mnt_idmap *, struct dentry *, umode_t);
-void simple_inode_init_ts(struct inode *);
+struct timespec64 simple_inode_init_ts(struct inode *);
 void simple_rename_timestamp(struct inode *, struct dentry *, struct inode *, struct dentry *);
 void set_delayed_call(struct delayed_call *, void (*)(void *), void *);
 void kfree_link(void *);

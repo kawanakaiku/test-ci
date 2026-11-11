@@ -16,7 +16,9 @@ struct address_space_operations {
   void *writepages;
 };
 struct dentry_operations {
+  void *d_compare;
   void *d_delete;
+  void *d_hash;
   void *d_revalidate;
 };
 struct export_operations {

@@ -10,6 +10,10 @@
 
 struct usbmem_ntfs { struct super_block *sb; int dirty_marked; };
 
+int usbmem_compat_mount(struct block_device *bdev, int read_only, struct super_block **out) {
+  return usbmem_compat_mount_fs(usbmem_module_init_ntfs, bdev, read_only, out);
+}
+
 /* 書き込みの前提: **最初の変更の前に** VOLUME_IS_DIRTY をメディアへ確定 (書き込み + デバイス flush) する。
  * 順序を保証しない USB キャッシュが他の更新だけ先に反映して電源断になっても、ダーティ印が残れば次回 Windows が chkdsk を走らせられる。
  * (上流の ntfs_set_volume_flags は非同期で、フラグが他の更新より後にメディアへ届きうる。) 失敗時は書き込みを拒否する。 */

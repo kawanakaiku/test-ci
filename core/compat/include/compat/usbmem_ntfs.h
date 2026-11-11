@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 int usbmem_module_init_ntfs(void);
+int usbmem_module_init_exfat(void);
 void usbmem_unimplemented(const char *fn);
 struct dentry *usbmem_d_alloc(struct super_block *, struct dentry *parent, const char *name, unsigned len);
 void usbmem_bdev_mapping_init(struct block_device *);
@@ -18,7 +19,8 @@ void usbmem_compat_umount(struct super_block *);
 int usbmem_compat_sync(struct super_block *);   /* 書き込み: dirty inode/folio を全てデバイスへ書き flush */
 int usbmem_mapping_writeback(struct address_space *, int sync_all);
 int usbmem_mapping_has_dirty(struct address_space *);
-int usbmem_compat_mount(struct block_device *bdev, int read_only, struct super_block **out);
+int usbmem_compat_mount(struct block_device *bdev, int read_only, struct super_block **out);   /* fs/ntfs (rt_vfs.c) */
+int usbmem_compat_mount_fs(int (*module_init)(void), struct block_device *bdev, int read_only, struct super_block **out);
 
 /* BlockDevice ブリッジ (src/bdev_bridge.cpp) */
 

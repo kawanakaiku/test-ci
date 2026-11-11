@@ -74,7 +74,7 @@ typedef unsigned int fmode_t;
 
 /* ---- 汎用マクロ */
 #define BIT(n) (1UL << (n))
-#define BITS_PER_LONG (sizeof(long) * 8)
+#define BITS_PER_LONG (__SIZEOF_LONG__ * 8)   /* #if でも使えるよう sizeof を避ける */
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #define min(a, b) ({ __typeof__(a) _a = (a); __typeof__(b) _b = (b); _a < _b ? _a : _b; })
 #define max(a, b) ({ __typeof__(a) _a = (a); __typeof__(b) _b = (b); _a > _b ? _a : _b; })
@@ -131,5 +131,6 @@ typedef unsigned int fmode_t;
 #include <compat/consts.h>
 #include <compat/vfs_api.h>
 #include <compat/misc.h>
+#include <compat/more.h>
 
 #endif

@@ -56,7 +56,7 @@ class UsbdevfsTransport final : public BulkTransport {
   }
 
  private:
-  Status xfer(uint8_t ep, void* buf, size_t len, size_t* done, uint32_t timeout_ms, size_t chunk) {
+  Status xfer(uint8_t ep, void* buf, size_t len, size_t* done, uint32_t timeout_ms, size_t& chunk) {
     *done = 0;
     auto* p = static_cast<uint8_t*>(buf);
     while (*done < len) {
@@ -69,6 +69,9 @@ class UsbdevfsTransport final : public BulkTransport {
       int r = ::ioctl(fd_, USBDEVFS_BULK, &b);
       if (r < 0) {
         if (errno == EINTR) continue;
+        // カーネルが 1 回の要求サイズを受け付けない (古いカーネルの usbfs は 16 KiB 超の BULK を EINVAL で拒否する。J9260 / カーネル 4.14 で確認)。
+        // EINVAL は転送の開始前に返るので、データ・BOT の状態は壊れない。以後この方向は既定の 16 KiB に戻して、同じ箇所をやり直す。
+        if (errno == EINVAL && n > kChunk) { chunk = kChunk; continue; }
         // 途中まで転送済みでも STALL/タイムアウトはエラーとして返す (BOT 側が回復手順を取る)
         return map_errno(errno);
       }

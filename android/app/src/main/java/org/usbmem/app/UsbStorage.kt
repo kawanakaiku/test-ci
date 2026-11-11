@@ -108,9 +108,9 @@ class UsbStorageSession private constructor(
 
     companion object {
         const val ACTION_PERMISSION = "org.usbmem.app.USB_PERMISSION"
-        /** 読み取りの転送サイズ (KiB): USB 1 回の転送要求 / 1 SCSI READ コマンド。256K 以上の転送要求は実機の RAID で io-error だった。 */
-        const val READ_CHUNK_KIB = 64
-        const val READ_MAX_TRANSFER_KIB = 256
+        /** 読み取りの既定の転送サイズ (KiB): USB 1 回の転送要求 / 1 SCSI READ コマンド (計測後の復帰先)。 */
+        const val READ_CHUNK_KIB = 16
+        const val READ_MAX_TRANSFER_KIB = 64
 
         fun permissionIntent(ctx: Context): PendingIntent {
             // Android 14+ は暗黙のブロードキャスト PendingIntent を拒否するので、必ず自パッケージを明示する。
@@ -140,7 +140,16 @@ class UsbStorageSession private constructor(
             val conn = usb.openDevice(device) ?: throw NativeException(2, "USB デバイスを開けません")
             // 他ドライバ(カーネルの usb-storage など)が掴んでいれば force=true で奪う。Android では通常は掴まれていない。
             if (!conn.claimInterface(intf, true)) { conn.close(); throw NativeException(2, "インタフェースを確保できません") }
-            val h = NativeBridge.nativeOpenUsbMsc(conn.fileDescriptor, pick.epIn, pick.epOut, pick.interfaceNumber, 0, !writable)
+            // 初回の INQUIRY が EPROTO(71) で失敗することがある (J9260 で毎回)。インタフェースを確保したまま (カーネルの usb-storage を戻さず) 少し待って再試行する。
+            // 解放して開き直すと OS が FAT を再マウントして、手動の取り出しが必要になる。開く時のコマンドは読み取り系だけ (INQUIRY/TUR/READ CAPACITY) なので、再試行しても安全。
+            var h = NativeBridge.nativeOpenUsbMsc(conn.fileDescriptor, pick.epIn, pick.epOut, pick.interfaceNumber, 0, !writable)
+            var attempt = 1
+            while (Handle.isError(h) && attempt < 3) {
+                android.util.Log.w("usbmem", "USB open attempt $attempt failed: ${NativeBridge.nativeErrcName((-h).toInt())} trace=${NativeBridge.nativeUsbLastOpenTrace()} -> retry")
+                Thread.sleep(700)
+                h = NativeBridge.nativeOpenUsbMsc(conn.fileDescriptor, pick.epIn, pick.epOut, pick.interfaceNumber, 0, !writable)
+                attempt++
+            }
             if (Handle.isError(h)) {
                 val code = (-h).toInt()
                 // 失敗の原因調査用 (SCSI コマンドと結果のみ。個人情報なし)
@@ -149,9 +158,8 @@ class UsbStorageSession private constructor(
                 conn.close()
                 throw NativeException(code, "USB 初期化に失敗: ${NativeBridge.nativeErrcName(code)}")
             }
-            // 読み取りだけ転送を大きくする (実機 RAID で約 60 → 115〜130 MB/s)。書き込みは既定の小さい転送のまま (未検証のため)。
-            // 失敗しても致命的ではない (既定のまま使える)
-            runCatching { NativeBridge.nativeUsbTune(h, READ_CHUNK_KIB, READ_MAX_TRANSFER_KIB) }
+            // 転送サイズは既定 (USB 16K / コマンド 64K) のまま。大きな転送 (64K/256K) は F-51A では速いが、J9260 では EPROTO(71) で読み取りが失敗した。
+            // 端末ごとに「計測」ボタンで確かめてから使う (自動では変えない)。
             return UsbStorageSession(device.deviceName, conn, intf, h, writable)
         }
     }

@@ -17,8 +17,22 @@
 #include <errno.h>
 #include <limits.h>
 #include <sys/types.h>
+#ifndef EFSCORRUPTED
+#define EFSCORRUPTED EUCLEAN   /* カーネル定義: ファイルシステム破損 */
+#endif
+#ifndef EFSBADCRC
+#define EFSBADCRC EBADMSG
+#endif
+#include <strings.h>   /* ffs (bionic は string.h 経由では宣言しない) */
 
 /* ---- 基本型 */
+#ifdef __ANDROID__
+/* bionic は uapi の <linux/types.h> (__u64 = unsigned long long 等) を内部で使うので、それに合わせる。
+ * 実カーネルの u64 も unsigned long long なので、むしろ上流に忠実。 */
+#include <linux/types.h>
+typedef __u8 u8; typedef __u16 u16; typedef __u32 u32; typedef __u64 u64;
+typedef __s8 s8; typedef __s16 s16; typedef __s32 s32; typedef __s64 s64;
+#else
 typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32; typedef uint64_t u64;
 typedef int8_t s8; typedef int16_t s16; typedef int32_t s32; typedef int64_t s64;
 typedef uint16_t __le16; typedef uint32_t __le32; typedef uint64_t __le64;
@@ -26,7 +40,10 @@ typedef uint16_t __be16; typedef uint32_t __be32; typedef uint64_t __be64;
 typedef uint8_t __u8; typedef uint16_t __u16; typedef uint32_t __u32; typedef uint64_t __u64;
 typedef int8_t __s8; typedef int16_t __s16; typedef int32_t __s32; typedef int64_t __s64;
 typedef uint64_t __aligned_u64 __attribute__((aligned(8)));
+#endif
+#ifndef __ANDROID__
 typedef int64_t loff_t;
+#endif
 typedef uint16_t umode_t;
 typedef uint64_t sector_t;
 typedef unsigned long pgoff_t;

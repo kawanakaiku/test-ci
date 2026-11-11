@@ -88,3 +88,12 @@ byteorder/min/max マクロだけ**で `gcc -fsyntax-only` した。残ったエ
 (キャッシュ 1 + get 系で +1、最後の put で解放)。アンマウント時の ASan 検出で実際に folio UAF を再現して修正。
 20 回のマウント/読み取り/アンマウント反復を ASan(リーク検出あり)で通過。
 未対応 (記録): fill_super 失敗時の s_fs_info 解放(小規模リーク)。
+
+### Android への接続 (2026-11-11)
+- `usbmem_ntfs` を NDK ビルド (arm64-v8a / x86_64) に組み込み、JNI (`jni_ntfs.cpp`) と Kotlin `NtfsVolume` (list / read / close、読み取り専用) を追加。
+  `libusbmem_jni.so` は GPL-2.0-or-later の NTFS 部分を含むため共有ライブラリ全体が GPL 扱い。16KB ページ整列 (LOAD align 0x4000) を両 ABI で確認。
+- 互換シムの Android 対応: bionic 内部ヘッダが `<linux/types.h>` 等を引くため、低レベル uapi ヘッダは実物を素通しにし (`include_next`)、
+  `u64` 等は bionic の `__u64` (unsigned long long) に揃えた。`EFSCORRUPTED` を定義、`<strings.h>` を追加。
+- **AVD (API 37, x86_64) の計装テスト 5 件成功**: 実 NTFS イメージ (64MiB) を 全ファイル sha256 で照合 (20MiB スパース・日本語名・800 件ディレクトリ含む)、
+  NTFS でないデータは NativeException で失敗。arm64-v8a は **ビルドのみ**で実行は未検証 (実機/エミュレータ未使用)。
+- 次: SAF DocumentsProvider (別アプリから NTFS イメージを読めること = Phase 2 完了条件)。

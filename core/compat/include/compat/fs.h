@@ -16,7 +16,11 @@ struct timespec64 { s64 tv_sec; long tv_nsec; };
 typedef struct { uid_t val; } kuid_t;
 typedef struct { gid_t val; } kgid_t;
 typedef u32 errseq_t;
+#ifdef __ANDROID__
+#include <linux/posix_types.h>   /* bionic が定義済み (int val[2]) */
+#else
 typedef struct { u32 val[2]; } __kernel_fsid_t;
+#endif
 struct user_namespace;
 struct mnt_idmap;
 struct fs_struct;

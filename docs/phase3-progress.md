@@ -58,3 +58,15 @@ MFT は `ntfs_mft_writepages` (別系統) で書く。
   書いた範囲が期待パターン、`big.bin` 以外の 807 ファイルの sha256 が不変、`ntfsfix -n` OK。変更バイトは書いた 70000B の窓のみ (メタデータ不変)。ASan/UBSan・リークなし。
 - 未対応: サイズ拡張、新規作成/削除/rename/mkdir、`$LogFile`・ボリュームダーティビットの扱い (rw マウントで上流が何を書くかは未精査 — 今回の差分は書いた窓のみ)、
   Windows 製イメージ (64KiB クラスタの `$MFTMirr` 警告含む)・圧縮/疎への書き込み、電源断模擬。
+
+### 書き込み検証の追加結果 (2026-11-11, 続き)
+- **不具合を修正**: Windows 製 (ダーティ) イメージの sync/アンマウントで `$MFT` 書き込み時に ASan が heap-use-after-free。原因は上流が `bioset` の `front_pad` で bio を自前 ctx に埋め込む (container_of) のに、互換層が pad を無視していたこと。
+  `bioset_init`/`bio_alloc_bioset` の front_pad、`bio_chain` (同期実行での残数管理) を実装して解消。これで `$MFT`/`$MFTMirr` へのレコード書き込みが動く。
+- **Windows 自身による検証**: `tools/winpe/verify_with_windows.sh <Win11.iso> <image> [期待manifest]`。自前ドライバが書いたイメージを WinPE で起動し、
+  `chkdsk` (読み取り専用) を実行、さらにボリューム全体を Windows にログ用ディスクへコピーさせてホストで sha256 照合する (WinPE には fc/comp/certutil/where が無いため)。
+  結果: MBR/4KiB クラスタの Windows 製イメージに `big.bin` の 70000B 上書き → **chkdsk「問題は見つかりませんでした」、Windows が読んだ 1019 ファイル全て期待どおり**。
+  `ntfsfix -n` / `ntfs-3g` と合わせ、独立した 3 つの検証者が一致。
+- 観測:
+  - `win_gpt64k`: 上流が `$MFTMirr` 不一致 (64KiB クラスタで比較範囲が広すぎる偽陽性) を理由に**自動で読み取り専用マウントに落ちる** (`write_inplace -> -EROFS`)。データは壊さず安全側だが、64KiB クラスタの Windows ボリュームには書けない。対処 (上流の比較を先頭 4 レコードに限る等) は別途判断。
+  - `win_dirty` (ダーティフラグ付き): rw マウントし、クリーンなアンマウントでダーティフラグを下ろす (`$Volume` flags 0x0181→0x0180)。これは上流の方針。`$LogFile` が静止状態のため許容されたが、未再生ログのあるボリュームでの挙動は別途確認が必要。
+  - 4Kn (4096B ブロック) の書き込みも成功。

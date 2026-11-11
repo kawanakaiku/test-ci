@@ -201,7 +201,8 @@ static int cat_file(const std::string& img, const std::string& path, int nth) {
 // パターン: byte i = (i*7+seed) & 255 (i はファイル内オフセット)。検証は外部ツール (ntfs-3g / ntfsfix -n) 側で行う。
 static int wtest(const std::string& img, const std::string& path, uint64_t off, uint64_t len, unsigned seed) {
   usbmem::BlockDevicePtr base;
-  if (!usbmem::RawImageDevice::open_path(img, false, 512, &base).ok()) { std::fprintf(stderr, "open rw failed\n"); return 2; }
+  const char* bse = std::getenv("USBMEM_IMG_BS");
+  if (!usbmem::RawImageDevice::open_path(img, false, bse ? (uint32_t)std::atoi(bse) : 512, &base).ok()) { std::fprintf(stderr, "open rw failed\n"); return 2; }
   usbmem::BlockDevicePtr dev = base;
   { usbmem::PartitionTable pt; if (usbmem::read_partition_table(*base, &pt).ok() && !pt.whole_device_volume) {
       for (auto& p : pt.partitions) if (p.fs == usbmem::FsType::Ntfs) { if (!usbmem::SubRangeDevice::create(base, p.start_bytes, p.size_bytes, false, &dev).ok()) return 2; break; } } }
@@ -219,6 +220,16 @@ static int wtest(const std::string& img, const std::string& path, uint64_t off, 
   return 0;
 }
 
+// 使い方: --extract <image> <out> [n]  パーティション内容だけを別ファイルへ (ntfsfix/ntfs-3g はパーティションテーブルを解釈しないため)
+static int extract_part(const std::string& img, const std::string& out, int nth) {
+  auto dev = open_ntfs_partition(img, nth);
+  if (!dev) return 2;
+  FILE* f = std::fopen(out.c_str(), "wb"); if (!f) return 2;
+  std::vector<uint8_t> b(1 << 20); uint64_t off = 0, sz = dev->size();
+  while (off < sz) { size_t n = (size_t)std::min<uint64_t>(b.size(), sz - off); if (!dev->read_at(off, b.data(), n).ok()) { std::fclose(f); return 1; } std::fwrite(b.data(), 1, n, f); off += n; }
+  std::fclose(f); return 0;
+}
+
 static int replay(const std::string& dir, const char* file) {
   usbmem::BlockDevicePtr base;
   if (!usbmem::RawImageDevice::open_path(dir + "/ntfs_basic.img", true, 512, &base).ok()) return 2;
@@ -234,6 +245,7 @@ static int replay(const std::string& dir, const char* file) {
 
 int main(int argc, char** argv) {
   if (argc >= 7 && std::string(argv[1]) == "--wtest") return wtest(argv[2], argv[3], std::strtoull(argv[4], 0, 10), std::strtoull(argv[5], 0, 10), (unsigned)std::atoi(argv[6]));
+  if (argc >= 4 && std::string(argv[1]) == "--extract") return extract_part(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);
   if (argc >= 4 && std::string(argv[1]) == "--cat") return cat_file(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);
   if (argc >= 4 && std::string(argv[1]) == "--manifest") return verify_manifest(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);
   if (argc >= 4 && std::string(argv[1]) == "--replay") return replay(argv[2], argv[3]);

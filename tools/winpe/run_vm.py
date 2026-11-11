@@ -14,6 +14,9 @@ args = ["qemu-system-x86_64", "-enable-kvm", "-cpu", "host", "-smp", "4", "-m", 
         "-display", "none", "-vga", "std", "-qmp", f"unix:{sock},server=on,wait=off", "-no-reboot", "-boot", "order=d"]
 for i, d in enumerate(disks[:2]):
     args += ["-drive", f"file={os.path.join(work, d)},format=raw,if=ide,index={i}"]
+# usblog*.raw: ログ用 USB ディスク (512B セクタ)。WinPE が結果を書く。
+for i, d in enumerate(sorted(f for f in os.listdir(work) if f.startswith("usblog") and f.endswith(".raw"))):
+    args += ["-device", "qemu-xhci,id=xhl%d" % i, "-drive", f"if=none,id=logd{i},file={os.path.join(work, d)},format=raw", "-device", f"usb-storage,bus=xhl{i}.0,drive=logd{i}"]
 # usb4k*.raw: USB 接続の 4Kn ディスク (論理/物理セクタ 4096)。実際の USB メモリ/外付けドライブに近い経路。
 for i, d in enumerate(sorted(f for f in os.listdir(work) if f.startswith("usb4k") and f.endswith(".raw"))):
     args += ["-device", "qemu-xhci,id=xhci%d" % i, "-drive", f"if=none,id=usbd{i},file={os.path.join(work, d)},format=raw",

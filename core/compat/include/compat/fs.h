@@ -69,8 +69,9 @@ struct bio {
   int bi_status;
   void *bi_private;
   void (*bi_end_io)(struct bio *);
+  int remaining_; unsigned pad_;   /* 互換層内部: bio_chain の残数 / bioset front_pad 分の確保オフセット */
 };
-struct bio_set { int unused; };
+struct bio_set { unsigned front_pad; };
 
 /* ---- inode / super_block / dentry / file */
 struct qstr { const unsigned char *name; unsigned int len; unsigned int hash; };

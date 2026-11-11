@@ -7,7 +7,7 @@ manifest 形式は gen_ntfs_fixture.sh と同じ: "<f|d> <サイズ> <sha256|-> 
 import hashlib, os, shutil, subprocess, sys
 
 out = sys.argv[1]
-variant = sys.argv[2] if len(sys.argv) > 2 else "mbr_gpt"   # mbr_gpt | usb4kn | dirty
+variant = sys.argv[2] if len(sys.argv) > 2 else "mbr_gpt"   # mbr_gpt | usb4kn | dirty | verify
 pay = os.path.join(out, "payload")
 shutil.rmtree(pay, ignore_errors=True)
 data = os.path.join(pay, "data")
@@ -126,10 +126,44 @@ for %%L in (@LETTERS@) do fsutil volume dismount %%L: > nul 2>&1
 ping -n 5 127.0.0.1 > nul
 wpeutil shutdown
 """
-cmd = HEAD + DISKS[variant] + POPULATE + TAIL
-cmd = cmd.replace("@LETTERS@", LETTERS[variant]).replace("@DIRTY@", "for %%L in (W) do fsutil dirty set %%L:" if variant == "dirty" else "rem (clean)")
+VERIFY = r"""@echo off
+set SRC=%1
+set LOG=X:\verify.log
+echo === usbmem winpe verify === > %LOG%
+(echo list disk& echo list volume) > X:\dp0.txt
+diskpart /s X:\dp0.txt >> %LOG% 2>&1
+rem ログ用ディスク (USB 側、ディスク 1) を NTFS 化して L: に割り当てる
+(echo select disk 1& echo clean& echo create partition primary& echo format fs=ntfs quick label=LOG& echo assign letter=L) > X:\dp1.txt
+diskpart /s X:\dp1.txt >> %LOG% 2>&1
+rem 検証対象 (ディスク 0) のボリューム: big.bin を持つドライブ文字を探す
+set T=
+for %%D in (C D E F G H I J K M N O P Q R S T U V W Y Z) do if exist %%D:\big.bin set T=%%D:
+echo TARGET=%T% >> %LOG%
+if "%T%"=="" goto fin
+echo --- chkdsk (read-only) >> %LOG%
+chkdsk %T% >> %LOG% 2>&1
+echo --- dir >> %LOG%
+dir /s /a %T%\ 2>&1 | find "個のファイル" >> %LOG%
+echo --- Windows reads every file and copies it to the log disk >> %LOG%
+dir L:\ >> %LOG% 2>&1
+xcopy %T%\ L:\ /E /H /Y /I /Q /C >> %LOG% 2>&1
+echo xcopy-errorlevel=%errorlevel% >> %LOG%
+dir L:\ >> %LOG% 2>&1
+:fin
+copy %LOG% L:\verify.log > nul
+fsutil volume dismount L: > nul 2>&1
+ping -n 5 127.0.0.1 > nul
+wpeutil shutdown
+"""
+if variant == "verify":
+    cmd = VERIFY
+else:
+    cmd = HEAD + DISKS[variant] + POPULATE + TAIL
+cmd = cmd if variant == "verify" else cmd.replace("@LETTERS@", LETTERS[variant]).replace("@DIRTY@", "for %%L in (W) do fsutil dirty set %%L:" if variant == "dirty" else "rem (clean)")
 open(os.path.join(pay, "usbmem_make.cmd"), "w", newline="\r\n").write(cmd.replace("@LONG@", LONG))
 shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), "autounattend.xml"), pay)
+if variant == "verify" and len(sys.argv) > 3:
+    shutil.copytree(sys.argv[3], os.path.join(pay, "expect"))
 with open(os.path.join(out, "manifest.txt"), "w") as f:
     for k, sz, sh, p in manifest:
         f.write(f"{k} {sz} {sh} {p}\n")

@@ -191,21 +191,38 @@ int bdev_rw_virt(struct block_device *b, sector_t sec, void *buf, size_t len, bl
 }
 int blk_status_to_errno(int s) { return s; }
 
-struct bio *bio_alloc(struct block_device *b, unsigned short nr, blk_opf_t opf, gfp_t g) {
-  (void)g;
-  struct bio *bio = calloc(1, sizeof *bio);
-  if (!bio) return NULL;
+static struct bio *bio_alloc_pad(struct block_device *b, unsigned short nr, blk_opf_t opf, unsigned pad) {
+  char *base = calloc(1, pad + sizeof(struct bio));
+  if (!base) return NULL;
+  struct bio *bio = (struct bio *)(base + pad);
   bio->bi_io_vec = calloc(nr ? nr : 1, sizeof(struct bio_vec));
-  bio->bi_max_vecs = nr ? nr : 1; bio->bi_bdev = b; bio->bi_opf = opf;
+  if (!bio->bi_io_vec) { free(base); return NULL; }
+  bio->bi_max_vecs = nr ? nr : 1; bio->bi_bdev = b; bio->bi_opf = opf; bio->remaining_ = 1; bio->pad_ = pad;
   return bio;
 }
-struct bio *bio_alloc_bioset(struct block_device *b, unsigned short nr, blk_opf_t opf, gfp_t g, struct bio_set *s) { (void)s; return bio_alloc(b, nr, opf, g); }
+struct bio *bio_alloc(struct block_device *b, unsigned short nr, blk_opf_t opf, gfp_t g) { (void)g; return bio_alloc_pad(b, nr, opf, 0); }
+/* front_pad 付き bioset: fs/ntfs は bio を自前の ctx 構造体に埋め込む (container_of)。pad 分を前置確保して bio を後ろに置く。 */
+struct bio *bio_alloc_bioset(struct block_device *b, unsigned short nr, blk_opf_t opf, gfp_t g, struct bio_set *s) { (void)g; return bio_alloc_pad(b, nr, opf, s ? s->front_pad : 0); }
 void bio_init(struct bio *bio, struct block_device *b, struct bio_vec *vecs, unsigned short nr, blk_opf_t opf) {
-  memset(bio, 0, sizeof *bio); bio->bi_bdev = b; bio->bi_io_vec = vecs; bio->bi_max_vecs = nr; bio->bi_opf = opf;
+  memset(bio, 0, sizeof *bio); bio->bi_bdev = b; bio->bi_io_vec = vecs; bio->bi_max_vecs = nr; bio->bi_opf = opf; bio->remaining_ = 1;
 }
 void bio_uninit(struct bio *bio) { (void)bio; }
-void bio_put(struct bio *bio) { if (bio) { free(bio->bi_io_vec); free(bio); } }
-void bio_chain(struct bio *a, struct bio *b) { (void)a; (void)b; usbmem_unimplemented("bio_chain"); }
+void bio_put(struct bio *bio) { if (bio) { free(bio->bi_io_vec); free((char *)bio - bio->pad_); } }
+/* chain: parent は child の完了も待つ。同期実行なので child 完了時に状態を引き継ぎ、残数 0 で parent の end_io を呼ぶ。 */
+static void bio_endio(struct bio *bio);
+static void bio_chain_endio(struct bio *child) {
+  struct bio *parent = child->bi_private;
+  if (child->bi_status && !parent->bi_status) parent->bi_status = child->bi_status;
+  bio_put(child);
+  bio_endio(parent);
+}
+static void bio_endio(struct bio *bio) {
+  if (--bio->remaining_ > 0) return;
+  if (bio->bi_end_io) bio->bi_end_io(bio);
+}
+void bio_chain(struct bio *child, struct bio *parent) {
+  child->bi_private = parent; child->bi_end_io = bio_chain_endio; parent->remaining_++;
+}
 int bio_add_page(struct bio *bio, struct page *p, unsigned len, unsigned off) {
   if (bio->bi_vcnt >= bio->bi_max_vecs) return 0;
   bio->bi_io_vec[bio->bi_vcnt++] = (struct bio_vec){ p, len, off };
@@ -214,7 +231,7 @@ int bio_add_page(struct bio *bio, struct page *p, unsigned len, unsigned off) {
 bool bio_add_folio(struct bio *bio, struct folio *f, size_t len, size_t off) { return bio_add_page(bio, &f->page, (unsigned)len, (unsigned)off) != 0; }
 unsigned short bio_max_segs(unsigned n) { return n > 256 ? 256 : (unsigned short)n; }
 sector_t bio_end_sector(const struct bio *bio) { return bio->bi_iter.bi_sector + (bio->bi_iter.bi_size >> SECTOR_SHIFT); }
-int bioset_init(struct bio_set *s, unsigned a, unsigned b, int c) { (void)s; (void)a; (void)b; (void)c; return 0; }
+int bioset_init(struct bio_set *s, unsigned a, unsigned front_pad, int c) { (void)a; (void)c; s->front_pad = front_pad; return 0; }
 void bioset_exit(struct bio_set *s) { (void)s; }
 void usbmem_fi_next(struct folio_iter *fi, struct bio *bio) {
   fi->idx_++;
@@ -237,7 +254,7 @@ static int bio_do_io(struct bio *bio) {
 }
 void submit_bio(struct bio *bio) {
   bio->bi_status = bio_do_io(bio);
-  if (bio->bi_end_io) bio->bi_end_io(bio);
+  bio_endio(bio);
 }
 int submit_bio_wait(struct bio *bio) { bio->bi_status = bio_do_io(bio); return bio->bi_status; }
 

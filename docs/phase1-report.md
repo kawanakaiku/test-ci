@@ -20,3 +20,9 @@
 - ASan は `/etc/ld.so.preload` のある環境で `verify_asan_link_order=0` が必要(スクリプトで設定済み)。
 - AGP 8.11.1 は Gradle 9.0.0 で動作。システムの Gradle 9.7.1 は AGP 8.x と非互換のため `./gradlew` を使うこと。
 - 実機の USB メモリ等での検証は未実施。ビルドやテストは必ずエミュレータ(`ANDROID_SERIAL`)を指定する(別の実機が接続されていることがある)。
+
+## メモリ運用メモ
+- テスト画像は tmpfs(=RAM)に置く。単体テスト画像は各 ≲10MB、フィクスチャは sparse で実使用 ~150KB。終了後は削除される/再生成可能。
+- 大きな取得物(Linux ソース ≈2GB)は tmpfs に置かない。`analyze_ntfs_deps.sh` 用の取得は Data ドライブ側で行い、不要になれば消す。
+- エミュレータ(数 GB)は検証後に `adb -s emulator-5556 emu kill` で停止する。
+- 今後の大容量テスト画像(数 GB 級)は sparse 生成 + 使用後削除を徹底し、`USBMEM_TEST_TMPDIR` で置き場を切り替える。

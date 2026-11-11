@@ -15,3 +15,7 @@ qemu-system-x86_64 -enable-kvm -cpu host -smp 4 -m 4096 -machine q35 -bios OVMF.
 - `ex.raw` は「受け渡しディスク」: MBR + NTFS (mkntfs で作成、ホストで ntfs-3g により run.cmd を置く)。ゲストでは D: に見え、結果ファイルもここへ書かせてホストで読む。
 - Win+R → `cmd`。`powershell -c Start-Process cmd -Verb RunAs` で UAC (「はい」をクリックするだけ) → 管理者 cmd。
 - 環境: Windows 11 Pro 10.0.26200 (manage-bde / certutil / powershell / fc / cipher あり)、ユーザー `user`。
+
+## 推奨: w11 ツール (`/run/media/u/Data/win11/w11`)
+管理者権限の ssh・イメージの hotplug (`attach --disk`)・`--ephemeral` (終了で破棄) があるので、こちらを優先する。上の自前 QMP 操作はフォールバック。
+`make_encrypted_fixtures.sh` が EFS / BitLocker のイメージを作る (ヘッドレスは `VM_DISPLAY=none`)。EFS だけは対話セッションが必要なので `./w11 desk` を使う。

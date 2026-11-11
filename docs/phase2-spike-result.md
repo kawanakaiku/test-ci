@@ -152,3 +152,13 @@ CTest `ntfs_windows_images` (イメージが無ければ SKIP)。
   先頭 4 レコードだけで、後続は古い。**上流の偽陽性**で、読み取り専用では無害。書き込み有効化時に上流がこれを理由に読み取り専用へ落とす可能性があるので、Phase 3 の書き込みでは扱いを決める必要がある。
 - 圧縮ファイルのクラスタ数: Windows は圧縮ユニットに満たない部分を疎にする。読み出しは問題なし。
 - 未検証: EFS 暗号化 (WinPE では作れない)、BitLocker (Phase 4)、Windows が書き込み中に電源断した本物の「ログ未再生」ボリューム (ダーティフラグのみで $LogFile は静止状態)、巨大 (TB 級) ボリューム上の Windows 製データ。
+
+### 暗号化 NTFS・Windows 11 本体で作ったボリューム (2026-11-11)
+実 Windows 11 (Education 25H2, `w11` ツールの `--ephemeral` VM、ネットワークなし) でボリュームを作成: `tools/winvhd/make_encrypted_fixtures.sh` / ゲスト側 `guest_efs.ps1`, `guest_bitlocker.ps1`。
+- **EFS**: 暗号化したファイル・ディレクトリ配下のファイル 3 件は、いずれも読み出しが **-EOPNOTSUPP (95) で安全に拒否**。平文ファイルは正常に読める。fuzz 200 回 crash/ハングなし。
+  (EFS の作成は対話セッションの鍵が必要で、ssh 経由 (セッション 0) では「アクセス拒否」。`./w11 desk` で実行する。)
+- **BitLocker** (XTS-AES-128、パスワード保護、`-UsedSpaceOnly`): パーティションは `FsType::BitLocker` と判別され、NTFS としてはマウント対象外。復号は Phase 4。
+- **重要な発見 — LogFile v2.0**: Windows 11 本体で `Format-Volume` した NTFS は `$LogFile` が **バージョン 2.0** で、上流ドライバは 1.1 のみ対応。
+  読み取り専用では警告のみで全データを読めるが、書き込みマウントは上流が「Errors were recorded during mount. Mounting read-only」で**自動的に読み取り専用に落ちる** (`write_inplace -> -EROFS`、イメージは無変更 = 安全側)。
+  WinPE の `diskpart format` は LFS 1.1 だったので、**最近の Windows 11 でフォーマットした USB メモリには書き込めない**可能性が高い。Phase 3 の書き込み対応範囲に直結するため、
+  LFS 2.0 の対応 (またはログを使わない安全な書き込み手段) を別途検討する必要がある。

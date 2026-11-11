@@ -193,7 +193,7 @@ static int cat_file(const std::string& img, const std::string& path, int nth) {
   if (!vol) return 1;
   uint64_t ino = 0; if (vol->resolve(path, &ino)) return 1;
   std::vector<uint8_t> b(65536); uint64_t off = 0;
-  for (;;) { int64_t n = vol->read(ino, off, b.data(), b.size()); if (n <= 0) break; std::fwrite(b.data(), 1, (size_t)n, stdout); off += (uint64_t)n; }
+  for (;;) { int64_t n = vol->read(ino, off, b.data(), b.size()); if (n < 0) { std::fprintf(stderr, "read error %lld\n", (long long)n); return 3; } if (n == 0) break; std::fwrite(b.data(), 1, (size_t)n, stdout); off += (uint64_t)n; }
   return 0;
 }
 
@@ -230,6 +230,18 @@ static int extract_part(const std::string& img, const std::string& out, int nth)
   std::fclose(f); return 0;
 }
 
+// 使い方: --probe <image>  パーティションと判定した FS 種別を表示
+static int probe_img(const std::string& img) {
+  usbmem::BlockDevicePtr base;
+  const char* bse = std::getenv("USBMEM_IMG_BS");
+  if (!usbmem::RawImageDevice::open_path(img, true, bse ? (uint32_t)std::atoi(bse) : 512, &base).ok()) return 2;
+  usbmem::PartitionTable pt;
+  if (!usbmem::read_partition_table(*base, &pt).ok()) return 2;
+  if (pt.whole_device_volume) std::printf("whole-device: %s\n", usbmem::fs_type_name(pt.whole_device_fs));
+  for (auto& p : pt.partitions) std::printf("partition %u: %s start=%llu size=%llu\n", p.index, usbmem::fs_type_name(p.fs), (unsigned long long)p.start_bytes, (unsigned long long)p.size_bytes);
+  return 0;
+}
+
 static int replay(const std::string& dir, const char* file) {
   usbmem::BlockDevicePtr base;
   if (!usbmem::RawImageDevice::open_path(dir + "/ntfs_basic.img", true, 512, &base).ok()) return 2;
@@ -245,6 +257,7 @@ static int replay(const std::string& dir, const char* file) {
 
 int main(int argc, char** argv) {
   if (argc >= 7 && std::string(argv[1]) == "--wtest") return wtest(argv[2], argv[3], std::strtoull(argv[4], 0, 10), std::strtoull(argv[5], 0, 10), (unsigned)std::atoi(argv[6]));
+  if (argc >= 3 && std::string(argv[1]) == "--probe") return probe_img(argv[2]);
   if (argc >= 4 && std::string(argv[1]) == "--extract") return extract_part(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);
   if (argc >= 4 && std::string(argv[1]) == "--cat") return cat_file(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);
   if (argc >= 4 && std::string(argv[1]) == "--manifest") return verify_manifest(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);

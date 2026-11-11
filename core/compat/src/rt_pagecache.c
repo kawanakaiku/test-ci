@@ -107,6 +107,14 @@ void usbmem_folio_dirty_range(struct folio *f, size_t off, size_t len) {
   for (size_t b = off / 512; b * 512 < end; b++) f->dirty_blocks_ |= (unsigned char)(1u << b);
   f->flags |= 1UL << FOLIO_DIRTY;
 }
+/* [off, off+len) に完全に含まれる 512B ブロックの dirty を外す (bforget / 直接書き込み済みの bh 用)。部分的にしか含まれないブロックは dirty のまま残す (安全側)。 */
+void usbmem_folio_clean_range(struct folio *f, size_t off, size_t len) {
+  if (!((f->flags >> FOLIO_DIRTY) & 1) || off >= PAGE_SIZE || !len) return;
+  if (!f->dirty_blocks_) f->dirty_blocks_ = 0xFF;   /* ビット未設定の dirty は全体扱い */
+  size_t end = off + len; if (end > PAGE_SIZE) end = PAGE_SIZE;
+  for (size_t b = (off + 511) / 512; (b + 1) * 512 <= end; b++) f->dirty_blocks_ &= (unsigned char)~(1u << b);
+  if (!f->dirty_blocks_) f->flags &= ~(1UL << FOLIO_DIRTY);
+}
 void folio_start_writeback(struct folio *f) { f->flags |= 1UL << FOLIO_WRITEBACK; }
 void folio_end_writeback(struct folio *f) { f->flags &= ~(1UL << FOLIO_WRITEBACK); }
 void folio_wait_writeback(struct folio *f) { (void)f; }
@@ -232,7 +240,15 @@ void truncate_inode_pages_final(struct address_space *m) {
   truncate_inode_pages(m, 0);
   if (m->pages) { struct pcache *pc = m->pages; pthread_mutex_destroy(&pc->mu); free(pc); m->pages = NULL; }  /* mapping 終了: キャッシュ管理体も解放 */
 }
-void truncate_pagecache(struct inode *i, loff_t n) { truncate_inode_pages(i->i_mapping, n); }
+/* n が folio の途中なら、その folio の n 以降をゼロにする (Linux の truncate_inode_partial_folio と同じ。後で拡張したとき古いデータが穴に見えてしまうのを防ぐ)。dirty にはしない。 */
+void truncate_pagecache(struct inode *i, loff_t n) {
+  truncate_inode_pages(i->i_mapping, n);
+  if (n > 0 && (n & (PAGE_SIZE - 1)) && i->i_mapping->pages) {
+    struct pcache *p = i->i_mapping->pages;
+    pthread_mutex_lock(&p->mu); struct folio *f = pc_find_locked(p, (pgoff_t)(n >> PAGE_SHIFT)); pthread_mutex_unlock(&p->mu);
+    if (f) { folio_lock(f); folio_zero_segment(f, (size_t)(n & (PAGE_SIZE - 1)), PAGE_SIZE); folio_unlock(f); folio_put(f); }
+  }
+}
 void truncate_setsize(struct inode *i, loff_t n) { i->i_size = n; truncate_pagecache(i, n); }
 void truncate_pagecache_range(struct inode *i, loff_t a, loff_t b) { (void)a; (void)b; truncate_pagecache(i, a); }
 unsigned long invalidate_mapping_pages(struct address_space *m, pgoff_t a, pgoff_t b) { (void)m; (void)a; (void)b; return 0; }
@@ -540,6 +556,50 @@ int usbmem_mapping_writeback(struct address_space *m, int sync_all) {
   int rc = ((int (*)(struct address_space *, struct writeback_control *))m->a_ops->writepages)(m, &wbc);
   free(wbc.snap_);
   return rc;
+}
+
+/* ブロックデバイスのページキャッシュ (bd_mapping) の dirty 範囲を全てデバイスへ書く (buffer_head 系 FS のメタデータ)。
+ * dirty は 512B 単位で追跡しているので、隣接する別の用途のブロック (ファイルデータなど) は上書きしない。
+ * 失敗した folio は dirty のまま残し、最初のエラーを返す。flush は呼び出し側。 */
+int usbmem_bdev_writeback(struct block_device *bd) {
+  struct address_space *m = bd ? bd->bd_mapping : NULL;
+  struct pcache *p = m ? m->pages : NULL;
+  if (!p) return 0;
+  size_t cap = 0, n = 0; pgoff_t *snap = NULL;
+  pthread_mutex_lock(&p->mu);
+  for (int i = 0; i < NB; i++) for (struct folio *f = p->b[i]; f; f = f->hash_next_) if ((f->flags >> FOLIO_DIRTY) & 1) cap++;
+  if (!cap) { pthread_mutex_unlock(&p->mu); return 0; }
+  snap = malloc(cap * sizeof *snap);
+  if (!snap) { pthread_mutex_unlock(&p->mu); return -ENOMEM; }
+  for (int i = 0; i < NB; i++) for (struct folio *f = p->b[i]; f; f = f->hash_next_) if (((f->flags >> FOLIO_DIRTY) & 1) && n < cap) snap[n++] = f->index;
+  pthread_mutex_unlock(&p->mu);
+  qsort(snap, n, sizeof *snap, cmp_idx);
+  u64 dev_size = usbmem_bdev_size(bd->impl);
+  int err = 0;
+  for (size_t k = 0; k < n && !err; k++) {
+    pthread_mutex_lock(&p->mu); struct folio *f = pc_find_locked(p, snap[k]); pthread_mutex_unlock(&p->mu);
+    if (!f) continue;
+    folio_lock(f);
+    if ((f->flags >> FOLIO_DIRTY) & 1) {
+      unsigned char bits = f->dirty_blocks_ ? f->dirty_blocks_ : 0xFF;
+      f->flags &= ~(1UL << FOLIO_DIRTY); f->dirty_blocks_ = 0;
+      u64 base = (u64)f->index << PAGE_SHIFT;
+      for (int b = 0; b < 8 && !err; b++) {
+        if (!((bits >> b) & 1)) continue;
+        int e = b; while (e + 1 < 8 && ((bits >> (e + 1)) & 1)) e++;
+        u64 a = base + (u64)b * 512, z = base + (u64)(e + 1) * 512;
+        if (z > dev_size) z = dev_size;
+        if (a < z) {
+          int rc = usbmem_bdev_write(bd->impl, a, (char *)f->data + (a - base), (size_t)(z - a));
+          if (rc) { err = rc; f->dirty_blocks_ |= (unsigned char)(bits & (0xFFu << b)); f->flags |= 1UL << FOLIO_DIRTY; }   /* 失敗した範囲以降は dirty に戻す */
+        }
+        b = e;
+      }
+    }
+    folio_unlock(f); folio_put(f);
+  }
+  free(snap);
+  return err;
 }
 
 /* ---- NLS / UTF (UTF-16LE <-> UTF-8) */

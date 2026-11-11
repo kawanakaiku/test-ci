@@ -19,9 +19,11 @@ void usbmem_bdev_mapping_free(struct block_device *);
 void usbmem_d_free(struct dentry *);
 void usbmem_compat_umount(struct super_block *);
 void usbmem_rcu_flush(void);   /* usbmem_call_rcu_defer で遅らせた解放を実行する (umount / 失敗したマウントの最後に呼ばれる) */
+int usbmem_compat_remount_rw(struct super_block *);   /* 読み取り専用でマウント済みの FS を読み書きへ (ext2: ダーティ印をメディアへ確定してから)。成功しても ro のままなら -EROFS */
 int usbmem_compat_sync(struct super_block *);   /* 書き込み: dirty inode/folio を全てデバイスへ書き flush */
 int usbmem_mapping_writeback(struct address_space *, int sync_all);
 int usbmem_mapping_has_dirty(struct address_space *);
+int usbmem_bdev_writeback(struct block_device *);   /* bd_mapping の dirty 範囲をデバイスへ書く (buffer_head 系 FS のメタデータ)。flush は呼び出し側 */
 int usbmem_compat_mount(struct block_device *bdev, int read_only, struct super_block **out);   /* fs/ntfs (rt_vfs.c) */
 int usbmem_compat_mount_fs(int (*module_init)(void), struct block_device *bdev, int read_only, struct super_block **out);
 /* マウントオプション (フラグ形式のみ。NULL 終端の文字列配列) を fs_context の parse_param に渡してからマウントする。 */

@@ -38,6 +38,10 @@ object NativeBridge {
     @JvmStatic external fun nativeNtfsMove(handle: Long, path: ByteArray, newParent: ByteArray, newName: ByteArray): Long
     @JvmStatic external fun nativeNtfsTruncate(handle: Long, path: ByteArray, size: Long): Long
     @JvmStatic external fun nativeNtfsSync(handle: Long): Long
+    // リンク (ext2 のみ。UI・プロバイダからはまだ使わない)
+    @JvmStatic external fun nativeFsReadlink(handle: Long, path: ByteArray, err: IntArray): ByteArray?
+    @JvmStatic external fun nativeFsSymlink(handle: Long, parent: ByteArray, name: ByteArray, target: ByteArray): Long
+    @JvmStatic external fun nativeFsLink(handle: Long, parent: ByteArray, name: ByteArray, existing: ByteArray): Long
 }
 
 /**
@@ -143,6 +147,29 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
     fun rename(path: String, newName: String) { checkWritable(); denyIfCreateOnly("rename"); ok("rename '$path'", NativeBridge.nativeNtfsRename(handle, bytes(path), bytes(newName))); sync() }
     @Synchronized
     fun truncate(path: String, size: Long) { checkWritable(); denyIfCreateOnly("truncate"); ok("truncate '$path'", NativeBridge.nativeNtfsTruncate(handle, bytes(path), size)) }
+    /** シンボリックリンクのリンク先 (読み取り専用でも可)。ext2 以外は errno 95。 */
+    @Synchronized
+    fun readlink(path: String): String {
+        check(Handle.valid(handle)) { "closed" }
+        val err = IntArray(1)
+        val b = NativeBridge.nativeFsReadlink(handle, bytes(path), err) ?: throw NativeException(err[0], "readlink '$path' failed: errno ${err[0]}")
+        return String(b, Charsets.UTF_8)
+    }
+    /** parent の下に name のシンボリックリンクを作る (新規作成なので createOnly でも可)。inode 番号を返す。ext2 のみ。 */
+    @Synchronized
+    fun symlink(parent: String, name: String, target: String): Long {
+        checkWritable()
+        val ino = ok("symlink '$name'", NativeBridge.nativeFsSymlink(handle, bytes(parent), bytes(name), bytes(target)))
+        createdHere += norm(parent + "/" + name)
+        sync()
+        return ino
+    }
+    /** 既存の existing へのハードリンクを parent の下に name で作る (既存データに別名を付けるので createOnly では拒否)。ext2 のみ。 */
+    @Synchronized
+    fun link(parent: String, name: String, existing: String) {
+        checkWritable(); denyIfCreateOnly("link")
+        ok("link '$name'", NativeBridge.nativeFsLink(handle, bytes(parent), bytes(name), bytes(existing))); sync()
+    }
     /** 変更をメディアへ確定する (書き込み + デバイス flush)。 */
     @Synchronized
     fun sync() { checkWritable(); ok("sync", NativeBridge.nativeNtfsSync(handle)) }

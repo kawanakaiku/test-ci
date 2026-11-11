@@ -35,6 +35,10 @@ class FsVolume {
   virtual int64_t write(uint64_t, uint64_t, const void*, size_t) { return -30; }
   virtual int truncate(uint64_t, uint64_t) { return -30; }
   virtual int64_t write_inplace(uint64_t, uint64_t, const void*, size_t) { return -30; }
+  // リンク (既定は未対応 = -EOPNOTSUPP)。readlink はリンク先の文字列、symlink / link は書き込み系 (ハードリンクはディレクトリ不可)。
+  virtual int readlink(uint64_t, std::string*) { return -95; }
+  virtual int symlink(uint64_t, const std::string&, const std::string&, uint64_t*) { return -95; }
+  virtual int link(uint64_t, const std::string&, uint64_t) { return -95; }
   // "/a/b" 形式のパス解決 (区切りは '/')。
   int resolve(const std::string& path, uint64_t* ino);
 };

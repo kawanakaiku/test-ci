@@ -28,8 +28,9 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     return usbmem::ExfatVolume::mount(dev, err);
   }
   if (t == usbmem::FsType::Ext2) {
-    // ext2 (ジャーナルなし・extent なし) は fs/ext2 で読み取り専用。書き込みは未対応: rw を要求されても読み取り専用 (writable() == false)
-    return usbmem::Ext2Volume::mount(dev, err);
+    // ext2 (ジャーナルなし・extent なし) は fs/ext2。rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。
+    // 汚れた / エラー状態 / 未知の ro_compat のボリュームは mount_rw の中で読み取り専用に落ちる (writable() == false で分かる)
+    return rw ? usbmem::Ext2Volume::mount_rw(dev, err) : usbmem::Ext2Volume::mount(dev, err);
   }
   if (t == usbmem::FsType::Ext3 || t == usbmem::FsType::Ext4) {
     // ext3 / ext4 は fs/ext4 で読み取り専用。ジャーナルは再生しない: 未再生 (needs_recovery) のボリュームは EUCLEAN(117) で拒否、
@@ -277,6 +278,36 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsTruncate(JNIE
   if (size < 0) return -22;
   int rc = v->resolve(utf8(env, path), &ino);
   if (!rc) rc = v->truncate(ino, static_cast<uint64_t>(size));
+  return rc ? neg(rc) : 0;
+}
+
+// path のシンボリックリンクのリンク先を返す (読み取り専用でも可)。失敗時 null (err[0] = errno)。ext2 以外は -EOPNOTSUPP (95)
+JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_NativeBridge_nativeFsReadlink(JNIEnv* env, jclass, jlong h, jbyteArray path, jintArray err) {
+  auto* v = reinterpret_cast<Vol*>(h)->v.get();
+  uint64_t ino = 0;
+  std::string target;
+  int rc = v->resolve(utf8(env, path), &ino);
+  if (!rc) rc = v->readlink(ino, &target);
+  if (rc) { jint e = rc < 0 ? -rc : rc; env->SetIntArrayRegion(err, 0, 1, &e); return nullptr; }
+  return bytes(env, target);
+}
+
+// parent の下に name のシンボリックリンク (リンク先 target) を作る。戻り値: ino / <0 = -errno
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeFsSymlink(JNIEnv* env, jclass, jlong h, jbyteArray parent, jbyteArray name, jbyteArray target) {
+  auto* v = reinterpret_cast<Vol*>(h)->v.get();
+  uint64_t dir = 0, ino = 0;
+  int rc = v->resolve(utf8(env, parent), &dir);
+  if (!rc) rc = v->symlink(dir, utf8(env, name), utf8(env, target), &ino);
+  return rc ? neg(rc) : static_cast<jlong>(ino);
+}
+
+// parent の下に、既存ファイル existing へのハードリンク name を作る。0 / <0 = -errno
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeFsLink(JNIEnv* env, jclass, jlong h, jbyteArray parent, jbyteArray name, jbyteArray existing) {
+  auto* v = reinterpret_cast<Vol*>(h)->v.get();
+  uint64_t dir = 0, ino = 0;
+  int rc = v->resolve(utf8(env, parent), &dir);
+  if (!rc) rc = v->resolve(utf8(env, existing), &ino);
+  if (!rc) rc = v->link(dir, utf8(env, name), ino);
   return rc ? neg(rc) : 0;
 }
 

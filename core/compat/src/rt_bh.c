@@ -22,21 +22,32 @@ struct buffer_head *__bread(struct block_device *bdev, sector_t block, unsigned 
 struct buffer_head *__getblk(struct block_device *bdev, sector_t block, unsigned size) { return bh_get(bdev, block, size); }
 void __brelse(struct buffer_head *bh) { if (!bh) return; folio_put(bh->b_folio); free(bh); }
 void brelse(struct buffer_head *bh) { __brelse(bh); }
-void bforget(struct buffer_head *bh) { __brelse(bh); }
+/* bforget: 変更を捨てて手放す。この範囲の dirty を外すので、後でそのブロックが別の用途 (ファイルデータなど) に再利用されても、
+ * 古いメタデータが writeback で上書きすることはない (解放された間接ブロックなど)。 */
+void bforget(struct buffer_head *bh) {
+  if (!bh) return;
+  bh->b_state &= ~(1UL << BH_Dirty);
+  usbmem_folio_clean_range(bh->b_folio, (size_t)(bh->b_data - (char *)bh->b_folio->data), bh->b_size);
+  __brelse(bh);
+}
 
-/* 書き込み経路 (読み取り専用段階では呼ばれない)。mark_buffer_dirty は folio の該当範囲を dirty にするだけで、
- * 書き戻しは sync_dirty_buffer が bh 単位で直接デバイスへ書く (bd_mapping の writeback は未実装 = 書き込み対応時に整える)。 */
+/* 書き込み経路。bh はデバイスのページキャッシュ (bd_mapping) の folio 内の範囲への参照なので、同じブロックの bh は同じメモリを指す。
+ * mark_buffer_dirty は folio の該当範囲 (512B 単位) を dirty にするだけで、書き戻しは usbmem_bdev_writeback (sync 時) か sync_dirty_buffer (即時)。 */
 void mark_buffer_dirty(struct buffer_head *bh) {
   bh->b_state |= 1UL << BH_Dirty;
   usbmem_folio_dirty_range(bh->b_folio, (size_t)(bh->b_data - (char *)bh->b_folio->data), bh->b_size);
 }
+void mark_buffer_dirty_inode(struct buffer_head *bh, struct inode *inode) { (void)inode; mark_buffer_dirty(bh); }
+/* bh を今すぐデバイスへ書く。USB のキャッシュが他の書き込みを先に反映することがあるので、書いたら必ず flush する
+ * (ext2 のスーパーブロックの更新 = ダーティ印の確定・クリーン印の書き戻しがこれを使う)。 */
 int __sync_dirty_buffer(struct buffer_head *bh, blk_opf_t op) {
+  (void)op;
   if (!buffer_dirty(bh)) return 0;
   int rc = usbmem_bdev_write(bh->b_bdev->impl, (u64)bh->b_blocknr * bh->b_size, bh->b_data, bh->b_size);
   if (rc) { bh->b_state |= 1UL << BH_Write_EIO; return rc; }
   bh->b_state &= ~(1UL << BH_Dirty);
-  if (op & REQ_PREFLUSH) rc = usbmem_bdev_flush(bh->b_bdev->impl);
-  return rc;
+  usbmem_folio_clean_range(bh->b_folio, (size_t)(bh->b_data - (char *)bh->b_folio->data), bh->b_size);
+  return usbmem_bdev_flush(bh->b_bdev->impl);
 }
 int sync_dirty_buffer(struct buffer_head *bh) { return __sync_dirty_buffer(bh, REQ_SYNC); }
 

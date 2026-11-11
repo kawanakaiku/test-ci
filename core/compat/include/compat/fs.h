@@ -108,6 +108,7 @@ struct inode {
   spinlock_t i_lock;
   loff_t i_size;
   unsigned long i_blocks;
+  unsigned short i_bytes;   /* i_blocks (512B 単位) に満たない端数 (inode_add_bytes) */
   unsigned int i_blkbits;
   u32 i_generation;
   atomic_t i_count;
@@ -157,6 +158,7 @@ struct super_block {
   int s_active_;
   struct fs_context *s_fc_;
   struct rw_semaphore s_umount;
+  int usbmem_bh_fs_;   /* buffer_head 系 FS (ext2 など): usbmem_compat_sync がデータ → メタデータ → ディレクトリ → スーパーブロックの順に書く */
 };
 struct vfsmount;
 struct path { struct vfsmount *mnt; struct dentry *dentry; };

@@ -12,6 +12,7 @@ def tree(root):
             p = os.path.join(dp, n)
             r = os.path.relpath(p, root)
             if r.startswith("System Volume Information") or r.startswith("$"): continue
+            if os.path.islink(p): out.append("l 0 %s %s" % (os.readlink(p), r)); continue    # ext2: シンボリックリンク (リンク先の文字列で比較)
             if os.path.isdir(p): out.append("d 0 - " + r)
             else:
                 try: d = open(p, "rb").read()
@@ -32,10 +33,12 @@ for line in open(script):
     elif op == "rmdir": os.rmdir(P(f[1]))
     elif op == "rename": os.rename(P(f[1]), P(f[2]))
     elif op == "truncate": os.truncate(P(f[1]), int(f[2]))
+    elif op == "symlink": os.symlink(f[2], P(f[1]))      # ext2 (symlink PATH TARGET)
+    elif op == "link": os.link(P(f[2]), P(f[1]))          # ext2 (link NEWPATH EXISTINGPATH): ハードリンク
     elif op == "write":
         off, ln, seed = int(f[2]), int(f[3]), int(f[4])
         with open(P(f[1]), "r+b") as fh:
             fh.seek(0, 2)
-            if fh.tell() < off: fh.write(bytes(off - fh.tell()))
+            if fh.tell() < off: fh.truncate(off)     # 隙間はゼロ (疎のまま: ext2 の三重間接などでディスクを溢れさせない)
             fh.seek(off); fh.write(bytes((((off + i) * 7) + seed) & 255 for i in range(ln)))
     else: raise SystemExit("bad op " + line)

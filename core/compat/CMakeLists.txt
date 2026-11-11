@@ -83,6 +83,9 @@ target_compile_options(usbmem_ext2 PRIVATE
   $<$<COMPILE_LANGUAGE:C>:-fwrapv>
   "$<$<COMPILE_LANGUAGE:C>:SHELL:-iquote ${EXT2_ROOT}/fs-ext2>")
 target_compile_definitions(usbmem_ext2 PRIVATE CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=1 USBMEM_MODULE_INIT_NAME=usbmem_module_init_ext2)
+if(USBMEM_NTFS_WRITE)
+  target_compile_definitions(usbmem_ext2 PRIVATE USBMEM_NTFS_WRITE=1)   # 書き込み入口 (rt_vfs_ext2.c) を有効にする。実行時にも mount(read_only=0) が必要
+endif()
 target_link_libraries(usbmem_ext2 PUBLIC usbmem_compat_rt)
 
 # ---- ext4 (Linux fs/ext4, 無改変)。読み取り専用・journal 無し (noload 固定)。
@@ -172,6 +175,17 @@ if(USBMEM_BUILD_TESTS)
     set_tests_properties(ext2_corrupt ext2_ioerr ext2_fuzz PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
     set_tests_properties(ext2_read PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
   endif()
+endif()
+
+# ---- ext2 書き込みのテスト (USBMEM_NTFS_WRITE=ON のときだけ): 操作列 / モデルとの突き合わせ / 満杯 / 拒否 / 電源断。独立実装 (e2fsck・fuse2fs・debugfs) での検証は tools/run_ext2_write_tests.sh
+if(USBMEM_BUILD_TESTS AND USBMEM_NTFS_WRITE)
+  add_executable(usbmem_ext2_write_tests tests/test_ext2_write.cpp)
+  target_link_libraries(usbmem_ext2_write_tests PRIVATE usbmem_ext2)
+  add_test(NAME ext2_write COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_ext2_write_tests.sh $<TARGET_FILE:usbmem_ext2_write_tests>)
+  set_tests_properties(ext2_write PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1800 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+  # 電源断の模擬 (軽量版: 8 点 x {順序保持,キャッシュ} x {全セクタ,途中切断} x {最後に 1 回 sync, 操作ごとに sync})。フル版は tools/run_ext2_crash_tests.sh <bin> <dir> 40
+  add_test(NAME ext2_crash COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_ext2_crash_tests.sh $<TARGET_FILE:usbmem_ext2_write_tests> /dev/shm/usbmem_ext2_$ENV{USER} 8)
+  set_tests_properties(ext2_crash PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
 endif()
 
 # ---- ext4 のテスト: mke2fs -d + tools/gen_ext4_fixture.py (機能の組み合わせごと・e2fsck -fn で clean を確認)。ext2 とのコンテナ共存 (同一プロセスで両方マウント) も検査する。

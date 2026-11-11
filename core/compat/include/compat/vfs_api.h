@@ -144,6 +144,8 @@ void folio_clear_uptodate(struct folio *);
 void folio_mark_dirty(struct folio *);
 /* folio の [off, off+len) だけを dirty にする (512B 単位に外側へ丸める)。folio_mark_dirty / iomap_dirty_folio は folio 全体 */
 void usbmem_folio_dirty_range(struct folio *, size_t off, size_t len);
+/* 逆: [off, off+len) に完全に含まれる 512B ブロックの dirty を外す (bforget / 直接書き込み済み) */
+void usbmem_folio_clean_range(struct folio *, size_t off, size_t len);
 void folio_clear_dirty(struct folio *);
 void folio_start_writeback(struct folio *);
 void folio_end_writeback(struct folio *);

@@ -100,9 +100,9 @@ bool is_bad_inode(struct inode *);
 static inline void inode_inc_link_count(struct inode *i) { i->i_nlink++; mark_inode_dirty(i); }
 static inline void inode_dec_link_count(struct inode *i) { i->i_nlink--; mark_inode_dirty(i); }
 static inline void inode_nohighmem(struct inode *i) { (void)i; }
-static inline int insert_inode_locked(struct inode *i) { (void)i; usbmem_unimplemented("insert_inode_locked"); return -ENOSYS; }
+int insert_inode_locked(struct inode *);   /* 同じ ino の生きた inode が既にあれば -EBUSY (src/rt_core.c) */
 static inline void set_inode_metadata_writeback(struct inode *i) { (void)i; }
-static inline int sync_inode_metadata(struct inode *i, int wait) { (void)i; (void)wait; return 0; }
+int sync_inode_metadata(struct inode *, int wait);   /* write_inode でメタデータだけ書く (src/rt_core.c) */
 static inline int d_tmpfile(struct file *f, struct inode *i) { (void)f; (void)i; return -ENOSYS; }
 static inline int finish_open_simple(struct file *f, int err) { (void)f; return err; }
 #define IS_NOQUOTA(i) 0

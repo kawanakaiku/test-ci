@@ -17,6 +17,11 @@ int generic_write_checks(struct kiocb *iocb, struct iov_iter *from) {
   struct inode *inode = iocb->ki_filp->f_mapping->host;
   if (iocb->ki_flags & IOCB_APPEND) iocb->ki_pos = i_size_read(inode);
   if (iocb->ki_pos < 0) return -EINVAL;
+  loff_t max = inode->i_sb->s_maxbytes;   /* Linux と同じ: 上限を超える開始位置は -EFBIG、またぐ書き込みは上限までに切り詰める */
+  if (max > 0) {
+    if (iocb->ki_pos >= max) return -EFBIG;
+    if ((u64)iocb->ki_pos + from->count > (u64)max) from->count = (size_t)(max - iocb->ki_pos);
+  }
   return (int)iov_iter_count(from);
 }
 ssize_t generic_write_sync(struct kiocb *iocb, ssize_t count) { (void)iocb; return count; }   /* 永続化は usbmem_compat_sync で明示的に行う */

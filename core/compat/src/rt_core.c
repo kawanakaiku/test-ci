@@ -202,6 +202,17 @@ struct inode *find_inode_rcu(struct super_block *sb, unsigned long hv, int (*tes
     if (i->i_sb == sb && i->i_hashval_ == hv && test(i, data)) return i;
   return NULL;
 }
+/* 新規 inode (ino 設定済み) をハッシュへ入れる。同じ ino の生きた inode が既にあれば -EBUSY (ext2_new_inode が使う)。 */
+int insert_inode_locked(struct inode *n) {
+  unsigned long hv = n->i_ino;
+  pthread_mutex_lock(&g_inode_lock);
+  for (struct inode *i = *IH(hv); i; i = i->i_hash_next_)
+    if (i->i_sb == n->i_sb && i->i_hashval_ == hv && !(i->i_state & (I_FREEING | I_WILL_FREE))) { pthread_mutex_unlock(&g_inode_lock); return -EBUSY; }
+  n->i_state |= I_NEW;
+  hash_insert_locked(n, hv);
+  pthread_mutex_unlock(&g_inode_lock);
+  return 0;
+}
 void unlock_new_inode(struct inode *i) { i->i_state &= ~I_NEW; }
 void discard_new_inode(struct inode *i) { i->i_state &= ~I_NEW; iput(i); }
 struct inode *igrab(struct inode *i) {
@@ -279,6 +290,7 @@ void usbmem_compat_umount(struct super_block *sb) {
   /* カーネルと同じく dentry (ルート) を先に落としてから evict_inodes する。put_super 後に evict_inode が走ると s_fs_info が解放済みになる (ext2) */
   if (sb->s_root) { usbmem_d_free_root(sb->s_root); sb->s_root = NULL; }
   evict_inodes_sb(sb);
+  if (sb->usbmem_bh_fs_ && !sb_rdonly(sb)) usbmem_compat_sync(sb);   /* evict で解放された inode・ブロックのメタデータ (ext2_evict_inode) を put_super の前に確定 */
   if (sb->s_op && sb->s_op->put_super) ((void (*)(struct super_block *))sb->s_op->put_super)(sb);
   evict_inodes_sb(sb);
   if (sb->s_bdev && !sb_rdonly(sb)) usbmem_bdev_flush(sb->s_bdev->impl);   /* put_super が書いた最終状態 (ダーティ解除) を確定 */
@@ -304,21 +316,78 @@ int write_inode_now(struct inode *i, int sync) {
   if (!r2) i->i_state &= ~(unsigned long)I_DIRTY_PAGES;
   return rc ? rc : r2;
 }
+int sync_inode_metadata(struct inode *i, int wait) {
+  struct super_block *sb = i->i_sb;
+  if (sb_rdonly(sb) || !(i->i_state & (I_DIRTY_SYNC | I_DIRTY_DATASYNC)) || !sb->s_op || !sb->s_op->write_inode) return 0;
+  i->i_state &= ~(unsigned long)(I_DIRTY_SYNC | I_DIRTY_DATASYNC);
+  struct writeback_control wbc = { .sync_mode = wait ? WB_SYNC_ALL : 0 };
+  int rc = ((int (*)(struct inode *, struct writeback_control *))sb->s_op->write_inode)(i, &wbc);
+  if (rc) i->i_state |= I_DIRTY_SYNC;
+  return rc;
+}
+/* sb に属す生きた inode の一覧 (参照 +1)。呼び出し側が iput する。 */
+static struct inode **snapshot_inodes(struct super_block *sb, size_t *np) {
+  struct inode **list = NULL; size_t n = 0, cap = 0;
+  pthread_mutex_lock(&g_inode_lock);
+  for (int b = 0; b < 1024; b++) for (struct inode *i = g_inode_hash[b]; i; i = i->i_hash_next_) {
+    if (i->i_sb != sb || (i->i_state & (I_FREEING | I_WILL_FREE | I_NEW))) continue;
+    if (n == cap) { cap = cap ? cap * 2 : 64; list = realloc(list, cap * sizeof *list); }
+    atomic_inc(&i->i_count); list[n++] = i;
+  }
+  pthread_mutex_unlock(&g_inode_lock);
+  *np = n; return list;
+}
+/* buffer_head 系 FS (ext2) の同期。書く順序を段階に分け、各段階の間でデバイスを flush する (順序を保証しない USB キャッシュでも成り立つように):
+ *   1. 通常ファイル・シンボリックリンクのデータ   (新しく確保したブロックにしか書かないので、ここで途切れても既存の内容は壊れない)
+ *   2. inode (write_inode: inode テーブルのバッファを更新) とメタデータ (ビットマップ・グループ記述子・間接ブロック) の bd 書き戻し
+ *   3. ディレクトリのページ (名前の追加・削除は、指す先の inode が書かれた後)
+ *   4. スーパーブロック (sync_fs: 空き数・時刻。ダーティ印は最初の書き込みの前に確定済み) */
+static int sync_bh_fs(struct super_block *sb) {
+  int first_err = 0, wrote;
+  size_t n; struct inode **list = snapshot_inodes(sb, &n);
+  wrote = 0;
+  for (size_t k = 0; k < n; k++) {
+    struct inode *i = list[k];
+    if (!S_ISDIR(i->i_mode) && usbmem_mapping_has_dirty(i->i_mapping)) {
+      int rc = usbmem_mapping_writeback(i->i_mapping, 1);
+      if (rc && !first_err) first_err = rc; else if (!rc) i->i_state &= ~(unsigned long)I_DIRTY_PAGES;
+      wrote = 1;
+    }
+  }
+  if (wrote && !first_err) { int rc = usbmem_bdev_flush(sb->s_bdev->impl); if (rc) first_err = rc; }
+  for (size_t k = 0; k < n; k++) {
+    struct inode *i = list[k];
+    if (i->i_state & (I_DIRTY_SYNC | I_DIRTY_DATASYNC)) { int rc = sync_inode_metadata(i, 0); if (rc && !first_err) first_err = rc; }
+  }
+  if (!first_err) { int rc = usbmem_bdev_writeback(sb->s_bdev); if (rc) first_err = rc; else { rc = usbmem_bdev_flush(sb->s_bdev->impl); if (rc) first_err = rc; } }
+  wrote = 0;
+  for (size_t k = 0; k < n; k++) {
+    struct inode *i = list[k];
+    if (S_ISDIR(i->i_mode) && usbmem_mapping_has_dirty(i->i_mapping)) {
+      if (!first_err) {
+        int rc = usbmem_mapping_writeback(i->i_mapping, 1);
+        if (rc && !first_err) first_err = rc; else if (!rc) i->i_state &= ~(unsigned long)I_DIRTY_PAGES;
+        wrote = 1;
+      }
+    }
+  }
+  for (size_t k = 0; k < n; k++) iput(list[k]);
+  free(list);
+  if (wrote && !first_err) { int rc = usbmem_bdev_flush(sb->s_bdev->impl); if (rc) first_err = rc; }
+  if (sb->s_op && sb->s_op->sync_fs) { int rc = ((int (*)(struct super_block *, int))sb->s_op->sync_fs)(sb, 1); if (rc && !first_err) first_err = rc; }
+  { int rc = usbmem_bdev_writeback(sb->s_bdev); if (rc && !first_err) first_err = rc; }   /* sync_fs が触ったバッファ (あれば) */
+  { int rc = usbmem_bdev_flush(sb->s_bdev->impl); if (rc && !first_err) first_err = rc; }
+  return first_err;
+}
 /* sb の全 inode を書き出す。write_inode が MFT のページを汚すので、不動点まで繰り返す (上限あり)。
  * 通常 inode → メタデータ inode ($MFT 等は ino が小さい) の順にはせず、収束で順序問題を吸収する。 */
 int usbmem_compat_sync(struct super_block *sb) {
   if (!sb || sb_rdonly(sb)) return 0;
+  if (sb->usbmem_bh_fs_) return sync_bh_fs(sb);
   int first_err = 0;
   for (int pass = 0; pass < 8; pass++) {
     int did = 0;
-    struct inode **list = NULL; size_t n = 0, cap = 0;
-    pthread_mutex_lock(&g_inode_lock);
-    for (int b = 0; b < 1024; b++) for (struct inode *i = g_inode_hash[b]; i; i = i->i_hash_next_) {
-      if (i->i_sb != sb || (i->i_state & (I_FREEING | I_WILL_FREE | I_NEW))) continue;
-      if (n == cap) { cap = cap ? cap * 2 : 64; list = realloc(list, cap * sizeof *list); }
-      atomic_inc(&i->i_count); list[n++] = i;
-    }
-    pthread_mutex_unlock(&g_inode_lock);
+    size_t n; struct inode **list = snapshot_inodes(sb, &n);
     for (size_t k = 0; k < n; k++) {
       struct inode *i = list[k];
       if ((i->i_state & I_DIRTY_ALL) || usbmem_mapping_has_dirty(i->i_mapping)) {
@@ -334,6 +403,27 @@ int usbmem_compat_sync(struct super_block *sb) {
   if (sb->s_op && sb->s_op->sync_fs) { int rc = ((int (*)(struct super_block *, int))sb->s_op->sync_fs)(sb, 1); if (rc && !first_err) first_err = rc; }
   if (sb->s_bdev) { int rc = usbmem_bdev_flush(sb->s_bdev->impl); if (rc && !first_err) first_err = rc; }
   return first_err;
+}
+/* 読み取り専用でマウント済みの FS を読み書きに切り替える (VFS の remount rw 相当: fs_context を作って ops->reconfigure を呼ぶ)。
+ * ext2 は reconfigure の中で s_state の VALID_FS を落としてスーパーブロックを書く (sync_dirty_buffer = 書いて flush)。つまり**最初の変更の前にダーティ印がメディアに確定する**。
+ * 成功しても読み取り専用のままなら (上流が異常を見つけて落とした) -EROFS。 */
+int usbmem_compat_remount_rw(struct super_block *sb) {
+  if (!sb) return -EINVAL;
+  if (!sb_rdonly(sb)) return 0;
+  if (!sb->s_type || !sb->s_root) return -EINVAL;
+  struct fs_context *fc = calloc(1, sizeof *fc);
+  if (!fc) return -ENOMEM;
+  int (*init_fc)(struct fs_context *) = (int (*)(struct fs_context *))sb->s_type->init_fs_context;
+  int rc = init_fc ? init_fc(fc) : -ENOSYS;
+  if (rc) { free(fc); return rc; }
+  const struct fs_context_operations *ops = fc->ops;
+  fc->root = sb->s_root; fc->sb_flags = SB_SILENT;
+  rc = (ops && ops->reconfigure) ? ((int (*)(struct fs_context *))ops->reconfigure)(fc) : -EOPNOTSUPP;
+  void (*free_fc)(struct fs_context *) = ops ? (void (*)(struct fs_context *))ops->free : NULL;
+  if (free_fc) free_fc(fc);
+  free(fc);
+  if (!rc && sb_rdonly(sb)) rc = -EROFS;
+  return rc;
 }
 void inode_attach_wb(struct inode *i, struct folio *f) { (void)i; (void)f; }
 void inode_dio_wait(struct inode *i) { (void)i; }

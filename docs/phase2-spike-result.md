@@ -97,3 +97,12 @@ byteorder/min/max マクロだけ**で `gcc -fsyntax-only` した。残ったエ
 - **AVD (API 37, x86_64) の計装テスト 5 件成功**: 実 NTFS イメージ (64MiB) を 全ファイル sha256 で照合 (20MiB スパース・日本語名・800 件ディレクトリ含む)、
   NTFS でないデータは NativeException で失敗。arm64-v8a は **ビルドのみ**で実行は未検証 (実機/エミュレータ未使用)。
 - 次: SAF DocumentsProvider (別アプリから NTFS イメージを読めること = Phase 2 完了条件)。
+
+### SAF DocumentsProvider (2026-11-11)
+- `NtfsDocumentsProvider` (authority `org.usbmem.app.documents`, `MANAGE_DOCUMENTS` 必須 = システムの Documents UI のみ呼べる) + `VolumeRegistry`。
+  documentId = `<volumeId>:<絶対パス>`、`..`/`.` を含むパスは拒否。`openDocument` は `"r"` のみ許可し、`StorageManager.openProxyFileDescriptor` でシーク可能な読み取り fd を返す。
+  書き込み・削除・名前変更は一切許可しない (Document flags = 0)。SAF の URI は private な SharedPreferences に保存し、次回起動時に再マウント。
+- UI: 「NTFS イメージを他アプリに公開」ボタン (takePersistableUriPermission → マウント → roots 更新通知)。
+- AVD 計装テスト **7 件成功**: ContentResolver (バインダ経由) で roots / 子一覧 / 3MiB ファイルの sha256 / 書き込みモード拒否 / `..` 拒否 / isChildDocument。
+- **未検証**: 実際のシステム Documents UI / 他社ファイルマネージャからの操作 (テストは自アプリからの ContentResolver 呼び出し)、
+  選択 UI のエンドツーエンド (SAF ピッカー操作)、arm64 実行、USB 経由 (Phase 3)。

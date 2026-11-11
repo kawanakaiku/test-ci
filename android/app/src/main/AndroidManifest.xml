@@ -15,5 +15,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- 他アプリへ NTFS を読み取り専用で公開する SAF プロバイダ (システムの Documents UI だけが呼べる) -->
+        <provider
+            android:name=".NtfsDocumentsProvider"
+            android:authorities="org.usbmem.app.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
     </application>
 </manifest>

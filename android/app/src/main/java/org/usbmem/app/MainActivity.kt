@@ -50,15 +50,31 @@ class MainActivity : ComponentActivity() {
         val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri != null) scope.launch { state = withContext(Dispatchers.IO) { load(uri) } }
         }
+        val sharePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+            if (uri != null) scope.launch { state = withContext(Dispatchers.IO) { share(uri) } }
+        }
         Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("ディスクイメージ(読み取り専用)", style = MaterialTheme.typography.titleLarge)
             Button(onClick = { picker.launch(arrayOf("*/*")) }) { Text("RAW イメージを開く") }
+            Button(onClick = { sharePicker.launch(arrayOf("*/*")) }) { Text("NTFS イメージを他アプリに公開(読み取り専用)") }
             when (val s = state) {
                 UiState.Idle -> Text("イメージ(.img / .bin)を選ぶとパーティションを一覧表示します。書き込みは行いません。")
                 is UiState.Failed -> Text("エラー: ${s.message}", color = MaterialTheme.colorScheme.error)
                 is UiState.Loaded -> TableView(s)
             }
         }
+    }
+
+    /** NTFS イメージをマウントし、SAF プロバイダ経由でファイルマネージャ等へ公開する。 */
+    private fun share(uri: Uri): UiState = try {
+        try { contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: SecurityException) { }
+        val e = VolumeRegistry.addUri(this, uri)
+        android.provider.DocumentsContract.buildRootsUri("org.usbmem.app.documents").let { contentResolver.notifyChange(it, null) }
+        UiState.Failed("公開しました: ${e.label}(ファイルアプリの一覧に表示されます)")
+    } catch (e: NativeException) {
+        UiState.Failed("NTFS として開けません: ${e.message}")
+    } catch (e: Exception) {
+        UiState.Failed(e.javaClass.simpleName)
     }
 
     private fun load(uri: Uri): UiState = try {

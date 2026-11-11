@@ -13,6 +13,7 @@ object NativeBridge {
     @JvmStatic external fun nativeNtfsMount(fd: Int): Long
     @JvmStatic external fun nativeNtfsUnmount(handle: Long)
     @JvmStatic external fun nativeNtfsList(handle: Long, path: ByteArray, errorOut: IntArray): ByteArray?
+    @JvmStatic external fun nativeNtfsStat(handle: Long, path: ByteArray, errorOut: IntArray): ByteArray?
     @JvmStatic external fun nativeNtfsRead(handle: Long, path: ByteArray, offset: Long, buf: ByteArray): Long
 }
 
@@ -61,6 +62,16 @@ class NtfsVolume private constructor(private var handle: Long) : AutoCloseable {
             val o = arr.getJSONObject(it)
             NtfsEntry(o.getString("name"), o.getString("ino").toLong(), o.getBoolean("dir"), o.getString("size").toLong(), o.getLong("mtime"))
         }
+    }
+
+    @Synchronized
+    fun stat(path: String): NtfsEntry {
+        check(handle > 0) { "closed" }
+        val err = IntArray(1)
+        val b = NativeBridge.nativeNtfsStat(handle, path.toByteArray(Charsets.UTF_8), err)
+            ?: throw NativeException(err[0], "stat '$path' failed: errno ${err[0]}")
+        val o = org.json.JSONObject(String(b, Charsets.UTF_8))
+        return NtfsEntry(path.substringAfterLast('/'), o.getString("ino").toLong(), o.getBoolean("dir"), o.getString("size").toLong(), o.getLong("mtime"))
     }
 
     /** off から buf.size バイトまで読む。EOF で 0。 */

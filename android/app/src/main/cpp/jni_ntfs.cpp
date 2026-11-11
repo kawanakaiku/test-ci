@@ -76,6 +76,20 @@ JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsList(JNI
   return bytes(env, o);
 }
 
+// 単一エントリの情報を JSON で返す: {"ino":"..","dir":bool,"size":"..","mtime":..}。失敗時 null (err[0] = errno)
+JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsStat(JNIEnv* env, jclass, jlong h,
+                                                                           jbyteArray path, jintArray err) {
+  auto* v = reinterpret_cast<Vol*>(h)->v.get();
+  uint64_t ino = 0;
+  usbmem::NtfsStat st;
+  int rc = v->resolve(utf8(env, path), &ino);
+  if (!rc) rc = v->stat(ino, &st);
+  if (rc) { jint e = rc < 0 ? -rc : rc; env->SetIntArrayRegion(err, 0, 1, &e); return nullptr; }
+  std::string o = "{\"ino\":\"" + std::to_string(ino) + "\",\"dir\":" + (st.is_dir() ? "true" : "false") +
+                  ",\"size\":\"" + std::to_string(st.size) + "\",\"mtime\":" + std::to_string(st.mtime) + "}";
+  return bytes(env, o);
+}
+
 // path のファイルを off から読む。戻り値: 読めたバイト数 / <0 = -errno
 JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsRead(JNIEnv* env, jclass, jlong h, jbyteArray path,
                                                                       jlong off, jbyteArray buf) {

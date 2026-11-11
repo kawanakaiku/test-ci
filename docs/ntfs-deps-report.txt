@@ -1,0 +1,154 @@
+# fs/ntfs dependency report
+commit: 067c5c24cef23d913b67eaaf71ae67e7169a6620
+files: 57  lines: 44073
+
+## family hits per file (count of matching lines)
+file                    vfs-inode dentry folio-pagecache iomap bio-blkdev mm-alloc locking writeback module-sysfs fs-context posix-acl-xattr-sec nls-unicode byteorder-bits time-cred errors-print lines
+aops.c                  3 0 7 22 2 0 2 2 0 0 0 0 0 0 4 332
+attrib.c                12 0 33 1 0 29 65 1 1 0 0 0 206 10 132 6025
+attrlist.c              3 0 0 0 0 11 4 0 0 0 0 0 14 1 6 502
+bdev-io.c               0 0 4 0 12 1 0 1 0 0 0 0 0 0 2 120
+bitmap.c                1 0 21 0 2 2 0 3 0 1 0 0 4 0 11 346
+collate.c               0 0 0 0 0 0 0 0 0 0 0 0 9 0 0 146
+compress.c              1 0 28 0 16 24 21 0 0 0 0 0 4 29 14 1619
+debug.c                 0 0 0 0 0 0 0 0 0 0 0 0 0 0 8 171
+dir.c                   10 0 8 0 1 31 10 3 0 0 0 0 29 8 22 1219
+ea.c                    14 6 5 0 0 18 15 3 0 0 24 0 37 1 26 1233
+file.c                  46 4 18 11 4 6 35 12 0 3 14 0 3 3 10 1614
+index.c                 4 0 0 0 0 30 0 3 0 0 0 0 92 3 11 2355
+inode.c                 63 1 32 1 9 28 51 4 38 2 0 1 98 1 103 4153
+iomap.c                 25 0 14 30 1 2 41 2 0 0 0 0 4 0 9 819
+lcnalloc.c              4 0 9 0 2 13 10 2 0 0 0 0 0 8 39 1084
+logfile.c               9 0 9 0 0 15 3 0 2 0 0 0 46 5 6 781
+mft.c                   33 0 144 1 29 31 65 19 17 0 0 0 65 0 125 3437
+mst.c                   0 0 0 0 0 0 0 0 0 0 0 0 10 0 1 194
+named_stream.c          53 14 2 0 1 25 32 2 1 0 2 0 12 0 41 1821
+namei.c                 49 16 0 0 0 43 37 8 3 0 5 11 51 5 48 1794
+object_id.c             2 0 0 0 0 3 4 0 0 0 0 0 1 0 5 158
+reparse.c               5 1 0 0 0 24 7 0 2 0 0 0 42 1 13 1034
+runlist.c               0 0 1 0 0 23 0 0 0 0 0 0 9 6 120 2200
+super.c                 17 1 26 0 16 48 36 7 9 34 0 12 45 6 41 3165
+sysctl.c                0 0 0 0 0 0 0 0 3 0 0 0 0 0 0 54
+unistr.c                0 0 0 0 0 13 0 0 0 0 0 6 17 0 4 488
+upcase.c                0 0 0 0 0 1 0 0 0 0 0 0 2 0 0 70
+wof.c                   3 0 37 0 0 13 12 0 0 0 0 0 16 0 6 759
+attrib.h                1 0 0 0 0 0 0 0 0 0 0 0 2 0 0 177
+attrlist.h              0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 22
+bitmap.h                6 0 0 0 0 0 0 0 0 0 0 0 0 0 0 102
+collate.h               0 0 0 0 0 0 0 0 0 0 0 0 1 0 2 36
+debug.h                 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 63
+dir.h                   0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 32
+ea.h                    6 3 0 0 0 0 0 0 0 0 3 0 0 0 0 42
+index.h                 0 0 0 0 0 0 0 2 0 0 0 0 0 2 0 120
+inode.h                 22 2 2 0 0 0 0 0 3 0 0 0 2 1 0 384
+iomap.h                 1 0 0 2 0 0 0 0 0 0 0 0 0 0 0 23
+layout.h                0 0 2 0 0 0 0 0 0 0 18 0 180 5 2 2368
+lcnalloc.h              0 0 0 0 0 3 2 0 0 0 0 0 0 0 2 134
+logfile.h               2 0 0 0 0 0 0 0 4 0 0 0 3 4 0 245
+malloc.h                0 0 0 0 0 4 0 0 0 0 0 0 0 0 3 77
+mft.h                   0 0 2 0 0 0 1 1 0 0 0 0 0 0 0 94
+ntfs.h                  0 2 0 0 0 0 0 0 0 0 0 0 0 0 0 301
+ntfs_codec.h            0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 54
+object_id.h             0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 14
+reparse.h               0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 24
+runlist.h               0 0 0 0 0 0 0 0 0 0 0 0 0 3 0 100
+stream.h                15 2 0 0 0 0 0 0 0 0 0 0 0 0 0 81
+sysctl.h                0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 26
+time.h                  0 0 0 0 0 0 0 0 0 0 0 0 2 9 0 87
+volume.h                9 0 0 0 0 0 4 0 0 0 0 4 2 0 0 316
+decompress_common.c     0 0 0 0 0 0 0 0 0 0 0 0 0 0 3 200
+lzx_decompress.c        0 0 0 0 0 2 0 0 0 0 0 0 3 1 3 631
+xpress_decompress.c     0 0 0 0 0 2 0 0 0 0 0 0 0 0 1 154
+decompress_common.h     0 0 0 0 0 0 0 0 0 0 0 0 3 0 9 444
+lib.h                   0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 29
+
+## #include <linux/...> usage across fs/ntfs (file count)
+     10 #include <linux/fs.h>
+      9 #include <linux/blkdev.h>
+      6 #include <linux/writeback.h>
+      5 #include <linux/slab.h>
+      5 #include <linux/overflow.h>
+      4 #include <linux/types.h>
+      4 #include <linux/pagemap.h>
+      4 #include <linux/iomap.h>
+      3 #include <linux/vmalloc.h>
+      3 #include <linux/sched/mm.h>
+      2 #include <uapi/linux/ntfs.h>
+      2 #include <linux/unaligned.h>
+      2 #include <linux/uidgid.h>
+      2 #include <linux/string.h>
+      2 #include <linux/posix_acl_xattr.h>
+      2 #include <linux/posix_acl.h>
+      2 #include <linux/namei.h>
+      2 #include <linux/module.h>
+      2 #include <linux/mm.h>
+      2 #include <linux/list.h>
+      2 #include <linux/highmem.h>
+      2 #include <linux/filelock.h>
+      2 #include <linux/file.h>
+      2 #include <linux/compiler.h>
+      2 #include <linux/bitops.h>
+      2 #include <linux/array_size.h>
+      1 #include <linux/xattr.h>
+      1 #include <linux/workqueue.h>
+      1 #include <linux/wait.h>
+      1 #include <linux/vfs.h>
+      1 #include <linux/uio.h>
+      1 #include <linux/time.h>
+      1 #include <linux/sysctl.h>
+      1 #include <linux/string_choices.h>
+      1 #include <linux/stddef.h>
+      1 #include <linux/sort.h>
+      1 #include <linux/smp.h>
+      1 #include <linux/seq_file.h>
+      1 #include <linux/security.h>
+      1 #include <linux/sched.h>
+      1 #include <linux/rwsem.h>
+      1 #include <linux/ratelimit.h>
+      1 #include <linux/proc_fs.h>
+      1 #include <linux/nls.h>
+      1 #include <linux/math64.h>
+      1 #include <linux/kernel.h>
+      1 #include <linux/iversion.h>
+      1 #include <linux/hex.h>
+      1 #include <linux/fs_struct.h>
+      1 #include <linux/fs_parser.h>
+      1 #include <linux/fs_context.h>
+      1 #include <linux/fileattr.h>
+      1 #include <linux/falloc.h>
+      1 #include <linux/exportfs.h>
+      1 #include <linux/errseq.h>
+      1 #include <linux/completion.h>
+      1 #include <linux/compat.h>
+      1 #include <linux/blkdev.h>	/* For bdev_logical_block_size(). */
+      1 #include <linux/blk_types.h>
+      1 #include <linux/bits.h>
+      1 #include <linux/bio.h>
+      1 #include <linux/backing-dev.h>
+      1 #include <asm/div64.h>		/* For do_div(). */
+      1 #include <asm/byteorder.h>
+
+## exported to VFS: operation tables
+aops.c:307:const struct address_space_operations ntfs_aops = {
+aops.c:321:const struct address_space_operations ntfs_mft_aops = {
+dir.c:1207:const struct file_operations ntfs_dir_ops = {
+ea.c:620:static int ntfs_getxattr(const struct xattr_handler *handler,
+ea.c:904:static int ntfs_setxattr(const struct xattr_handler *handler,
+ea.c:999:static const struct xattr_handler ntfs_other_xattr_handler = {
+ea.c:1006:const struct xattr_handler * const ntfs_xattr_handlers[] = {
+file.c:765:static const struct iomap_dio_ops ntfs_write_dio_ops = {
+file.c:1564:const struct file_operations ntfs_file_ops = {
+file.c:1582:const struct inode_operations ntfs_file_inode_ops = {
+file.c:1593:const struct inode_operations ntfs_symlink_inode_operations = {
+file.c:1602:const struct inode_operations ntfs_special_inode_operations = {
+file.c:1612:const struct file_operations ntfs_empty_file_ops = {};
+file.c:1614:const struct inode_operations ntfs_empty_inode_ops = {};
+iomap.c:79:const struct iomap_write_ops ntfs_iomap_folio_ops = {
+iomap.c:327:static const struct iomap_write_ops ntfs_zero_iomap_folio_ops = {
+named_stream.c:385:static const struct dentry_operations ntfs_dentry_ops = {
+named_stream.c:1797:const struct file_operations ntfs_stream_file_ops = {
+named_stream.c:1810:const struct inode_operations ntfs_stream_inode_ops = {
+namei.c:1664:const struct inode_operations ntfs_dir_inode_ops = {
+namei.c:1789:const struct export_operations ntfs_export_ops = {
+super.c:2590:static const struct super_operations ntfs_sops = {
+super.c:2968:static const struct fs_context_operations ntfs_context_ops = {

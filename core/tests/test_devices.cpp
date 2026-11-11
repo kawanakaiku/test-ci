@@ -10,13 +10,14 @@
 using namespace usbmem;
 
 static std::string temp_image(size_t bytes) {
-  char tmpl[] = "/tmp/usbmem_test_XXXXXX";
+  std::string tdir = test_tmpdir() + "/usbmem_test_XXXXXX";
+  char* tmpl = tdir.data();
   int fd = mkstemp(tmpl);
   std::vector<uint8_t> d(bytes);
   for (size_t i = 0; i < bytes; i++) d[i] = (uint8_t)(i * 7 + 3);
   if (write(fd, d.data(), d.size()) != (ssize_t)d.size()) std::abort();
   close(fd);
-  return tmpl;
+  return std::string(tmpl);
 }
 
 TEST(raw_read_only_default) {
@@ -125,7 +126,8 @@ TEST(subrange_bounds_and_ro) {
 
 TEST(c_api_roundtrip) {
   auto img = tb::make_gpt_disk(512, 4096, {{1, 2048, 4000, u"データ"}});
-  char tmpl[] = "/tmp/usbmem_capi_XXXXXX";
+  std::string tdir = test_tmpdir() + "/usbmem_capi_XXXXXX";
+  char* tmpl = tdir.data();
   int fd = mkstemp(tmpl);
   CHECK(write(fd, img.data(), img.size()) == (ssize_t)img.size());
   usbmem_device* h = nullptr;

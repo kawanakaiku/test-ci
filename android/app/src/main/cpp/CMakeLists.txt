@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.22)
+project(usbmem_jni LANGUAGES CXX)
+set(USBMEM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../../../../../core core)
+add_library(usbmem_jni SHARED jni_bridge.cpp)
+target_link_libraries(usbmem_jni PRIVATE usbmem_core log)
+target_link_options(usbmem_jni PRIVATE -Wl,-z,max-page-size=16384)

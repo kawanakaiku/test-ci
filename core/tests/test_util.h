@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // 最小のテストハーネスとディスクイメージビルダ(テスト専用)。
 #pragma once
+#include <unistd.h>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -24,6 +25,20 @@ struct Registrar { Registrar(const char* n, std::function<void()> f) { registry(
   do { if (!(cond)) { std::fprintf(stderr, "  CHECK failed %s:%d: %s\n", __FILE__, __LINE__, #cond); g_failures++; } } while (0)
 #define CHECK_EQ(a, b) \
   do { auto va_ = (a); auto vb_ = (b); if (!(va_ == vb_)) { std::fprintf(stderr, "  CHECK_EQ failed %s:%d: %s == %s (%llu vs %llu)\n", __FILE__, __LINE__, #a, #b, (unsigned long long)va_, (unsigned long long)vb_); g_failures++; } } while (0)
+
+#include <sys/statfs.h>
+#include <cstdlib>
+
+// テスト用ディスクイメージの置き場。tmpfs (/dev/shm) を優先し、実ディスクを汚さない・速くする。
+// USBMEM_TEST_TMPDIR で上書き可。tmpfs でなければ警告を出す。
+inline std::string test_tmpdir() {
+  const char* env = std::getenv("USBMEM_TEST_TMPDIR");
+  std::string d = env ? env : (access("/dev/shm", W_OK) == 0 ? "/dev/shm" : "/tmp");
+  struct statfs sf;
+  if (statfs(d.c_str(), &sf) != 0 || sf.f_type != 0x01021994 /*TMPFS_MAGIC*/)
+    std::fprintf(stderr, "warning: test dir %s is not tmpfs\n", d.c_str());
+  return d;
+}
 
 namespace tb {
 using Bytes = std::vector<uint8_t>;

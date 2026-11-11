@@ -36,7 +36,12 @@ if(USBMEM_BUILD_TESTS)
   add_test(NAME unit COMMAND usbmem_tests)
   find_package(Python3 COMPONENTS Interpreter)
   if(Python3_FOUND)
-    set(FIX_DIR ${CMAKE_CURRENT_BINARY_DIR}/fixtures)
+    # フィクスチャ(ディスクイメージ)は tmpfs に生成する
+    if(EXISTS /dev/shm)
+      set(FIX_DIR /dev/shm/usbmem_fixtures_$ENV{USER})
+    else()
+      set(FIX_DIR ${CMAKE_CURRENT_BINARY_DIR}/fixtures)
+    endif()
     add_test(NAME gen_fixtures COMMAND ${Python3_EXECUTABLE} -I
              ${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_fixtures.py ${FIX_DIR})
     add_test(NAME fixtures COMMAND usbmem_tests --fixtures ${FIX_DIR})

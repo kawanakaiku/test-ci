@@ -32,6 +32,11 @@ int usbmem_ntfs_mount(struct usbmem_bdev *bdev, int ro, usbmem_ntfs **out) {
   struct super_block *sb = NULL;
   int rc = usbmem_compat_mount(bd, ro, &sb);
   if (rc) { usbmem_bdev_mapping_free(bd); free(bd); return rc; }
+  if (!ro && !sb_rdonly(sb) && NTFS_SB(sb)->cluster_size < 4096) {
+    /* 書き込み経路 (rt_write.c) は「1 folio (4096B) が 1 クラスタに収まる」ことを前提にする。クラスタ < 4096 は読み取り専用でのみ扱う */
+    usbmem_compat_umount(sb); usbmem_bdev_mapping_free(bd); free(bd);
+    return -EROFS;
+  }
   usbmem_ntfs *v = calloc(1, sizeof *v);
   v->sb = sb; *out = v; return 0;
 }

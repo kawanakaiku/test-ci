@@ -126,6 +126,14 @@ if "$T" --ops "$W/w.img" "$W/s6" >/dev/null 2>&1; then echo "FAIL[unsupported_de
   ntfs-3g -o ro "$W/w.img" "$W/m" 2>/dev/null && python3 -I "$HERE/ops_ref.py" --tree "$W/m" > "$W/after.tree"; fusermount3 -u "$W/m" 2>/dev/null || true
   cmp -s "$W/before.tree" "$W/after.tree" || { echo "FAIL[unsupported_delete] tree changed"; rc=1; }
 fi
+# --- クラスタ < 4096 のボリュームは書き込みマウントを拒否する (読み取り専用なら読める)
+if command -v mkntfs >/dev/null 2>&1 || [ -x /sbin/mkntfs ]; then
+  M=$(command -v mkntfs || echo /sbin/mkntfs)
+  truncate -s 16M "$W/c512.img"; "$M" -F -Q -q -s 512 -c 512 "$W/c512.img" >/dev/null 2>&1
+  echo "create /x.txt" > "$W/s7"
+  if "$T" --ops "$W/c512.img" "$W/s7" 2>&1 | grep -aq "mount_rw failed: errno 30"; then :; else echo "FAIL[small_cluster] rw mount not refused"; rc=1; fi
+  "$T" --probe "$W/c512.img" >/dev/null 2>&1 || { echo "FAIL[small_cluster] ro mount broken"; rc=1; }
+fi
 # --- 書き込み後に manifest が (書いたファイル以外) 全て保たれること
 cp "$IMG" "$W/w.img"; USBMEM_WRITE_ITER=1 "$T" --wtest "$W/w.img" big.bin 500000 20000 9 2>&1 | grep -v unimplemented | grep -v "wtest ok" || true
 sed '/ big.bin$/d' "$D/ntfs_basic.manifest" > "$W/m2.manifest"

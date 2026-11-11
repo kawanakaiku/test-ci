@@ -201,6 +201,7 @@ void ihold(struct inode *i) { atomic_inc(&i->i_count); }
 void clear_inode(struct inode *i) { i->i_state = I_FREEING | 0x100 /* I_CLEAR */; }
 int inode_generic_drop(struct inode *i) { return !i->i_nlink || !i->i_hashed_; }
 
+static void usbmem_d_free_root(struct dentry *d);
 static void evict(struct inode *i) {
   struct super_block *sb = i->i_sb;
   i->i_state |= I_FREEING;
@@ -215,6 +216,31 @@ void iput(struct inode *i) {
   struct super_block *sb = i->i_sb;
   int drop = (sb->s_op && sb->s_op->drop_inode) ? ((int (*)(struct inode *))sb->s_op->drop_inode)(i) : inode_generic_drop(i);
   if (drop) evict(i);  /* 非 drop はキャッシュに残す (count 0 のままハッシュに残留) */
+}
+/* sb に属し参照 0 のハッシュ済み inode を全て退避。evict が他 inode を iput しうるので不動点まで繰り返す。 */
+static int evict_inodes_sb(struct super_block *sb) {
+  int total = 0, n;
+  do {
+    n = 0;
+    for (int b = 0; b < 1024 && !n; b++) {
+      pthread_mutex_lock(&g_inode_lock);
+      struct inode *i = g_inode_hash[b];
+      while (i && !(i->i_sb == sb && atomic_read(&i->i_count) == 0)) i = i->i_hash_next_;
+      pthread_mutex_unlock(&g_inode_lock);
+      if (i) { evict(i); n = 1; }
+    }
+    total += n;
+  } while (n);
+  return total;
+}
+/* マウント解除: VFS の generic_shutdown_super と同順 (evict_inodes → put_super → 残り退避 → 解放)。 */
+void usbmem_compat_umount(struct super_block *sb) {
+  if (!sb) return;
+  evict_inodes_sb(sb);
+  if (sb->s_root) { usbmem_d_free_root(sb->s_root); sb->s_root = NULL; }
+  if (sb->s_op && sb->s_op->put_super) ((void (*)(struct super_block *))sb->s_op->put_super)(sb);
+  evict_inodes_sb(sb);
+  free(sb);
 }
 void mark_inode_dirty(struct inode *i) { (void)i; }
 void mark_inode_dirty_sync(struct inode *i) { (void)i; }
@@ -243,6 +269,10 @@ static struct dentry *dentry_alloc(struct super_block *sb, struct dentry *parent
 struct dentry *usbmem_d_alloc(struct super_block *sb, struct dentry *parent, const char *name, unsigned len) {
   struct qstr q = { (const unsigned char *)name, len, 0 };
   return dentry_alloc(sb, parent, &q);
+}
+static void usbmem_d_free_root(struct dentry *d) {
+  if (d->d_inode) iput(d->d_inode);
+  free((void *)d->d_name.name); free(d);
 }
 void usbmem_d_free(struct dentry *d) {
   if (!d) return;
@@ -360,5 +390,6 @@ int usbmem_compat_mount(struct block_device *bdev, int read_only, struct super_b
   g_pending_bdev = NULL;
   if (rc) { free(fc); return rc; }
   *out = fc->root->d_sb;
+  (*out)->s_fc_ = NULL; free(fc);
   return 0;
 }

@@ -27,7 +27,7 @@ static struct folio *folio_new(struct address_space *m, pgoff_t idx) {
   return f;
 }
 static struct folio *pc_find_locked(struct pcache *p, pgoff_t idx) {
-  for (struct folio *f = p->b[idx % NB]; f; f = f->hash_next_) if (f->index == idx) return f;
+  for (struct folio *f = p->b[idx % NB]; f; f = f->hash_next_) if (f->index == idx) { atomic_inc(&f->refcount); return f; }  /* 呼び出し側へ +1 参照 */
   return NULL;
 }
 
@@ -42,7 +42,9 @@ bool folio_contains(const struct folio *f, pgoff_t i) { return f->index == i; }
 struct page *folio_page(struct folio *f, unsigned long n) { (void)n; return &f->page; }
 struct folio *page_folio(struct page *p) { return p->folio_; }
 void folio_get(struct folio *f) { atomic_inc(&f->refcount); }
-void folio_put(struct folio *f) { atomic_dec(&f->refcount); /* キャッシュが所有。解放は truncate 時 */ }
+static void folio_free(struct folio *f) { pthread_mutex_destroy(&f->lock_.m); free(f->data); free(f); }
+/* 参照規約は Linux と同じ: キャッシュが 1、get 系 API が呼び出し側に +1。最後の put で解放。 */
+void folio_put(struct folio *f) { if (atomic_dec_return(&f->refcount) == 0) folio_free(f); }
 void folio_lock(struct folio *f) { pthread_mutex_lock(&f->lock_.m); f->flags |= 1UL << FOLIO_LOCKED; }
 void folio_unlock(struct folio *f) { f->flags &= ~(1UL << FOLIO_LOCKED); pthread_mutex_unlock(&f->lock_.m); }
 int folio_test_locked(const struct folio *f) { return (f->flags >> FOLIO_LOCKED) & 1; }
@@ -97,7 +99,7 @@ static struct folio *get_or_create(struct address_space *m, pgoff_t idx) {
   struct folio *f = pc_find_locked(p, idx);
   if (!f) {
     f = folio_new(m, idx);
-    if (f) { f->hash_next_ = p->b[idx % NB]; p->b[idx % NB] = f; }
+    if (f) { atomic_set(&f->refcount, 2); /* キャッシュ + 呼び出し側 */ f->hash_next_ = p->b[idx % NB]; p->b[idx % NB] = f; }
   }
   pthread_mutex_unlock(&p->mu);
   return f;
@@ -131,11 +133,12 @@ struct folio *read_mapping_folio(struct address_space *m, pgoff_t idx, struct fi
   if (folio_test_uptodate(f)) return f;
   folio_lock(f);
   if (folio_test_uptodate(f)) { folio_unlock(f); return f; }
-  if (!m->a_ops || !m->a_ops->read_folio) { folio_unlock(f); return ERR_PTR(-EIO); }
+  if (!m->a_ops || !m->a_ops->read_folio) { folio_unlock(f); folio_put(f); return ERR_PTR(-EIO); }
   int rc = ((int (*)(struct file *, struct folio *))m->a_ops->read_folio)(file, f);
-  if (rc) return ERR_PTR(rc);   /* read_folio は完了時に unlock する契約 */
+  if (rc) { folio_put(f); return ERR_PTR(rc); }   /* read_folio は完了時に unlock する契約 */
   folio_lock(f); int ok = folio_test_uptodate(f); folio_unlock(f);
-  return ok ? f : ERR_PTR(-EIO);
+  if (!ok) { folio_put(f); return ERR_PTR(-EIO); }
+  return f;
 }
 struct page *read_mapping_page(struct address_space *m, pgoff_t idx, struct file *file) {
   struct folio *f = read_mapping_folio(m, idx, file);
@@ -149,12 +152,15 @@ void truncate_inode_pages(struct address_space *m, loff_t from) {
     struct folio **pp = &p->b[i];
     while (*pp) {
       struct folio *f = *pp;
-      if (f->index >= first) { *pp = f->hash_next_; free(f->data); free(f); } else pp = &f->hash_next_;
+      if (f->index >= first) { *pp = f->hash_next_; folio_put(f); /* キャッシュ参照を外す。使用中なら最後の put で解放 */ } else pp = &f->hash_next_;
     }
   }
   pthread_mutex_unlock(&p->mu);
 }
-void truncate_inode_pages_final(struct address_space *m) { truncate_inode_pages(m, 0); }
+void truncate_inode_pages_final(struct address_space *m) {
+  truncate_inode_pages(m, 0);
+  if (m->pages) { struct pcache *pc = m->pages; pthread_mutex_destroy(&pc->mu); free(pc); m->pages = NULL; }  /* mapping 終了: キャッシュ管理体も解放 */
+}
 void truncate_pagecache(struct inode *i, loff_t n) { truncate_inode_pages(i->i_mapping, n); }
 void truncate_setsize(struct inode *i, loff_t n) { i->i_size = n; truncate_pagecache(i, n); }
 void truncate_pagecache_range(struct inode *i, loff_t a, loff_t b) { (void)a; (void)b; truncate_pagecache(i, a); }

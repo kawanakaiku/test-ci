@@ -20,8 +20,9 @@ int usbmem_ntfs_mount(struct usbmem_bdev *bdev, int ro, usbmem_ntfs **out) {
 }
 void usbmem_ntfs_unmount(usbmem_ntfs *v) {
   if (!v) return;
-  struct super_block *sb = v->sb;
-  if (sb->s_op && sb->s_op->put_super) ((void (*)(struct super_block *))sb->s_op->put_super)(sb);
+  struct block_device *bd = v->sb->s_bdev;
+  usbmem_compat_umount(v->sb);
+  free(bd);
   free(v);
 }
 
@@ -96,6 +97,7 @@ int64_t usbmem_ntfs_read(usbmem_ntfs *v, uint64_t ino, uint64_t off, void *buf, 
     size_t po = (size_t)(pos & (PAGE_SIZE - 1)), n = PAGE_SIZE - po;
     if (n > len - done) n = len - done;
     memcpy((char *)buf + done, (char *)f->data + po, n);
+    folio_put(f);
     done += n;
   }
   iput(i); return (int64_t)done;

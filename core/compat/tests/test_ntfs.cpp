@@ -92,6 +92,15 @@ int main(int argc, char** argv) {
   for (int k = 1; k <= 800; k++) CHECK(mn.count("file_" + std::to_string(k) + ".txt") == 1);
   uint64_t x; CHECK(vol->resolve("/nonexistent", &x) != 0);
   std::vector<usbmem::NtfsDirEntry> sub; CHECK(vol->readdir(vol->root(), &sub) == 0);
+  vol.reset();
+  // マウント/読み取り/アンマウントを繰り返してもリーク・UAF しない (ASan で検証)
+  for (int k = 0; k < 20; k++) {
+    auto v2 = usbmem::NtfsVolume::mount(dev, &err);
+    CHECK(v2 != nullptr);
+    if (!v2) break;
+    uint64_t ino = 0; CHECK(v2->resolve("many/file_7.txt", &ino) == 0);
+    char b[64]; CHECK(v2->read(ino, 0, b, sizeof b) > 0);
+  }
   std::fprintf(stderr, "%d files verified, %d failures\n", files, g_fail);
   return g_fail ? 1 : 0;
 }

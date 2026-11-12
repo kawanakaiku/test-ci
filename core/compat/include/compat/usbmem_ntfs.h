@@ -24,6 +24,9 @@ int usbmem_compat_sync(struct super_block *);   /* 書き込み: dirty inode/fol
 int usbmem_mapping_writeback(struct address_space *, int sync_all);
 int usbmem_mapping_has_dirty(struct address_space *);
 int usbmem_bdev_writeback(struct block_device *);   /* bd_mapping の dirty 範囲をデバイスへ書く (buffer_head 系 FS のメタデータ)。flush は呼び出し側 */
+struct usbmem_range { u64 off, len; };   /* デバイス上のバイト範囲 */
+/* usbmem_bdev_writeback の範囲指定版。inside=1: rs のどれかと重なる 512B ブロックだけ書く / inside=0: どれとも重ならないブロックだけ書く。残りは dirty のまま。flush は呼び出し側。 */
+int usbmem_bdev_writeback_ranges(struct block_device *, const struct usbmem_range *rs, int nr, int inside);
 int usbmem_compat_mount(struct block_device *bdev, int read_only, struct super_block **out);   /* fs/ntfs (rt_vfs.c) */
 int usbmem_compat_mount_fs(int (*module_init)(void), struct block_device *bdev, int read_only, struct super_block **out);
 /* マウントオプション (フラグ形式のみ。NULL 終端の文字列配列) を fs_context の parse_param に渡してからマウントする。 */

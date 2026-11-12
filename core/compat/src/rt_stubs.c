@@ -111,14 +111,11 @@ void put_write_access(struct inode * a0) {
 int rw_verify_area(int a0, struct file * a1, const loff_t * a2, size_t a3) {
   usbmem_unimplemented("rw_verify_area"); return (int)-ENOSYS;
 }
-void simple_rename_timestamp(struct inode * a0, struct dentry * a1, struct inode * a2, struct dentry * a3) {
-  usbmem_unimplemented("simple_rename_timestamp");
-}
 char * strndup_user(const char * a0, long a1) {
   usbmem_unimplemented("strndup_user"); return (char *)0;
 }
 void super_set_uuid(struct super_block * a0, const u8 * a1, unsigned a2) {
-  (void)a0; (void)a1; (void)a2;   /* UUID は sysfs/統計用。ホスト API では使わないので何もしない (ext4 が呼ぶ) */
+  usbmem_unimplemented("super_set_uuid");
 }
 int vma_desc_test_all(const void * a0, int a1, int a2) {
   usbmem_unimplemented("vma_desc_test_all"); return (int)-ENOSYS;

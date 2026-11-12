@@ -561,7 +561,17 @@ int usbmem_mapping_writeback(struct address_space *m, int sync_all) {
 /* ブロックデバイスのページキャッシュ (bd_mapping) の dirty 範囲を全てデバイスへ書く (buffer_head 系 FS のメタデータ)。
  * dirty は 512B 単位で追跡しているので、隣接する別の用途のブロック (ファイルデータなど) は上書きしない。
  * 失敗した folio は dirty のまま残し、最初のエラーを返す。flush は呼び出し側。 */
-int usbmem_bdev_writeback(struct block_device *bd) {
+/* sel(off) が真の 512B ブロックだけを書く版 (exFAT: FAT・ビットマップとディレクトリエントリを別の段階で書くために使う)。選ばれなかったブロックは dirty のまま残す。 */
+static int bdev_writeback_sel(struct block_device *bd, const struct usbmem_range *rs, int nr, int inside);
+int usbmem_bdev_writeback_ranges(struct block_device *bd, const struct usbmem_range *rs, int nr, int inside) {
+  return bdev_writeback_sel(bd, rs, nr, inside);
+}
+int usbmem_bdev_writeback(struct block_device *bd) { return bdev_writeback_sel(bd, NULL, 0, 0); }
+static int range_hit(const struct usbmem_range *rs, int nr, u64 a, u64 z) {   /* [a,z) が rs のどれかと重なるか */
+  for (int i = 0; i < nr; i++) if (a < rs[i].off + rs[i].len && rs[i].off < z) return 1;
+  return 0;
+}
+static int bdev_writeback_sel(struct block_device *bd, const struct usbmem_range *rs, int nr, int inside) {
   struct address_space *m = bd ? bd->bd_mapping : NULL;
   struct pcache *p = m ? m->pages : NULL;
   if (!p) return 0;
@@ -582,8 +592,15 @@ int usbmem_bdev_writeback(struct block_device *bd) {
     folio_lock(f);
     if ((f->flags >> FOLIO_DIRTY) & 1) {
       unsigned char bits = f->dirty_blocks_ ? f->dirty_blocks_ : 0xFF;
-      f->flags &= ~(1UL << FOLIO_DIRTY); f->dirty_blocks_ = 0;
       u64 base = (u64)f->index << PAGE_SHIFT;
+      unsigned char keep = 0;
+      if (nr) for (int b = 0; b < 8; b++) if ((bits >> b) & 1) {
+        int hit = range_hit(rs, nr, base + (u64)b * 512, base + (u64)b * 512 + 512);
+        if (hit != inside) keep |= (unsigned char)(1u << b);   /* 選ばれなかったブロック */
+      }
+      bits &= (unsigned char)~keep;
+      f->flags &= ~(1UL << FOLIO_DIRTY); f->dirty_blocks_ = 0;
+      if (keep) { f->dirty_blocks_ = keep; f->flags |= 1UL << FOLIO_DIRTY; }
       for (int b = 0; b < 8 && !err; b++) {
         if (!((bits >> b) & 1)) continue;
         int e = b; while (e + 1 < 8 && ((bits >> (e + 1)) & 1)) e++;

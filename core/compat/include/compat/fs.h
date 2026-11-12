@@ -158,6 +158,7 @@ struct super_block {
   int s_active_;
   struct fs_context *s_fc_;
   struct rw_semaphore s_umount;
+  int usbmem_fill_via_read_;   /* iomap の書き込みで未読の folio を埋めるとき、マッピング 1 つぶんではなく a_ops->read_folio で folio 全体を読む (exFAT: クラスタ < 4096 で 1 folio に複数の離れたエクステントが載る)。 */
   int usbmem_bh_fs_;   /* buffer_head 系 FS (ext2 など): usbmem_compat_sync がデータ → メタデータ → ディレクトリ → スーパーブロックの順に書く */
 };
 struct vfsmount;

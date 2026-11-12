@@ -31,6 +31,15 @@ static int touch_times(struct inode *i) {
   mark_inode_dirty_sync(i);
   return 0;
 }
+/* Linux (fs/libfs.c) と同じ: 両ディレクトリの mtime/ctime と、関係する inode の ctime を現在時刻に */
+void simple_rename_timestamp(struct inode *old_dir, struct dentry *old_dentry, struct inode *new_dir, struct dentry *new_dentry) {
+  struct inode *inode = old_dentry ? old_dentry->d_inode : NULL;
+  struct timespec64 t = current_time(old_dir);
+  inode_set_mtime_to_ts(old_dir, t); inode_set_ctime_to_ts(old_dir, t);
+  if (new_dir != old_dir) { inode_set_mtime_to_ts(new_dir, t); inode_set_ctime_to_ts(new_dir, t); }
+  if (inode) inode_set_ctime_to_ts(inode, t);
+  if (new_dentry && new_dentry->d_inode) inode_set_ctime_to_ts(new_dentry->d_inode, t);
+}
 int kiocb_modified(struct kiocb *iocb) { return touch_times(iocb->ki_filp->f_mapping->host); }
 int file_modified(struct file *f) { return touch_times(f->f_mapping->host); }
 int file_update_time(struct file *f) { return touch_times(f->f_mapping->host); }
@@ -63,6 +72,15 @@ static int fill_folio(const struct iomap_iter *it, struct folio *f) {
   loff_t disk = (loff_t)im->addr + (fpos - (loff_t)im->offset);
   return usbmem_bdev_read(im->bdev->impl, (u64)disk, f->data, n);
 }
+/* a_ops->read_folio で folio 全体を読む (read_folio は完了時に unlock する契約)。EOF 以降・穴・valid_size 以降はゼロ、既存データはディスクから。 */
+static int fill_via_read(struct inode *inode, struct folio *f) {
+  const struct address_space_operations *a = inode->i_mapping->a_ops;
+  if (!a || !a->read_folio) return -EIO;
+  int rc = ((int (*)(struct file *, struct folio *))a->read_folio)(NULL, f);
+  folio_lock(f);
+  if (rc) return rc;
+  return folio_test_uptodate(f) ? 0 : -EIO;
+}
 static int get_write_folio(struct iomap_iter *it, loff_t pos, size_t bytes, const struct iomap_write_ops *ops, struct folio **out) {
   struct folio *f;
   if (ops && ops->get_folio) f = ops->get_folio(it, pos, (unsigned)bytes);
@@ -71,7 +89,7 @@ static int get_write_folio(struct iomap_iter *it, loff_t pos, size_t bytes, cons
   if (!folio_test_uptodate(f)) {
     size_t off = offset_in_folio(f, pos);
     if (!(off == 0 && bytes == PAGE_SIZE)) {
-      int rc = fill_folio(it, f);
+      int rc = it->inode->i_sb->usbmem_fill_via_read_ ? fill_via_read(it->inode, f) : fill_folio(it, f);
       if (rc) { folio_unlock(f); folio_put(f); return rc; }
     }
   }
@@ -158,4 +176,12 @@ skip:
     if (status) it.len = 0;
   }
   return status;
+}
+
+/* pos からその位置を含むブロックの末尾までをゼロにする (実カーネルの iomap_truncate_page と同じ: ブロックの途中で終わるファイルの末尾を、サイズ拡張の前にゼロへ)。 */
+int iomap_truncate_page(struct inode *inode, loff_t pos, bool *did_zero, iomap_iter_next_fn next, const struct iomap_write_ops *ops, void *priv) {
+  unsigned bs = inode->i_sb->s_blocksize ? (unsigned)inode->i_sb->s_blocksize : 512;
+  unsigned off = (unsigned)(pos & (bs - 1));
+  if (!off) return 0;
+  return iomap_zero_range(inode, pos, bs - off, did_zero, next, ops, priv);
 }

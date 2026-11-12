@@ -37,6 +37,6 @@
 ## 未対応 / 次にやること
 - Android: `android/app/src/main/cpp/CMakeLists.txt` に `usbmem_exfat` を足し、JNI (`jni_exfat.cpp`) と Kotlin 側 (ファイルシステム種別で NTFS/exFAT を振り分け。`fs_probe` は exFAT を識別済み) を作る。
   DocumentsProvider の docId は ino でなくパス (または親 docId + 名前) にする方が安全 (ino は実行時採番で、ピンの寿命に依存する)。
-- 書き込み: `mark_buffer_dirty` → bd_mapping の writeback、`exfat_set_volume_dirty` の順序保証 (NTFS の `begin_write` 相当)、create-only ポリシーを入口に実装してから。
+- 書き込み: 実装済み (実験的)。docs/exfat-write.md 参照 (VolumeDirty の先行確定、確保系/解放系の同期順序、電源断の模擬、fsck.exfat + exfat-fuse での検証)。
 - ピン表の上限 (LRU)。巨大ボリューム (数 TiB) でのマウント時間: `exfat_load_bitmap` が割り当てビットマップ全体を読む (7.3 TiB / クラスタ 128 KiB で 7 MiB 程度)。
 - UBSan の alignment 検査は NTFS と同じく上流コードだけ外している (上流は非整列アクセス前提)。

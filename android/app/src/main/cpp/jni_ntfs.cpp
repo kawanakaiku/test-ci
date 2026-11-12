@@ -24,8 +24,9 @@ struct Vol { std::unique_ptr<usbmem::FsVolume> v; };
 std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, bool rw, int* err) {
   usbmem::FsType t = usbmem::probe_filesystem(*dev, 0, dev->size());
   if (t == usbmem::FsType::Exfat) {
-    // exFAT の書き込みは未対応: rw を要求されても読み取り専用でマウントする (NTFS が異常で読み取り専用に落ちるときと同じく、writable() == false で分かる)
-    return usbmem::ExfatVolume::mount(dev, err);
+    // rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。汚れた (VolumeDirty) / MediaFailure のボリュームは
+    // mount_rw の中で読み取り専用に落ちる (writable() == false で分かる)
+    return rw ? usbmem::ExfatVolume::mount_rw(dev, err) : usbmem::ExfatVolume::mount(dev, err);
   }
   if (t == usbmem::FsType::Ext2) {
     // ext2 (ジャーナルなし・extent なし) は fs/ext2。rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。

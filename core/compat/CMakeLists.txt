@@ -18,6 +18,7 @@ endforeach()
 # ---- 共通ランタイム (LinuxCompat 本体: inode/ページキャッシュ/bio/buffer_head/VFS 風マウント)。FS ごとの上流コードはここに入れない。
 set(COMPAT_RT_SRC src/rt_core.c src/rt_pagecache.c src/rt_write.c src/rt_stubs.c src/rt_bh.c src/rt_buffer.c src/bdev_bridge.cpp src/fs_volume.cpp)
 add_library(usbmem_compat_rt STATIC ${COMPAT_RT_SRC})
+target_sources(usbmem_compat_rt PRIVATE src/nested_mount.cpp)   # ネスト (ループバック) マウント: docs/nested-mount.md
 target_include_directories(usbmem_compat_rt PUBLIC public)
 # 互換シム(<linux/errno.h> 等)は C ソース専用。C++ に見せると glibc の <errno.h> が奪われ std ヘッダと衝突する。
 target_compile_options(usbmem_compat_rt PUBLIC $<$<COMPILE_LANGUAGE:C>:-I${CMAKE_CURRENT_LIST_DIR}/include>)
@@ -277,6 +278,8 @@ if(USBMEM_BUILD_TESTS)
     set_tests_properties(fat_read PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
   endif()
 endif()
+# ---- ネスト (ループバック) マウントのホストテスト
+include(${CMAKE_CURRENT_LIST_DIR}/nested.cmake)
 # ---- 光学メディア系 (ISO 9660 / UDF。読み取り専用)
 include(${CMAKE_CURRENT_LIST_DIR}/optical.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/zfs.cmake)

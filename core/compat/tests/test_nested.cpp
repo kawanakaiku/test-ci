@@ -133,7 +133,13 @@ void walk(FsVolume& a, uint64_t ia, FsVolume& b, uint64_t ib, const std::string&
   auto ma = key(ea), mb = key(eb);
   for (auto& [name, eb1] : mb) {
     auto it = ma.find(name);
-    if (it == ma.end()) { w.mism++; std::fprintf(stderr, "missing in nested: %s/%s\n", path.c_str(), name.c_str()); continue; }
+    if (it == ma.end()) {
+      // FAT ドライバは、ディレクトリの読み出しエラーを「ここで終わり」として扱う (Linux 本体と同じ。ネストに限らず直接のデバイスでも同じ)。
+      // 誤ったデータが見えるわけではないので、エラー許容モードでは「欠けた」ことをエラーとして数える
+      if (tolerant) w.errors++;
+      else { w.mism++; std::fprintf(stderr, "missing in nested: %s/%s\n", path.c_str(), name.c_str()); }
+      continue;
+    }
     FsStat sa, sb;
     int r1 = a.stat(it->second.ino, &sa), r2 = b.stat(eb1.ino, &sb);
     if (r2) { w.mism++; continue; }
@@ -266,7 +272,7 @@ int cmd_partitions(const Ctx& c) {
 
 // ---------------------------------------------------------------- --depth
 int cmd_depth(const Ctx& c) {
-  if (c.prefix != "/imgs/") { std::printf("  (skip: chain only in the ext4 parent)\n"); return 0; }
+  if (c.parent.find("p_ext4") == std::string::npos) { std::printf("  (skip: the chain is only in the ext4 parent)\n"); return 0; }
   auto pv = mount_locked(open_file(c.parent));
   CHECK(pv != nullptr, "mount parent");
   if (!pv) return 1;
@@ -438,10 +444,7 @@ int cmd_misc(const Ctx& c) {
   if (!pv) return 1;
   CHECK(open_nested_image(pv, nullptr, c.child_path("no_such.img")).err == ENOENT, "missing file -> ENOENT");
   CHECK(open_nested_image(pv, nullptr, c.prefix).err == EISDIR, "directory -> EISDIR");
-  if (c.prefix == "/imgs/") {
-    NestedOpen t = open_nested_image(pv, nullptr, "/docs/hello.txt");
-    CHECK(t.err == EINVAL, "tiny file -> EINVAL (got %d)", t.err);
-  }
+  CHECK(open_nested_image(pv, nullptr, c.child_path("tiny.img")).err == EINVAL, "tiny file (100 bytes) -> EINVAL");
   CHECK(open_nested_image(nullptr, nullptr, "/x").err == EINVAL, "null parent");
   // 中身が判別できないイメージ: マウントは失敗するだけ (クラッシュ・ハングしない)
   NestedOpen e = open_nested_image(pv, nullptr, c.child_path("c_empty.img"));

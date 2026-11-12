@@ -174,7 +174,9 @@ def main():
         build_tree(os.path.join(d1, "doc"), 10)
         mk_ext(J("l1.img"), 16 * MIB, "ext4", d1, "l1")
         # ---- 親
-        kids = ["c_ext2.img", "c_ext4.img", "c_fat.img", "c_ntfs.img", "c_gpt.img", "c_mbr.img", "c_empty.img"]
+        with open(J("tiny.img"), "wb") as f:
+            f.write(pattern(77, 100))   # 512 バイト未満 = ディスクイメージとして小さすぎる (拒否されること)
+        kids = ["c_ext2.img", "c_ext4.img", "c_fat.img", "c_ntfs.img", "c_gpt.img", "c_mbr.img", "c_empty.img", "tiny.img"]
         tp = os.path.join(td, "parent_tree"); os.makedirs(os.path.join(tp, "imgs"))
         for k in kids + ["l1.img"]:
             shutil.copyfile(J(k), os.path.join(tp, "imgs", k))

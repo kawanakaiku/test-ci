@@ -8,6 +8,7 @@
 | libfdisk (util-linux) | パーティション編集 | LGPL-2.1+ | **採用しない** (自前実装。理由は docs/partition-edit.md 9 章) |
 | Linux `fs/ntfs` | Phase 2 | GPL-2.0-or-later(super.c SPDX で確認。全ファイル確認は未了) | 未取り込み |
 | Linux `fs/squashfs` (`third_party/squashfs`、無改変) | squashfs の読み取り専用 | GPL-2.0-only / GPL-2.0-or-later (各ファイルの SPDX。COPYING は GPL-2.0 全文) | 取り込み済み (docs/squashfs-port.md) |
+| XFS 読み取り専用リーダ (`core/compat/src/xfs_volume.cpp`。Linux `fs/xfs` の形式定義を仕様として**独立に実装**。カーネルのコードは取り込んでいない) | XFS の読み取り専用 | GPL-2.0-or-later として扱う (形式の出典がカーネルのため安全側) | 実装済み (docs/xfs-port.md) |
 | Linux `fs/erofs` (`third_party/erofs`、無改変) | erofs の読み取り専用 | GPL-2.0-only / GPL-2.0-or-later (各ファイルの SPDX。COPYING は GPL-2.0 全文) | 取り込み済み (docs/erofs-port.md) |
 | Btrfs の読み取りリーダー (`core/compat/src/btrfs_volume.cpp`、自前実装。ディスク形式は公開仕様) と展開ラッパ (`btrfs_decomp.c`) | Btrfs の読み取り専用 | SPDX は GPL-2.0-or-later (展開に上記のカーネル lib をリンクするため。リーダー自体はカーネルのコードを含まない) | 実装済み (docs/btrfs-port.md) |
 | F2FS リーダー (`core/compat/src/f2fs_volume.cpp`、`f2fs_decomp.c`。Linux `fs/f2fs` は**取り込んでいない**: オンディスク形式から書き起こした自前実装、カーネルのコードは写していない) | F2FS の読み取り専用 | Apache-2.0 (自前)。圧縮の展開は下の `usbmem_kdecomp` (GPL 系) にリンク | 取り込み済み (docs/f2fs-port.md) |

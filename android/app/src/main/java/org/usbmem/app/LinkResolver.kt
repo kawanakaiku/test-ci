@@ -13,7 +13,7 @@ object LinkResolver {
     const val ENOENT = 2
 
     /** リンクを持てるファイルシステム (これ以外は辿る処理を一切しない = NTFS / exFAT の既存の動作は変わらない)。 */
-    private val LINK_FS = setOf("ext2", "ext3", "ext4", "btrfs", "f2fs", "squashfs", "erofs", "iso9660", "isofs", "udf")
+    private val LINK_FS = setOf("ext2", "ext3", "ext4", "btrfs", "f2fs", "xfs", "squashfs", "erofs", "iso9660", "isofs", "udf")
     fun supported(v: NtfsVolume): Boolean = v.fsName in LINK_FS
 
     private fun parts(p: String) = p.split('/').filter { it.isNotEmpty() }

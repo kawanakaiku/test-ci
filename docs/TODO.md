@@ -92,6 +92,8 @@
 10. [ ] **公開準備** (13 章): GPL・依存ライセンス監査 (docs/licenses.md の更新)、ソース公開手順、16KB ページサイズ (実機/エミュレータで確認)、targetSdk 最新要件、プライバシーポリシーとデータセーフティ、exFAT 特許、Play ポリシー再確認。
 11. [ ] **P2 以降**: SMB (9 章、libsmbclient / SMBJ)、ntfs3 (第二の NTFS バックエンド)、Btrfs / XFS / F2FS、UASP、QEMU 仮想 USB の AVD 接続実測 (14 章)。
 
+- [x] XFS 読み取り専用 (v4/v5、独立実装のリーダ — カーネル fs/xfs は取り込まず形式を実装。docs/xfs-port.md): 18 イメージ + special_proto、ホスト検証、AVD 通過。ログ未再生は EUCLEAN + allow_noload。[ ] 実機確認、reflink 共有 extent の実イメージ、リアルタイム領域・外部ログ・xattr は未対応。
+
 進行中のファイルシステム移植 (別の worktree): FAT/vfat・isofs・udf (統合済み)、squashfs・erofs (検証中)。
 
 ホストに入れてもらうと検証が進むツール: gptfdisk (sgdisk)、cryptsetup、ddrescue、partclone、libbde-tools (bdeinfo / bdemount)、nbdkit。無くても自前の Python / qemu-nbd 等で代替して進めるが、独立検証の強さが落ちる。

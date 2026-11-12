@@ -24,6 +24,7 @@
 #include "usbmem/erofs_volume.h"
 #include "usbmem/btrfs_volume.h"
 #include "usbmem/f2fs_volume.h"
+#include "usbmem/xfs_volume.h"
 
 #include "jni_vol.h"
 
@@ -90,6 +91,12 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     // fsync 後のロールフォワードが必要な状態は EUCLEAN(117)。allow_noload は、確認のうえ「直近の fsync の分を無視して」開く場合だけ true
     usbmem::F2fsMountOptions of; of.allow_noload = allow_noload;
     return usbmem::F2fsVolume::mount(dev, err, of);
+  }
+  if (t == usbmem::FsType::Xfs) {
+    // XFS は読み取り専用 (独立実装のリーダ。ログは再生しない)。rw を要求されても読み取り専用でマウントする。ログが未再生 (要リカバリ) のボリュームは EUCLEAN(117) で拒否、
+    // リアルタイム領域・外部ログ・未知の incompat 機能は EOPNOTSUPP(95)。allow_noload は、ユーザーが確認したうえで読み取り専用で開く場合だけ true (docs/xfs-port.md)
+    usbmem::XfsMountOptions ox; ox.allow_noload = allow_noload;
+    return usbmem::XfsVolume::mount(dev, err, ox);
   }
   return rw ? usbmem::NtfsVolume::mount_rw(dev, err) : usbmem::NtfsVolume::mount(dev, err);
 }

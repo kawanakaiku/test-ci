@@ -283,6 +283,12 @@ static void verify_image(const std::string& dir, const std::string& name) {
     char b[8];
     CHECK(v->read(ino, 0, b, 8) == -EINVAL);
   }
+  if (name.rfind("sector", 0) == 0) {   // 小さなツリーのイメージ (セクタサイズ 4 KiB 以外): 名前の扱いなどは省く
+    uint64_t f = 0; CHECK(resolve(v, "f_100.bin", &f) == 0);
+    CHECK(v->write(f, 0, "x", 1) == -30);
+    CHECK(spy->writes == 0 && spy->flushes == 0);
+    return;
+  }
   // 名前の扱い
   uint64_t a = 0, b = 0, c = 0;
   CHECK(resolve(v, "small.txt", &a) == 0);

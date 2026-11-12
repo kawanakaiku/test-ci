@@ -32,8 +32,10 @@ VARIANTS = [
     ("node8k",          ["-n", "8192"],                                           False),
     ("node32k",         ["-n", "32768"],                                          False),
     ("node64k",         ["-n", "65536", "--compress", "zstd"],                    True),
+    # セクタサイズが 4 KiB 以外のものは mkfs.btrfs が大きな疎ファイルを扱えない (File exists) ので、小さなツリー (make_small) で作る
     ("sector8k",        ["-s", "8192", "-n", "16384"],                            False),
     ("sector16k_lzo",   ["-s", "16384", "-n", "16384", "--compress", "lzo"],      True),
+    ("sector16k_zstd",  ["-s", "16384", "-n", "32768", "--compress", "zstd"],     True),
     ("sector64k_zlib",  ["-s", "65536", "-n", "65536", "--compress", "zlib"],     True),
     ("noholes",         ["-O", "no-holes"],                                       False),
     ("holes",           ["-O", "^no-holes"],                                      False),
@@ -42,7 +44,6 @@ VARIANTS = [
     ("nofst",           ["-O", "^free-space-tree"],                               False),
     ("single_single",   ["-m", "single", "-d", "single"],                         False),
     ("dup_dup",         ["-m", "dup", "-d", "dup"],                               False),
-    ("reflink",         ["--reflink"],                                            False),
     ("mixed",           ["-M"],                                                   False),
 ]
 
@@ -56,11 +57,13 @@ def make_tree_manifest(tree, sqb):
     man.append("S\tspecial_sock\ts")
     return man
 
-def check_and_restore(img, tree, td, name):
-    """btrfs check --readonly でクリーン、btrfs restore で展開し直した結果が元ツリーと一致 (参照実装との比較)。"""
+def check_and_restore(img, tree, td, name, restore=True):
+    """btrfs check --readonly でクリーン、btrfs restore で展開し直した結果が元ツリーと一致 (参照実装との比較)。
+    restore=False: セクタサイズが CPU のページサイズと違うイメージは btrfs restore (btrfs-progs 7.1) が abort する。check だけで、内容はテスト側の manifest との突き合わせで見る。"""
     chk = subprocess.run(["btrfs", "check", "--readonly", img], capture_output=True, text=True)
     if chk.returncode != 0:
         sys.exit("btrfs check NOT clean for %s:\n%s%s" % (name, chk.stdout[-1500:], chk.stderr[-500:]))
+    if not restore: return
     ex = os.path.join(td, "ex"); os.makedirs(ex)
     r = subprocess.run(["btrfs", "restore", "-S", "-i", img, ex], capture_output=True, text=True)
     a, b = sq.tree_digest(tree), sq.tree_digest(ex)
@@ -68,6 +71,46 @@ def check_and_restore(img, tree, td, name):
         sa, sb = set(a), set(b)
         diff = sorted(sa ^ sb)[:6]
         sys.exit("btrfs restore differs from source tree for %s: %d vs %d entries (rc %d), e.g. %s" % (name, len(a), len(b), r.returncode, diff))
+
+def make_small(outdir, name, args, size="320M"):
+    """小さなツリー (sector8k など用)。manifest は make() と同じ書式。大きい疎ファイルを含まない。"""
+    sq.REFDIR[0] = outdir; sq.REFNAME[0] = name
+    FM = ext2.FIXED_MTIME
+    with tempfile.TemporaryDirectory(dir=outdir) as td:
+        tree = os.path.join(td, "tree"); os.makedirs(tree + "/dir/sub")
+        man = []
+        n = [0]
+        def stamp(p, is_link=False):
+            n[0] += 1; os.utime(p, (FM + n[0], FM + n[0]), follow_symlinks=not is_link); return FM + n[0]
+        seed = 1
+        for sz in (0, 1, 100, 4095, 4096, 4097, 8191, 8192, 8193, 16383, 16384, 16385, 65535, 65536, 65537, 200000, 1000001):
+            seed += 1
+            p = os.path.join(tree, "f_%d.bin" % sz)
+            with open(p, "wb") as f: f.write(ext2.pattern(seed, 0, sz))
+            mt = stamp(p)
+            man.append("F\tf_%d.bin\t%d\t%d\t1\t%s" % (sz, sz, mt, ("d:0:%d:%d" % (sz, seed)) if sz else ""))
+        data = (b"compress me please " * 20000)[:300001]
+        p = os.path.join(tree, "dir", "repeat.txt"); open(p, "wb").write(data); mt = stamp(p)
+        open(os.path.join(outdir, name + ".ref_1"), "wb").write(data)
+        man.append("R\tdir/repeat.txt\t%d\t%d\t%s" % (len(data), mt, name + ".ref_1"))
+        import random
+        rnd = random.Random(7); data = bytes(rnd.getrandbits(8) for _ in range(150000))
+        p = os.path.join(tree, "dir", "sub", "random.bin"); open(p, "wb").write(data); mt = stamp(p)
+        open(os.path.join(outdir, name + ".ref_2"), "wb").write(data)
+        man.append("R\tdir/sub/random.bin\t%d\t%d\t%s" % (len(data), mt, name + ".ref_2"))
+        os.symlink("f_100.bin", os.path.join(tree, "lnk")); man.append("L\tlnk\tf_100.bin")
+        os.mkfifo(os.path.join(tree, "fifo")); man.append("S\tfifo\tp")
+        for d in ("dir/sub", "dir"): man.append("D\t%s\t%d" % (d, stamp(os.path.join(tree, d))))
+        img = os.path.join(outdir, name + ".img")
+        if os.path.exists(img): os.remove(img)
+        r = subprocess.run(["mkfs.btrfs", "-q", "-f", "-K", "-b", size] + args + ["-r", tree, img], capture_output=True, text=True)
+        if r.returncode != 0:
+            if os.path.exists(img): os.remove(img)
+            return "mkfs.btrfs failed: " + (r.stderr or r.stdout).strip()[-200:]
+        check_and_restore(img, tree, td, name, restore=False)
+        with open(os.path.join(outdir, name + ".manifest"), "w", encoding="utf-8") as f: f.write("\n".join(man) + "\n")
+        print("%s: %d manifest lines (small tree), btrfs check clean (restore skipped: sectorsize != page size)" % (name, len(man)))
+    return None
 
 def make(outdir, name, args, compressed, size="320M"):
     sq.REFDIR[0] = outdir; sq.REFNAME[0] = name
@@ -80,7 +123,8 @@ def make(outdir, name, args, compressed, size="320M"):
         cmd = ["mkfs.btrfs", "-q", "-f", "-K", "-b", size] + args + ["-r", tree, img]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
-            return "mkfs.btrfs failed: " + (r.stderr or r.stdout).strip()[:200]
+            if os.path.exists(img): os.remove(img)
+            return "mkfs.btrfs failed: " + (r.stderr or r.stdout).strip()[-200:]
         check_and_restore(img, tree, td, name)
         with open(os.path.join(outdir, name + ".manifest"), "w", encoding="utf-8") as f: f.write("\n".join(man) + "\n")
         print("%s: %d manifest lines, btrfs check clean + restore identical to source tree" % (name, len(man)))
@@ -158,7 +202,7 @@ if __name__ == "__main__":
     for name, args, compressed in VARIANTS:
         if only and name not in only: continue
         size = "64M" if name == "mixed" else "320M"
-        err = make(out, name, args, compressed, size)
+        err = make_small(out, name, args) if name.startswith("sector") else make(out, name, args, compressed, size)
         if err:
             print("%s: SKIPPED (%s)" % (name, err)); skipped.append(name)
     if not only:

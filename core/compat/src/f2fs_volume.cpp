@@ -25,6 +25,7 @@ constexpr uint32_t kAddrsPerBlock = (kBlk - 24) / 4;                 // 1018
 constexpr uint32_t kNidsPerBlock = kAddrsPerBlock;
 constexpr uint32_t kNatPerBlock = kBlk / 9;                          // 455
 constexpr uint32_t kNullAddr = 0, kNewAddr = 0xFFFFFFFFu, kCompressAddr = 0xFFFFFFFEu;
+constexpr size_t kCompHdr = 24;   // 圧縮クラスタの先頭: clen(4) + chksum(4) + reserved(16)。chksum は検証しない
 constexpr int kEUCLEAN = 117, kEOPNOTSUPP = 95;
 
 // フィーチャ
@@ -291,8 +292,8 @@ struct F2fsVolume::Impl {
         if (rc) return rc;
       }
       uint32_t clen = le32(cbuf.data());
-      if (clen == 0 || static_cast<uint64_t>(clen) + 20 > cbuf.size()) return -kEUCLEAN;
-      int n = usbmem_f2fs_decompress(in.calg, cbuf.data() + 20, clen, cl_buf.data(), cl_buf.size());
+      if (clen == 0 || static_cast<uint64_t>(clen) + kCompHdr > cbuf.size()) return -kEUCLEAN;
+      int n = usbmem_f2fs_decompress(in.calg, cbuf.data() + kCompHdr, clen, cl_buf.data(), cl_buf.size());
       if (n < 0) return n == -EOPNOTSUPP ? -kEOPNOTSUPP : -kEUCLEAN;
       if (static_cast<size_t>(n) != cl_buf.size()) return -kEUCLEAN;
     } else {
@@ -575,7 +576,7 @@ struct F2fsVolume::Impl {
     const uint8_t* c = ckpt.data();
     uint32_t segno = le32(c + 36 + 4 * 1);     // cur_node_segno[1] = 暖かいノード
     uint32_t blkoff = le16(c + 68 + 2 * 1);    // cur_node_blkoff[1]
-    uint64_t addr = static_cast<uint64_t>(seg0) + static_cast<uint64_t>(segno) * kSegBlks + blkoff;
+    uint64_t addr = static_cast<uint64_t>(main_blkaddr) + static_cast<uint64_t>(segno) * kSegBlks + blkoff;
     for (int steps = 0; steps < 65536; steps++) {
       if (addr < main_blkaddr || addr >= max_blkaddr) return false;
       Blk b;

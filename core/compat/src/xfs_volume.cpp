@@ -274,6 +274,7 @@ struct XfsVolume::Impl {
     e->off = (l0 >> 9) & ((1ULL << 54) - 1);
     e->fsb = ((l0 & 0x1FF) << 43) | (l1 >> 21);
     e->len = l1 & 0x1FFFFF;
+    if (e->off + e->len > (1ULL << 62) / bs) return false;   // 論理バイト位置が 2^62 未満 (掛け算のオーバーフローで穴の長さが 0 になりハングするのを防ぐ)
     return extent_ok(e->fsb, e->len);
   }
   int load_extents(Inode* in) {
@@ -716,7 +717,8 @@ std::unique_ptr<XfsVolume> XfsVolume::mount(BlockDevicePtr dev, int* err, const 
   uint8_t inprogress = sb[126];
   I.dirblklog = sb[192];
   uint32_t features2 = be32(sb.data() + 200);
-  // 基本の妥当性
+  // 基本の妥当性 (シフト量は先に範囲を確かめる: 壊れた値で未定義動作にならないように)
+  if (I.bslog > 16 || I.inopblog > 16 || I.dirblklog > 16) return fail(EINVAL);
   if (I.bs < 512 || I.bs > 65536 || (I.bs & (I.bs - 1)) || I.bs != (1u << I.bslog)) return fail(EINVAL);
   if (I.sectsize < 512 || I.sectsize > 32768 || (I.sectsize & (I.sectsize - 1)) || I.sectsize > I.bs) return fail(EINVAL);
   if (I.inodesize < 256 || I.inodesize > 2048 || (I.inodesize & (I.inodesize - 1)) || I.inodesize > I.bs) return fail(EINVAL);

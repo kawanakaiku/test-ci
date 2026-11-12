@@ -29,7 +29,7 @@ target_compile_options(usbmem_kdecomp PRIVATE
   # NDK では <linux/types.h> が UAPI 版 (uint8_t などを定義しない) に解決されるため、libc の基本型を先に入れる
   # zstd の mem.h は defined(__LITTLE_ENDIAN) で MEM_isLittleEndian() を決める (glibc は <endian.h> 経由で定義。bionic は明示的に入れないと未定義 → HUF テーブルが壊れる)
   "$<$<COMPILE_LANGUAGE:C>:SHELL:-include stdint.h>" "$<$<COMPILE_LANGUAGE:C>:SHELL:-include stddef.h>" "$<$<COMPILE_LANGUAGE:C>:SHELL:-include endian.h>")
-target_compile_definitions(usbmem_kdecomp PRIVATE __KERNEL__ CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=1 CONFIG_X86_64=1 CONFIG_XZ_DEC_X86=1 CONFIG_XZ_DEC_ARM64=1 CONFIG_XZ_DEC_ARM=1)
+target_compile_definitions(usbmem_kdecomp PRIVATE __KERNEL__ CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=1 CONFIG_X86_64=1 CONFIG_XZ_DEC_X86=1 CONFIG_XZ_DEC_ARM64=1 CONFIG_XZ_DEC_ARM=1 CONFIG_XZ_DEC_MICROLZMA=1)
 if(USBMEM_SANITIZE)
   set_source_files_properties(${KDECOMP_SRC} PROPERTIES COMPILE_OPTIONS "-fno-sanitize=alignment;-fno-sanitize=shift-base;-fno-sanitize=nonnull-attribute")
 endif()
@@ -78,12 +78,12 @@ if(USBMEM_BUILD_TESTS)
   endif()
 endif()
 
-# ---- erofs (Linux fs/erofs, 無改変)。読み取り専用。構成 (Kconfig 相当): EROFS_FS_ZIP (lz4 / lz4hc) を有効、xattr / ACL / security / sysfs / fscache / ファイルバック / page cache share / DAX は無効。
+# ---- erofs (Linux fs/erofs, 無改変)。読み取り専用。構成 (Kconfig 相当): EROFS_FS_ZIP (lz4 / lz4hc / lzma / deflate / zstd) を有効、xattr / ACL / security / sysfs / fscache / ファイルバック / page cache share / DAX は無効。
 set(EROFS_SRC)
-set(EROFS_ZIP OFF)   # EROFS_FS_ZIP (圧縮データ: zdata / zmap / decompressor)。実装が揃ったら ON
+set(EROFS_ZIP ON)   # EROFS_FS_ZIP (圧縮データ: zdata / zmap / decompressor)
 set(EROFS_FILES data dir inode namei super)
 if(EROFS_ZIP)
-  list(APPEND EROFS_FILES zutil zmap zdata decompressor)
+  list(APPEND EROFS_FILES zutil zmap zdata decompressor decompressor_lzma decompressor_deflate decompressor_zstd)
 endif()
 foreach(f ${EROFS_FILES})
   list(APPEND EROFS_SRC ${EROFS_ROOT}/fs-erofs/${f}.c)
@@ -96,10 +96,12 @@ target_include_directories(usbmem_erofs PUBLIC public)
 target_compile_options(usbmem_erofs PRIVATE
   $<$<COMPILE_LANGUAGE:C>:-std=gnu11> $<$<COMPILE_LANGUAGE:C>:-w> $<$<COMPILE_LANGUAGE:C>:-fno-strict-aliasing> $<$<COMPILE_LANGUAGE:C>:-fwrapv>
   $<$<COMPILE_LANGUAGE:C>:-Wno-error=incompatible-pointer-types>
+  # 展開ライブラリのヘッダ (zstd.h / xz.h) が先に読まれても size_t / uint8_t が使えるように (NDK では <linux/types.h> が UAPI 版のため。kdecomp と同じ)
+  "$<$<COMPILE_LANGUAGE:C>:SHELL:-include stdint.h>" "$<$<COMPILE_LANGUAGE:C>:SHELL:-include stddef.h>" "$<$<COMPILE_LANGUAGE:C>:SHELL:-include endian.h>"
   "$<$<COMPILE_LANGUAGE:C>:SHELL:-iquote ${EROFS_ROOT}/fs-erofs>")
-target_compile_definitions(usbmem_erofs PRIVATE CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=1 CONFIG_BLOCK=1 USBMEM_MODULE_INIT_NAME=usbmem_module_init_erofs USBMEM_FS_EROFS=1)
+target_compile_definitions(usbmem_erofs PRIVATE CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=1 CONFIG_BLOCK=1 USBMEM_MODULE_INIT_NAME=usbmem_module_init_erofs USBMEM_FS_EROFS=1 USBMEM_BUILD_BUG_ON_RELAXED=1)
 if(EROFS_ZIP)
-  target_compile_definitions(usbmem_erofs PRIVATE CONFIG_EROFS_FS_ZIP=1)
+  target_compile_definitions(usbmem_erofs PRIVATE CONFIG_EROFS_FS_ZIP=1 CONFIG_EROFS_FS_ZIP_LZMA=1 CONFIG_EROFS_FS_ZIP_LZMA_DEFAULT_MAX_STREAMS=1 CONFIG_EROFS_FS_ZIP_DEFLATE=1 CONFIG_EROFS_FS_ZIP_ZSTD=1)
 endif()
 target_link_libraries(usbmem_erofs PUBLIC usbmem_kdecomp usbmem_compat_rt)
 
@@ -109,7 +111,7 @@ if(USBMEM_BUILD_TESTS)
   add_executable(usbmem_erofs_tests tests/test_erofs.cpp)
   target_link_libraries(usbmem_erofs_tests PRIVATE usbmem_erofs usbmem_ext2)
   if(EROFS_ZIP)
-    target_compile_definitions(usbmem_erofs_tests PRIVATE EROFS_HAS_LZ4=1)
+    target_compile_definitions(usbmem_erofs_tests PRIVATE EROFS_HAS_LZ4=1 EROFS_HAS_LZMA=1 EROFS_HAS_DEFLATE=1 EROFS_HAS_ZSTD=1)
   endif()
   find_package(Python3 COMPONENTS Interpreter)
   if(Python3_FOUND AND EXISTS /dev/shm)

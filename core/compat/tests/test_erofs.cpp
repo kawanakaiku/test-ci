@@ -165,6 +165,11 @@ static void verify_file(usbmem_erofs* v, const std::string& dir, const MFile& f,
     if (n == (int64_t)f.size && f.size && std::memcmp(got.data(), want.data(), (size_t)f.size) != 0) {
       size_t k = 0; while (k < f.size && got[k] == want[k]) k++;
       std::fprintf(stderr, "content mismatch %s: size %llu first diff at %zu (got %u want %u)\n", f.path.c_str(), (unsigned long long)f.size, k, got[k], want[k]);
+      for (size_t a = k, shown = 0; a < f.size && shown < 8; shown++) {   // 食い違う範囲 (最初の 8 個)
+        size_t b = a; while (b < f.size && got[b] != want[b]) b++;
+        std::fprintf(stderr, "   differs [%zu, %zu)\n", a, b);
+        a = b; while (a < f.size && got[a] == want[a]) a++;
+      }
       g_fail++;
     }
     if (f.size > 3) {   // 不揃いな位置・長さ
@@ -487,7 +492,7 @@ static void test_corrupt(const std::string& dir) {
   }
   // 壊れたデータ/メタデータ: 先頭付近 (メタデータ) を壊して歩く。クラッシュしない (エラーが返る)
   for (auto& name : list_images(dir)) {
-    if (name != "plain_4k" && name != "chunk_index" && name != "lz4_4k" && name != "lz4hc_4k") continue;
+    if (name != "plain_4k" && name != "chunk_index" && name != "lz4_4k" && name != "lz4hc_4k" && name != "lzma_4k" && name != "deflate_4k" && name != "zstd_4k" && name != "lz4_big_pcluster") continue;
     if (!expect_mountable(name)) continue;
     BlockDevicePtr base = open_img(dir + "/" + name + ".img");
     std::map<uint64_t, uint8_t> mut;
@@ -529,7 +534,7 @@ static void test_ioerr(const std::string& dir) {
 static int fuzz(const std::string& dir, int iters, unsigned seed) {
   std::vector<std::string> images;
   for (auto& n : list_images(dir)) {
-    if (n != "plain_4k" && n != "plain_1k" && n != "plain_extended" && n != "chunk_index" && n != "chunk_blockmap" && n != "lz4_4k" && n != "lz4hc_4k" && n != "lz4_tailpacking" && n != "lz4_fragments") continue;
+    if (n != "plain_4k" && n != "plain_1k" && n != "plain_extended" && n != "chunk_index" && n != "chunk_blockmap" && n != "lz4_4k" && n != "lz4hc_4k" && n != "lz4_tailpacking" && n != "lz4_fragments" && n != "lz4_dedupe" && n != "lz4_big_pcluster" && n != "lzma_4k" && n != "deflate_4k" && n != "zstd_4k") continue;
     if (expect_mountable(n)) images.push_back(n);
   }
   uint64_t x = seed * 2654435761u + 1;

@@ -155,6 +155,71 @@ static inline const char *printk_skip_level(const char *buf) { return printk_get
 #ifdef CONFIG_EROFS_FS_ZIP
 #define SHRINK_EMPTY (~0UL - 1)
 int xa_empty(const struct xarray *xa);
+/* IS_ENABLED(): 共有ヘッダ (more_ext4.h) では常に 0。erofs は CONFIG_EROFS_FS_ZIP を -D で 1 にするので、カーネルと同じ __is_defined の方式にする */
+#undef IS_ENABLED
+#define __ARG_PLACEHOLDER_1 0,
+#define __take_second_arg(__ignored, val, ...) val
+#define ____is_defined(arg1_or_junk) __take_second_arg(arg1_or_junk 1, 0)
+#define ___is_defined(val) ____is_defined(__ARG_PLACEHOLDER_##val)
+#define __is_defined(x) ___is_defined(x)
+#define IS_ENABLED(option) __is_defined(option)
+/* 大域バッファ (zutil.c) の vmap/vunmap: NTFS の既存の挙動 (vmap = 未実装スタブ) を変えないよう、erofs の翻訳単位だけマクロで差し替える。
+ * 実体は連続した通常のメモリ (ページ配列とは独立。大域バッファはこの連続領域だけを使い、ページ側は触らない)。 */
+void *usbmem_erofs_vmap(struct page **pages, unsigned int count);
+void usbmem_erofs_vunmap(const void *mem);
+#define vmap(pages, count, flags, prot) usbmem_erofs_vmap((pages), (count))
+#define vunmap(mem) usbmem_erofs_vunmap(mem)
+#define module_param_named(name, var, type, perm)
+#define module_param(name, type, perm)
+/* mutex の guard() */
+struct usbmem_mguard { struct mutex *m; };
+static inline struct usbmem_mguard usbmem_mguard_take(struct mutex *m) { mutex_lock(m); struct usbmem_mguard g = { m }; return g; }
+static inline void usbmem_mguard_release(struct usbmem_mguard *g) { if (g->m) mutex_unlock(g->m); }
+#define usbmem_guard_mutex(lk) struct usbmem_mguard USBMEM_CAT(_ugm, __LINE__) __attribute__((cleanup(usbmem_mguard_release), unused)) = usbmem_mguard_take(lk)
+/* ビット待ち: 単一スレッドなので、立っていなければ立てて 0 を返す */
+#define wait_on_bit_lock(addr, bit, mode) (test_and_set_bit((bit), (addr)) ? 0 : 0)
+#define clear_and_wake_up_bit(bit, addr) clear_bit((bit), (addr))
+#define __GFP_NORETRY 0
+#define __GFP_DIRECT_RECLAIM 0
+#define __GFP_NOMEMALLOC 0
+#define POISON_POINTER_DELTA 0
+#define atomic_add_return(i, v) __atomic_add_fetch(&(v)->counter, (i), __ATOMIC_SEQ_CST)
+static inline void atomic_long_add(long i, atomic_long_t *a) { a->counter += i; }
+#define bio_in_atomic() 0                 /* 展開は常に呼び出し元のスレッドで同期実行 (ワーカーなし) */
+#define memalloc_noio_save() 0
+#define memalloc_noio_restore(x) ((void)(x))
+typedef int blk_status_t;
+#define BIO_MAX_VECS 256
+#define PageWorkingset(p) 0
+#define wait_for_completion_io(c) wait_for_completion(c)
+struct kthread_work { int dummy_; };
+#define DECLARE_WAIT_QUEUE_HEAD(n) wait_queue_head_t n = { PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER }
+#define readahead_folio_last(r) ((struct folio *)NULL)
+static inline struct folio *filemap_alloc_folio(gfp_t g, unsigned int order, void *policy) { (void)order; (void)policy; struct page *p = alloc_page(g); return p ? page_folio(p) : NULL; }
+static inline int folio_trylock(struct folio *f) { if (folio_test_locked(f)) return 0; folio_lock(f); return 1; }
+static inline void *folio_get_private(struct folio *f) { return f->private; }
+static inline int folio_test_private(const struct folio *f) { return f->private != NULL; }
+/* lockref (spinlock + 参照カウント。単一スレッドなので素朴に) */
+struct lockref { spinlock_t lock; int count; };
+static inline void lockref_init(struct lockref *l) { spin_lock_init(&l->lock); l->count = 1; }
+static inline bool lockref_get_not_zero(struct lockref *l) { if (l->count > 0) { l->count++; return true; } return false; }
+static inline bool lockref_is_dead(const struct lockref *l) { return l->count < 0; }
+static inline void lockref_mark_dead(struct lockref *l) { l->count = -128; }
+static inline bool lockref_put_or_lock(struct lockref *l) { if (l->count > 1) { l->count--; return true; } spin_lock(&l->lock); return false; }
+/* xarray の最小部分 (添字 → ポインタ。実装は rt_erofs.c の素朴な表) */
+void xa_init(struct xarray *xa);
+void *xa_load(struct xarray *xa, unsigned long idx);
+void *__xa_cmpxchg(struct xarray *xa, unsigned long idx, void *old, void *entry, gfp_t gfp);
+void *__xa_erase(struct xarray *xa, unsigned long idx);
+void *xa_find(struct xarray *xa, unsigned long *idx, unsigned long max);
+void *xa_find_after(struct xarray *xa, unsigned long *idx, unsigned long max);
+#define xa_lock(xa) ((void)(xa))
+#define xa_unlock(xa) ((void)(xa))
+#define xa_trylock(xa) (1)
+#define xa_is_err(p) (0)
+#define xa_err(p) (0)
+#define xa_for_each(xa, index, entry) \
+  for ((index) = 0, (entry) = xa_find((xa), &(index), ~0UL); (entry); (entry) = xa_find_after((xa), &(index), ~0UL))
 #endif
 
 #ifdef __cplusplus

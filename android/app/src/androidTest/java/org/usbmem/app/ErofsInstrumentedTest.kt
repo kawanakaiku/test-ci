@@ -14,8 +14,7 @@ import java.io.FileInputStream
 /**
  * 実 erofs イメージ (tools/gen_erofs_fixture.py: mkfs.erofs で作り、fsck.erofs で検査・展開し直した結果との一致を生成時に確認済み) を
  * Android 上で fs/erofs (LinuxCompat 上・読み取り専用) 経由で読む。
- * 事前に adb push で /data/local/tmp/erofs_<name>.{img,manifest,ref_1,ref_2} を置く (name = plain_4k / plain_1k / plain_noinline / plain_extended / chunk_blockmap / chunk_index / special_tar)。
- * 圧縮 (lz4 など) のイメージは .img のみ: 対応していない圧縮方式はマウントが拒否されること。
+ * 事前に adb push で /data/local/tmp/erofs_<name>.{img,manifest,ref_1,ref_2} を置く (name = plain_4k / plain_1k / plain_noinline / plain_extended / chunk_blockmap / chunk_index / special_tar / lz4_4k / lz4hc_4k / lz4_big_pcluster / lz4_1k / lz4_tailpacking / lz4_fragments / lz4_dedupe / lzma_4k / deflate_4k / zstd_4k)。
  * manifest はタブ区切り: D path mtime / F path size mtime nlink spec / L path target / S path kind / R path size mtime reffile。
  * spec = "d:<off>:<len>:<seed>" (パターン内容) と "z:<off>:<len>" (ゼロ) のカンマ区切り。パターンは byte(i) = (i*31 + seed*7 + (i>>8)) & 0xFF。
  */
@@ -150,20 +149,31 @@ class ErofsInstrumentedTest {
     @Test fun mountsAndVerifiesChunkIndex() = verify("chunk_index")
     @Test fun mountsAndVerifiesSpecialFiles() = verify("special_tar")
 
-    /** 圧縮 (z_erofs) のイメージは、対応していない間は EOPNOTSUPP(95) でマウントが拒否される (docs/erofs-port.md)。 */
-    @Test fun compressedIsRefused() {
-        for (name in listOf("lz4_4k", "lzma_4k", "zstd_4k", "deflate_4k")) {
-            val img = File(ctx.cacheDir, "erofs_$name.img")
-            assumeTrue("fixture not pushed", shellCopy("/data/local/tmp/erofs_$name.img", img))
+    // 圧縮 (z_erofs): lz4 / lz4hc / lzma / deflate / zstd。pcluster の大きさ・ブロックサイズ・tail packing・fragments・dedupe の組み合わせ
+    @Test fun mountsAndVerifiesLz4() = verify("lz4_4k")
+    @Test fun mountsAndVerifiesLz4hc() = verify("lz4hc_4k")
+    @Test fun mountsAndVerifiesLz4BigPcluster() = verify("lz4_big_pcluster")
+    @Test fun mountsAndVerifiesLz4Block1k() = verify("lz4_1k")
+    @Test fun mountsAndVerifiesLz4TailPacking() = verify("lz4_tailpacking")
+    @Test fun mountsAndVerifiesLz4Fragments() = verify("lz4_fragments")
+    @Test fun mountsAndVerifiesLz4Dedupe() = verify("lz4_dedupe")
+    @Test fun mountsAndVerifiesLzma() = verify("lzma_4k")
+    @Test fun mountsAndVerifiesDeflate() = verify("deflate_4k")
+    @Test fun mountsAndVerifiesZstd() = verify("zstd_4k")
+
+    /** 壊れたイメージ (マジックを壊す) は、クラッシュせずマウントが失敗する。 */
+    @Test fun corruptMagicIsRefused() {
+        val img = File(ctx.cacheDir, "erofs_corrupt.img")
+        assumeTrue("fixture not pushed", shellCopy("/data/local/tmp/erofs_lz4_4k.img", img))
+        try {
+            java.io.RandomAccessFile(img, "rw").use { it.seek(1024); it.write(byteArrayOf(0, 0, 0, 0)) }
+            val pfd = ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_ONLY)
             try {
-                val pfd = ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_ONLY)
-                try {
-                    NtfsVolume.mountReadOnly(pfd.detachFd()).close()
-                    fail("compressed erofs ($name) should be refused")
-                } catch (e: NativeException) {
-                    assertEquals(95, e.code)
-                }
-            } finally { img.delete() }
-        }
+                NtfsVolume.mountReadOnly(pfd.detachFd()).close()
+                fail("corrupt erofs should be refused")
+            } catch (e: NativeException) {
+                assertTrue(e.code != 0)
+            }
+        } finally { img.delete() }
     }
 }

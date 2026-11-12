@@ -9,10 +9,10 @@ SER=${ADB_SERIAL:-emulator-5556}
 case "$SER" in emulator-*) ;; *) echo "refusing non-emulator serial $SER"; exit 2;; esac
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 adb() { "$ADB" -s "$SER" "$@"; }
-for n in plain_4k plain_1k plain_noinline plain_extended chunk_blockmap chunk_index special_tar; do
+for n in plain_4k plain_1k plain_noinline plain_extended chunk_blockmap chunk_index special_tar \
+  lz4_4k lz4hc_4k lz4_big_pcluster lz4_1k lz4_tailpacking lz4_fragments lz4_dedupe lzma_4k deflate_4k zstd_4k; do
   for e in img manifest ref_1 ref_2; do [ -f "$FIX/$n.$e" ] && { adb push "$FIX/$n.$e" "/data/local/tmp/erofs_$n.$e" >/dev/null || exit 1; }; done
 done
-for n in lz4_4k lzma_4k zstd_4k deflate_4k; do adb push "$FIX/$n.img" "/data/local/tmp/erofs_$n.img" >/dev/null || exit 1; done
 adb install -r -t "$ROOT/android/app/build/outputs/apk/debug/app-debug.apk" >/dev/null || exit 1
 adb install -r -t "$ROOT/android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk" >/dev/null || exit 1
 OUT=$(adb shell am instrument -w -e class org.usbmem.app.ErofsInstrumentedTest org.usbmem.app.test/androidx.test.runner.AndroidJUnitRunner)

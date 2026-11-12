@@ -236,3 +236,101 @@ int64_t usbmem_erofs_read(usbmem_erofs *v, uint64_t ino, uint64_t off, void *buf
   }
   return (int64_t)done;
 }
+
+/* ---- xarray の最小実装 (圧縮対応用): 添字順を保たない素朴な表。pcluster は同時に数個〜数十個しか存在しないので線形探索で足りる。空になったら解放する。 */
+struct xa_ent { unsigned long idx; void *p; };
+struct xa_tab { unsigned n, cap; struct xa_ent e[]; };
+void xa_init(struct xarray *xa) { xa->impl_ = NULL; }
+int xa_empty(const struct xarray *xa) { const struct xa_tab *t = xa->impl_; return !t || !t->n; }
+void *xa_load(struct xarray *xa, unsigned long idx) {
+  struct xa_tab *t = xa->impl_;
+  for (unsigned i = 0; t && i < t->n; i++) if (t->e[i].idx == idx) return t->e[i].p;
+  return NULL;
+}
+void *__xa_cmpxchg(struct xarray *xa, unsigned long idx, void *old, void *entry, gfp_t gfp) {
+  (void)gfp;
+  struct xa_tab *t = xa->impl_;
+  for (unsigned i = 0; t && i < t->n; i++) if (t->e[i].idx == idx) {
+    void *cur = t->e[i].p;
+    if (cur != old) return cur;
+    if (entry) t->e[i].p = entry;
+    else { t->e[i] = t->e[--t->n]; if (!t->n) { free(t); xa->impl_ = NULL; } }
+    return cur;
+  }
+  if (old || !entry) return NULL;     /* 無い: old が NULL のときだけ挿入できる */
+  if (!t || t->n == t->cap) {
+    unsigned cap = t ? t->cap * 2 : 16;
+    struct xa_tab *nt = realloc(t, sizeof *nt + cap * sizeof(struct xa_ent));
+    if (!nt) return ERR_PTR(-ENOMEM);   /* xa_is_err は常に偽なので呼び出し側は NULL (= 挿入成功) と見なしてしまう: 確保失敗は想定しない (小さな表) */
+    if (!t) nt->n = 0;
+    nt->cap = cap; xa->impl_ = t = nt;
+  }
+  t->e[t->n].idx = idx; t->e[t->n].p = entry; t->n++;
+  return NULL;
+}
+void *__xa_erase(struct xarray *xa, unsigned long idx) {
+  struct xa_tab *t = xa->impl_;
+  for (unsigned i = 0; t && i < t->n; i++) if (t->e[i].idx == idx) {
+    void *cur = t->e[i].p;
+    t->e[i] = t->e[--t->n];
+    if (!t->n) { free(t); xa->impl_ = NULL; }
+    return cur;
+  }
+  return NULL;
+}
+/* idx 以上で最小の添字の項目 (idx を更新して返す)。 */
+void *xa_find(struct xarray *xa, unsigned long *idx, unsigned long max) {
+  struct xa_tab *t = xa->impl_;
+  void *best = NULL; unsigned long bi = 0;
+  for (unsigned i = 0; t && i < t->n; i++)
+    if (t->e[i].idx >= *idx && t->e[i].idx <= max && (!best || t->e[i].idx < bi)) { best = t->e[i].p; bi = t->e[i].idx; }
+  if (best) *idx = bi;
+  return best;
+}
+void *xa_find_after(struct xarray *xa, unsigned long *idx, unsigned long max) {
+  if (*idx == ~0UL) return NULL;
+  ++*idx;
+  return xa_find(xa, idx, max);
+}
+
+/* ---- vm_map_ram / vm_unmap_ram: 離れたページ (それぞれ別の 4096 バイトのホストバッファ) を連続した領域として見せる。
+ * 実際のカーネルでは同じ物理ページが複数の位置にマップされると互いに見える (別名)。erofs の dedupe 済みイメージでは、同じファイルページが
+ * 1 つの pcluster の出力ページ 0 と 32 の両方に現れ、それぞれが同じページの別のバイト範囲へ書く。
+ * そこで map で内容を連続バッファへ複写し (同時に原本の控えも持つ)、unmap では **変化したバイトだけ**を各ページへ書き戻す。
+ * 入力側 (読み取りのみ) の unmap では変化がないので何も書かない。 */
+struct vmap_ent { void *mem; unsigned char *snap; struct page **pages; unsigned count; struct vmap_ent *next; };
+static struct vmap_ent *g_vmap;
+void *vm_map_ram(struct page **pages, unsigned int count, int node) {
+  (void)node;
+  if (!count) return NULL;
+  size_t sz = (size_t)count * PAGE_SIZE;
+  void *mem = malloc(sz);
+  unsigned char *snap = malloc(sz);
+  struct vmap_ent *e = malloc(sizeof *e);
+  struct page **pg = malloc(count * sizeof(struct page *));
+  if (!mem || !snap || !e || !pg) { free(mem); free(snap); free(e); free(pg); return NULL; }
+  for (unsigned i = 0; i < count; i++) { pg[i] = pages[i]; memcpy((char *)mem + (size_t)i * PAGE_SIZE, pages[i]->folio_->data, PAGE_SIZE); }
+  memcpy(snap, mem, sz);
+  e->mem = mem; e->snap = snap; e->pages = pg; e->count = count; e->next = g_vmap; g_vmap = e;
+  return mem;
+}
+void vm_unmap_ram(const void *mem, unsigned int count) {
+  (void)count;
+  for (struct vmap_ent **pp = &g_vmap; *pp; pp = &(*pp)->next) {
+    struct vmap_ent *e = *pp;
+    if (e->mem != mem) continue;
+    for (unsigned i = 0; i < e->count; i++) {
+      const unsigned char *cur = (const unsigned char *)e->mem + (size_t)i * PAGE_SIZE, *old = e->snap + (size_t)i * PAGE_SIZE;
+      if (!memcmp(cur, old, PAGE_SIZE)) continue;
+      unsigned char *dst = e->pages[i]->folio_->data;
+      for (size_t k = 0; k < PAGE_SIZE; k++) if (cur[k] != old[k]) dst[k] = cur[k];
+    }
+    *pp = e->next;
+    free(e->mem); free(e->snap); free(e->pages); free(e);
+    return;
+  }
+}
+
+/* zutil.c の大域バッファ用 (more_erofs.h の vmap マクロの実体)。 */
+void *usbmem_erofs_vmap(struct page **pages, unsigned int count) { (void)pages; return count ? calloc(count, PAGE_SIZE) : NULL; }
+void usbmem_erofs_vunmap(const void *mem) { free((void *)mem); }

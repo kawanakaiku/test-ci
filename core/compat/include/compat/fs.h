@@ -45,11 +45,11 @@ struct folio {
   unsigned long flags;
   pgoff_t index;
   struct address_space *mapping;
-  void *private;
   void *data;          /* PAGE_SIZE バイトのバッファ (ホスト側メモリ) */
   atomic_t refcount;
   struct mutex lock_;
-  struct page page;
+  /* folio->private と page->private は同じ記憶域 (カーネルでは order-0 のページでそうなっている。erofs は両方を使う)。page の folio_ と重なる位置に folio_pad_ を置く。 */
+  union { struct page page; struct { struct folio *folio_pad_; void *private; }; };
   struct folio *hash_next_;
   int read_pending_, read_err_;
   /* 512B 単位の dirty ビット (bit i = [512*i, 512*(i+1)))。実カーネルの iomap (iomap_folio_state) と同じく、書いた範囲だけを書き戻すために持つ。

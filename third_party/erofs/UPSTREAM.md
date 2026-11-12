@@ -5,5 +5,5 @@
 - 取り込み範囲: `fs/erofs/*.c *.h` → `fs-erofs/` (Kconfig / Makefile は除く)
 - ライセンス: GPL-2.0-only / GPL-2.0-or-later (各ファイルの SPDX を参照。COPYING は GPL-2.0 全文)
 - **ファイルは無改変**。差分は `core/compat/` 側 (more_erofs.h / rt_erofs.c など) で吸収する。
-- ビルドするもの: `data dir inode namei super` (EROFS_FS_ZIP 無効の構成 = 無圧縮・inline・チャンク (blockmap / index))。
-  `zutil zmap zdata decompressor` (圧縮) は未対応のためビルドしない。`xattr` `sysfs` `fileio` `ishare` `decompressor_{lzma,deflate,zstd,crypto}` もビルドしない。詳細は docs/erofs-port.md。
+- ビルドするもの: `data dir inode namei super` と、圧縮 (`CONFIG_EROFS_FS_ZIP`) の `zutil zmap zdata decompressor decompressor_lzma decompressor_deflate decompressor_zstd` (lz4 / lz4hc / lzma / deflate / zstd)。
+  ビルドしない: `xattr` `sysfs` `fileio` (ファイルバック) `ishare` (page cache share) `decompressor_crypto` (取り込みはしてある)。詳細は docs/erofs-port.md。

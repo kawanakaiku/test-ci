@@ -15,6 +15,9 @@ import org.usbmem.app.ui.DiagnosticsActions
 import org.usbmem.app.ui.ImageActions
 import org.usbmem.app.ui.ImageResult
 import org.usbmem.app.ui.Notice
+import org.usbmem.app.ui.NestedInspectResult
+import org.usbmem.app.ui.NestedMountResult
+import org.usbmem.app.ui.NestedVolumeRow
 import org.usbmem.app.ui.NoloadPrompt
 import org.usbmem.app.ui.PublishedVolume
 import org.usbmem.app.ui.Severity
@@ -389,6 +392,10 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
 
     // ---- ImageActions (IO スレッドから呼ばれる)
     override fun loadImage(uri: Uri): ImageResult = try {
+        // このアプリのプロバイダが公開しているファイルなら、SAF の fd を経由せず、親ボリュームを直接読む (デッドロック回避)
+        VolumeRegistry.ownDocument(uri)?.let { (pid, path) ->
+            return ImageResult(label = path.substringAfterLast('/'), table = VolumeRegistry.inspectNested(this, pid, path))
+        }
         // 読み取り専用 ("r") で開く。fd の所有権はネイティブ側へ渡す。
         val pfd = contentResolver.openFileDescriptor(uri, "r") ?: return ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_image_open_failed)))
         val fd = pfd.detachFd()
@@ -405,7 +412,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
 
     private fun shareImage(uri: Uri, writable: Boolean, allowNoload: Boolean): ImageResult = try {
         val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or (if (writable) android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
-        try { contentResolver.takePersistableUriPermission(uri, flags) } catch (_: SecurityException) { }
+        if (VolumeRegistry.ownDocument(uri) == null) try { contentResolver.takePersistableUriPermission(uri, flags) } catch (_: SecurityException) { }
         val e = VolumeRegistry.addUri(this, uri, writable && !allowNoload, allowNoload)
         notifyRoots()
         if (e.volume.journalIgnored) ImageResult(notice = Notice(Severity.Warning, getString(R.string.notice_journal_ignored), getString(R.string.notice_journal_ignored_detail)))
@@ -416,6 +423,41 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         ImageResult(notice = fsRefusalNotice(e) ?: Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.message), noloadUri = if (e.code == 117 && !allowNoload) uri else null)
     } catch (e: Exception) {
         ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.javaClass.simpleName))
+    }
+
+    // ---- NestedActions: マウント済みのボリュームの中のイメージを、読み取り専用でマウントする (ループバック。docs/nested-mount.md)
+    override fun nestedVolumes(): List<NestedVolumeRow> = VolumeRegistry.all(this).map {
+        val depth = try { it.volume.nestDepth() } catch (_: Exception) { 0 }
+        NestedVolumeRow(it.id, it.label, it.volume.fsName, depth, canNest = depth < NESTED_MAX_DEPTH)
+    }
+
+    override fun nestedList(volumeId: String, path: String): List<NtfsEntry> = try {
+        (VolumeRegistry.get(this, volumeId)?.volume?.list(path) ?: emptyList()).sortedWith(compareBy({ !it.isDir }, { it.name.lowercase() }))
+    } catch (_: Exception) { emptyList() }
+
+    override fun nestedInspect(volumeId: String, path: String): NestedInspectResult = try {
+        NestedInspectResult(table = VolumeRegistry.inspectNested(this, volumeId, path))
+    } catch (e: NativeException) {
+        NestedInspectResult(notice = nestedNotice(e))
+    } catch (e: Exception) {
+        NestedInspectResult(notice = Notice(Severity.Error, getString(R.string.notice_nested_open_failed), e.javaClass.simpleName))
+    }
+
+    override fun nestedMount(volumeId: String, path: String, startBytes: Long, sizeBytes: Long, label: String, allowNoload: Boolean): NestedMountResult = try {
+        val e = VolumeRegistry.mountNested(this, volumeId, path, startBytes, sizeBytes, label, allowNoload)
+        notifyRoots()
+        if (e.volume.journalIgnored) NestedMountResult(Notice(Severity.Warning, getString(R.string.notice_journal_ignored), getString(R.string.notice_journal_ignored_detail)))
+        else NestedMountResult(Notice(Severity.Success, getString(R.string.notice_image_shared_read_only, e.label), getString(R.string.notice_nested_mounted_detail)))
+    } catch (e: NativeException) {
+        NestedMountResult(nestedNotice(e), noload = e.code == 117 && !allowNoload)
+    } catch (e: Exception) {
+        NestedMountResult(Notice(Severity.Error, getString(R.string.notice_nested_open_failed), e.javaClass.simpleName))
+    }
+
+    private fun nestedNotice(e: NativeException): Notice = fsRefusalNotice(e) ?: when (e.code) {
+        40 -> Notice(Severity.Warning, getString(R.string.notice_nested_too_deep), getString(R.string.notice_nested_too_deep_detail, NESTED_MAX_DEPTH))
+        22 -> Notice(Severity.Warning, getString(R.string.notice_nested_not_image), getString(R.string.notice_nested_not_image_detail))
+        else -> Notice(Severity.Error, getString(R.string.notice_nested_open_failed), e.message)
     }
 
     /** ext3/ext4 の「マウントしない」理由 (EUCLEAN=117: ジャーナル未回復/破損、EOPNOTSUPP=95: 未対応の機能) を専用の文言にする。それ以外は null。 */

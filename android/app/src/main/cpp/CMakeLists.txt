@@ -6,3 +6,5 @@ add_library(usbmem_jni SHARED jni_bridge.cpp jni_ntfs.cpp jni_partedit.cpp jni_t
 # jni_ntfs.cpp は GPL-2.0-or-later の NTFS (fs/ntfs) ・exFAT・ext2・ext4・FAT・isofs・udf・squashfs・erofs をリンクするため、この共有ライブラリ全体が GPL 扱い (docs/licenses.md)
 target_link_libraries(usbmem_jni PRIVATE usbmem_ntfs usbmem_exfat usbmem_ext2 usbmem_ext4 usbmem_fat usbmem_isofs usbmem_udf usbmem_squashfs usbmem_erofs usbmem_transform usbmem_disktools usbmem_recovery usbmem_core log)
 target_link_options(usbmem_jni PRIVATE -Wl,-z,max-page-size=16384)
+# ネスト (ループバック) マウントの JNI (docs/nested-mount.md)
+target_sources(usbmem_jni PRIVATE jni_nested.cpp)

@@ -79,7 +79,8 @@
 2. [x] **BlockDevice の拡張** (2 章 P1/P2): NBD クライアント、QCOW2 / VHD / VHDX / VMDK の読み取り (qemu-img / qemu-nbd で検証)、COW オーバーレイ (イメージを書き換えずに書き込み可能にする)。※ NBD はネットワーク権限 (INTERNET) が要る。権限追加は別途明示してから。
    → core / C API / JNI / Kotlin 入口まで実装・ホスト検証済み (docs/blockdev-formats.md、docs/nbd.md)。**未了**: UI 統合 (イメージを開く導線・兄弟ファイル選択 `ImageResolver`)、AndroidManifest の INTERNET 権限 (NBD をネットワーク越しに使うとき)、差分 VHDX の実機 (Windows 製) での確認、VHDX ログ再生、QCOW2 の暗号化/zstd、NBD の TLS、AVD での実機相当テスト。
 3. [x] (core 実装済み・UI 未接続) **暗号化ボリューム** (5 章): BlockTransform として BitLocker (読み取り専用: パスワード / 48 桁回復キー。実 Windows で作ったフィクスチャあり: tools/winvhd) → LUKS1 / LUKS2。ライセンス (libbde LGPL-3 / dislocker GPL-2 / cryptsetup) を比較して docs/licenses.md に記録。認証情報はログに出さない。
-4. [ ] **ネスト (ループバック) マウント** (2 章 P2): SAF / 他ボリューム上のイメージファイルを開く。ネイティブ層で親ボリュームのファイルを直接ブロックデバイスにする (SAF の fd 経由はプロバイダ専用スレッドの行き詰まりを起こすため不可)。まず読み取り専用 → 書き込み (内側→外側の順に同期・アンマウント、依存関係の管理)。パーティション表付きイメージも対応。
+
+4. [~] **ネスト (ループバック) マウント** (2 章 P2): **読み取り専用は実装・検証済み** (docs/nested-mount.md)。ネイティブ層で親ボリュームのファイルを直接ブロックデバイスにする (SAF の fd は経由しない)。ボリューム単位のネイティブ mutex、閉じる順は 内 → 外 (VolumeRegistry が親子関係を持つ)、段数の上限 3、循環の拒否、パーティション表 (MBR / GPT / 論理) 付きイメージ、マウント中のイメージの書き換え禁止 (EBUSY)、自分のプロバイダ経由の URI はネストに振り替え。ホストテスト (5 種類の親 × 子) と AVD で検証。**残り**: 書き込みのネスト (外側が「フル」書き込みのとき。内側→外側の順に同期・アンマウント、外側の書き込みを内側の同期後にだけ許す)、実機での確認、ネストしたマウントの再起動後の復元 (今は保存しない)、親が書き込み可のときの別名 (ハードリンク) 経由の書き換え検出の強化 (今はネイティブ側のサイズ・更新時刻の照合で検出)。
 5. [ ] **ext4 の書き込み (jbd2)** (3 章): jbd2 を無改変で互換層に載せる、電源断の模擬。ext4 の symlink (`Ext4Volume::readlink`) も未実装 (LinkResolver は ext4 を対象にしているが読めない)。
 6. [ ] **ディスク管理 DiskTools** (6 章): 読み取り専用の整合性検査 (fsck 相当: ext / exFAT / FAT)、フォーマット (mkfs: FAT / exFAT / ext2-4 / NTFS)。NTFS の ntfsfix による自動修復は使わない (要件)。修復は明示承認 + バックアップ推奨。
 7. [ ] **データ復旧 RecoveryEngine** (7 章): ddrescue 相当のレスキューコピーは core 実装済み (mapfile 互換・再開・読み取り専用ソース・安全弁。UI 未接続・実機/AVD 未検証。docs/recovery-backup.md)。**未着手**: TestDisk 相当のパーティション探索・ブートセクタ検査・ファイル救出、PhotoRec 相当のシグネチャ復元。

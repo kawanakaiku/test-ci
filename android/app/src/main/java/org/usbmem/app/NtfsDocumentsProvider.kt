@@ -43,7 +43,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
                 .add(Root.COLUMN_FLAGS, Root.FLAG_LOCAL_ONLY or Root.FLAG_SUPPORTS_IS_CHILD or (if (e.volume.writable) Root.FLAG_SUPPORTS_CREATE else 0))
                 .add(Root.COLUMN_TITLE, e.label)
                 .add(Root.COLUMN_DOCUMENT_ID, "${e.id}:/")
-                .add(Root.COLUMN_SUMMARY, if (!e.volume.writable) "NTFS (読み取り専用)" else if (e.volume.createOnly) "NTFS (新規作成のみ・実験的)" else "NTFS (読み書き・実験的)")
+                .add(Root.COLUMN_SUMMARY, if (e.parentId != null) "${e.volume.fsName} (読み取り専用・イメージ内)" else if (!e.volume.writable) "NTFS (読み取り専用)" else if (e.volume.createOnly) "NTFS (新規作成のみ・実験的)" else "NTFS (読み書き・実験的)")
                 .add(Root.COLUMN_ICON, android.R.drawable.ic_menu_save)
         }
         return c

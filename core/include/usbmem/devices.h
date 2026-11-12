@@ -74,7 +74,7 @@ class SubRangeDevice final : public BlockDevice {
   Status close() override { return Status::Ok(); }  // 親は所有者が閉じる
   uint64_t size() const override { return length_; }
   uint32_t logical_block_size() const override { return parent_->logical_block_size(); }
-  bool is_read_only() const override { return read_only_; }
+  bool is_read_only() const override { return read_only_ || parent_->is_read_only(); }  // write_at と同じ判定 (ネストの子など、読み取り専用の親の上では書き込み可にならない)
   std::string describe() const override;
 
  private:

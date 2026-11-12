@@ -1,0 +1,23 @@
+name: doorbell-probe
+on:
+  push:
+    branches: [xtajit-doorbell-probe]
+jobs:
+  probe:
+    runs-on: windows-11-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: os
+        shell: pwsh
+        run: |
+          [Environment]::OSVersion.VersionString
+          (Get-CimInstance Win32_OperatingSystem).Caption
+          $env:PROCESSOR_ARCHITECTURE
+      - name: probe
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath probe\doorbell-probe-x64.exe -NoNewWindow -PassThru -RedirectStandardOutput out.txt
+          if (-not $p.WaitForExit(100000)) { $p.Kill() ; "TIMEOUT" }
+          Get-Content out.txt
+          "exit=$($p.ExitCode)"

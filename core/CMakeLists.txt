@@ -16,6 +16,9 @@ option(USBMEM_BUILD_TESTS "Build unit tests" ${_top})
 
 add_library(usbmem_core STATIC
   src/devices.cpp src/usb_msc.cpp src/usbdevfs_transport.cpp src/crc32.cpp src/fs_probe.cpp src/partition.cpp src/c_api.cpp)
+# パーティション編集 / ラベル / バックアップ (docs/partition-edit.md)
+target_sources(usbmem_core PRIVATE
+  src/sha256.cpp src/fs_label.cpp src/gpt_inspect.cpp src/partition_backup.cpp src/partition_edit.cpp src/partition_edit_json.cpp src/c_api_partedit.cpp)
 target_include_directories(usbmem_core PUBLIC include)
 target_compile_definitions(usbmem_core PUBLIC _FILE_OFFSET_BITS=64)
 target_compile_options(usbmem_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wno-sign-conversion)
@@ -40,9 +43,12 @@ endif()
 if(USBMEM_BUILD_TESTS)
   enable_testing()
   add_executable(usbmem_tests tests/test_main.cpp tests/test_devices.cpp tests/test_partition.cpp
-                 tests/test_fixtures.cpp tests/test_usb_msc.cpp)
+                 tests/test_fixtures.cpp tests/test_usb_msc.cpp
+                 tests/test_partedit.cpp tests/test_partedit_fault.cpp tests/test_fslabel.cpp tests/test_partedit_capi.cpp)
   target_link_libraries(usbmem_tests PRIVATE usbmem_core)
   add_test(NAME unit COMMAND usbmem_tests)
+  add_executable(usbmem_partedit_cli tests/partedit_cli.cpp)  # 検証用 CLI (tools/check_partedit_tools.py が使う)
+  target_link_libraries(usbmem_partedit_cli PRIVATE usbmem_core)
   find_package(Python3 COMPONENTS Interpreter)
   if(Python3_FOUND)
     # フィクスチャ(ディスクイメージ)は tmpfs に生成する
@@ -50,6 +56,10 @@ if(USBMEM_BUILD_TESTS)
       set(FIX_DIR /dev/shm/usbmem_fixtures_$ENV{USER})
     else()
       set(FIX_DIR ${CMAKE_CURRENT_BINARY_DIR}/fixtures)
+    endif()
+    find_program(USBMEM_SFDISK sfdisk PATHS /sbin /usr/sbin)
+    if(USBMEM_SFDISK)
+      add_test(NAME partedit_tools COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/../tools/check_partedit_tools.py $<TARGET_FILE:usbmem_partedit_cli>)
     endif()
     add_test(NAME gen_fixtures COMMAND ${Python3_EXECUTABLE} -I
              ${CMAKE_CURRENT_SOURCE_DIR}/../tools/gen_fixtures.py ${FIX_DIR})

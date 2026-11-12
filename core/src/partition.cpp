@@ -2,11 +2,13 @@
 #include "usbmem/partition.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <set>
 
 #include "usbmem/crc32.h"
+#include "usbmem/fs_label.h"
 
 namespace usbmem {
 namespace {
@@ -40,6 +42,16 @@ void fill_extent(Partition& p, const PartitionTable& t) {
   };
   p.start_bytes = mul(p.start_lba);
   p.size_bytes = mul(p.sector_count);
+}
+
+std::string lower(std::string s) {
+  for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  return s;
+}
+std::string mbr_part_uuid(uint32_t sig, uint32_t index) {
+  char b[24];
+  std::snprintf(b, sizeof b, "%08x-%02x", sig, index);
+  return b;
 }
 
 // ------------------------------------------------------------------ GPT
@@ -242,6 +254,7 @@ Status parse_gpt(BlockDevice& dev, PartitionTable& t, bool* present) {
     p.gpt_attributes = le64(e + 48);
     p.name = utf16le_to_utf8(e + 56, 36);
     p.type_name = gpt_type_name(p.type_guid);
+    p.part_uuid = lower(guid_to_string(p.unique_guid));
     if (first > last || last >= t.disk_sectors) {
       diag(t, Severity::Error, "gpt-entry-invalid-range",
            "GPT entry " + std::to_string(i + 1) + " has an invalid or out-of-disk range; skipped");
@@ -267,6 +280,7 @@ void parse_mbr(BlockDevice& dev, PartitionTable& t, const uint8_t* mbr, Status* 
   const uint32_t ss = t.sector_size;
   t.kind = TableKind::Mbr;
   t.mbr_disk_signature = le32(mbr + 440);
+  { char b[16]; std::snprintf(b, sizeof b, "%08x", t.mbr_disk_signature); t.mbr_disk_id = b; }
   uint64_t ext_start = 0, ext_len = 0;
   bool ext_seen = false;
 
@@ -287,6 +301,7 @@ void parse_mbr(BlockDevice& dev, PartitionTable& t, const uint8_t* mbr, Status* 
     p.protective = type == 0xEE;
     p.extended_container = is_extended_type(type);
     p.type_name = mbr_type_name(type);
+    p.part_uuid = mbr_part_uuid(t.mbr_disk_signature, p.index);
     fill_extent(p, t);
     if (start >= t.disk_sectors || count > t.disk_sectors - start)
       diag(t, Severity::Warning, "mbr-partition-exceeds-disk",
@@ -330,6 +345,7 @@ void parse_mbr(BlockDevice& dev, PartitionTable& t, const uint8_t* mbr, Status* 
       p.start_lba = ebr + le32(e0 + 8);  // 64bit なのでオーバーフローしない
       p.sector_count = le32(e0 + 12);
       p.type_name = mbr_type_name(p.mbr_type);
+      p.part_uuid = mbr_part_uuid(t.mbr_disk_signature, p.index);
       fill_extent(p, t);
       if (p.start_lba < ext_start || p.start_lba + p.sector_count > ext_start + ext_len)
         diag(t, Severity::Warning, "logical-outside-extended",
@@ -344,6 +360,19 @@ void parse_mbr(BlockDevice& dev, PartitionTable& t, const uint8_t* mbr, Status* 
     ebr = next;
   }
   diag(t, Severity::Warning, "ebr-too-many", "too many logical partitions; chain truncated");
+}
+
+// FS ラベル / UUID を読む。読めなくても失敗にしない (I/O エラーは呼び出し側へ返すが、構造の不正は無視)。
+Status fill_labels(BlockDevice& dev, Partition& p) {
+  FsLabelInfo li;
+  Status st = read_fs_label(dev, p.start_bytes, p.size_bytes, p.fs, &li);
+  if (!st.ok()) return st;
+  p.fs_label = std::move(li.label);
+  p.fs_uuid = std::move(li.uuid);
+  p.fs_serial = std::move(li.serial);
+  p.fs_guid = std::move(li.guid);
+  p.fs_detected = std::move(li.detected);
+  return Status::Ok();
 }
 
 }  // namespace
@@ -372,14 +401,28 @@ const char* mbr_type_name(uint8_t t) {
     case 0x07: return "NTFS/exFAT/HPFS";
     case 0x0B: case 0x0C: return "FAT32";
     case 0x11: case 0x14: case 0x16: case 0x1B: case 0x1C: case 0x1E: return "Hidden FAT";
+    case 0x12: return "Vendor diagnostic/EISA";
+    case 0x17: return "Hidden NTFS/HPFS";
     case 0x27: return "Windows RE";
+    case 0x42: return "Windows dynamic disk";
     case 0x82: return "Linux swap";
     case 0x83: return "Linux";
+    case 0x81: return "Minix/old Linux";
     case 0x8E: return "Linux LVM";
     case 0xA5: return "FreeBSD";
+    case 0xA6: return "OpenBSD";
+    case 0xA9: return "NetBSD";
+    case 0xAB: return "Apple boot";
     case 0xAF: return "HFS/HFS+";
+    case 0xBE: return "Solaris boot";
+    case 0xBF: return "Solaris";
+    case 0xDA: return "Non-FS data";
+    case 0xDE: return "Dell utility";
+    case 0xEB: return "BeOS BFS";
     case 0xEE: return "GPT protective";
     case 0xEF: return "EFI System";
+    case 0xFB: return "VMware VMFS";
+    case 0xFC: return "VMware swap";
     case 0xFD: return "Linux RAID";
   }
   return "";
@@ -395,13 +438,58 @@ const char* gpt_type_name(const std::array<uint8_t, 16>& raw) {
       {"DE94BBA4-06D1-4D40-A16A-BFD50179D6AC", "Windows recovery"},
       {"5808C8AA-7E8F-42E0-85D2-E1E90434CFB3", "LDM metadata"},
       {"AF9B60A0-1431-4F62-BC68-3311714A69AD", "LDM data"},
+      {"E75CAF8F-F680-4CEE-AFA3-B001E56EFC2D", "Windows storage spaces"},
+      {"37AFFC90-EF7D-4E96-91C3-2D7AE055B174", "IBM GPFS"},
       {"0FC63DAF-8483-4772-8E79-3D69D8477DE4", "Linux filesystem"},
       {"0657FD6D-A4AB-43C4-84E5-0933C84B4F4F", "Linux swap"},
       {"A19D880F-05FC-4D3B-A006-743F0F84911E", "Linux RAID"},
       {"E6D6D379-F507-44C2-A23C-238F2A3DF928", "Linux LVM"},
       {"933AC7E1-2EB4-4F13-B844-0E14E2AEF915", "Linux /home"},
+      {"4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709", "Linux root (x86-64)"},
+      {"B921B045-1DF0-41C3-AF44-4C6F280D3FAE", "Linux root (ARM64)"},
+      {"BC13C2FF-59E6-4262-A352-B275FD6F7172", "Linux extended boot"},
+      {"3B8F8425-20E0-4F3B-907F-1A25A76F98E8", "Linux /srv"},
+      {"7FFEC5C9-2D00-49B7-8941-3EA10A5586B7", "Linux dm-crypt"},
+      {"CA7D7CCB-63ED-4C53-861C-1742536059CC", "Linux LUKS"},
       {"48465300-0000-11AA-AA11-00306543ECAC", "Apple HFS+"},
       {"7C3457EF-0000-11AA-AA11-00306543ECAC", "APFS"},
+      {"55465300-0000-11AA-AA11-00306543ECAC", "Apple UFS"},
+      {"52414944-0000-11AA-AA11-00306543ECAC", "Apple RAID"},
+      {"426F6F74-0000-11AA-AA11-00306543ECAC", "Apple boot"},
+      {"AA11AAA0-0000-11AA-AA11-00306543ECAC", "Apple label"},
+      {"516E7CB4-6ECF-11D6-8FF8-00022D09712B", "FreeBSD data"},
+      {"83BD6B9D-7F41-11DC-BE0B-001560B84F0F", "FreeBSD boot"},
+      {"516E7CB5-6ECF-11D6-8FF8-00022D09712B", "FreeBSD swap"},
+      {"516E7CB6-6ECF-11D6-8FF8-00022D09712B", "FreeBSD UFS"},
+      {"516E7CBA-6ECF-11D6-8FF8-00022D09712B", "FreeBSD ZFS"},
+      {"49F48D32-B10E-11DC-B99B-0019D1879648", "NetBSD swap"},
+      {"49F48D5A-B10E-11DC-B99B-0019D1879648", "NetBSD FFS"},
+      {"2568845D-2332-4675-BC39-8FA5A4748D15", "Android bootloader"},
+      {"114EAFFE-1552-4022-B26E-9B053604CF84", "Android bootloader 2"},
+      {"49A4D17F-93A3-45C1-A0DE-F50B2EBE2599", "Android boot 1"},
+      {"4177C722-9E92-4AAB-8644-43502BFD5506", "Android recovery 1"},
+      {"38F428E6-D326-425D-9140-6E0EA133647C", "Android system 1"},
+      {"BD59408B-4514-490D-BF12-9878D963F378", "Android data"},
+      {"FE3A2A5D-4F32-41A7-B725-ACCC3285A309", "ChromeOS kernel"},
+      {"3CB8E202-3B7E-47DD-8A3C-7FF2A13CFCEC", "ChromeOS rootfs"},
+      {"2E0A753D-9E48-43B0-8337-B15192CB1B5E", "ChromeOS reserved"},
+      {"CAB6E88E-ABF3-4102-A07A-D4BB9BE3C1D3", "ChromeOS firmware"},
+      {"09845860-705F-4BB5-B16C-8A8A099CAF52", "ChromeOS miniOS"},
+      {"3F0F8318-F146-4E6B-8222-C28C8F02E0D5", "ChromeOS hibernate"},
+      {"6A82CB45-1DD2-11B2-99A6-080020736631", "Solaris boot"},
+      {"6A85CF4D-1DD2-11B2-99A6-080020736631", "Solaris root"},
+      {"6A898CC3-1DD2-11B2-99A6-080020736631", "Solaris /usr & Apple ZFS"},
+      {"6A87C46F-1DD2-11B2-99A6-080020736631", "Solaris swap"},
+      {"6A8B642B-1DD2-11B2-99A6-080020736631", "Solaris backup"},
+      {"824CC7A0-36A8-11E3-890A-952519AD3F61", "OpenBSD data"},
+      {"A5A5BF48-3A2D-11E0-97B2-0F3E7D5B44F5", "QNX6 file system"},
+      {"9D275380-40AD-11DB-BF97-000C2911D1B8", "VMware VMFS"},
+      {"9198EFFC-31C0-11DB-8F78-000C2911D1B8", "VMware reserved"},
+      {"2DB519C4-B10F-11DC-B99B-0019D1879648", "VMware kcore dump"},
+      {"A19D880F-05FC-4D3B-A006-743F0F84911E", "Linux RAID"},
+      {"4C616265-6C3F-11DC-BE7E-FF007F8F3E5B", "Ceph OSD"},
+      {"AE0253BE-1167-4007-AC68-43926C14C5DE", "Ceph block"},
+      {"21686148-6449-6E6F-744E-656564454649", "BIOS boot"},
   };
   std::string s = guid_to_string(raw);
   for (auto& t : kTypes)
@@ -489,6 +577,10 @@ Status read_partition_table(BlockDevice& dev, PartitionTable* out, const ParseOp
       p.sector_count = t.disk_sectors;
       fill_extent(p, t);
       p.fs = vbr;
+      if (opt.probe_filesystems && opt.read_labels) {
+        Status ls = fill_labels(dev, p);
+        if (!ls.ok()) return ls;
+      }
       t.partitions.push_back(std::move(p));
       diag(t, Severity::Info, "superfloppy", "no partition table; the whole device is one volume");
       return Status::Ok();
@@ -515,6 +607,10 @@ Status read_partition_table(BlockDevice& dev, PartitionTable* out, const ParseOp
         p.sector_count = t.disk_sectors;
         fill_extent(p, t);
         p.fs = fs;
+        if (opt.probe_filesystems && opt.read_labels) {
+          Status ls = fill_labels(dev, p);
+          if (!ls.ok()) return ls;
+        }
         t.partitions.push_back(std::move(p));
         diag(t, Severity::Info, "superfloppy", "no partition table; the whole device is one volume");
       } else {
@@ -533,6 +629,10 @@ Status read_partition_table(BlockDevice& dev, PartitionTable* out, const ParseOp
       Status io;
       p.fs = probe_filesystem(dev, p.start_bytes, p.size_bytes, &io);
       if (!io.ok()) return io;
+      if (opt.read_labels) {
+        Status ls = fill_labels(dev, p);
+        if (!ls.ok()) return ls;
+      }
     }
   }
   return Status::Ok();
@@ -568,6 +668,7 @@ std::string partition_table_to_json(const PartitionTable& t) {
   o += ",\"sectorSize\":" + std::to_string(t.sector_size);
   o += ",\"diskBytes\":\"" + std::to_string(t.disk_bytes) + "\"";
   o += ",\"diskGuid\":"; json_str(o, t.disk_guid);
+  o += ",\"mbrDiskId\":"; json_str(o, t.mbr_disk_id);
   o += ",\"usedBackupGpt\":"; o += t.used_backup_gpt ? "true" : "false";
   o += ",\"wholeDeviceVolume\":"; o += t.whole_device_volume ? "true" : "false";
   o += ",\"partitions\":[";
@@ -589,6 +690,13 @@ std::string partition_table_to_json(const PartitionTable& t) {
     o += ",\"name\":"; json_str(o, p.name);
     o += ",\"typeName\":"; json_str(o, p.type_name);
     o += ",\"fs\":"; json_str(o, fs_type_name(p.fs));
+    o += ",\"partUuid\":"; json_str(o, p.part_uuid);
+    o += ",\"fsLabel\":"; json_str(o, p.fs_label);
+    o += ",\"fsUuid\":"; json_str(o, p.fs_uuid);
+    o += ",\"fsSerial\":"; json_str(o, p.fs_serial);
+    o += ",\"fsGuid\":"; json_str(o, p.fs_guid);
+    o += ",\"fsDetected\":"; json_str(o, p.fs_detected);
+    o += ",\"gptAttributes\":\"" + std::to_string(p.gpt_attributes) + "\"";
     o += '}';
   }
   o += "],\"diagnostics\":[";

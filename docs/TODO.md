@@ -76,8 +76,9 @@
 
 進行中・近いもの (この順で着手):
 1. [x] (core 実装済み・UI 未接続・実機書き込み未実施。docs/partition-edit.md) **パーティション管理の編集** (4 章): MBR / GPT / EBR の作成・削除・種別変更・名前変更・サイズ/位置変更、新規テーブル作成、パーティションテーブルのバックアップ/復元、GPT の CRC 検証 + バックアップ GPT の検査と修復計画 (読み取りは実装済み)、UUID / ラベル / 種別名の取得 (FS ラベルと UUID を含む)。編集は「計画 → 差分表示 → 確認トークン → 書き込み順序を守って適用 → 読み戻し検証」。マウント中は禁止。独立検証は sfdisk / parted / fdisk。UI は別段階。
-2. [ ] **BlockDevice の拡張** (2 章 P1/P2): NBD クライアント、QCOW2 / VHD / VHDX / VMDK の読み取り (qemu-img / qemu-nbd で検証)、COW オーバーレイ (イメージを書き換えずに書き込み可能にする)。※ NBD はネットワーク権限 (INTERNET) が要る。権限追加は別途明示してから。
-3. [ ] **暗号化ボリューム** (5 章): BlockTransform として BitLocker (読み取り専用: パスワード / 48 桁回復キー。実 Windows で作ったフィクスチャあり: tools/winvhd) → LUKS1 / LUKS2。ライセンス (libbde LGPL-3 / dislocker GPL-2 / cryptsetup) を比較して docs/licenses.md に記録。認証情報はログに出さない。
+2. [x] **BlockDevice の拡張** (2 章 P1/P2): NBD クライアント、QCOW2 / VHD / VHDX / VMDK の読み取り (qemu-img / qemu-nbd で検証)、COW オーバーレイ (イメージを書き換えずに書き込み可能にする)。※ NBD はネットワーク権限 (INTERNET) が要る。権限追加は別途明示してから。
+   → core / C API / JNI / Kotlin 入口まで実装・ホスト検証済み (docs/blockdev-formats.md、docs/nbd.md)。**未了**: UI 統合 (イメージを開く導線・兄弟ファイル選択 `ImageResolver`)、AndroidManifest の INTERNET 権限 (NBD をネットワーク越しに使うとき)、差分 VHDX の実機 (Windows 製) での確認、VHDX ログ再生、QCOW2 の暗号化/zstd、NBD の TLS、AVD での実機相当テスト。
+3. [x] (core 実装済み・UI 未接続) **暗号化ボリューム** (5 章): BlockTransform として BitLocker (読み取り専用: パスワード / 48 桁回復キー。実 Windows で作ったフィクスチャあり: tools/winvhd) → LUKS1 / LUKS2。ライセンス (libbde LGPL-3 / dislocker GPL-2 / cryptsetup) を比較して docs/licenses.md に記録。認証情報はログに出さない。
 4. [ ] **ネスト (ループバック) マウント** (2 章 P2): SAF / 他ボリューム上のイメージファイルを開く。ネイティブ層で親ボリュームのファイルを直接ブロックデバイスにする (SAF の fd 経由はプロバイダ専用スレッドの行き詰まりを起こすため不可)。まず読み取り専用 → 書き込み (内側→外側の順に同期・アンマウント、依存関係の管理)。パーティション表付きイメージも対応。
 5. [ ] **ext4 の書き込み (jbd2)** (3 章): jbd2 を無改変で互換層に載せる、電源断の模擬。ext4 の symlink (`Ext4Volume::readlink`) も未実装 (LinkResolver は ext4 を対象にしているが読めない)。
 6. [ ] **ディスク管理 DiskTools** (6 章): 読み取り専用の整合性検査 (fsck 相当: ext / exFAT / FAT)、フォーマット (mkfs: FAT / exFAT / ext2-4 / NTFS)。NTFS の ntfsfix による自動修復は使わない (要件)。修復は明示承認 + バックアップ推奨。

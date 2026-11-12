@@ -40,6 +40,9 @@ if(USBMEM_NTFS)
   add_subdirectory(compat)
 endif()
 
+find_package(Threads REQUIRED)
+include(blockdev.cmake)  # 画像形式 / オーバーレイ / NBD (zlib 依存)
+
 if(USBMEM_BUILD_TESTS)
   enable_testing()
   add_executable(usbmem_tests tests/test_main.cpp tests/test_devices.cpp tests/test_partition.cpp

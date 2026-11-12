@@ -57,3 +57,6 @@ if(USBMEM_BUILD_TESTS)
     set_tests_properties(fixtures PROPERTIES DEPENDS gen_fixtures)
   endif()
 endif()
+
+# BlockTransform (BitLocker / LUKS)
+include(${CMAKE_CURRENT_LIST_DIR}/transform.cmake)

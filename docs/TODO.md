@@ -90,3 +90,5 @@
 進行中のファイルシステム移植 (別の worktree): FAT/vfat・isofs・udf (統合済み)、squashfs・erofs (検証中)。
 
 ホストに入れてもらうと検証が進むツール: gptfdisk (sgdisk)、cryptsetup、ddrescue、partclone、libbde-tools (bdeinfo / bdemount)、nbdkit。無くても自前の Python / qemu-nbd 等で代替して進めるが、独立検証の強さが落ちる。
+
+暗号化ボリューム (上の項 3) の進捗: BitLocker / LUKS1 / LUKS2 の読み取り専用復号 (core + C API + JNI + Kotlin ラッパ) は実装・検証済み (docs/crypto-volumes.md)。未了: UI (パスワード入力・解錠状態の表示)、Android Keystore 連携 (設計メモのみ)、ARM 実機での速度測定と ARMv8 Crypto Extensions の高速パス、Windows 7/8 実機の diffuser 付きボリュームでの確認、LUKS2 4096 バイトセクタの実カーネル照合。

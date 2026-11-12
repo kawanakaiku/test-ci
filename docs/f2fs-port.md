@@ -86,4 +86,7 @@ ctest は `f2fs_gen_fixture` と `f2fs_gen_kfixture` (カーネルや qemu が�
 
 ## 検証の結果
 
-(ホスト 4 構成と AVD の結果は、実行後にここへ追記する)
+- ホスト 4 構成 (plain = Debug / san = ASan+UBSan / wsan = ASan+UBSan + `USBMEM_NTFS_WRITE` / wrel = Release + `USBMEM_NTFS_WRITE`): ctest `f2fs_*` の 7 テスト (`gen_fixture`、`gen_kfixture`、`read`、`corrupt`、`ioerr`、`fuzz`、`noload`) がすべて通過 (2026-11-12)。read は 15 イメージ、corrupt は 507 ケース、fuzz は全イメージで約 7800 回 (seed 1)。san / wsan でもサニタイザの報告なし。
+- AVD (emulator-5556): `F2fsInstrumentedTest` 10 件通過 (mkfs/sload 系 1、カーネル作成の深いノード木 / 機能なし / dirty / 圧縮 lz4 ×2 (クラスタ 4・16 ブロック) / lzo / lzo-rle / zstd、roll-forward が必要な `k_unclean` が EUCLEAN(117) で拒否され、noload で開けること)。
+- テスト自体の誤りを 1 件直した: `f2fs_corrupt` が、既定のマウントが失敗する `k_unclean` を「正常にマウントできるはず」の前提に含めていた (ctest で `k_unclean` が生成されて初めて表面化)。
+- 実機 USB は未実施 (このリーダーでは実機に触れていない)。

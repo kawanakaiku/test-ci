@@ -360,6 +360,7 @@ static void test_corrupt(const std::string& dir) {
   const uint64_t SB0 = 1024, SB1 = 4096 + 1024;   // スーパーブロックは 2 コピー (ブロック 0 と 1)
   for (auto& name : list_images(dir)) {
     if (name != "plain" && name != "ext" && name.rfind("k_", 0) != 0) continue;
+    if (needs_recovery_image(name)) continue;   // 既定のマウントが EUCLEAN になるイメージは、正常系の前提 (マウント成功) を満たさない: noload の試験が受け持つ
     BlockDevicePtr base = open_img(dir + "/" + name + ".img");
     CHECK(base);
     Geo g = geo_of(base);

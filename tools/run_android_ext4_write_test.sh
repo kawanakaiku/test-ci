@@ -13,7 +13,7 @@ HERE=$(cd "$(dirname "$0")" && pwd); D=${1:-/dev/shm/usbmem_ext4_${USER:-u}}
 ADB=${ADB:-adb}
 for c in e2fsck debugfs fuse2fs fusermount3 python3 dumpe2fs; do command -v $c >/dev/null || { echo "skip: $c missing" >&2; exit 77; }; done
 [ -f "$D/e4_def1k.img" ] || { echo "skip: no fixture $D/e4_def1k.img" >&2; exit 77; }
-W=$(mktemp -d /dev/shm/usbmem_ae4.XXXXXX)
+W=$(mktemp -d "${USBMEM_WORK_DIR:-/dev/shm}"/usbmem_ae4.XXXXXX)
 cleanup() {
   fusermount3 -u "$W/mnt" 2>/dev/null || true; rm -rf "$W"
   $ADB shell rm -f /data/local/tmp/ext4_wr.img /data/local/tmp/ext4_wr_ops.txt /data/local/tmp/ext4_dirty.img /data/local/tmp/ext4_journal.img 2>/dev/null || true

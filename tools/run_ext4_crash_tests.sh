@@ -15,7 +15,7 @@ export PATH="$PATH:/sbin:/usr/sbin"
 T=$1; NS=${2:-12}; BS=${3:-1024}; FEAT=${4:-}
 for c in mke2fs e2fsck fuse2fs fusermount3 python3 cmp dumpe2fs; do command -v $c >/dev/null || { echo "skip: $c missing" >&2; exit 77; }; done
 HERE=$(cd "$(dirname "$0")" && pwd)
-W=$(mktemp -d /dev/shm/usbmem_e4c.XXXXXX)
+W=$(mktemp -d "${USBMEM_WORK_DIR:-/dev/shm}"/usbmem_e4c.XXXXXX)
 cleanup() { for m in "$W"/mnt*; do fusermount3 -u "$m" 2>/dev/null || true; done; rm -rf "$W"; }
 trap cleanup EXIT
 export ASAN_OPTIONS=${ASAN_OPTIONS:-verify_asan_link_order=0:detect_leaks=0}

@@ -10,7 +10,7 @@ case "$ANDROID_SERIAL" in emulator-*) ;; *) echo "refusing: ANDROID_SERIAL must 
 HERE=$(cd "$(dirname "$0")" && pwd); D=${1:-/dev/shm/usbmem_ext2_${USER:-u}}
 for c in e2fsck debugfs fuse2fs fusermount3 python3 adb; do command -v $c >/dev/null || { echo "skip: $c missing" >&2; exit 77; }; done
 [ -f "$D/b1k.img" ] || { echo "skip: no fixture $D/b1k.img" >&2; exit 77; }
-W=$(mktemp -d /dev/shm/usbmem_ae2.XXXXXX)
+W=$(mktemp -d "${USBMEM_WORK_DIR:-/dev/shm}"/usbmem_ae2.XXXXXX)
 cleanup() {
   fusermount3 -u "$W/mnt" 2>/dev/null || true; rm -rf "$W"
   adb shell rm -f /data/local/tmp/ext2_wr.img /data/local/tmp/ext2_wr_ops.txt /data/local/tmp/ext2_dirty.img /data/local/tmp/ext4_empty.img 2>/dev/null || true

@@ -15,7 +15,7 @@ T=$1; D=${2:-/dev/shm/usbmem_ext4_${USER:-u}}; NM=${3:-2}
 for c in mke2fs e2fsck debugfs dumpe2fs fuse2fs fusermount3 python3 cmp; do command -v $c >/dev/null || { echo "skip: $c missing" >&2; exit 77; }; done
 [ -f "$D/e4_def4k.img" ] || { echo "skip: no fixture in $D (tools/gen_ext4_fixture.py)" >&2; exit 77; }
 HERE=$(cd "$(dirname "$0")" && pwd)
-W=$(mktemp -d /dev/shm/usbmem_e4w.XXXXXX)
+W=$(mktemp -d "${USBMEM_WORK_DIR:-/dev/shm}"/usbmem_e4w.XXXXXX)
 cleanup() { for m in "$W"/mnt*; do fusermount3 -u "$m" 2>/dev/null || true; done; rm -rf "$W"; }
 trap cleanup EXIT
 export ASAN_OPTIONS=${ASAN_OPTIONS:-verify_asan_link_order=0:detect_leaks=1}

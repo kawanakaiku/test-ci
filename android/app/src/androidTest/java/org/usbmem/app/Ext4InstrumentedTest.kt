@@ -128,6 +128,29 @@ class Ext4InstrumentedTest {
     @Test fun mountsAndVerifiesExt4GdtCsum4k() = verify("e4_gdtcsum4k")        // uninit_bg (crc16)・メタデータのチェックサムなし
     @Test fun mountsAndVerifiesExt3Journal4k() = verify("e3_4k")               // ext3 (ブロックマップ + クリーンなジャーナル) も ext4 ドライバで読む
     @Test fun refusesNeedsRecovery() = refused("e4_needs_recovery", 117)
+    /** 確認のうえジャーナル未再生を承知で開く: 読み取り専用で開け、journalIgnored が立ち、書き込みは一切できず、イメージは1バイトも変わらない。 */
+    @Test fun opensNeedsRecoveryReadOnlyOnlyWhenAllowed() {
+        val img = File(ctx.cacheDir, "ext4_e4_needs_recovery.img")
+        assumeTrue("fixture not pushed", shellCopy("/data/local/tmp/ext4_e4_needs_recovery.img", img))
+        try {
+            val before = img.readBytes().contentHashCode()
+            // 既定では拒否 (EUCLEAN)
+            try { NtfsVolume.mountReadOnly(ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_ONLY).detachFd()).close(); fail("must be refused by default") }
+            catch (e: NativeException) { assertEquals(117, e.code) }
+            // 許可すれば読み取り専用で開く
+            NtfsVolume.mountReadOnly(ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_ONLY).detachFd(), allowNoload = true).use { vol ->
+                assertEquals("ext4", vol.fsName)
+                assertTrue(vol.journalIgnored)
+                assertFalse(vol.writable)
+                vol.list("/")   // 一覧が取れる (例外にならない)
+                try { vol.create("/", "x", false); fail("write must be refused") } catch (e: NativeException) { assertEquals(30, e.code) }
+            }
+            // 書き込み可の登録簿経由でも、noload は読み取り専用にしかならない
+            val e = VolumeRegistry.addFd("NL", "noload-key", ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_ONLY).detachFd(), writable = false, allowNoload = true)
+            try { assertTrue(e.volume.journalIgnored); assertFalse(e.volume.writable) } finally { VolumeRegistry.remove(ctx, e.id) }
+            assertEquals("image must be unchanged", before, img.readBytes().contentHashCode())
+        } finally { img.delete() }
+    }
     @Test fun refusesEncrypted() = refused("rej_encrypt", 95)
     @Test fun refusesCasefold() = refused("rej_casefold", 95)
     @Test fun refusesVerity() = refused("rej_verity", 95)

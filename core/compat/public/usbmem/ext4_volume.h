@@ -7,7 +7,7 @@ namespace usbmem {
 
 struct Ext4MountOptions {
   // false (既定): ジャーナルの未再生 (needs_recovery) があるボリュームは EUCLEAN で拒否する。
-  // true: ジャーナルを無視 (noload) してマウントする。未再生の更新は反映されないので古い/不整合なデータが見えうる (API 専用。UI からは使わない)。
+  // true: ジャーナルを無視 (noload) してマウントする。未再生の更新は反映されないので古い/不整合なデータが見えうる。アプリはユーザーの明示的な確認の後だけ true にする (読み取り専用のみ)。
   bool allow_noload = false;
 };
 

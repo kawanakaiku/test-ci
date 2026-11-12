@@ -31,12 +31,14 @@ import org.usbmem.app.R
 import org.usbmem.app.formatBytes
 
 /** ディスクイメージ画面の結果。table = パーティション一覧、notice = 結果の通知。 */
-data class ImageResult(val label: String? = null, val table: PartitionTable? = null, val notice: Notice? = null)
+data class ImageResult(val label: String? = null, val table: PartitionTable? = null, val notice: Notice? = null, val noloadUri: Uri? = null)
 
 /** ディスクイメージ画面の操作 (実処理は MainActivity。呼び出しは IO スレッドで行われる)。 */
 interface ImageActions {
     fun loadImage(uri: Uri): ImageResult
     fun shareImage(uri: Uri, writable: Boolean): ImageResult
+    /** ext3/ext4 のジャーナル未再生を承知のうえ (確認後) で、読み取り専用で開く。 */
+    fun shareImageNoload(uri: Uri): ImageResult
 }
 
 @Composable
@@ -72,6 +74,15 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
             }
         }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        result.noloadUri?.let { u ->
+            ConfirmDialog(
+                title = stringResource(R.string.noload_dialog_title),
+                text = stringResource(R.string.noload_dialog_text),
+                confirmLabel = stringResource(R.string.noload_dialog_confirm),
+                onConfirm = { scope.launch { busy = true; result = withContext(Dispatchers.IO) { a.shareImageNoload(u) }; busy = false } },
+                onDismiss = { result = result.copy(noloadUri = null) },
+            )
+        }
         result.notice?.let { Banner(it) }
         result.table?.let { t ->
             SectionCard(stringResource(R.string.common_partitions_title), subtitle = stringResource(R.string.common_partitions_subtitle, result.label ?: "image", t.kind.uppercase(), formatBytes(t.diskBytes), t.sectorSize)) {

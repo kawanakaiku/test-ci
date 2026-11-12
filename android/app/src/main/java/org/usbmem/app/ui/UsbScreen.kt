@@ -31,6 +31,8 @@ interface UsbActions : LinkActions {
     fun openStorageSettings()
     fun openUsb(key: String)
     fun publishPartition(startBytes: Long, sizeBytes: Long, label: String)
+    fun publishPartitionNoload(startBytes: Long, sizeBytes: Long, label: String)
+    fun cancelNoload()
     fun closeUsb()
     fun stopDisk()
     fun resumeDisk()
@@ -159,6 +161,15 @@ fun UsbScreen(m: AppModel, a: UsbActions, modifier: Modifier = Modifier) {
             confirmLabel = stringResource(R.string.usb_full_dialog_confirm),
             onConfirm = { confirmFull = false; a.setWriteMode(WriteMode.Full) },
             onDismiss = { confirmFull = false },
+        )
+    }
+    m.noloadPrompt?.let { p ->
+        ConfirmDialog(
+            title = stringResource(R.string.noload_dialog_title),
+            text = stringResource(R.string.noload_dialog_text),
+            confirmLabel = stringResource(R.string.noload_dialog_confirm),
+            onConfirm = { a.publishPartitionNoload(p.startBytes, p.sizeBytes, p.label) },
+            onDismiss = { a.cancelNoload() },
         )
     }
     if (linkOpen) {

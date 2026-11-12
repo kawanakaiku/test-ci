@@ -13,6 +13,9 @@ data class UsbDeviceRow(val key: String, val title: String, val vidPid: String)
 /** USB を開く前に決める書き込みモード。 */
 enum class WriteMode { ReadOnly, CreateOnly, Full }
 
+/** ext3/ext4 のジャーナル未再生 (EUCLEAN) で拒否したパーティション。ユーザーが確認すれば、読み取り専用で開き直せる。 */
+data class NoloadPrompt(val startBytes: Long, val sizeBytes: Long, val label: String)
+
 data class PublishedVolume(val label: String, val modeText: String, val writable: Boolean, val fullWrite: Boolean = false, val canLink: Boolean = false)
 
 /**
@@ -35,6 +38,7 @@ class AppModel {
     var diskStopped by mutableStateOf(false)                 // ディスクの回転を止めた状態 (再開するまで公開などはできない)
     var busy by mutableStateOf<String?>(null)                // 処理中の説明 (null = なし)
     var usbNotice by mutableStateOf<Notice?>(null)
+    var noloadPrompt by mutableStateOf<NoloadPrompt?>(null)   // 非 null のとき、確認ダイアログを出す
 
     // ---- 診断
     var ops by mutableStateOf("")                            // 送信した SCSI 命令の集計

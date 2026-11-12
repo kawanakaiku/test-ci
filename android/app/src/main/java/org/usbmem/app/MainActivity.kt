@@ -15,6 +15,7 @@ import org.usbmem.app.ui.DiagnosticsActions
 import org.usbmem.app.ui.ImageActions
 import org.usbmem.app.ui.ImageResult
 import org.usbmem.app.ui.Notice
+import org.usbmem.app.ui.NoloadPrompt
 import org.usbmem.app.ui.PublishedVolume
 import org.usbmem.app.ui.Severity
 import org.usbmem.app.ui.UsbActions
@@ -121,21 +122,31 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     }
 
     /** USB 上の NTFS パーティションをマウントして SAF に公開する (開いたセッションが書き込み可なら、新規作成のみ書き込み可)。 */
-    override fun publishPartition(startBytes: Long, sizeBytes: Long, label: String) {
+    override fun publishPartition(startBytes: Long, sizeBytes: Long, label: String) = publishPartition(startBytes, sizeBytes, label, allowNoload = false)
+
+    /** ext3/ext4 のジャーナル未再生を承知のうえで (確認ダイアログの後)、読み取り専用でマウントする。書き込みは常に不可。 */
+    override fun publishPartitionNoload(startBytes: Long, sizeBytes: Long, label: String) { model.noloadPrompt = null; publishPartition(startBytes, sizeBytes, label, allowNoload = true) }
+    override fun cancelNoload() { model.noloadPrompt = null }
+
+    private fun publishPartition(startBytes: Long, sizeBytes: Long, label: String, allowNoload: Boolean) {
         val sess = usbSession ?: return
         model.busy = getString(if (sess.writable) R.string.busy_mounting_write else R.string.busy_mounting_read_only)
         model.usbNotice = null
         Thread {
             var notice: Notice? = null
             var pub: PublishedVolume? = null
+            var pendingNoload: NoloadPrompt? = null
             try {
-                val v = sess.mountNtfs(startBytes, sizeBytes, writable = sess.writable, createOnly = model.writeMode != WriteMode.Full)
+                val v = sess.mountNtfs(startBytes, sizeBytes, writable = sess.writable && !allowNoload, createOnly = model.writeMode != WriteMode.Full, allowNoload = allowNoload)
                 VolumeRegistry.addVolume(label, "usb:" + sess.deviceName, v)
                 notifyRoots()
                 updateOps("after ntfs mount")
                 android.util.Log.i("usbmem", "ntfs mount: sessionWritable=${sess.writable} volumeWritable=${v.writable} createOnly=${v.createOnly}")
                 val roText = getString(R.string.mode_read_only)
-                if (!sess.writable) pub = PublishedVolume(label, roText, false)
+                if (v.journalIgnored) {
+                    pub = PublishedVolume(label, getString(R.string.mode_read_only_journal_ignored), false)
+                    notice = Notice(Severity.Warning, getString(R.string.notice_journal_ignored), getString(R.string.notice_journal_ignored_detail))
+                } else if (!sess.writable) pub = PublishedVolume(label, roText, false)
                 else if (v.writable) pub = PublishedVolume(label, getString(if (v.createOnly) R.string.mode_create_only else R.string.mode_full), true, fullWrite = !v.createOnly, canLink = v.fsName == "ext2")
                 else {
                     pub = PublishedVolume(label, roText, false)
@@ -143,6 +154,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 }
             } catch (e: NativeException) {
                 android.util.Log.w("usbmem", "ntfs mount failed: code=${e.code} ${e.message}")
+                if (e.code == 117 && !allowNoload) pendingNoload = NoloadPrompt(startBytes, sizeBytes, label)   // ジャーナル未再生: 確認すれば読み取り専用で開ける
                 notice = if (fsRefusalNotice(e) != null) fsRefusalNotice(e)!!   // ext3/ext4 の意図的な拒否 (転送設定とは無関係)
                 else if (sess.tuningIndex >= 0) {   // 保存した転送設定が原因かもしれない → 既定に戻す (次の最適化で、その設定以上は試さない)
                     TransferTuning.markFailed(this, sess.vendorId, sess.productId, sess.tuningIndex)
@@ -152,7 +164,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             } catch (e: Exception) {
                 notice = Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.javaClass.simpleName)
             }
-            ui { model.busy = null; model.published = pub; model.usbNotice = notice }
+            ui { model.busy = null; model.published = pub; model.usbNotice = notice; model.noloadPrompt = pendingNoload }
         }.start()
     }
 
@@ -388,16 +400,20 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     }
 
     /** NTFS イメージをマウントし、SAF プロバイダ経由でファイルマネージャ等へ公開する。 */
-    override fun shareImage(uri: Uri, writable: Boolean): ImageResult = try {
+    override fun shareImageNoload(uri: Uri): ImageResult = shareImage(uri, writable = false, allowNoload = true)
+    override fun shareImage(uri: Uri, writable: Boolean): ImageResult = shareImage(uri, writable, allowNoload = false)
+
+    private fun shareImage(uri: Uri, writable: Boolean, allowNoload: Boolean): ImageResult = try {
         val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or (if (writable) android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
         try { contentResolver.takePersistableUriPermission(uri, flags) } catch (_: SecurityException) { }
-        val e = VolumeRegistry.addUri(this, uri, writable)
+        val e = VolumeRegistry.addUri(this, uri, writable && !allowNoload, allowNoload)
         notifyRoots()
-        if (!writable) ImageResult(notice = Notice(Severity.Success, getString(R.string.notice_image_shared_read_only, e.label), getString(R.string.notice_image_shared_read_only_detail)))
+        if (e.volume.journalIgnored) ImageResult(notice = Notice(Severity.Warning, getString(R.string.notice_journal_ignored), getString(R.string.notice_journal_ignored_detail)))
+        else if (!writable) ImageResult(notice = Notice(Severity.Success, getString(R.string.notice_image_shared_read_only, e.label), getString(R.string.notice_image_shared_read_only_detail)))
         else if (e.volume.writable) ImageResult(notice = Notice(Severity.Warning, getString(R.string.notice_image_shared_write, e.label), getString(R.string.notice_image_shared_write_detail)))
         else ImageResult(notice = Notice(Severity.Warning, getString(R.string.notice_image_shared_fallback, e.label), getString(R.string.notice_image_shared_fallback_detail)))
     } catch (e: NativeException) {
-        ImageResult(notice = fsRefusalNotice(e) ?: Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.message))
+        ImageResult(notice = fsRefusalNotice(e) ?: Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.message), noloadUri = if (e.code == 117 && !allowNoload) uri else null)
     } catch (e: Exception) {
         ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.javaClass.simpleName))
     }

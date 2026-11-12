@@ -27,9 +27,9 @@ object VolumeRegistry {
 
     /** SAF で選ばれたイメージを読み取り専用でマウントして登録する。 */
     @Synchronized
-    fun addUri(ctx: Context, uri: Uri, writable: Boolean = false): Entry {
+    fun addUri(ctx: Context, uri: Uri, writable: Boolean = false, allowNoload: Boolean = false): Entry {
         restore(ctx)
-        val e = mountUri(ctx, uri, writable)
+        val e = mountUri(ctx, uri, writable, allowNoload)
         // 再起動後の復元は常に読み取り専用 (書き込みは起動のたびに明示的に許可させる)
         prefs(ctx).edit().putStringSet("uris", (savedUris(ctx) + uri.toString()).toSet()).apply()
         return e
@@ -37,10 +37,10 @@ object VolumeRegistry {
 
     /** テスト・内部用: 既にある fd(所有権を渡す)を登録する。永続化しない。 */
     @Synchronized
-    fun addFd(label: String, key: String, detachedFd: Int, writable: Boolean = false, createOnly: Boolean = false): Entry {
+    fun addFd(label: String, key: String, detachedFd: Int, writable: Boolean = false, createOnly: Boolean = false, allowNoload: Boolean = false): Entry {
         val id = idOf(key)
         volumes.remove(id)?.volume?.close()
-        val e = Entry(id, label, if (writable) NtfsVolume.mountReadWrite(detachedFd, createOnly) else NtfsVolume.mountReadOnly(detachedFd))
+        val e = Entry(id, label, if (writable) NtfsVolume.mountReadWrite(detachedFd, createOnly) else NtfsVolume.mountReadOnly(detachedFd, allowNoload))
         volumes[id] = e
         return e
     }
@@ -61,11 +61,11 @@ object VolumeRegistry {
         volumes.remove(id)?.volume?.close()
     }
 
-    private fun mountUri(ctx: Context, uri: Uri, writable: Boolean = false): Entry {
+    private fun mountUri(ctx: Context, uri: Uri, writable: Boolean = false, allowNoload: Boolean = false): Entry {
         val pfd: ParcelFileDescriptor = ctx.contentResolver.openFileDescriptor(uri, if (writable) "rw" else "r")
             ?: throw java.io.FileNotFoundException(uri.toString())
         val label = uri.lastPathSegment?.substringAfterLast('/') ?: "NTFS"
-        return addFd(label, uri.toString(), pfd.detachFd(), writable)
+        return addFd(label, uri.toString(), pfd.detachFd(), writable, allowNoload = allowNoload)
     }
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

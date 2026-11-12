@@ -73,6 +73,12 @@
     <string name="diag_hint_need_open">USB を開くと実行できます。</string>
     <string name="diag_hint_published">マウント中は実行できません。一度閉じてください。</string>
     <string name="diag_hint_busy">処理が終わるまでお待ちください。</string>
+    <string name="noload_dialog_title">読み取り専用で開きますか？</string>
+    <string name="noload_dialog_text">このボリュームには、まだ反映されていない更新 (ext3 / ext4 のジャーナル) が残っています。書き込み中に取り外された可能性があります。\n\nジャーナルを再生せずに、読み取り専用で開くことはできますが、古い内容が見えたり、一部のファイルやフォルダが欠けたり壊れて見えたりすることがあります。大事なデータは、先にコピーして保存し、あとで PC や Linux 機器で fsck を実行してください。\n\n何も書き込みません。</string>
+    <string name="noload_dialog_confirm">読み取り専用で開く</string>
+    <string name="mode_read_only_journal_ignored">読み取り専用 (ジャーナル未再生)</string>
+    <string name="notice_journal_ignored">ジャーナルを再生せずに開いています</string>
+    <string name="notice_journal_ignored_detail">内容が古い、または一部が欠けている可能性があります。何も書き込まれません。大事なデータは先にコピーし、PC や Linux 機器で fsck (e2fsck) を実行してください。</string>
     <string name="link_button">リンクを作る…</string>
     <string name="link_title">リンクを作る</string>
     <string name="link_kind_symlink">シンボリックリンク</string>

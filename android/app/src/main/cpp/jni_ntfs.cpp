@@ -28,7 +28,7 @@ struct Vol { std::unique_ptr<usbmem::FsVolume> v; };
 
 // dev 全体のファイルシステムを判別してマウントする。exFAT / ext2 / ext3 / ext4 / FAT12・16・32 と判別できたときだけそれぞれ(FAT は読み取り専用で)マウントする。それ以外は従来どおり NTFS として試す
 // (壊れた NTFS のブート領域でも、NTFS ドライバ側の検査・復旧の挙動を変えないため)。失敗時 nullptr と正の errno。
-std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, bool rw, int* err) {
+std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, bool rw, int* err, bool allow_noload = false) {
   usbmem::FsType t = usbmem::probe_filesystem(*dev, 0, dev->size());
   if (t == usbmem::FsType::Exfat) {
     // rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。汚れた (VolumeDirty) / MediaFailure のボリュームは
@@ -43,7 +43,9 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
   if (t == usbmem::FsType::Ext3 || t == usbmem::FsType::Ext4) {
     // ext3 / ext4 は fs/ext4 で読み取り専用。ジャーナルは再生しない: 未再生 (needs_recovery) のボリュームは EUCLEAN(117) で拒否、
     // 暗号化 / casefold / fs-verity などは EOPNOTSUPP(95)。書き込みは未対応 (rw を要求されても読み取り専用)。NTFS として試さない
-    return usbmem::Ext4Volume::mount(dev, err);
+    // allow_noload は、ユーザーが「ジャーナルが未再生で内容が古い/欠けている可能性がある」ことを確認したうえで、読み取り専用で開く場合だけ true
+    usbmem::Ext4MountOptions o4; o4.allow_noload = allow_noload;
+    return usbmem::Ext4Volume::mount(dev, err, o4);
   }
   if (t == usbmem::FsType::Fat12 || t == usbmem::FsType::Fat16 || t == usbmem::FsType::Fat32) {
     // FAT12/16/32 (vfat の長い名前を含む) は fs/fat で読み取り専用。書き込みは未対応 (rw を要求されても読み取り専用)。NTFS として試さない。
@@ -112,6 +114,17 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMount(JNIEnv*
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
 }
 
+// ext3/ext4 のジャーナル未再生 (EUCLEAN) を承知で、読み取り専用で開く (ジャーナルは再生しない。内容が古い/欠けている可能性)。fd の所有権を引き取る。ext4 以外は nativeNtfsMount と同じ
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountNoload(JNIEnv*, jclass, jint fd) {
+  usbmem::BlockDevicePtr dev;
+  usbmem::Status st = usbmem::RawImageDevice::open_fd(fd, true, true, 512, &dev);
+  if (!st.ok()) return -22;
+  int err = 0;
+  auto v = mount_auto(dev, false, &err, true);
+  if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
+  return reinterpret_cast<jlong>(new Vol{std::move(v)});
+}
+
 // 書き込み可能でマウント (実験的。ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS)。fd の所有権を引き取る。戻り値: >0 ハンドル / <=0 = -errno
 JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountRw(JNIEnv*, jclass, jint fd) {
   usbmem::BlockDevicePtr dev;
@@ -142,6 +155,20 @@ static void log_mount_stats(const char* what, const usbmem::BlockDevicePtr& ra, 
                         (unsigned long long)reads, (unsigned long long)(bytes >> 20), (long long)(ns / 1000000), ns ? (double)bytes / ((double)ns / 1e9) / 1e6 : 0.0, total - (long long)(ns / 1000000));
   else
     __android_log_print(ANDROID_LOG_INFO, "usbmem", "%s %s: total %ld ms", what, ok ? "ok" : "FAILED", total);
+}
+
+// nativeNtfsMountDevice のジャーナル未再生を承知で開く版 (上の nativeNtfsMountNoload と同じ意味)
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDeviceNoload(JNIEnv*, jclass, jlong devHandle, jlong offset, jlong length) {
+  auto* d = reinterpret_cast<usbmem_device*>(devHandle);
+  if (!d || offset < 0 || length <= 0) return -22;
+  usbmem::BlockDevicePtr sub;
+  usbmem::Status st = usbmem::SubRangeDevice::create(d->dev, static_cast<uint64_t>(offset), static_cast<uint64_t>(length), true, &sub);
+  if (!st.ok()) return -22;
+  int err = 0;
+  auto ra = usbmem::ReadAheadDevice::wrap(sub);
+  auto v = mount_auto(ra, false, &err, true);
+  if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
+  return reinterpret_cast<jlong>(new Vol{std::move(v)});
 }
 
 // 既に開いているデバイス (USB 等) の [offset, offset+length) を NTFS として読み取り専用マウント。ハンドルは消費しない

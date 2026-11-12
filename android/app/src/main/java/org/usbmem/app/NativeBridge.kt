@@ -22,6 +22,8 @@ object NativeBridge {
     @JvmStatic external fun nativeClose(handle: Long)
     @JvmStatic external fun nativeErrcName(code: Int): String
     @JvmStatic external fun nativeNtfsMount(fd: Int): Long
+    @JvmStatic external fun nativeNtfsMountNoload(fd: Int): Long
+    @JvmStatic external fun nativeNtfsMountDeviceNoload(devHandle: Long, offset: Long, length: Long): Long
     @JvmStatic external fun nativeNtfsUnmount(handle: Long)
     @JvmStatic external fun nativeNtfsList(handle: Long, path: ByteArray, errorOut: IntArray): ByteArray?
     @JvmStatic external fun nativeNtfsStat(handle: Long, path: ByteArray, errorOut: IntArray): ByteArray?
@@ -100,6 +102,8 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
     private val createdHere = HashSet<String>()
     /** マウントしたファイルシステム ("ntfs" / "exfat" / "ext2" / "ext4" / "fat" / "iso9660" / "udf"。ext3 も ext4 ドライバなので "ext4"。FAT12/16/32 は "fat")。 */
     val fsName: String = String(NativeBridge.nativeFsName(handle), Charsets.UTF_8)
+    /** ext3/ext4 のジャーナルが未再生のまま (再生せず) 読み取り専用で開いている。内容が古い/欠けている可能性がある。 */
+    @Volatile var journalIgnored: Boolean = false
     private fun bytes(p: String) = p.toByteArray(Charsets.UTF_8)
     private fun norm(path: String) = "/" + path.split('/').filter { it.isNotEmpty() }.joinToString("/")
     /** このセッションで作成したパスか (createOnly の書き込み許可の判定に使う)。 */
@@ -215,10 +219,10 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
 
     companion object {
         /** 開いているデバイス(USB 等)の一区間を NTFS として読み取り専用マウント。デバイスの close より先にこの volume を close すること。 */
-        fun mountDeviceRange(deviceHandle: Long, offset: Long, length: Long): NtfsVolume {
-            val h = NativeBridge.nativeNtfsMountDevice(deviceHandle, offset, length)
+        fun mountDeviceRange(deviceHandle: Long, offset: Long, length: Long, allowNoload: Boolean = false): NtfsVolume {
+            val h = if (allowNoload) NativeBridge.nativeNtfsMountDeviceNoload(deviceHandle, offset, length) else NativeBridge.nativeNtfsMountDevice(deviceHandle, offset, length)
             if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs mount failed: errno ${-h}")
-            return NtfsVolume(h)
+            return NtfsVolume(h).also { it.journalIgnored = allowNoload && it.fsName == "ext4" }
         }
 
         /** USB 等の開いているデバイスの一区間を書き込み可能で試みる (実験的)。デバイスも書き込み可能で開いていること。[writable] は実際に書き込み可能なときだけ true。 */
@@ -235,10 +239,10 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
             return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly)
         }
 
-        fun mountReadOnly(detachedFd: Int): NtfsVolume {
-            val h = NativeBridge.nativeNtfsMount(detachedFd)
+        fun mountReadOnly(detachedFd: Int, allowNoload: Boolean = false): NtfsVolume {
+            val h = if (allowNoload) NativeBridge.nativeNtfsMountNoload(detachedFd) else NativeBridge.nativeNtfsMount(detachedFd)
             if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs mount failed: errno ${-h}")
-            return NtfsVolume(h)
+            return NtfsVolume(h).also { it.journalIgnored = allowNoload && it.fsName == "ext4" }
         }
     }
 }

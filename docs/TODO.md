@@ -70,3 +70,23 @@
 - [ ] 次: squashfs/erofs (進行中)、ntfs3 (NTFS の第二のバックエンドとして選択可能に)。見積もり (tools/fs_compat_probe.py): ntfs3 は 33k 行で iomap/folio 前提 (gcc エラー 618 件)。
 - [x] ISO 9660 (fs/isofs: レベル 1〜3 / Joliet / Rock Ridge・relocation・シンボリックリンク。zisofs は EOPNOTSUPP で拒否) と UDF (fs/udf: 1.02〜2.01・Sparable・疎/断片化/ハードリンク/シンボリックリンク・ISO+UDF ブリッジは UDF 優先で開けなければ ISO) を読み取り専用で追加。docs/isofs-port.md / docs/udf-port.md。ホスト4構成 + AVD 通過、実機未確認。
 - [ ] UDF の VAT / Metadata パーティション: 上流は読むが、ファイルの入った盤のフィクスチャを作れず未検証 (空の UDF 2.50 VAT のみ)。ISO: zisofs の展開・4 GiB 超・マルチセッション・実機の光学ドライブ。
+
+## 開発要件書ロードマップ (2026-11-12 追加。順番は私 (Claude) に一任。要件書の章番号を併記)
+並列に進められるものは worktree 付きの fork で同時に進める。各項目は「ホスト (PC) テスト → AVD → 実機は最後」。破壊的操作は必ず確認ダイアログ + 事前バックアップ。
+
+進行中・近いもの (この順で着手):
+1. [ ] **パーティション管理の編集** (4 章): MBR / GPT / EBR の作成・削除・種別変更・名前変更・サイズ/位置変更、新規テーブル作成、パーティションテーブルのバックアップ/復元、GPT の CRC 検証 + バックアップ GPT の検査と修復計画 (読み取りは実装済み)、UUID / ラベル / 種別名の取得 (FS ラベルと UUID を含む)。編集は「計画 → 差分表示 → 確認トークン → 書き込み順序を守って適用 → 読み戻し検証」。マウント中は禁止。独立検証は sfdisk / parted / fdisk。UI は別段階。
+2. [ ] **BlockDevice の拡張** (2 章 P1/P2): NBD クライアント、QCOW2 / VHD / VHDX / VMDK の読み取り (qemu-img / qemu-nbd で検証)、COW オーバーレイ (イメージを書き換えずに書き込み可能にする)。※ NBD はネットワーク権限 (INTERNET) が要る。権限追加は別途明示してから。
+3. [ ] **暗号化ボリューム** (5 章): BlockTransform として BitLocker (読み取り専用: パスワード / 48 桁回復キー。実 Windows で作ったフィクスチャあり: tools/winvhd) → LUKS1 / LUKS2。ライセンス (libbde LGPL-3 / dislocker GPL-2 / cryptsetup) を比較して docs/licenses.md に記録。認証情報はログに出さない。
+4. [ ] **ネスト (ループバック) マウント** (2 章 P2): SAF / 他ボリューム上のイメージファイルを開く。ネイティブ層で親ボリュームのファイルを直接ブロックデバイスにする (SAF の fd 経由はプロバイダ専用スレッドの行き詰まりを起こすため不可)。まず読み取り専用 → 書き込み (内側→外側の順に同期・アンマウント、依存関係の管理)。パーティション表付きイメージも対応。
+5. [ ] **ext4 の書き込み (jbd2)** (3 章): jbd2 を無改変で互換層に載せる、電源断の模擬。ext4 の symlink (`Ext4Volume::readlink`) も未実装 (LinkResolver は ext4 を対象にしているが読めない)。
+6. [ ] **ディスク管理 DiskTools** (6 章): 読み取り専用の整合性検査 (fsck 相当: ext / exFAT / FAT)、フォーマット (mkfs: FAT / exFAT / ext2-4 / NTFS)。NTFS の ntfsfix による自動修復は使わない (要件)。修復は明示承認 + バックアップ推奨。
+7. [ ] **データ復旧 RecoveryEngine** (7 章): ddrescue 相当のレスキューコピー (mapfile 互換、再開、読み取り専用ソース)、TestDisk 相当のパーティション探索・ブートセクタ検査・ファイル救出、PhotoRec 相当のシグネチャ復元。
+8. [ ] **バックアップ・クローン BackupEngine** (8 章): Partclone 方式 (使用ブロックのみ、検証、復元、コピー元/先の取り違え防止、進捗・再開)。
+9. [ ] **UI の統合** (11 章): デバイス一覧のパーティション構成グラフィカル表示、暗号化状態、検査/フォーマット/パーティション編集/バックアップ/救出の導線 (破壊的操作と読み取り専用の明確な区別)。
+10. [ ] **公開準備** (13 章): GPL・依存ライセンス監査 (docs/licenses.md の更新)、ソース公開手順、16KB ページサイズ (実機/エミュレータで確認)、targetSdk 最新要件、プライバシーポリシーとデータセーフティ、exFAT 特許、Play ポリシー再確認。
+11. [ ] **P2 以降**: SMB (9 章、libsmbclient / SMBJ)、ntfs3 (第二の NTFS バックエンド)、Btrfs / XFS / F2FS、UASP、QEMU 仮想 USB の AVD 接続実測 (14 章)。
+
+進行中のファイルシステム移植 (別の worktree): FAT/vfat・isofs・udf (統合済み)、squashfs・erofs (検証中)。
+
+ホストに入れてもらうと検証が進むツール: gptfdisk (sgdisk)、cryptsetup、ddrescue、partclone、libbde-tools (bdeinfo / bdemount)、nbdkit。無くても自前の Python / qemu-nbd 等で代替して進めるが、独立検証の強さが落ちる。

@@ -148,7 +148,6 @@ static inline int folio_test_dirty(const struct folio *f) { return (f->flags >> 
 static inline loff_t readahead_pos(const struct readahead_control *r) { (void)r; return 0; }
 static inline size_t readahead_length(const struct readahead_control *r) { (void)r; return 0; }
 int iomap_bmap(struct address_space *, sector_t, const void *ops);
-int iomap_truncate_page(struct inode *, loff_t pos, bool *did_zero, const void *ops, const void *wops, void *private);
 int __sync_dirty_buffer(struct buffer_head *bh, blk_opf_t op);
 static inline void write_dirty_buffer(struct buffer_head *bh, blk_opf_t op) { (void)bh; (void)op; }
 static inline void wait_on_buffer(struct buffer_head *bh) { (void)bh; }

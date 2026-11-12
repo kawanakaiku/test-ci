@@ -321,6 +321,7 @@ void iomap_readahead(iomap_iter_next_fn, struct iomap_read_folio_ctx *, void *pr
 bool iomap_dirty_folio(struct address_space *, struct folio *);
 ssize_t iomap_file_buffered_write(struct kiocb *, struct iov_iter *, iomap_iter_next_fn, const struct iomap_write_ops *, void *);
 int iomap_zero_range(struct inode *, loff_t, loff_t, bool *, iomap_iter_next_fn, const struct iomap_write_ops *, void *);
+int iomap_truncate_page(struct inode *, loff_t pos, bool *did_zero, iomap_iter_next_fn, const struct iomap_write_ops *, void *);
 vm_fault_t iomap_page_mkwrite(struct vm_fault *, iomap_iter_next_fn, void *);
 int iomap_fiemap(struct inode *, struct fiemap_extent_info *, u64, u64, iomap_iter_next_fn);
 loff_t iomap_seek_hole(struct inode *, loff_t, iomap_iter_next_fn);

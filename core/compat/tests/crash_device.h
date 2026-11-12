@@ -2,6 +2,8 @@
 // 電源断の模擬デバイス (test_ntfs.cpp の CrashDevice と同じ実装)。tools/run_ext2_crash_tests.sh が使う。
 #pragma once
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <random>
 #include <vector>
@@ -28,6 +30,7 @@ class CrashDevice : public usbmem::BlockDevice {
     if (dead_) return usbmem::Status::Ok();
     if (limit_ >= 0 && count_ >= limit_) { die(off, buf, len); return usbmem::Status::Ok(); }
     count_++;
+    if (std::getenv("USBMEM_WRITE_LOG")) std::fprintf(stderr, "W%ld off=0x%llx len=%zu\n", count_, (unsigned long long)off, len);
     if (cache_) { pend_.push_back({off, std::vector<uint8_t>((const uint8_t*)buf, (const uint8_t*)buf + len)}); return usbmem::Status::Ok(); }
     return p_->write_at(off, buf, len, o);
   }

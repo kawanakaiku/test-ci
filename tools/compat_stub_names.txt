@@ -34,7 +34,6 @@ mnt_want_write_file
 notify_change
 put_write_access
 rw_verify_area
-simple_rename_timestamp
 strndup_user
 super_set_uuid
 vma_desc_test_all

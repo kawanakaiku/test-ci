@@ -66,9 +66,6 @@ unsigned int iunique(struct super_block *sb, unsigned int max_reserved) {
 }
 struct usbmem_timezone sys_tz;
 int iomap_bmap(struct address_space *m, sector_t block, const void *ops) { (void)m; (void)block; (void)ops; usbmem_unimplemented("iomap_bmap"); return 0; }
-int iomap_truncate_page(struct inode *i, loff_t pos, bool *dz, const void *ops, const void *wops, void *priv) {
-  (void)i; (void)pos; (void)dz; (void)ops; (void)wops; (void)priv; usbmem_unimplemented("iomap_truncate_page"); return -ENOSYS;
-}
 
 /* UTF-8 を 1 文字 (UTF-32) に復号する。戻り値: 消費したバイト数 / 不正は -1。カーネルの nls_base.c と同じ範囲 (過長符号・サロゲートは不正)。 */
 int utf8_to_utf32(const u8 *s, int len, unicode_t *pu) {

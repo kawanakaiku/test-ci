@@ -54,7 +54,8 @@
 ## 他のファイルシステム (LinuxCompat に載せる)
 - [x] exFAT (fs/exfat 無改変) 読み取り専用: ホスト 4 構成のテスト、AVD (x86_64) と F-51A (arm64) の計装テスト (3 イメージ・314 ファイルをバイト一致)。アプリは USB パーティションの FS を判別して NTFS / exFAT を自動で切り替える (exFAT は書き込み許可スイッチが ON でも読み取り専用でマウント)。docs/exfat-port.md 参照。
 - [ ] exFAT の実機 USB ディスクでの確認 (数 TiB のボリュームの mount 時間: exfat_load_bitmap が全ビットマップを読む)。
-- [ ] exFAT の書き込み: bd_mapping の writeback、ダーティフラグ (VolumeFlags) の先行確定、クラッシュテスト (NTFS と同じ方針) が必要。それまで読み取り専用。
+- [x] exFAT の書き込み (fs/exfat 無改変、実験的・`USBMEM_NTFS_WRITE` ビルドのみ): VolumeDirty の先行確定、確保系/解放系の同期順序、電源断の模擬 (突然変異テストで検出力を確認)、fsck.exfat + exfat-fuse での独立検証、AVD。docs/exfat-write.md。
+- [ ] exFAT の書き込み: 実機 USB での確認 (flush の効き方)、UI の書き込み許可スイッチ (親側)、ビットマップ走査の差分化、確保系/解放系が混在する rename の電源断検証。
 - [ ] ピン表 (ino → inode) の上限 / LRU (巨大ディレクトリでメモリが増える)。
 - [x] ext2 (読み取り専用、docs/ext2-port.md。ホスト4構成+AVD通過、実機未確認) / [x] ext3・ext4 (読み取り専用・ジャーナル非再生、needs_recovery は既定で拒否。docs/ext4-port.md。ホスト4構成+AVD通過、実機未確認)
 - [ ] ext4: 実機 USB での確認、書き込み(ジャーナル実装が必要)、ACL/xattr の公開、ブロックサイズ 8K 以上。
@@ -63,5 +64,5 @@
 - [x] リンク: DocumentsProvider はボリューム内でシンボリックリンクを辿って見せる (`LinkResolver.kt`: 絶対パスはボリュームのルート基準、".." はルートで止める、辿りは 40 回まで、祖先/自分を指すディレクトリリンク・壊れたリンク・循環はリンク先の文字列を中身とする小さなファイルとして見せる、削除/名前変更はリンク自身、再帰削除はリンクを辿らない)。アプリ内の「リンクを作る…」ダイアログ (ext2 のシンボリック/ハード。ハードは「すべて許可」のみ)。AVD の `LinkProviderTest` で検証。実機未確認。
 - [x] 書き込み自己診断 (診断タブ。「すべて許可」でマウント中のみ。専用の一時フォルダだけを使い、全部消す)。AVD で検証。**実機の RAID ではまだ実行していない (ユーザーが任意のタイミングで実行する)**。
 - [ ] NTFS のリパースポイント (シンボリックリンク/ジャンクション) の表示は未対応。
-- [ ] exFAT / ext4 の書き込みは ext2 の書き込み基盤の上に載せる (exFAT: VolumeFlags 先行確定 + FAT チェーン順序、ext4: jbd2 の移植が必要)。
+- [ ] ext4 の書き込みは ext2 の書き込み基盤の上に載せる (jbd2 の移植が必要。exFAT は完了: docs/exfat-write.md)。
 - [ ] 次: fat/vfat、isofs、squashfs/erofs、udf、ntfs3 (NTFS の第二のバックエンドとして選択可能に)。見積もり (tools/fs_compat_probe.py): ntfs3 は 33k 行で iomap/folio 前提 (gcc エラー 618 件)。

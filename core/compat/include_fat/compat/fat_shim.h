@@ -85,10 +85,10 @@ static inline struct timespec64 usbmem_fat_set_ctime(struct inode *i, time64_t s
 int cont_write_begin(const void *iocb, struct address_space *mapping, loff_t pos, unsigned len, struct folio **foliop, void **fsdata, void *get_block, loff_t *bytes);
 
 /* ---- mount オプションの定義 (解析はしない。fs_parse は -ENOPARAM) */
-/* fs/fat は get_bh で bh の参照を増やし、brelse を複数回呼ぶ (fat_free_clusters など)。rt_bh.c の b_refs で数える */
+/* fs/fat は get_bh で bh の参照を増やし、brelse を複数回呼ぶ (fat_free_clusters など)。rt_bh.c の b_count で数える */
 #undef get_bh
 #undef put_bh
-#define get_bh(bh) do { (bh)->b_refs++; } while (0)
+#define get_bh(bh) do { (bh)->b_count++; } while (0)
 #define put_bh(bh) brelse(bh)
 #define fsparam_bool(n, o) { n, 0, o }
 #define fs_param_is_enum 0

@@ -129,12 +129,15 @@ struct inode {
   char *i_link;          /* 高速シンボリックリンクのターゲット (ext2 は i_data を指す) */
   dev_t i_rdev;
 };
+struct dentry;
+struct usbmem_dentry_op_view { int (*d_compare)(const struct dentry *, unsigned int, const char *, const struct qstr *); };
 struct dentry {
   struct qstr d_name;
   struct inode *d_inode;
   struct dentry *d_parent;
   struct super_block *d_sb;
   void *d_fsdata;
+  const struct usbmem_dentry_op_view *d_op;   /* 常に NULL (fs/isofs の namei.c が d_op->d_compare を呼ぶ形で参照する) */
 };
 struct super_block {
   struct { int frozen; } s_writers;

@@ -17,6 +17,7 @@ struct address_space_operations {
   int (*write_begin)();
   int (*write_end)();
   void *writepages;
+  void *direct_IO;   /* fs/udf */
 };
 struct dentry_operations {
   void *d_compare;

@@ -17,6 +17,8 @@
 #include "usbmem/fat_c.h"
 #include "usbmem/fat_volume.h"
 #include "usbmem/fs_probe.h"
+#include "usbmem/isofs_volume.h"
+#include "usbmem/udf_volume.h"
 #include "usbmem/ntfs_volume.h"
 
 namespace {
@@ -48,6 +50,18 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     struct tm lt;
     if (localtime_r(&now, &lt)) usbmem_fat_set_timezone(static_cast<int>(-lt.tm_gmtoff / 60));
     return usbmem::FatVolume::mount(dev, err);
+  }
+  if (t == usbmem::FsType::Udf || t == usbmem::FsType::Iso9660) {
+    // 光学メディア (読み取り専用)。ISO 9660 + UDF のブリッジ盤は UDF を優先し、UDF として開けなければ (対応外のパーティションなど) ISO 9660 にフォールバックする。docs/isofs-port.md / docs/udf-port.md
+    if (t == usbmem::FsType::Udf) {
+      int uerr = 0;
+      if (auto u = usbmem::UdfVolume::mount(dev, &uerr)) return u;
+      if (err) *err = uerr;
+    }
+    int ierr = 0;
+    if (auto i = usbmem::IsofsVolume::mount(dev, &ierr)) return i;
+    if (err && t == usbmem::FsType::Iso9660) *err = ierr;
+    return nullptr;
   }
   return rw ? usbmem::NtfsVolume::mount_rw(dev, err) : usbmem::NtfsVolume::mount(dev, err);
 }

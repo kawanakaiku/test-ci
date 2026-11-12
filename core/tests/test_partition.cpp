@@ -332,6 +332,37 @@ TEST(iso9660_whole_device) {
   CHECK(t.whole_device_fs == FsType::Iso9660);
 }
 
+TEST(udf_whole_device_and_bridge) {
+  // UDF: BEA01 / NSR02 / TEA01 (UDF 単独)
+  Bytes img(40 * 2048, 0);
+  std::memcpy(&img[0x8001], "BEA01", 5);
+  std::memcpy(&img[0x8000 + 2048 + 1], "NSR02", 5);
+  std::memcpy(&img[0x8000 + 2 * 2048 + 1], "TEA01", 5);
+  PartitionTable t;
+  CHECK(parse(img, &t, 2048).ok());
+  CHECK(t.whole_device_volume && t.whole_device_fs == FsType::Udf);
+  // ISO 9660 + UDF のブリッジ (CD001 の後ろに BEA01 / NSR02 / TEA01): UDF を優先して報告する (マウント側は UDF を試し、だめなら ISO 9660)
+  Bytes br(40 * 2048, 0);
+  br[0x8000] = 1; std::memcpy(&br[0x8001], "CD001", 5);
+  br[0x8000 + 2048] = 255; std::memcpy(&br[0x8000 + 2048 + 1], "CD001", 5);
+  std::memcpy(&br[0x8000 + 2 * 2048 + 1], "BEA01", 5);
+  std::memcpy(&br[0x8000 + 3 * 2048 + 1], "NSR02", 5);
+  std::memcpy(&br[0x8000 + 4 * 2048 + 1], "TEA01", 5);
+  CHECK(parse(br, &t, 2048).ok());
+  CHECK(t.whole_device_volume && t.whole_device_fs == FsType::Udf);
+  // isohybrid 風: 先頭に MBR (0x55AA) があり、パーティション 1 が LBA 0 から始まる → パーティション内の ISO 9660 を判別する
+  Bytes hy(128 * 512, 0);
+  hy[0x8000] = 1; std::memcpy(&hy[0x8001], "CD001", 5);
+  hy[510] = 0x55; hy[511] = 0xAA;
+  uint8_t* e = &hy[446];
+  e[0] = 0x80; e[4] = 0x17; e[8] = 0; e[9] = 0; e[10] = 0; e[11] = 0;   // start LBA 0
+  e[12] = 100; e[13] = 0; e[14] = 0; e[15] = 0;                          // 100 セクタ
+  CHECK(parse(hy, &t).ok());
+  bool found = false;
+  for (auto& p : t.partitions) if (p.fs == FsType::Iso9660) found = true;
+  CHECK(found);
+}
+
 TEST(io_errors_are_propagated) {
   for (int n = 0; n < 6; n++) {
     auto mem = std::make_shared<MemoryDevice>(simple_gpt(), true);

@@ -23,8 +23,9 @@
 #include "usbmem/squashfs_volume.h"
 #include "usbmem/erofs_volume.h"
 
+#include "jni_vol.h"
+
 namespace {
-struct Vol { std::unique_ptr<usbmem::FsVolume> v; };
 
 // dev 全体のファイルシステムを判別してマウントする。exFAT / ext2 / ext3 / ext4 / FAT12・16・32 と判別できたときだけそれぞれ(FAT は読み取り専用で)マウントする。それ以外は従来どおり NTFS として試す
 // (壊れた NTFS のブート領域でも、NTFS ドライバ側の検査・復旧の挙動を変えないため)。失敗時 nullptr と正の errno。
@@ -168,7 +169,7 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDeviceNo
   auto ra = usbmem::ReadAheadDevice::wrap(sub);
   auto v = mount_auto(ra, false, &err, true);
   if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
-  return reinterpret_cast<jlong>(new Vol{std::move(v)});
+  return reinterpret_cast<jlong>(new Vol{std::move(v), d->lineage});
 }
 
 // 既に開いているデバイス (USB 等) の [offset, offset+length) を NTFS として読み取り専用マウント。ハンドルは消費しない
@@ -185,7 +186,7 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDevice(J
   auto v = mount_auto(ra, false, &err);
   log_mount_stats("mount", ra, t0, v != nullptr);
   if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
-  return reinterpret_cast<jlong>(new Vol{std::move(v)});
+  return reinterpret_cast<jlong>(new Vol{std::move(v), d->lineage});
 }
 
 // 開いているデバイスの一区間を書き込み可能で NTFS マウント (実験的。ビルドで無効なら -EROFS)。デバイス自体も read_only=false で開かれていること。
@@ -201,7 +202,7 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDeviceRw
   auto v = mount_auto(ra, true, &err);
   log_mount_stats("mount_rw", ra, t0, v != nullptr);
   if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
-  return reinterpret_cast<jlong>(new Vol{std::move(v)});
+  return reinterpret_cast<jlong>(new Vol{std::move(v), d->lineage});
 }
 
 JNIEXPORT void JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsUnmount(JNIEnv*, jclass, jlong h) {

@@ -44,6 +44,9 @@ object NativeBridge {
     @JvmStatic external fun nativeFsReadlink(handle: Long, path: ByteArray, err: IntArray): ByteArray?
     @JvmStatic external fun nativeFsSymlink(handle: Long, parent: ByteArray, name: ByteArray, target: ByteArray): Long
     @JvmStatic external fun nativeFsLink(handle: Long, parent: ByteArray, name: ByteArray, existing: ByteArray): Long
+    // ネスト (ループバック) マウント: ボリューム内のファイルを読み取り専用のデバイスとして開く (戻り値は nativeListPartitions / nativeNtfsMountDevice / nativeClose に渡せるデバイスハンドル)
+    @JvmStatic external fun nativeNestedOpen(volHandle: Long, path: ByteArray): Long
+    @JvmStatic external fun nativeNestedDepth(volHandle: Long): Int
 }
 
 /**
@@ -113,10 +116,34 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
     private fun denyIfCreateOnly(op: String) { if (createOnly) throw NativeException(1, "$op is not allowed in create-only mode") }
     private fun ok(op: String, r: Long): Long { if (r < 0) throw NativeException((-r).toInt(), "$op failed: errno ${-r}"); return r }
 
+    // ---- ネスト (ループバック): このボリューム内のイメージファイルを、子ボリュームがマウントして読んでいる間は書き換え・削除・移動を拒否する (EBUSY)
+    private val pinned = HashMap<String, Int>()
+    @Synchronized fun pin(path: String) { val p = norm(path); pinned[p] = (pinned[p] ?: 0) + 1 }
+    @Synchronized fun unpin(path: String) { val p = norm(path); val n = (pinned[p] ?: 0) - 1; if (n > 0) pinned[p] = n else pinned.remove(p) }
+    /** path (subtree = true ならその配下も) がマウント中のイメージなら EBUSY(16)。 */
+    private fun busyCheck(path: String, subtree: Boolean) {
+        if (pinned.isEmpty()) return
+        val p = norm(path)
+        val under = if (p == "/") "/" else "$p/"
+        for (q in pinned.keys) if (q == p || (subtree && q.startsWith(under))) throw NativeException(16, "'$path' is in use as a mounted disk image")
+    }
+    /** このボリュームのネスト段数 (USB / SAF のイメージ = 0、その中のイメージ = 1、…)。 */
+    @Synchronized
+    fun nestDepth(): Int { check(Handle.valid(handle)) { "closed" }; return NativeBridge.nativeNestedDepth(handle) }
+    /** このボリューム内の path のファイルを、読み取り専用のデバイス (ループバック) として開く。段数の上限や循環は NativeException(ELOOP=40)。閉じる順は、その上のボリューム → [NestedImage] → このボリューム。 */
+    @Synchronized
+    fun openImage(path: String): NestedImage {
+        check(Handle.valid(handle)) { "closed" }
+        val h = NativeBridge.nativeNestedOpen(handle, bytes(path))
+        if (Handle.isError(h)) throw NativeException((-h).toInt(), "open image '$path' failed: errno ${-h}")
+        return NestedImage(h)
+    }
+
     /** path のファイルへ書く (範囲が EOF を超えれば拡張)。書けたバイト数。 */
     @Synchronized
     fun write(path: String, offset: Long, buf: ByteArray, len: Int = buf.size): Int {
         checkWritable()
+        busyCheck(path, false)
         if (createOnly && !isCreatedHere(path)) throw NativeException(1, "write to an existing file is not allowed in create-only mode: '$path'")
         return ok("write '$path'", NativeBridge.nativeNtfsWrite(handle, bytes(path), offset, buf, len)).toInt()
     }
@@ -130,11 +157,11 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
         return ino
     }
     @Synchronized
-    fun remove(path: String) { checkWritable(); denyIfCreateOnly("remove"); ok("remove '$path'", NativeBridge.nativeNtfsRemove(handle, bytes(path))); sync() }
+    fun remove(path: String) { checkWritable(); denyIfCreateOnly("remove"); busyCheck(path, true); ok("remove '$path'", NativeBridge.nativeNtfsRemove(handle, bytes(path))); sync() }
     /** ディレクトリなら中身ごと削除する (SAF の deleteDocument の約束)。子から順に消し、最後に 1 回だけ sync する。途中で失敗しても、そこまでの削除は整合した状態。 */
     @Synchronized
     fun removeTree(path: String) {
-        checkWritable(); denyIfCreateOnly("remove")
+        checkWritable(); denyIfCreateOnly("remove"); busyCheck(path, true)
         fun rec(p: String, depth: Int) {
             if (depth > 64) throw NativeException(40, "directory nesting too deep: '$p'")
             if (stat(p).isDir) for (c in list(p)) rec(norm("$p/${c.name}"), depth + 1)
@@ -145,13 +172,13 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
     /** path を newParent の下へ newName で移動する (別ディレクトリへも可)。 */
     @Synchronized
     fun move(path: String, newParent: String, newName: String) {
-        checkWritable(); denyIfCreateOnly("move")
+        checkWritable(); denyIfCreateOnly("move"); busyCheck(path, true); busyCheck(norm("$newParent/$newName"), true)
         ok("move '$path'", NativeBridge.nativeNtfsMove(handle, bytes(path), bytes(newParent), bytes(newName))); sync()
     }
     @Synchronized
-    fun rename(path: String, newName: String) { checkWritable(); denyIfCreateOnly("rename"); ok("rename '$path'", NativeBridge.nativeNtfsRename(handle, bytes(path), bytes(newName))); sync() }
+    fun rename(path: String, newName: String) { checkWritable(); denyIfCreateOnly("rename"); busyCheck(path, true); busyCheck(norm(path.substringBeforeLast('/', "") + "/" + newName), true); ok("rename '$path'", NativeBridge.nativeNtfsRename(handle, bytes(path), bytes(newName))); sync() }
     @Synchronized
-    fun truncate(path: String, size: Long) { checkWritable(); denyIfCreateOnly("truncate"); ok("truncate '$path'", NativeBridge.nativeNtfsTruncate(handle, bytes(path), size)) }
+    fun truncate(path: String, size: Long) { checkWritable(); denyIfCreateOnly("truncate"); busyCheck(path, false); ok("truncate '$path'", NativeBridge.nativeNtfsTruncate(handle, bytes(path), size)) }
     /** シンボリックリンクのリンク先 (読み取り専用でも可)。ext2 以外は errno 95。 */
     @Synchronized
     fun readlink(path: String): String {

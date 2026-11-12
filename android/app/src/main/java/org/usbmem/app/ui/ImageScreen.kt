@@ -34,7 +34,7 @@ import org.usbmem.app.formatBytes
 data class ImageResult(val label: String? = null, val table: PartitionTable? = null, val notice: Notice? = null, val noloadUri: Uri? = null)
 
 /** ディスクイメージ画面の操作 (実処理は MainActivity。呼び出しは IO スレッドで行われる)。 */
-interface ImageActions {
+interface ImageActions : NestedActions {
     fun loadImage(uri: Uri): ImageResult
     fun shareImage(uri: Uri, writable: Boolean): ImageResult
     /** ext3/ext4 のジャーナル未再生を承知のうえ (確認後) で、読み取り専用で開く。 */
@@ -73,6 +73,7 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
                 Text(stringResource(if (allowWrite) R.string.image_share_write else R.string.image_share_read_only))
             }
         }
+        NestedMountSection(a)   // マウント済みのボリュームの中のイメージを、読み取り専用でマウント (ネスト / ループバック)
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         result.noloadUri?.let { u ->
             ConfirmDialog(

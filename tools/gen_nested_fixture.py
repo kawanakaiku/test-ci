@@ -16,7 +16,7 @@
 作成には mke2fs / mkfs.fat + mcopy / mkntfs + ntfscp / mkfs.exfat / sgdisk / sfdisk を使う (Linux の FS ドライバや FUSE は使わない)。
 必要なツールが無ければ終了コード 77 (CTest で SKIP)。
 """
-import os, shutil, subprocess, sys, tempfile
+import hashlib, os, shutil, subprocess, sys, tempfile
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "/dev/shm/usbmem_nested_%s" % os.environ.get("USER", "u")
 os.environ["PATH"] = os.environ.get("PATH", "") + ":/sbin:/usr/sbin"
@@ -66,6 +66,18 @@ def build_tree(root, seed, flat=False):
     if not flat:
         put("dir/sub/deep.txt", b"deep %d\n" % seed)
         put("dir/other.bin", pattern(seed + 9, 33333))
+
+
+MANIFEST = []   # (イメージ名, ツリー内パス, サイズ, sha256): AVD のテストが、マウントした中身をこの表と突き合わせる
+
+
+def record(image, tree):
+    for dirpath, _, files in sorted(os.walk(tree)):
+        for f in sorted(files):
+            full = os.path.join(dirpath, f)
+            rel = "/" + os.path.relpath(full, tree).replace(os.sep, "/")
+            data = open(full, "rb").read()
+            MANIFEST.append((image, rel, len(data), hashlib.sha256(data).hexdigest()))
 
 
 def mk_ext(img, size, kind, tree, label):
@@ -156,23 +168,23 @@ def main():
         t = lambda n, seed, flat=False: (build_tree(os.path.join(td, n), seed, flat), os.path.join(td, n))[1]
         J = lambda n: os.path.join(OUT, n)
         # ---- 子
-        mk_ext(J("c_ext2.img"), 3 * MIB, "ext2", t("t_ext2", 1), "c_ext2")
-        mk_ext(J("c_ext4.img"), 6 * MIB, "ext4", t("t_ext4", 2), "c_ext4")
-        mk_fat(J("c_fat.img"), 3 * MIB, t("t_fat", 3), "C_FAT")
-        mk_ntfs(J("c_ntfs.img"), 6 * MIB, t("t_ntfs", 4, flat=True), "c_ntfs")
+        mk_ext(J("c_ext2.img"), 3 * MIB, "ext2", t("t_ext2", 1), "c_ext2"); record("c_ext2.img", os.path.join(td, "t_ext2"))
+        mk_ext(J("c_ext4.img"), 6 * MIB, "ext4", t("t_ext4", 2), "c_ext4"); record("c_ext4.img", os.path.join(td, "t_ext4"))
+        mk_fat(J("c_fat.img"), 3 * MIB, t("t_fat", 3), "C_FAT"); record("c_fat.img", os.path.join(td, "t_fat"))
+        mk_ntfs(J("c_ntfs.img"), 6 * MIB, t("t_ntfs", 4, flat=True), "c_ntfs"); record("c_ntfs.img", os.path.join(td, "t_ntfs"))
         mk_gpt(J("c_gpt.img"), J("c_ext2.img"), J("c_fat.img"))
         mk_mbr(J("c_mbr.img"), J("c_ext2.img"), J("c_fat.img"))
         truncate(J("c_empty.img"), 1 * MIB)
         # ---- 鎖 l4 ⊂ l3 ⊂ l2 ⊂ l1
         shutil.copyfile(J("c_ext2.img"), J("l4.img"))
         d3 = os.path.join(td, "chain3"); os.makedirs(d3); shutil.copyfile(J("l4.img"), os.path.join(d3, "l4.img"))
-        mk_fat(J("l3.img"), 6 * MIB, d3, "L3")
+        mk_fat(J("l3.img"), 6 * MIB, d3, "L3"); record("l3.img", d3)
         d2 = os.path.join(td, "chain2"); os.makedirs(d2); shutil.copyfile(J("l3.img"), os.path.join(d2, "l3.img"))
         build_tree(os.path.join(d2, "doc"), 20)
-        mk_ext(J("l2.img"), 10 * MIB, "ext2", d2, "l2")
+        mk_ext(J("l2.img"), 10 * MIB, "ext2", d2, "l2"); record("l2.img", d2)
         d1 = os.path.join(td, "chain1"); os.makedirs(d1); shutil.copyfile(J("l2.img"), os.path.join(d1, "l2.img"))
         build_tree(os.path.join(d1, "doc"), 10)
-        mk_ext(J("l1.img"), 16 * MIB, "ext4", d1, "l1")
+        mk_ext(J("l1.img"), 16 * MIB, "ext4", d1, "l1"); record("l1.img", d1)
         # ---- 親
         with open(J("tiny.img"), "wb") as f:
             f.write(pattern(77, 100))   # 512 バイト未満 = ディスクイメージとして小さすぎる (拒否されること)
@@ -201,6 +213,22 @@ def main():
         run("mkntfs", "-F", "-Q", "-q", "-L", "p_ntfs", J("p_ntfs.img"))
         for k in kids:
             run("ntfscp", "-f", "-q", J("p_ntfs.img"), J(k), "/" + k)
+        # ---- AVD 用の小さな親 (ext4 48 MiB): AVD に送る量を抑える。子の元ファイルは不要 (中身は nested.manifest と突き合わせる)
+        ta = os.path.join(td, "parent_avd"); os.makedirs(os.path.join(ta, "imgs"))
+        for k in ["c_ext2.img", "c_fat.img", "c_ntfs.img", "c_gpt.img", "c_mbr.img", "c_empty.img", "tiny.img", "l1.img"]:
+            shutil.copyfile(J(k), os.path.join(ta, "imgs", k))
+        truncate(J("p_avd.img"), 48 * MIB)
+        run("mke2fs", "-q", "-t", "ext4", "-b", "4096", "-I", "256", "-O", feats, "-L", "p_avd", "-d", ta, J("p_avd.img"))
+        run("e2fsck", "-fn", J("p_avd.img"))
+        # 書き込み可で開く親 (ext2 24 MiB): 子がマウント中は親のそのファイルを書き換えられないこと (EBUSY) の確認用
+        tr = os.path.join(td, "parent_rw"); os.makedirs(os.path.join(tr, "imgs"))
+        shutil.copyfile(J("c_ext2.img"), os.path.join(tr, "imgs", "c_ext2.img"))
+        truncate(J("p_avd_rw.img"), 24 * MIB)
+        run("mke2fs", "-q", "-t", "ext2", "-b", "4096", "-L", "p_avd_rw", "-d", tr, J("p_avd_rw.img"))
+        run("e2fsck", "-fn", J("p_avd_rw.img"))
+    with open(J("nested.manifest"), "w", encoding="utf-8") as f:
+        for row in MANIFEST:
+            f.write("F\t%s\t%s\t%d\t%s\n" % row)
     for n in sorted(os.listdir(OUT)):
         print("%-14s %d" % (n, os.path.getsize(os.path.join(OUT, n))))
 

@@ -126,6 +126,7 @@ static void inode_init_always(struct super_block *sb, struct inode *inode) {
   pthread_rwlock_init(&inode->i_rwsem.l, NULL);
   pthread_rwlock_init(&inode->i_data.invalidate_lock.l, NULL);
   INIT_LIST_HEAD(&inode->i_data.private_list);
+  INIT_LIST_HEAD(&inode->i_io_list);   /* ext4 の evict が「空」であることを確かめる */
 }
 void inode_init_once(struct inode *inode) { memset(inode, 0, sizeof *inode); }
 
@@ -298,7 +299,13 @@ void usbmem_compat_umount(struct super_block *sb) {
   free(sb);
   usbmem_rcu_flush();
 }
-void __mark_inode_dirty(struct inode *i, int f) { i->i_state |= (unsigned long)(f & I_DIRTY_ALL); }
+/* カーネルと同じく、inode 自体が dirty になるときは ->dirty_inode を呼ぶ (ext4 だけが持つ: ジャーナルのハンドル内で inode を記録する。
+ * これが無いと mtime や所有者の変更がジャーナルに載らず失われる)。他の FS は dirty_inode を持たないので挙動は変わらない。 */
+void __mark_inode_dirty(struct inode *i, int f) {
+  if ((f & (I_DIRTY_SYNC | I_DIRTY_DATASYNC)) && i->i_sb && i->i_sb->s_op && i->i_sb->s_op->dirty_inode)
+    ((void (*)(struct inode *, int))i->i_sb->s_op->dirty_inode)(i, f & (I_DIRTY_SYNC | I_DIRTY_DATASYNC));
+  i->i_state |= (unsigned long)(f & I_DIRTY_ALL);
+}
 void mark_inode_dirty(struct inode *i) { __mark_inode_dirty(i, I_DIRTY_SYNC | I_DIRTY_DATASYNC); }
 void mark_inode_dirty_sync(struct inode *i) { __mark_inode_dirty(i, I_DIRTY_SYNC); }
 /* inode 1 個の書き出し: write_inode (メタデータ) → ページ。 */
@@ -337,6 +344,7 @@ static struct inode **snapshot_inodes(struct super_block *sb, size_t *np) {
   pthread_mutex_unlock(&g_inode_lock);
   *np = n; return list;
 }
+struct inode **usbmem_snapshot_inodes_(struct super_block *sb, size_t *np) { return snapshot_inodes(sb, np); }   /* 参照付き (呼び出し側が iput と free) */
 /* buffer_head 系 FS (ext2) の同期。書く順序を段階に分け、各段階の間でデバイスを flush する (順序を保証しない USB キャッシュでも成り立つように):
  *   1. 通常ファイル・シンボリックリンクのデータ   (新しく確保したブロックにしか書かないので、ここで途切れても既存の内容は壊れない)
  *   2. inode (write_inode: inode テーブルのバッファを更新) とメタデータ (ビットマップ・グループ記述子・間接ブロック) の bd 書き戻し
@@ -538,15 +546,18 @@ bool queue_work(struct workqueue_struct *w, struct work_struct *work) {
   pthread_mutex_unlock(&g_work_mu);
   return true;
 }
+/* ext4 の jbd2 (src/rt_jbd2.c): 待ちに入ったとき、このスレッドのジャーナルのコミット要求を処理する。ext4 を含まないリンクでは NULL */
+extern void usbmem_jbd2_poll_current(void) __attribute__((weak));
 void usbmem_compat_run_deferred_work(void) {
   for (;;) {
     pthread_mutex_lock(&g_work_mu);
     struct work_struct *work = g_work_head;
     if (work) { g_work_head = work->dnext_; work->dnext_ = NULL; work->pending_ = 0; }
     pthread_mutex_unlock(&g_work_mu);
-    if (!work) return;
+    if (!work) break;
     if (work->func) work->func(work);
   }
+  if (usbmem_jbd2_poll_current) usbmem_jbd2_poll_current();
 }
 bool cancel_work_sync(struct work_struct *work) {
   bool was = false;

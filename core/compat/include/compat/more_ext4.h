@@ -38,7 +38,9 @@ typedef s64 ktime_t;
 typedef unsigned long long llong_ext4_t;
 
 struct llist_head { struct llist_node *first; };
+#ifndef USBMEM_KBH
 struct timer_list { int dummy_; };
+#endif
 struct delayed_work { struct work_struct work; };
 typedef long long qsize_t;
 struct percpu_rw_semaphore { struct rw_semaphore rw_; };
@@ -69,18 +71,32 @@ extern unsigned long usbmem_jiffies(void);
 #define time_after_eq(a, b) ((long)((a) - (b)) >= 0)
 #define time_before_eq(a, b) time_after_eq(b, a)
 #define time_before32(a, b) ((int)((a) - (b)) < 0)
+#ifndef USBMEM_KBH
 #define timer_setup(t, fn, flags) do { (void)(t); } while (0)
+#endif
 #define timer_container_of(var, t, member) container_of(t, __typeof__(*(var)), member)
+#ifndef USBMEM_KBH
 static inline int mod_timer(struct timer_list *t, unsigned long e) { (void)t; (void)e; return 0; }
+#endif
+#ifndef USBMEM_KBH
 static inline int timer_delete_sync(struct timer_list *t) { (void)t; return 0; }
+#endif
+#ifndef USBMEM_KBH
 static inline int timer_shutdown_sync(struct timer_list *t) { (void)t; return 0; }
+#endif
 #define to_delayed_work(w) container_of(w, struct delayed_work, work)
 static inline bool schedule_work(struct work_struct *w) { (void)w; return false; }
 static inline bool schedule_delayed_work(struct delayed_work *w, unsigned long d) { (void)w; (void)d; return false; }
+#ifndef USBMEM_KBH
 #define schedule_timeout_interruptible(t) (0)
+#endif
 #define might_sleep() do { } while (0)
+#ifndef USBMEM_KBH
 #define try_to_freeze() (0)
+#endif
+#ifndef USBMEM_KBH
 #define set_freezable() do { } while (0)
+#endif
 #define _RET_IP_ ((unsigned long)__builtin_return_address(0))
 #define KERN_CONT ""
 #define printk_once(...) printk(__VA_ARGS__)
@@ -129,14 +145,26 @@ typedef struct mempool { int dummy_; } mempool_t;
 
 /* ---- バッファ・ブロック */
 #define BUFFER_TRACE(bh, info) do { } while (0)
+#ifndef USBMEM_KBH
 #define get_bh(bh) do { (void)(bh); } while (0)
+#endif
+#ifndef USBMEM_KBH
 #define put_bh(bh) do { (void)(bh); } while (0)
+#endif
+#ifndef USBMEM_KBH
 #define bh2jh(bh) ((struct journal_head *)NULL)
+#endif
 struct io_context { int ioprio; };
+#ifndef USBMEM_KBH
 #define is_journal_aborted(j) (1)
+#endif
 #define MBE_REUSABLE_B 0
+#ifndef USBMEM_KBH
 #define set_blocksize(bdev, size) (0)
+#endif
+#ifndef USBMEM_KBH
 #define sb_find_get_block(sb, blk) ((struct buffer_head *)NULL)
+#endif
 #define sb_any_quota_suspended(sb) (0)
 #define sb_start_intwrite_trylock(sb) (1)
 #define super_set_sysfs_name_bdev(sb) do { } while (0)
@@ -177,7 +205,7 @@ struct fiemap_extent_info { unsigned int fi_flags; unsigned int fi_extents_mappe
 #define FALLOC_FL_WRITE_ZEROES 0x80
 #define PAGECACHE_TAG_DIRTY 0
 #define PAGECACHE_TAG_TOWRITE 2
-#define FGP_ACCESSED 0x1
+#define FGP_ACCESSED 0x100   /* 印だけ (FGP_LOCK=1 と重ねない) */
 #define IOMAP_DAX 0
 #define IOMAP_ATOMIC 0
 struct seq_operations { void *(*start)(struct seq_file *, loff_t *); void (*stop)(struct seq_file *, void *); void *(*next)(struct seq_file *, void *, loff_t *); int (*show)(struct seq_file *, void *); };
@@ -197,9 +225,15 @@ typedef u32 projid_t;
 #define ktime_get_ns() ((u64)0)
 #define ktime_sub(a, b) ((a) - (b))
 #define ktime_to_ns(k) ((s64)(k))
+#ifndef USBMEM_KBH
 #define kthread_run(fn, data, fmt, ...) ((struct task_struct *)ERR_PTR(-ENOSYS))
+#endif
+#ifndef USBMEM_KBH
 #define kthread_stop(t) (0)
+#endif
+#ifndef USBMEM_KBH
 #define kthread_should_stop() (1)
+#endif
 #define kobject_put(k) do { } while (0)
 static inline char *kmemdup_nul(const char *s, size_t n, gfp_t g) { char *p = kmalloc(n + 1, g); if (p) { memcpy(p, s, n); p[n] = 0; } return p; }
 #define kmem_cache_zalloc(c, f) kmem_cache_alloc((c), (f) | __GFP_ZERO)
@@ -216,12 +250,18 @@ static inline int list_empty_careful(const struct list_head *h) { return h->next
 #define write_trylock(l) (1)
 #define down_write_trylock(s) (pthread_rwlock_trywrlock(&(s)->l) == 0)
 #define inode_trylock_shared(i) (1)
+#ifndef USBMEM_KBH
 #define wait_on_bit(w, b, m) (0)
+#endif
+#ifndef USBMEM_KBH
 #define test_and_clear_wake_up_bit(b, w) (0)
+#endif
 #define flush_workqueue(w) do { } while (0)
 #define flush_delayed_work(w) do { } while (0)
 #define percpu_counter_initialized(c) (1)
+#ifndef USBMEM_KBH
 #define folio_wait_stable(f) do { } while (0)
+#endif
 #define folio_clear_dirty_for_io(f) (0)
 #define folio_clear_checked(f) do { } while (0)
 #define folio_set_mappedtodisk(f) do { } while (0)
@@ -231,7 +271,9 @@ static inline int list_empty_careful(const struct list_head *h) { return h->next
 #define folio_end_read(f, ok) do { if (ok) folio_mark_uptodate(f); folio_unlock(f); } while (0)
 #define folio_zero_range(f, o, l) memset((char *)(f)->data + (o), 0, (l))
 #define folio_zero_tail(f, o, kaddr) ((void *)(kaddr))
+#ifndef USBMEM_KBH
 #define folio_zero_new_buffers(f, from, to) do { } while (0)
+#endif
 #define unmap_mapping_pages(m, s, n, e) do { } while (0)
 #define filemap_flush(m) (0)
 #define filemap_flush_range(m, s, e) (0)
@@ -241,16 +283,26 @@ static inline int list_empty_careful(const struct list_head *h) { return h->next
 #define mapping_gfp_constraint(m, g) (g)
 #define mapping_set_folio_order_range(m, a, b) do { } while (0)
 #define mapping_min_folio_nrbytes(m) ((size_t)PAGE_SIZE)
+#ifndef USBMEM_KBH
 #define filemap_get_folio(m, i) ((struct folio *)ERR_PTR(-ENOENT))
+#endif
 #define filemap_get_folios(m, s, e, fb) (0)
 #define filemap_get_folios_tag(m, s, e, t, fb) (0)
 #define tag_pages_for_writeback(m, s, e) do { } while (0)
 #define wbc_to_tag(w) (0)
+#ifndef USBMEM_KBH
 #define write_begin_get_folio(k, m, i, l) ((struct folio *)ERR_PTR(-ENOSYS))
+#endif
 #define try_to_writeback_inodes_sb(sb, r) do { } while (0)
+#ifndef USBMEM_KBH
 #define try_to_free_buffers(f) (0)
+#endif
+#ifndef USBMEM_KBH
 #define block_commit_write(f, from, to) (0)
+#endif
+#ifndef USBMEM_KBH
 #define invalidate_bdev(b) do { } while (0)
+#endif
 #define inode_io_list_del(i) do { } while (0)
 #define inode_is_dirtytime_only(i) (0)
 #define inode_is_open_for_write(i) (0)
@@ -291,12 +343,22 @@ static inline int list_empty_careful(const struct list_head *h) { return h->next
 #define xattr_prefix(h) ((h)->prefix)
 #define xattr_handler_can_list(h, d) (1)
 #define vma_desc_set_flags(d, ...) do { } while (0)
+#ifndef USBMEM_KBH
 #define getblk_unmovable(bdev, blk, size) __getblk((bdev), (blk), (size))
+#endif
+#ifndef USBMEM_KBH
 #define sb_getblk_gfp(sb, blk, gfp) __getblk((sb)->s_bdev, (blk), (sb)->s_blocksize)
+#endif
+#ifndef USBMEM_KBH
 #define sb_issue_zeroout(sb, b, n, g) (-EIO)
+#endif
+#ifndef USBMEM_KBH
 #define bh_uptodate_or_lock(bh) (1)
+#endif
 #define mmb_has_buffers(m) (0)
+#ifndef USBMEM_KBH
 #define folio_buffers(f) ((struct buffer_head *)NULL)
+#endif
 struct kmem_cache_args { unsigned int align, useroffset, usersize, freeptr_offset; bool use_freeptr_offset; void (*ctor)(void *); };
 static inline struct kmem_cache *kmem_cache_create4(const char *name, size_t size, const struct kmem_cache_args *a, unsigned long flags) { return kmem_cache_create5(name, size, a ? a->align : 0, flags, a ? a->ctor : NULL); }
 #define USBMEM_KMC_SEL(_1, _2, _3, _4, _5, NAME, ...) NAME
@@ -316,7 +378,9 @@ u16 usbmem_crc16(u16 crc, const void *p, size_t len);
 #define bdev_atomic_write_unit_min_bytes(b) (0)
 #define bdev_atomic_write_unit_max_bytes(b) (0)
 #define bdev_dma_alignment(b) (511)
+#ifndef USBMEM_KBH
 #define bdev_getblk(bdev, blk, size, gfp) __getblk((bdev), (blk), (size))
+#endif
 #define sb_end_write(sb) do { } while (0)
 #define sb_start_write_trylock(sb) (1)
 void bh_submit(struct buffer_head *bh, blk_opf_t op, bio_end_io_t end_io);
@@ -333,7 +397,9 @@ void bh_end_write(struct bio *bio);
 #define d_invalidate(d) do { } while (0)
 #define cache_no_acl(i) do { } while (0)
 #define __iget(i) ihold(i)
+#ifndef USBMEM_KBH
 #define block_page_mkwrite(...) (-ENOSYS)
+#endif
 #define INIT_DELAYED_WORK(w, fn) do { (w)->work.func = (fn); } while (0)
 #define alloc_workqueue_dummy 0
 #define WQ_MEM_RECLAIM 0
@@ -368,8 +434,12 @@ void bh_end_write(struct bio *bio);
 #define XATTR_HURD_PREFIX_LEN 4
 #define XATTR_SECURITY_PREFIX "security."
 #define XATTR_SECURITY_PREFIX_LEN 9
+#ifndef USBMEM_KBH
 #define set_buffer_mapped(bh) ((bh)->b_state |= 1UL << BH_Mapped)
+#endif
+#ifndef USBMEM_KBH
 #define clear_buffer_dirty(bh) ((bh)->b_state &= ~(1UL << BH_Dirty))
+#endif
 #define mb_cache_entry_wait_unused(e) do { } while (0)
 
 
@@ -381,7 +451,7 @@ void bh_end_write(struct bio *bio);
 #define DEFAULT_RATELIMIT_INTERVAL (5 * HZ)
 #define DEFAULT_RATELIMIT_BURST 10
 #define ___ratelimit(rs, func) __ratelimit(rs)
-struct seq_file { void *private; };
+struct seq_file { void *private; struct file *file; };
 #define SEQ_START_TOKEN ((void *)1)
 #define QSTR_INIT(n, l) { .name = (const unsigned char *)(n), .len = (l) }
 #define file_check_and_advance_wb_err(f) (0)
@@ -401,7 +471,9 @@ struct seq_file { void *private; };
 #define dquot_alloc_block_nofail(i, n) (0)
 #define bio_clear_flag(b, f) do { } while (0)
 #define BIO_COMPLETE_IN_TASK 0
+#ifndef USBMEM_KBH
 #define bio_endio_bh(b, pbh) ({ *(pbh) = NULL; false; })
+#endif
 #define noop_dirty_folio NULL
 #define buffer_migrate_folio_norefs NULL
 #define iocb_bio_iopoll NULL
@@ -419,17 +491,29 @@ struct seq_file { void *private; };
 #define FALLOC_FL_ZERO_RANGE 0x10
 #define bdev_write_zeroes_unmap_sectors(b) (0)
 #define fiemap_prep(i, fi, s, l, m) (0)
+#ifndef USBMEM_KBH
 #define create_empty_buffers(f, bs, st) ((struct buffer_head *)NULL)
+#endif
 #define __folio_start_writeback(f, k) do { } while (0)
+#ifndef USBMEM_KBH
 #define buffer_jbd(bh) (0)
+#endif
+#ifndef USBMEM_KBH
 #define buffer_freed(bh) (0)
+#endif
+#ifndef USBMEM_KBH
 #define buffer_req(bh) (0)
+#endif
+#ifndef USBMEM_KBH
 #define set_buffer_req(bh) do { } while (0)
+#endif
 
 
 /* ---- 追加分 (4) */
 #define cmpxchg(p, o, n) __sync_val_compare_and_swap((p), (o), (n))
+#ifndef USBMEM_KBH
 #define __bforget(bh) bforget(bh)
+#endif
 #define SB_FREEZE_COMPLETE 4
 #define dir_relax_shared(i) (1)
 #define ra_has_index(ra, idx) (0)

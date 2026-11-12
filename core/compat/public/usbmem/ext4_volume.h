@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// C++ から ext4 を使うラッパ (LinuxCompat + fs/ext4。GPL-2.0-or-later 扱い)。読み取り専用・journal は再生しない。
+// C++ から ext4 を使うラッパ (LinuxCompat + fs/ext4 + fs/jbd2。GPL-2.0-or-later 扱い)。読み取り専用 (journal は再生しない) と、実験的な書き込み (mount_rw)。
 #pragma once
 #include "usbmem/fs_volume.h"
 
@@ -15,6 +15,10 @@ class Ext4Volume final : public FsVolume {
  public:
   // 読み取り専用でマウント。失敗時 nullptr と errno (正の値) を *err に返す。EUCLEAN = 要ジャーナル回復 / 破損、ENOTSUP 系 = 未対応機能。
   static std::unique_ptr<Ext4Volume> mount(BlockDevicePtr dev, int* err = nullptr, const Ext4MountOptions& opts = {});
+  // 読み書きでマウント (実験的。docs/ext4-write.md)。ビルドで USBMEM_NTFS_WRITE=ON が必要 (無効なら err=EROFS)。
+  // 書き込み可の条件を満たさないボリューム (未知の機能・エラー状態・外部ジャーナル等) は読み取り専用でマウントに成功する (writable() == false)。
+  // 未再生のジャーナル (needs_recovery) はここで再生する。クリーンなボリュームは最初の書き込みまでメディアに何も書かない。
+  static std::unique_ptr<Ext4Volume> mount_rw(BlockDevicePtr dev, int* err = nullptr);
   ~Ext4Volume() override;
   const char* fs_name() const override { return "ext4"; }
   uint64_t root() const override { return 2; }   // USBMEM_EXT4_ROOT_INO
@@ -23,9 +27,22 @@ class Ext4Volume final : public FsVolume {
   int readdir(uint64_t dir, std::vector<FsDirEntry>* out) override;
   int64_t read(uint64_t ino, uint64_t off, void* buf, size_t len) override;
   int readlink(uint64_t ino, std::string* target) override;   // シンボリックリンクのリンク先 (LinkResolver が使う)
+  bool writable() const override;
+  int sync() override;
+  int create(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) override;
+  int mkdir(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) override;
+  int unlink(uint64_t dir, const std::string& name) override;
+  int rmdir(uint64_t dir, const std::string& name) override;
+  int rename(uint64_t od, const std::string& on, uint64_t nd, const std::string& nn) override;
+  int64_t write(uint64_t ino, uint64_t off, const void* buf, size_t len) override;
+  int truncate(uint64_t ino, uint64_t size) override;
+  int64_t write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len) override;
+  int symlink(uint64_t dir, const std::string& name, const std::string& target, uint64_t* ino) override;
+  int link(uint64_t dir, const std::string& name, uint64_t target_ino) override;
 
  private:
   Ext4Volume() = default;
+  static std::unique_ptr<Ext4Volume> mount_impl(BlockDevicePtr dev, int ro, int* err, const Ext4MountOptions& opts);
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

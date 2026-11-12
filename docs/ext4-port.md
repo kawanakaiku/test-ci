@@ -1,5 +1,10 @@
 # ext4 (Linux fs/ext4) の移植 — 読み取り専用・ジャーナル非再生
 
+> 2026-11-13 追記: 書き込み (fs/jbd2 を無改変で追加、ジャーナルの再生は書き込み可のマウントのときだけ) を実装した。docs/ext4-write.md を参照。
+> 読み取り専用のマウントは以下のとおり noload のまま (ジャーナルを読まない・ディスクに一切書かない)。下の「jbd2 本体は入れない」「手書きの jbd2.h」は当時の記述で、
+> 現在は上流の jbd2.h と fs/jbd2 をビルドし、buffer_head は ext4/jbd2 専用のカーネル互換実装 (`src/rt_kbh.c`) を使う。
+> シンボリックリンクのリンク先は `Ext4Volume::readlink` / `usbmem_ext4_readlink` でも読める (LinkResolver 用)。
+
 2026-11-12。Linux mainline `fs/ext4` (コミット 067c5c24…、NTFS / exFAT / ext2 と同じ) を**無改変**で LinuxCompat に載せ、
 ホスト (4 構成の ctest) と Android (AVD emulator-5556 の instrumented test、NDK arm64-v8a / x86_64) で「読み取り専用マウント → 一覧 → stat → 読み取り」まで動かした。実機 (USB ディスク) では未確認。
 ext3 (ジャーナル付き・ブロックマップ) も同じドライバで読む。

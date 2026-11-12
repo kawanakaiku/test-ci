@@ -46,9 +46,12 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     return rw ? usbmem::Ext2Volume::mount_rw(dev, err) : usbmem::Ext2Volume::mount(dev, err);
   }
   if (t == usbmem::FsType::Ext3 || t == usbmem::FsType::Ext4) {
-    // ext3 / ext4 は fs/ext4 で読み取り専用。ジャーナルは再生しない: 未再生 (needs_recovery) のボリュームは EUCLEAN(117) で拒否、
-    // 暗号化 / casefold / fs-verity などは EOPNOTSUPP(95)。書き込みは未対応 (rw を要求されても読み取り専用)。NTFS として試さない
-    // allow_noload は、ユーザーが「ジャーナルが未再生で内容が古い/欠けている可能性がある」ことを確認したうえで、読み取り専用で開く場合だけ true
+    // ext3 / ext4 は fs/ext4 (+ fs/jbd2)。NTFS として試さない。docs/ext4-write.md
+    //  - rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。未再生のジャーナル (needs_recovery) はここで再生する。
+    //    書き込みのホワイトリスト外の機能・エラー状態・外部ジャーナルなどは mount_rw の中で読み取り専用に落ちる (writable() == false)。
+    //  - 読み取り専用: ジャーナルは再生しない。未再生 (needs_recovery) のボリュームは EUCLEAN(117) で拒否、暗号化 / casefold / fs-verity などは EOPNOTSUPP(95)。
+    //    allow_noload は、ユーザーが「ジャーナルが未再生で内容が古い/欠けている可能性がある」ことを確認したうえで、読み取り専用で開く場合だけ true
+    if (rw && !allow_noload) return usbmem::Ext4Volume::mount_rw(dev, err);
     usbmem::Ext4MountOptions o4; o4.allow_noload = allow_noload;
     return usbmem::Ext4Volume::mount(dev, err, o4);
   }

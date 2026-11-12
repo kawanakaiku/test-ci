@@ -23,6 +23,8 @@ int usbmem_compat_remount_rw(struct super_block *);   /* 読み取り専用で�
 int usbmem_compat_sync(struct super_block *);   /* 書き込み: dirty inode/folio を全てデバイスへ書き flush */
 int usbmem_mapping_writeback(struct address_space *, int sync_all);
 int usbmem_mapping_has_dirty(struct address_space *);
+struct inode **usbmem_snapshot_inodes_(struct super_block *sb, size_t *np);   /* sb の inode を参照付きで列挙 */
+int usbmem_mapping_snapshot(struct address_space *m, int dirty_only, struct folio ***out, size_t *n);   /* index 昇順・参照付き */
 int usbmem_bdev_writeback(struct block_device *);   /* bd_mapping の dirty 範囲をデバイスへ書く (buffer_head 系 FS のメタデータ)。flush は呼び出し側 */
 struct usbmem_range { u64 off, len; };   /* デバイス上のバイト範囲 */
 /* usbmem_bdev_writeback の範囲指定版。inside=1: rs のどれかと重なる 512B ブロックだけ書く / inside=0: どれとも重ならないブロックだけ書く。残りは dirty のまま。flush は呼び出し側。 */
@@ -38,6 +40,7 @@ int usbmem_bdev_read(struct usbmem_bdev *, u64 off, void *buf, size_t len);
 int usbmem_bdev_write(struct usbmem_bdev *, u64 off, const void *buf, size_t len);
 int usbmem_bdev_flush(struct usbmem_bdev *);
 u64 usbmem_bdev_size(struct usbmem_bdev *);
+int usbmem_bdev_is_ro(struct usbmem_bdev *);   /* 下のデバイスが読み取り専用 (BlockDevice::is_read_only) */
 unsigned usbmem_bdev_lbs(struct usbmem_bdev *);
 
 #ifdef __cplusplus

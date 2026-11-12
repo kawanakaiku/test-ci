@@ -11,9 +11,16 @@ foreach(f balloc dir file ialloc inode ioctl namei super symlink trace)
   list(APPEND EXT2_SRC ${EXT2_ROOT}/fs-ext2/${f}.c)
 endforeach()
 # ext4: 読み取り経路に必要なものだけをそのままコンパイルする (書き込み・journal・mballoc・ioctl・sysfs 等は src/rt_ext4.c の最小スタブ。docs/ext4-port.md)
-foreach(f balloc bitmap block_validity dir ext4_jbd2 extents extents_status file fsync hash ialloc indirect inline inode namei readpage super symlink xattr xattr_hurd xattr_trusted xattr_user)
+foreach(f balloc bitmap block_validity dir ext4_jbd2 extents extents_status file fsync hash ialloc indirect inline inode mballoc namei orphan readpage super symlink xattr xattr_hurd xattr_trusted xattr_user)
   list(APPEND EXT4_SRC ${EXT4_ROOT}/fs-ext4/${f}.c)
 endforeach()
+# jbd2 (Linux fs/jbd2, 無改変): ext4 のジャーナル (再生・トランザクション・コミット・チェックポイント)。docs/ext4-write.md
+foreach(f checkpoint commit journal recovery revoke transaction)
+  list(APPEND EXT4_SRC ${EXT4_ROOT}/fs-jbd2/${f}.c)
+  list(APPEND JBD2_SRC ${EXT4_ROOT}/fs-jbd2/${f}.c)
+endforeach()
+# jbd2 の module_init (journal_init: slab の作成) は ext4 とは別名で、ext4 のマウント前に 1 回呼ぶ (src/rt_vfs_ext4.c)
+set_source_files_properties(${JBD2_SRC} PROPERTIES COMPILE_DEFINITIONS USBMEM_JBD2_MODULE=1)
 
 # ---- 共通ランタイム (LinuxCompat 本体: inode/ページキャッシュ/bio/buffer_head/VFS 風マウント)。FS ごとの上流コードはここに入れない。
 set(COMPAT_RT_SRC src/rt_core.c src/rt_pagecache.c src/rt_write.c src/rt_stubs.c src/rt_bh.c src/rt_buffer.c src/bdev_bridge.cpp src/fs_volume.cpp)
@@ -93,16 +100,21 @@ endif()
 target_link_libraries(usbmem_ext2 PUBLIC usbmem_compat_rt)
 
 # ---- ext4 (Linux fs/ext4, 無改変)。読み取り専用・journal 無し (noload 固定)。
-add_library(usbmem_ext4 STATIC ${EXT4_SRC} src/rt_ext4.c src/rt_vfs_ext4.c src/ext4_volume.cpp)
+add_library(usbmem_ext4 STATIC ${EXT4_SRC} src/rt_ext4.c src/rt_kbh.c src/rt_jbd2.c src/rt_vfs_ext4.c src/ext4_volume.cpp)
 target_include_directories(usbmem_ext4 PUBLIC public)
-target_include_directories(usbmem_ext4 PRIVATE ${EXT4_ROOT}/include)
+target_include_directories(usbmem_ext4 PRIVATE ${EXT4_ROOT}/include ${CMAKE_CURRENT_LIST_DIR}/include_ext4)   # include_ext4: jbd2 用の小さなシム (crc32/hash/poison/hrtimer)
 target_compile_options(usbmem_ext4 PRIVATE
   $<$<COMPILE_LANGUAGE:C>:-std=gnu11>
   $<$<COMPILE_LANGUAGE:C>:-w>
   $<$<COMPILE_LANGUAGE:C>:-fno-strict-aliasing>
   $<$<COMPILE_LANGUAGE:C>:-fwrapv>
-  "$<$<COMPILE_LANGUAGE:C>:SHELL:-iquote ${EXT4_ROOT}/fs-ext4>")
-target_compile_definitions(usbmem_ext4 PRIVATE CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=1 CONFIG_BLOCK=1 __KERNEL__ USBMEM_RCU_DEFER=1 USBMEM_MODULE_INIT_NAME=usbmem_module_init_ext4)
+  "$<$<COMPILE_LANGUAGE:C>:SHELL:-iquote ${EXT4_ROOT}/fs-ext4>"
+  "$<$<COMPILE_LANGUAGE:C>:SHELL:-iquote ${EXT4_ROOT}/fs-jbd2>")
+# USBMEM_KBH: カーネルと同じ意味の buffer_head (src/rt_kbh.c) を使う。jbd2 は bh の同一性・参照数・状態ビットに依存する (include/linux/buffer_head.h)
+target_compile_definitions(usbmem_ext4 PRIVATE CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=1 CONFIG_BLOCK=1 __KERNEL__ USBMEM_RCU_DEFER=1 USBMEM_KBH=1 USBMEM_MODULE_INIT_NAME=usbmem_module_init_ext4)
+if(USBMEM_NTFS_WRITE)
+  target_compile_definitions(usbmem_ext4 PRIVATE USBMEM_NTFS_WRITE=1)   # 書き込み入口 (rt_vfs_ext4.c) を有効にする。実行時にも mount(read_only=0) が必要
+endif()
 target_link_libraries(usbmem_ext4 PUBLIC usbmem_compat_rt)
 
 if(USBMEM_BUILD_TESTS)
@@ -218,6 +230,15 @@ if(USBMEM_BUILD_TESTS)
     add_test(NAME ext4_coexist COMMAND usbmem_ext4_tests --coexist ${EXT4_FIX_DIR} /dev/shm/usbmem_ext2_$ENV{USER})
     set_tests_properties(ext4_read ext4_corrupt ext4_ioerr ext4_fuzz PROPERTIES FIXTURES_REQUIRED ext4_fixture TIMEOUT 1800)
     set_tests_properties(ext4_coexist PROPERTIES FIXTURES_REQUIRED "ext4_fixture;ext2_fixture" TIMEOUT 600)
+    # ext4 書き込み (jbd2)。USBMEM_NTFS_WRITE=ON のビルドだけ (docs/ext4-write.md)
+    if(USBMEM_NTFS_WRITE)
+      add_executable(usbmem_ext4_write_tests tests/test_ext4_write.cpp)
+      target_link_libraries(usbmem_ext4_write_tests PRIVATE usbmem_ext4)
+      add_test(NAME ext4_write COMMAND sh ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_ext4_write_tests.sh $<TARGET_FILE:usbmem_ext4_write_tests> ${EXT4_FIX_DIR} 1)
+      add_test(NAME ext4_crash COMMAND sh ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_ext4_crash_tests.sh $<TARGET_FILE:usbmem_ext4_write_tests> 8)   # 軽量版。フル版は docs/ext4-write.md
+      set_tests_properties(ext4_write PROPERTIES FIXTURES_REQUIRED ext4_fixture)
+      set_tests_properties(ext4_write ext4_crash PROPERTIES TIMEOUT 3600 SKIP_RETURN_CODE 77 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+    endif()
     set_tests_properties(ext4_corrupt ext4_ioerr ext4_fuzz ext4_coexist PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
     set_tests_properties(ext4_read PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
   endif()

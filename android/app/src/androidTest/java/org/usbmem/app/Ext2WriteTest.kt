@@ -16,7 +16,7 @@ import java.io.FileInputStream
  *   ext2_wr.img        書き込み対象のフィクスチャ (tools/gen_ext2_fixture.py の b1k など)
  *   ext2_wr_ops.txt    操作列 (tools/gen_ext2_ops.py。usbmem_ext2_write_tests --ops / tools/ops_ref.py と同じ書式)
  *   ext2_dirty.img     s_state が VALID_FS でないイメージ (読み取り専用に落ちること)
- *   ext4_empty.img     ext4 (rw を要求されても読み取り専用になること)
+ *   ext4_empty.img     ext4 (書き込み可でマウントしても、書かずに閉じればイメージ不変)
  * 結果イメージは cache/ext2_rw_result.img に残す。ホストが pull して e2fsck と fuse2fs で独立に検証する。
  */
 class Ext2WriteTest {
@@ -126,15 +126,16 @@ class Ext2WriteTest {
         img.delete()
     }
 
+    /** ext4 は書き込み可でマウントできる (Ext4WriteTest)。ここでは「書かずに閉じればイメージが 1 バイトも変わらない」ことだけを見る。 */
     @Test
-    fun ext4StaysReadOnlyEvenWhenWriteRequested() {
+    fun ext4RwMountWithoutWritesLeavesImageUnchanged() {
         val img = File(ctx.cacheDir, "ext4_empty_rw.img")
         assumeTrue("fixture not pushed", shellCopy("/data/local/tmp/ext4_empty.img", img))
         val before = img.readBytes().let { java.security.MessageDigest.getInstance("SHA-256").digest(it).toList() }
         val vol = mountRw(img)
         try {
             assertEquals("ext4", vol.fsName)
-            assertFalse(vol.writable)
+            vol.list("/")
         } finally { vol.close() }
         assertEquals(before, img.readBytes().let { java.security.MessageDigest.getInstance("SHA-256").digest(it).toList() })
         img.delete()

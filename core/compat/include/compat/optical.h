@@ -32,7 +32,7 @@ extern const struct inode_operations usbmem_optical_page_symlink_iops;
 #undef put_bh
 #define put_bh(bh) brelse(bh)
 #undef get_bh
-#define get_bh(bh) do { (bh)->b_count++; } while (0)   /* udf は bh を複数の extent_position で共有する (brelse は最後の 1 つで解放) */
+#define get_bh(bh) do { (bh)->b_count.counter++; } while (0)   /* udf は bh を複数の extent_position で共有する (brelse は最後の 1 つで解放) */
 
 #ifndef get_unaligned_be16
 #define get_unaligned_be16(p) ({ u16 _v; memcpy(&_v, (p), 2); __builtin_bswap16(_v); })

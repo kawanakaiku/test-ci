@@ -304,7 +304,11 @@ static void verify_image(const std::string& dir, const std::string& name, const 
   CHECK(usbmem_ext4_lookup(v, 999999999, "x", 1, &c) < 0);
   // 読み取り専用: 書き込み・マウント要求
   BlockDevicePtr p2 = spy; usbmem_bdev* bd2 = usbmem_bdev_wrap(&p2); usbmem_ext4* v2 = nullptr;
-  CHECK(usbmem_ext4_mount(bd2, 0, 0, &v2) == -EROFS);
+  // 書き込みを要求: 書き込みを無効にしたビルドは -EROFS。USBMEM_NTFS_WRITE=ON のビルドでは成功しうる (ここのデバイスは読み取り専用なので
+  // writable()==0 の読み取り専用マウントになる)。どちらでもメディアには何も書かない (下の writes / flushes == 0)
+  int rw_rc = usbmem_ext4_mount(bd2, 0, 0, &v2);
+  CHECK(rw_rc == -EROFS || rw_rc == 0 || (allow_noload && rw_rc == -EUCLEAN));
+  if (rw_rc == 0) { CHECK(usbmem_ext4_writable(v2) == 0); usbmem_ext4_unmount(v2); }
   usbmem_bdev_free(bd2);
   CHECK(spy->writes == 0);
   CHECK(spy->flushes == 0);

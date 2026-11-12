@@ -13,11 +13,13 @@ struct Ext4Volume::Impl {
   usbmem_bdev* bd = nullptr;
 };
 
-std::unique_ptr<Ext4Volume> Ext4Volume::mount(BlockDevicePtr dev, int* err, const Ext4MountOptions& opts) {
+std::unique_ptr<Ext4Volume> Ext4Volume::mount(BlockDevicePtr dev, int* err, const Ext4MountOptions& opts) { return mount_impl(std::move(dev), 1, err, opts); }
+std::unique_ptr<Ext4Volume> Ext4Volume::mount_rw(BlockDevicePtr dev, int* err) { return mount_impl(std::move(dev), 0, err, {}); }
+std::unique_ptr<Ext4Volume> Ext4Volume::mount_impl(BlockDevicePtr dev, int ro, int* err, const Ext4MountOptions& opts) {
   std::unique_ptr<Ext4Volume> vol(new Ext4Volume());
   vol->impl_.reset(new Impl());
   vol->impl_->bd = usbmem_bdev_wrap(&dev);
-  int rc = usbmem_ext4_mount(vol->impl_->bd, 1, opts.allow_noload ? 1 : 0, &vol->impl_->v);
+  int rc = usbmem_ext4_mount(vol->impl_->bd, ro, opts.allow_noload ? 1 : 0, &vol->impl_->v);
   if (rc) {
     if (err) *err = -rc;
     usbmem_bdev_free(vol->impl_->bd);
@@ -64,5 +66,22 @@ int Ext4Volume::readlink(uint64_t ino, std::string* target) {
   target->assign(buf, static_cast<size_t>(n));
   return 0;
 }
+
+bool Ext4Volume::writable() const { return usbmem_ext4_writable(impl_->v) != 0; }
+int Ext4Volume::sync() { return usbmem_ext4_sync(impl_->v); }
+int Ext4Volume::create(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) { return usbmem_ext4_create(impl_->v, dir, name.data(), name.size(), mode, ino); }
+int Ext4Volume::mkdir(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) { return usbmem_ext4_mkdir(impl_->v, dir, name.data(), name.size(), mode, ino); }
+int Ext4Volume::unlink(uint64_t dir, const std::string& name) { return usbmem_ext4_unlink(impl_->v, dir, name.data(), name.size()); }
+int Ext4Volume::rmdir(uint64_t dir, const std::string& name) { return usbmem_ext4_rmdir(impl_->v, dir, name.data(), name.size()); }
+int Ext4Volume::rename(uint64_t od, const std::string& on, uint64_t nd, const std::string& nn) {
+  return usbmem_ext4_rename(impl_->v, od, on.data(), on.size(), nd, nn.data(), nn.size());
+}
+int64_t Ext4Volume::write(uint64_t ino, uint64_t off, const void* buf, size_t len) { return usbmem_ext4_write(impl_->v, ino, off, buf, len); }
+int Ext4Volume::truncate(uint64_t ino, uint64_t size) { return usbmem_ext4_truncate(impl_->v, ino, size); }
+int64_t Ext4Volume::write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len) { return usbmem_ext4_write_inplace(impl_->v, ino, off, buf, len); }
+int Ext4Volume::symlink(uint64_t dir, const std::string& name, const std::string& target, uint64_t* ino) {
+  return usbmem_ext4_symlink(impl_->v, dir, name.data(), name.size(), target.data(), target.size(), ino);
+}
+int Ext4Volume::link(uint64_t dir, const std::string& name, uint64_t target_ino) { return usbmem_ext4_link(impl_->v, dir, name.data(), name.size(), target_ino); }
 
 }  // namespace usbmem

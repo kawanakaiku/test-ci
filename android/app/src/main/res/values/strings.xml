@@ -74,7 +74,7 @@
     <string name="diag_hint_published">マウント中は実行できません。一度閉じてください。</string>
     <string name="diag_hint_busy">処理が終わるまでお待ちください。</string>
     <string name="noload_dialog_title">読み取り専用で開きますか？</string>
-    <string name="noload_dialog_text">このボリュームには、まだ反映されていない更新 (ext3 / ext4 のジャーナル) が残っています。書き込み中に取り外された可能性があります。\n\nジャーナルを再生せずに、読み取り専用で開くことはできますが、古い内容が見えたり、一部のファイルやフォルダが欠けたり壊れて見えたりすることがあります。大事なデータは、先にコピーして保存し、あとで PC や Linux 機器で fsck を実行してください。\n\n何も書き込みません。</string>
+    <string name="noload_dialog_text">このボリュームには、まだ反映されていない更新 (ext3 / ext4 / XFS のジャーナル) が残っています。書き込み中に取り外された可能性があります。\n\nジャーナルを再生せずに、読み取り専用で開くことはできますが、古い内容が見えたり、一部のファイルやフォルダが欠けたり壊れて見えたりすることがあります。大事なデータは、先にコピーして保存し、あとで PC や Linux 機器で fsck を実行してください。\n\n何も書き込みません。</string>
     <string name="noload_dialog_confirm">読み取り専用で開く</string>
     <string name="mode_read_only_journal_ignored">読み取り専用 (ジャーナル未再生)</string>
     <string name="notice_journal_ignored">ジャーナルを再生せずに開いています</string>
@@ -142,7 +142,7 @@
     <string name="notice_ntfs_open_failed">NTFS / exFAT / ext として開けません</string>
     <string name="notice_ntfs_open_failed_with_reason">NTFS / exFAT / ext として開けません: %1$s</string>
     <string name="notice_fs_needs_recovery">未回復または破損のため、マウントしません</string>
-    <string name="notice_fs_needs_recovery_detail">まだ反映されていない更新 (ext3 / ext4 のジャーナル) が残っているか、ファイルシステムの内部が壊れています。書き込み中に取り外された可能性があります。このアプリはジャーナルを再生しないため、そのまま読むと古い内容が見えることがあります。PC や Linux 機器で fsck (e2fsck / chkdsk) を実行してから、もう一度マウントしてください。</string>
+    <string name="notice_fs_needs_recovery_detail">まだ反映されていない更新 (ext3 / ext4 / XFS のジャーナル) が残っているか、ファイルシステムの内部が壊れています。書き込み中に取り外された可能性があります。このアプリはジャーナルを再生しないため、そのまま読むと古い内容が見えることがあります。PC や Linux 機器で fsck (e2fsck / chkdsk) を実行してから、もう一度マウントしてください。</string>
     <string name="notice_fs_unsupported_feature">対応していない機能のため、マウントできません</string>
     <string name="notice_fs_unsupported_feature_detail">暗号化・大文字小文字の無視 (casefold)・fs-verity など、このアプリが対応していない ext4 の機能が有効です。</string>
     <string name="notice_ntfs_open_failed_tuning_reset">保存した転送設定を使っていたため、既定に戻しました。USB を閉じて、開き直してください。</string>

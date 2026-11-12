@@ -28,23 +28,21 @@ VARIANTS = [
     ("v5_default",     [],                                                                   4096,  dict(frag=3000, big=3000)),
     ("v5_bs1k",        ["-b", "size=1024", "-n", "size=4096"],                               1024,  dict(frag=3000, big=2500)),
     ("v5_bs2k",        ["-b", "size=2048"],                                                  2048,  dict(frag=2000, big=1500)),
-    ("v5_bs512",       ["-b", "size=512", "-s", "size=512", "-n", "size=2048"],              512,   dict(frag=30000, big=800)),
-    ("v5_bs64k",       ["-b", "size=65536", "-s", "size=4096", "-i", "size=512"],            65536, dict(frag=700, big=2000)),
+    ("v5_bs64k",       ["-b", "size=65536", "-s", "size=4096", "-i", "size=512"],            65536, dict(frag=300, big=150, size=1 << 30)),
     ("v5_dir8k",       ["-n", "size=8192"],                                                  4096,  dict(frag=1500, big=3000)),
     ("v5_dir64k",      ["-n", "size=65536"],                                                 4096,  dict(frag=500, big=4000)),
     ("v5_isize1k",     ["-i", "size=1024"],                                                  4096,  dict(frag=3000, big=1500)),
     ("v5_isize2k",     ["-b", "size=4096", "-i", "size=2048"],                               4096,  dict(frag=3000, big=1500)),
     ("v5_old_features",["-i", "sparse=0,nrext64=0", "-m", "bigtime=0,rmapbt=0,reflink=0,finobt=0,inobtcount=0"], 4096, dict(frag=3000, big=1500)),
     ("v5_nrext64",     ["-i", "nrext64=1", "-m", "bigtime=1"],                               4096,  dict(frag=3000, big=1500)),
-    ("v5_agcount1",    ["-d", "agcount=1"],                                                  4096,  dict(frag=1500, big=1500)),
-    ("v5_agcount16",   ["-d", "agcount=16"],                                                 4096,  dict(frag=1500, big=1500)),
+    ("v5_agcount2",    ["-d", "agcount=2"],                                                  4096,  dict(frag=1500, big=1500)),
+    ("v5_agcount16",   ["-d", "agcount=16"],                                                 4096,  dict(frag=1500, big=1500, size=2 << 30)),
     ("v5_metadir",     ["-m", "metadir=1"],                                                  4096,  dict(frag=1500, big=1500)),
     ("v5_ci",          ["-n", "version=ci"],                                                 4096,  dict(frag=500, big=600)),
-    ("v5_noftype",     ["-m", "crc=1", "-n", "ftype=1"],                                     4096,  dict(frag=1000, big=1000)),
     ("v4_ftype1",      ["-m", "crc=0", "-n", "ftype=1"],                                     4096,  dict(frag=3000, big=3000)),
     ("v4_ftype0",      ["-m", "crc=0", "-n", "ftype=0"],                                     4096,  dict(frag=3000, big=3000)),
     ("v4_bs1k_dir4k",  ["-m", "crc=0", "-n", "ftype=0,size=4096", "-b", "size=1024"],        1024,  dict(frag=3000, big=2500)),
-    ("v4_bs512",       ["-m", "crc=0", "-n", "ftype=1", "-b", "size=512", "-s", "size=512"], 512,   dict(frag=30000, big=800)),
+    ("v4_bs512",       ["-m", "crc=0", "-n", "ftype=1", "-b", "size=512", "-s", "size=512"], 512,   dict(frag=6000, big=800)),
 ]
 
 def xdb(img, *cmds):
@@ -104,18 +102,26 @@ def make(outdir, name, args, bs, opt):
             base_extra(ctx)
             put, dense, mkdir, s, stamp, man = ctx["put"], ctx["dense"], ctx["mkdir"], ctx["s"], ctx["stamp"], ctx["man"]
             # 短い/長いシンボリックリンク (長いものは inode に入らず、リモートのシンボリックリンクブロックになる)
-            for rel, ln in (("lnk_len60", 60), ("lnk_len300", 300), ("lnk_len1000", 1000), ("lnk_len1023", 1023)):
+            # (v5 のリモートシンボリックリンクはブロックごとに 56 バイトのヘッダが付く。mkfs.xfs -p は 1 ブロックに収まらない長さを正しく作れない (xfs_repair が壊れていると言う) ので、bs - 56 以下に限る)
+            lens = [60, 300] + [l for l in (1000, 1023) if l + 56 <= bs]
+            if bs - 56 < 1024 and bs - 56 > 300: lens.append(bs - 56)   # ちょうどブロックを使い切る長さ
+            if bs - 57 < 1024 and bs - 57 > 300: lens.append(bs - 57)
+            for ln in lens:
+                rel = "lnk_len%d" % ln
                 tgt = ("t" + rel + "/") * 200
                 tgt = tgt[:ln]
                 os.symlink(tgt, os.path.join(tree, rel))
                 man.append("L\t%s\t%s" % (rel, tgt))
             # 断片化したファイル: 1 ブロックのデータと 1 ブロックの穴を交互に並べる → extent が増えて BTREE 形式の bmbt になる
+            # (tmpfs 上の疎ファイルの穴は 4 KiB 単位なので、島の大きさは max(bs, 4096)。それより小さいと穴が保存されず extent が増えない)
             n = opt["frag"]
-            items = [("d", 2 * i * bs, bs, 7 + i % 50) for i in range(n)]
-            put("frag/islands.bin", 2 * n * bs, items)
+            unit = max(bs, 4096)
+            items = [("d", 2 * i * unit, unit, 7 + i % 50) for i in range(n)]
+            put("frag/islands.bin", 2 * n * unit, items)
             # 島の途中にも半端な長さのデータを入れた断片化ファイル
-            items = [("d", i * 3 * bs + (i % 5) * 7, 100 + (i % 11) * 13, 3 + i % 31) for i in range(min(n, 400))]
-            put("frag/partial.bin", 3 * min(n, 400) * bs + bs, items)
+            m = min(n, 400)
+            items = [("d", i * 3 * unit + (i % 5) * 7, 100 + (i % 11) * 13, 3 + i % 31) for i in range(m)]
+            put("frag/partial.bin", 3 * m * unit + unit, items)
             man.append("D\tfrag\t%d" % stamp(os.path.join(tree, "frag")))
             # 4 GiB を超える疎ファイル (先頭・4 GiB 付近・末尾にだけデータ)
             big_sz = 5 * (1 << 30) + 123
@@ -141,7 +147,7 @@ def make(outdir, name, args, bs, opt):
         man.append("S\tspecial_sock\ts")
         img = os.path.join(outdir, name + ".img")
         if os.path.exists(img): os.remove(img)
-        with open(img, "wb") as f: f.truncate(IMG_SIZE)
+        with open(img, "wb") as f: f.truncate(opt.get("size", IMG_SIZE))
         cmd = ["mkfs.xfs", "-f", "-q"] + args + ["-p", tree, img]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
@@ -153,7 +159,7 @@ def make(outdir, name, args, bs, opt):
         # ミューテーション確認用: ログはクリーン。構造の記録
         info = []
         for path, label in (("/", "root"), ("/dir_sf", "dir_sf"), ("/dir_block", "dir_block"), ("/dir_leaf", "dir_leaf"), ("/bigdir", "bigdir"), ("/many", "many"),
-                            ("/frag/islands.bin", "frag"), ("/link_slow", "link_slow"), ("/lnk_len300", "lnk_len300"), ("/lnk_len1000", "lnk_len1000"), ("/huge_sparse.bin", "huge_sparse")):
+                            ("/frag/islands.bin", "frag"), ("/link_slow", "link_slow"), ("/lnk_len300", "lnk_len300"), ("/huge_sparse.bin", "huge_sparse")):
             ii = inode_info(img, path)
             info.append("%s: %s" % (label, " ".join("%s=%s" % kv for kv in sorted((ii or {}).items()))))
             if label in ("dir_block", "dir_leaf", "bigdir", "many"):
@@ -181,7 +187,7 @@ def make_special(outdir):
         chk = subprocess.run(["xfs_repair", "-n", img], capture_output=True, text=True)
         if chk.returncode != 0: sys.exit("xfs_repair -n NOT clean for special_proto:\n%s%s" % (chk.stdout[-600:], chk.stderr[-600:]))
         open(os.path.join(outdir, name + ".ref_1"), "wb").write(b"hello xfs\n")
-        man = ["R\thello.txt\t10\t%d\t%s" % (BUILD_TIME + 5, name + ".ref_1"), "S\tchr\tc", "S\tblk\tb", "S\tfifo\tp", "L\tsub/lnk\t../hello.txt"]
+        man = ["D\tsub\t-1", "R\thello.txt\t10\t-1\t%s" % (name + ".ref_1"), "S\tchr\tc", "S\tblk\tb", "S\tfifo\tp", "L\tsub/lnk\t../hello.txt"]
         open(os.path.join(outdir, name + ".manifest"), "w", encoding="utf-8").write("\n".join(man) + "\n")
         print("special_proto: xfs_repair -n clean (char/block/fifo/symlink via protofile)")
 

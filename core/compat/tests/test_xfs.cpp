@@ -130,7 +130,7 @@ static void verify_file(FsVolume& v, const std::string& dir, const MFile& f, uin
   CHECK(v.stat(ino, &st) == 0);
   CHECK(st.size == f.size);
   CHECK((st.mode & 0170000) == 0100000);
-  CHECK(st.mtime == f.mtime);
+  CHECK(f.mtime < 0 || st.mtime == f.mtime);   // mtime -1 = 未検査 (mkfs.xfs の protofile は作成時刻を入れる)
   CHECK(st.nlink == f.nlink);
   std::vector<uint8_t> tmp(16, 0xAB);
   CHECK(v.read(ino, f.size, tmp.data(), 10) == 0);          // ちょうど EOF
@@ -246,8 +246,8 @@ static void verify_image(const std::string& dir, const std::string& name) {
   for (auto& d : man.dirs) {   // ディレクトリの mtime
     uint64_t ino = 0; FsStat st;
     CHECK(resolve(v, d.first, &ino) == 0 && v.stat(ino, &st) == 0);
-    if (st.mtime != d.second) std::fprintf(stderr, "dir mtime %s: got %lld want %lld\n", d.first.c_str(), (long long)st.mtime, (long long)d.second);
-    CHECK(st.mtime == d.second);
+    if (d.second >= 0 && st.mtime != d.second) std::fprintf(stderr, "dir mtime %s: got %lld want %lld\n", d.first.c_str(), (long long)st.mtime, (long long)d.second);
+    CHECK(d.second < 0 || st.mtime == d.second);
   }
   for (auto& f : man.files) {   // 全ファイル: サイズ・内容・mtime・nlink
     uint64_t ino = 0;
@@ -556,7 +556,7 @@ static void test_ioerr(const std::string& dir) {
 
 static int fuzz(const std::string& dir, int iters, unsigned seed) {
   std::vector<std::string> images;
-  for (auto& n : list_images(dir)) if (n == "v5_default" || n == "v5_bs1k" || n == "v5_bs512" || n == "v5_dir8k" || n == "v4_ftype1" || n == "v4_ftype0" || n == "v5_old_features" || n == "v5_isize1k") images.push_back(n);
+  for (auto& n : list_images(dir)) if (n == "v5_default" || n == "v5_bs1k" || n == "v4_bs512" || n == "v5_bs64k" || n == "v5_dir8k" || n == "v4_ftype1" || n == "v4_ftype0" || n == "v5_old_features" || n == "v5_isize1k") images.push_back(n);
   uint64_t x = seed * 2654435761u + 1;
   auto rnd = [&]() { x ^= x << 13; x ^= x >> 7; x ^= x << 17; return x; };
   int mounted = 0, total = 0;

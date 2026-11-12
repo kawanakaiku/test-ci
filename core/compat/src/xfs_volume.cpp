@@ -138,6 +138,11 @@ struct XfsVolume::Impl {
   std::map<uint64_t, Page> pages;
   uint64_t tick = 0;
 
+  // ディレクトリの名前 → inode 表 (lookup の高速化。直近の数ディレクトリだけ。巨大なディレクトリは作らず毎回走査する)
+  struct DirMap { uint64_t ino; std::unordered_map<std::string, uint64_t> m; };
+  std::vector<std::shared_ptr<DirMap>> dirmaps;
+  static constexpr size_t kMaxDirMaps = 4, kMaxDirMapEntries = 1u << 19;
+
   // inode キャッシュ
   std::unordered_map<uint64_t, std::shared_ptr<Inode>> icache;
   size_t cached_exts = 0;
@@ -511,6 +516,23 @@ struct XfsVolume::Impl {
     return 0;
   }
 
+  // dir の名前表を (なければ作って) 返す。作れない (大きすぎる) ときは null を返す。エラーは *rc
+  std::shared_ptr<DirMap> get_dirmap(Inode* dir, int* rc) {
+    for (auto& d : dirmaps) if (d->ino == dir->ino) return d;
+    auto dm = std::make_shared<DirMap>();
+    dm->ino = dir->ino;
+    bool too_big = false;
+    *rc = walk_dir(dir, true, [&](const Ent& e) {
+      if (dm->m.size() >= kMaxDirMapEntries) { too_big = true; return true; }
+      dm->m.emplace(std::string(reinterpret_cast<const char*>(e.name), e.nlen), e.ino);
+      return false;
+    });
+    if (*rc || too_big) return nullptr;
+    if (dirmaps.size() >= kMaxDirMaps) dirmaps.erase(dirmaps.begin());
+    dirmaps.push_back(dm);
+    return dm;
+  }
+
   // ---- シンボリックリンク ----
   int read_symlink(Inode* in, std::string* out) {
     if (in->size == 0 || in->size > kMaxSymlink) return -EUCLEAN;
@@ -771,6 +793,17 @@ int XfsVolume::lookup(uint64_t dir, const std::string& name, uint64_t* ino) {
   if ((d->mode & S_FMT) != S_DIR) return -ENOTDIR;
   if (name.empty() || name.size() > 255) return -ENOENT;
   uint64_t found = 0; bool hit = false;
+  if (d->format != kFmtLocal) {   // sf 以外は名前表を使う (同じディレクトリへの繰り返しの lookup が速い)
+    int mrc = 0;
+    std::shared_ptr<Impl::DirMap> dm = I.get_dirmap(d.get(), &mrc);
+    if (mrc) return mrc;
+    if (dm) {
+      auto it = dm->m.find(name);
+      if (it == dm->m.end()) return -ENOENT;
+      *ino = it->second;
+      return 0;
+    }
+  }
   rc = I.walk_dir(d.get(), true, [&](const Impl::Ent& e) {
     if (e.nlen == name.size() && std::memcmp(e.name, name.data(), e.nlen) == 0) { found = e.ino; hit = true; return true; }
     return false;

@@ -22,6 +22,7 @@
 #include "usbmem/ntfs_volume.h"
 #include "usbmem/squashfs_volume.h"
 #include "usbmem/erofs_volume.h"
+#include "usbmem/xfs_volume.h"
 
 namespace {
 struct Vol { std::unique_ptr<usbmem::FsVolume> v; };
@@ -74,6 +75,12 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
   if (t == usbmem::FsType::Erofs) {
     // erofs も読み取り専用の形式 (fs/erofs)。rw を要求されても読み取り専用でマウントする。圧縮 (z_erofs) は未対応で EOPNOTSUPP(95) (docs/erofs-port.md)
     return usbmem::ErofsVolume::mount(dev, err);
+  }
+  if (t == usbmem::FsType::Xfs) {
+    // XFS は読み取り専用 (独立実装のリーダ。ログは再生しない)。rw を要求されても読み取り専用でマウントする。ログが未再生 (要リカバリ) のボリュームは EUCLEAN(117) で拒否、
+    // リアルタイム領域・外部ログ・未知の incompat 機能は EOPNOTSUPP(95)。allow_noload は、ユーザーが確認したうえで読み取り専用で開く場合だけ true (docs/xfs-port.md)
+    usbmem::XfsMountOptions ox; ox.allow_noload = allow_noload;
+    return usbmem::XfsVolume::mount(dev, err, ox);
   }
   return rw ? usbmem::NtfsVolume::mount_rw(dev, err) : usbmem::NtfsVolume::mount(dev, err);
 }

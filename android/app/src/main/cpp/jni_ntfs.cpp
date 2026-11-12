@@ -22,6 +22,7 @@
 #include "usbmem/ntfs_volume.h"
 #include "usbmem/squashfs_volume.h"
 #include "usbmem/erofs_volume.h"
+#include "usbmem/btrfs_volume.h"
 
 #include "jni_vol.h"
 
@@ -76,6 +77,12 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
   if (t == usbmem::FsType::Erofs) {
     // erofs も読み取り専用の形式 (fs/erofs)。rw を要求されても読み取り専用でマウントする。圧縮 (z_erofs) は未対応で EOPNOTSUPP(95) (docs/erofs-port.md)
     return usbmem::ErofsVolume::mount(dev, err);
+  }
+  if (t == usbmem::FsType::Btrfs) {
+    // Btrfs は自前の読み取り専用リーダー (docs/btrfs-port.md)。rw を要求されても読み取り専用でマウントする。tree-log が未再生なら EUCLEAN(117)。
+    // 複数デバイス / RAID0・5・6・10 / 未知の機能は EOPNOTSUPP(95)。allow_noload は、ユーザーが確認したうえで tree-log を無視して開く場合だけ true (ext4 と同じ)
+    usbmem::BtrfsMountOptions ob; ob.allow_noload = allow_noload;
+    return usbmem::BtrfsVolume::mount(dev, err, ob);
   }
   return rw ? usbmem::NtfsVolume::mount_rw(dev, err) : usbmem::NtfsVolume::mount(dev, err);
 }

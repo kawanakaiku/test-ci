@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0 (本ファイル) — 取り込む fs/isofs・fs/udf は GPL-2.0
 # 光学メディア系ファイルシステム (ISO 9660 / UDF)。CMakeLists.txt の末尾から include される (他の FS の追加と衝突しないよう別ファイルにしてある)。
-# 読み取り専用。docs/optical-port.md
+# 読み取り専用。docs/isofs-port.md / docs/udf-port.md
 
 set(ISOFS_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/isofs)
 set(UDF_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/udf)

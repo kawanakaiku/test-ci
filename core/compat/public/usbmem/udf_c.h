@@ -2,7 +2,7 @@
 /* UDF ボリュームをホストから使うための C API (LinuxCompat + Linux fs/udf)。**読み取り専用**。
  * 戻り値: 0/正 = 成功、負 = -errno。スレッドセーフではない。
  * ino は udf の inode 番号 (= ICB (File Entry) の物理ブロック番号)。ルートは usbmem_udf_root_ino() で得る。
- * ino から inode を引くとき、物理ブロックを含むパーティションを探して論理アドレスに戻す (docs/optical-port.md)。
+ * ino から inode を引くとき、物理ブロックを含むパーティションを探して論理アドレスに戻す (docs/isofs-port.md / docs/udf-port.md)。
  * このヘッダは Linux 互換ヘッダを含まないので C++ から安全に include できる。 */
 #ifndef USBMEM_UDF_C_H
 #define USBMEM_UDF_C_H

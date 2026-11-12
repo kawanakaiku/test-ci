@@ -2,7 +2,7 @@
 /* ISO 9660 (Joliet / Rock Ridge 含む) ボリュームをホストから使うための C API (LinuxCompat + Linux fs/isofs)。**読み取り専用**。
  * 戻り値: 0/正 = 成功、負 = -errno。スレッドセーフではない。
  * ino は isofs の inode 番号 (= (ブロック << (bufbits-5)) | (レコード位置 >> 5))。ルートは usbmem_isofs_root_ino() で得る。
- * ino から inode を引くとき、ブロックを読んでディレクトリレコードの正確な位置を求める (docs/optical-port.md)。
+ * ino から inode を引くとき、ブロックを読んでディレクトリレコードの正確な位置を求める (docs/isofs-port.md / docs/udf-port.md)。
  * このヘッダは Linux 互換ヘッダを含まないので C++ から安全に include できる。 */
 #ifndef USBMEM_ISOFS_C_H
 #define USBMEM_ISOFS_C_H

@@ -65,3 +65,5 @@
 - [ ] NTFS のリパースポイント (シンボリックリンク/ジャンクション) の表示は未対応。
 - [ ] exFAT / ext4 の書き込みは ext2 の書き込み基盤の上に載せる (exFAT: VolumeFlags 先行確定 + FAT チェーン順序、ext4: jbd2 の移植が必要)。
 - [ ] 次: fat/vfat、isofs、squashfs/erofs、udf、ntfs3 (NTFS の第二のバックエンドとして選択可能に)。見積もり (tools/fs_compat_probe.py): ntfs3 は 33k 行で iomap/folio 前提 (gcc エラー 618 件)。
+- [x] ISO 9660 (fs/isofs: レベル 1〜3 / Joliet / Rock Ridge・relocation・シンボリックリンク。zisofs は EOPNOTSUPP で拒否) と UDF (fs/udf: 1.02〜2.01・Sparable・疎/断片化/ハードリンク/シンボリックリンク・ISO+UDF ブリッジは UDF 優先で開けなければ ISO) を読み取り専用で追加。docs/isofs-port.md / docs/udf-port.md。ホスト4構成 + AVD 通過、実機未確認。
+- [ ] UDF の VAT / Metadata パーティション: 上流は読むが、ファイルの入った盤のフィクスチャを作れず未検証 (空の UDF 2.50 VAT のみ)。ISO: zisofs の展開・4 GiB 超・マルチセッション・実機の光学ドライブ。

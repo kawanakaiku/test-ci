@@ -14,6 +14,8 @@
 #include "usbmem/ext4_volume.h"
 #include "usbmem/exfat_volume.h"
 #include "usbmem/fs_probe.h"
+#include "usbmem/isofs_volume.h"
+#include "usbmem/udf_volume.h"
 #include "usbmem/ntfs_volume.h"
 
 namespace {
@@ -36,6 +38,18 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     // ext3 / ext4 は fs/ext4 で読み取り専用。ジャーナルは再生しない: 未再生 (needs_recovery) のボリュームは EUCLEAN(117) で拒否、
     // 暗号化 / casefold / fs-verity などは EOPNOTSUPP(95)。書き込みは未対応 (rw を要求されても読み取り専用)。NTFS として試さない
     return usbmem::Ext4Volume::mount(dev, err);
+  }
+  if (t == usbmem::FsType::Udf || t == usbmem::FsType::Iso9660) {
+    // 光学メディア (読み取り専用)。ISO 9660 + UDF のブリッジ盤は UDF を優先し、UDF として開けなければ (対応外のパーティションなど) ISO 9660 にフォールバックする。docs/isofs-port.md / docs/udf-port.md
+    if (t == usbmem::FsType::Udf) {
+      int uerr = 0;
+      if (auto u = usbmem::UdfVolume::mount(dev, &uerr)) return u;
+      if (err) *err = uerr;
+    }
+    int ierr = 0;
+    if (auto i = usbmem::IsofsVolume::mount(dev, &ierr)) return i;
+    if (err && t == usbmem::FsType::Iso9660) *err = ierr;
+    return nullptr;
   }
   return rw ? usbmem::NtfsVolume::mount_rw(dev, err) : usbmem::NtfsVolume::mount(dev, err);
 }

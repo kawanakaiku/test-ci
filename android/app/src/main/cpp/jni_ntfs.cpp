@@ -16,6 +16,7 @@
 #include "usbmem/fs_probe.h"
 #include "usbmem/ntfs_volume.h"
 #include "usbmem/squashfs_volume.h"
+#include "usbmem/erofs_volume.h"
 
 namespace {
 struct Vol { std::unique_ptr<usbmem::FsVolume> v; };
@@ -41,6 +42,10 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
   if (t == usbmem::FsType::Squashfs) {
     // squashfs は読み取り専用の形式 (fs/squashfs)。rw を要求されても読み取り専用でマウントする (writable() == false)。非対応の圧縮方式 (LZMA1) は EOPNOTSUPP(95)
     return usbmem::SquashfsVolume::mount(dev, err);
+  }
+  if (t == usbmem::FsType::Erofs) {
+    // erofs も読み取り専用の形式 (fs/erofs)。rw を要求されても読み取り専用でマウントする。圧縮 (z_erofs) は未対応で EOPNOTSUPP(95) (docs/erofs-port.md)
+    return usbmem::ErofsVolume::mount(dev, err);
   }
   return rw ? usbmem::NtfsVolume::mount_rw(dev, err) : usbmem::NtfsVolume::mount(dev, err);
 }

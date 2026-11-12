@@ -376,7 +376,17 @@ void iomap_bio_submit_read_endio(const struct iomap_iter *it, struct iomap_read_
   (void)it; struct bio *bio = ctx->read_ctx; if (!bio) return;
   ctx->read_ctx = NULL; bio->bi_end_io = end_io; submit_bio(bio);
 }
-const struct iomap_read_ops iomap_bio_read_ops = { iomap_bio_read_folio_range, NULL, NULL };
+/* 汎用の bio 読み取り (カーネルの iomap_bio_read_ops と同じ): 完了時に folio へ結果を通知して bio を解放する。erofs など、独自の submit_read を持たない FS が使う。 */
+static void iomap_bio_default_end_io(struct bio *bio) {
+  int error = blk_status_to_errno(bio->bi_status);
+  struct folio_iter iter;
+  bio_for_each_folio_all(iter, bio) iomap_finish_folio_read(iter.folio, iter.offset, iter.length, error);
+  bio_put(bio);
+}
+static void iomap_bio_default_submit_read(const struct iomap_iter *it, struct iomap_read_folio_ctx *ctx) {
+  iomap_bio_submit_read_endio(it, ctx, iomap_bio_default_end_io);
+}
+const struct iomap_read_ops iomap_bio_read_ops = { iomap_bio_read_folio_range, iomap_bio_default_submit_read, NULL };
 
 void iomap_read_folio(iomap_iter_next_fn next, struct iomap_read_folio_ctx *ctx, void *private) {
   struct folio *f = ctx->cur_folio;

@@ -148,4 +148,8 @@ static inline void list_del_init_careful(struct list_head *e) { list_del_init(e)
 #ifdef __cplusplus
 }
 #endif
+
+#ifdef USBMEM_FS_EROFS
+#include <compat/more_erofs.h>   /* erofs の翻訳単位だけ */
+#endif
 #endif

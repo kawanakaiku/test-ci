@@ -4,6 +4,7 @@
 
 struct address_space_operations {
   void *bmap;
+  void *direct_IO;
   void *dirty_folio;
   void *error_remove_folio;
   void *invalidate_folio;

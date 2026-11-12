@@ -40,7 +40,7 @@ struct nls_table { const char *charset; int (*uni2char)(u16, unsigned char *, in
 /* ---- page / folio */
 struct address_space;
 struct folio;
-struct page { struct folio *folio_; };
+struct page { struct folio *folio_; unsigned long private; /* erofs が page->private を直接使う */ };
 struct folio {
   unsigned long flags;
   pgoff_t index;
@@ -159,6 +159,9 @@ struct super_block {
   struct fs_context *s_fc_;
   struct rw_semaphore s_umount;
   int usbmem_bh_fs_;   /* buffer_head 系 FS (ext2 など): usbmem_compat_sync がデータ → メタデータ → ディレクトリ → スーパーブロックの順に書く */
+  unsigned int s_dev;       /* erofs: 表示用 (MAJOR/MINOR)。ホストでは 0 */
+  int s_stack_depth;        /* erofs: ファイルバックマウントの検査用。常に 0 */
+  struct { unsigned char b[16]; } s_uuid; /* erofs: statfs 用 (呼ばれない) */
 };
 struct vfsmount;
 struct path { struct vfsmount *mnt; struct dentry *dentry; };
@@ -200,7 +203,7 @@ struct iomap {
 /* ---- mount (fs_context) */
 struct fs_context { unsigned int sb_flags; void *s_fs_info; struct dentry *root; unsigned int purpose; const void *ops; void *fs_private; const char *source; };
 enum fs_value_type { fs_value_is_undefined, fs_value_is_flag, fs_value_is_string, fs_value_is_blob, fs_value_is_filename, fs_value_is_file };
-struct fs_parameter { const char *key; char *string; enum fs_value_type type; size_t size; };
+struct fs_parameter { const char *key; char *string; enum fs_value_type type; size_t size; struct file *file; };
 
 #ifdef __cplusplus
 }

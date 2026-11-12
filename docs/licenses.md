@@ -17,6 +17,8 @@
 | zlib(libz) | QCOW2 / VMDK の圧縮クラスタ・グレインの展開(`core/src/blockdev_common.cpp`)。ホストは find_package、Android は NDK sysroot の `libz.so`(システムライブラリ。APK に同梱しない) | zlib License(寛容) | ディスクイメージ対応で追加 |
 | QCOW2 / VHD / VHDX / VMDK / NBD の実装(`core/src/blockdev_*.cpp`) | ディスクイメージ・NBD クライアント | Apache-2.0(自前)。**他実装のコードは取り込んでいない**。公開仕様(QEMU docs/interop/qcow2.txt、Microsoft VHD / MS-VHDX、VMware Virtual Disk Format、NBD proto.md)から書き起こした。CRC-32C・UTF-16 変換・各パーサは自前 | 追加 |
 | qemu-img / qemu-io / qemu-nbd、nbdkit、libnbd(nbdinfo / nbdcopy)、7-Zip | **テストの照合・フィクスチャ生成にだけ使う開発ツール**。配布物に含めない・リンクしない | 各プロジェクトのライセンス(GPL / BSD 等)。実行するだけなので本プロジェクトには波及しない | テスト専用 |
+| DiskTools (`core/src/fscheck*.cpp`, `mkfs*.cpp`) | 読み取り専用の整合性検査と mkfs (docs/disk-tools.md) | 自前実装 Apache-2.0。**新しい外部依存なし** (e2fsprogs / exfatprogs / dosfstools / ntfs-3g のコードは取り込まない)。exFAT のアップケース表は Unicode の大文字写像から生成 | 実装済み |
+| fsck.fat / fsck.exfat / e2fsck / ntfsfix / mkfs.* / mtools / debugfs | DiskTools の独立検証の**テスト時の外部ツール** (検査のみの引数で呼ぶ) | GPL-2.0-or-later 他。配布物に含めない・リンクしない | テストのみ |
 
 ## 未解決の確認事項(推測で断定しない)
 - GPL-2.0 コードをアプリに静的リンクした場合の配布物全体の扱い、Google Play 配布との両立(ソース提供方法)。Phase 7 前に法務的確認が必要。

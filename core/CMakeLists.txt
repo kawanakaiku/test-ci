@@ -70,3 +70,6 @@ endif()
 
 # BlockTransform (BitLocker / LUKS)
 include(${CMAKE_CURRENT_LIST_DIR}/transform.cmake)
+
+# DiskTools (整合性検査 / mkfs)
+include(${CMAKE_CURRENT_LIST_DIR}/disktools.cmake)

@@ -36,6 +36,13 @@ struct Partition {
   std::string name;            // GPT 名 (UTF-8)
   std::string type_name;       // 既知タイプの名前。不明なら空
   FsType fs = FsType::Unknown; // 中身の検出結果(任意)
+  // ---- 以下は追記 (パーティション編集 / ラベル対応)
+  std::string part_uuid;       // blkid の PARTUUID 形式。GPT: 一意 GUID (小文字)。MBR: "<ディスクシグネチャ 8 桁>-<番号 2 桁>"
+  std::string fs_label;        // ファイルシステムのラベル (読めたときだけ。ParseOptions::read_labels)
+  std::string fs_uuid;         // ファイルシステムの UUID / ボリュームシリアル (形式は fs_label.h)
+  std::string fs_serial;       // FAT / exFAT / NTFS のボリュームシリアル
+  std::string fs_guid;         // exFAT のボリューム GUID (あれば)
+  std::string fs_detected;     // fs が Unknown のとき、ラベル読み取りが魔法値で判別した名前 ("erofs" / "squashfs" / "luks")
 };
 
 struct PartitionTable {
@@ -47,6 +54,7 @@ struct PartitionTable {
   uint32_t mbr_disk_signature = 0;    // MBR のみ
   bool used_backup_gpt = false;       // プライマリ破損でバックアップから復元した
   bool whole_device_volume = false;   // パーティション無しで全体が 1 ボリューム
+  std::string mbr_disk_id;            // MBR のみ: ディスクシグネチャ (8 桁の 16 進、PARTUUID の前半)
   FsType whole_device_fs = FsType::Unknown;
   std::vector<Partition> partitions;
   std::vector<Diagnostic> diagnostics;
@@ -57,6 +65,7 @@ struct PartitionTable {
 struct ParseOptions {
   uint32_t sector_size = 0;  // 0 = 自動 (dev.logical_block_size(), 512, 4096 を試す)
   bool probe_filesystems = true;
+  bool read_labels = true;   // probe_filesystems が true のとき、FS ラベル / UUID も読む (読めなくても失敗にしない)
 };
 
 // I/O エラー以外(不正なテーブル)は Status::Ok を返し diagnostics に記録する。

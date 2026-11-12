@@ -187,8 +187,8 @@ private fun PartitionList(t: PartitionTable, label: String, canPublish: Boolean,
                         Chip(p.fs.uppercase())
                     }
                     Text(stringResource(if (p.extendedContainer) R.string.common_partition_detail_extended else R.string.common_partition_detail, formatBytes(p.sizeBytes), p.typeName, p.startLba), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (p.fs == "ntfs" || p.fs == "exfat" || p.fs == "ext2" || p.fs == "ext3" || p.fs == "ext4") {
-                        // exFAT / ext3 / ext4 は読み取り専用 (書き込みは未対応)。NTFS と ext2 だけ、書き込み許可のスイッチに従う
+                    if (p.fs == "ntfs" || p.fs == "exfat" || p.fs == "ext2" || p.fs == "ext3" || p.fs == "ext4" || p.fs == "squashfs" || p.fs == "erofs") {
+                        // squashfs / erofs は読み取り専用の形式 (mode は下の条件で ReadOnly)。exFAT / ext3 / ext4 は読み取り専用 (書き込みは未対応)。NTFS と ext2 だけ、書き込み許可のスイッチに従う
                         val mode = if (p.fs == "ntfs" || p.fs == "ext2") writeMode else WriteMode.ReadOnly
                         Button(onClick = { onPublish(p) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) { Text(stringResource(when (mode) { WriteMode.ReadOnly -> R.string.usb_publish_read_only; WriteMode.CreateOnly -> R.string.usb_publish_write; WriteMode.Full -> R.string.usb_publish_full })) }
                     }

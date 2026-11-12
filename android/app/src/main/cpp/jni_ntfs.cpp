@@ -15,6 +15,7 @@
 #include "usbmem/exfat_volume.h"
 #include "usbmem/fs_probe.h"
 #include "usbmem/ntfs_volume.h"
+#include "usbmem/squashfs_volume.h"
 
 namespace {
 struct Vol { std::unique_ptr<usbmem::FsVolume> v; };
@@ -36,6 +37,10 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     // ext3 / ext4 は fs/ext4 で読み取り専用。ジャーナルは再生しない: 未再生 (needs_recovery) のボリュームは EUCLEAN(117) で拒否、
     // 暗号化 / casefold / fs-verity などは EOPNOTSUPP(95)。書き込みは未対応 (rw を要求されても読み取り専用)。NTFS として試さない
     return usbmem::Ext4Volume::mount(dev, err);
+  }
+  if (t == usbmem::FsType::Squashfs) {
+    // squashfs は読み取り専用の形式 (fs/squashfs)。rw を要求されても読み取り専用でマウントする (writable() == false)。非対応の圧縮方式 (LZMA1) は EOPNOTSUPP(95)
+    return usbmem::SquashfsVolume::mount(dev, err);
   }
   return rw ? usbmem::NtfsVolume::mount_rw(dev, err) : usbmem::NtfsVolume::mount(dev, err);
 }

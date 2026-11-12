@@ -135,5 +135,6 @@ typedef unsigned int fmode_t;
 #include <compat/more.h>
 #include <compat/more_blockfs.h>
 #include <compat/more_ext4.h>
+#include <compat/more_zfs.h>
 
 #endif

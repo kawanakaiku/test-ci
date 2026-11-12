@@ -208,3 +208,5 @@ if(USBMEM_BUILD_TESTS)
     set_tests_properties(ext4_read PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
   endif()
 endif()
+
+include(${CMAKE_CURRENT_LIST_DIR}/zfs.cmake)

@@ -14,6 +14,8 @@
 | libbde-utils (bdeinfo / bdemount) | BitLocker の復号結果を突き合わせる**テスト時の外部ツール** | LGPL-3.0-or-later。配布物に含めない・リンクしない | テストのみ |
 | cryptsetup / nbdkit (luks フィルタ) / qemu-img | LUKS フィクスチャの生成と独立検証の**テスト時の外部ツール** | GPL-2.0-or-later / BSD-3-Clause / GPL-2.0-or-later。配布物に含めない | テストのみ |
 | Python `cryptography` / `argon2-cffi` / `hashlib` | 既知値テストのベクタ生成・合成フィクスチャ生成 (`tools/*.py`) | Apache-2.0 または BSD / MIT。配布物に含めない | テストのみ |
+| ddrescue / partclone.* / lz4 コマンド / e2fsprogs / dosfstools / exfatprogs / ntfs-3g (mkntfs) (ホストの検証専用) | 救出・バックアップの出力との照合 (`tools/check_recovery_tools.py`)。コードは取り込まず、アプリにも含めない | GPL-2.0+ 等 (実行のみ。成果物に入らない) | 検証用のみ |
+| Partclone イメージ形式 / ddrescue mapfile 形式 | 互換のため形式を再実装 (partclone 0.3.49 の実出力の解析から。partclone のソースコードは取り込んでいない)。LZ4 フレーム形式も自前実装 | 形式の仕様。自前コード (Apache-2.0) | 実装済み |
 
 ## 未解決の確認事項(推測で断定しない)
 - GPL-2.0 コードをアプリに静的リンクした場合の配布物全体の扱い、Google Play 配布との両立(ソース提供方法)。Phase 7 前に法務的確認が必要。

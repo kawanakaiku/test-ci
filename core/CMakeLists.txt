@@ -76,3 +76,5 @@ include(${CMAKE_CURRENT_LIST_DIR}/transform.cmake)
 
 # DiskTools (整合性検査 / mkfs)
 include(${CMAKE_CURRENT_LIST_DIR}/disktools.cmake)
+# データ救出 / バックアップ (ddrescue / Partclone 方式)
+include(${CMAKE_CURRENT_LIST_DIR}/recovery.cmake)

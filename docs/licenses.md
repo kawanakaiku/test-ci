@@ -19,6 +19,8 @@
 | qemu-img / qemu-io / qemu-nbd、nbdkit、libnbd(nbdinfo / nbdcopy)、7-Zip | **テストの照合・フィクスチャ生成にだけ使う開発ツール**。配布物に含めない・リンクしない | 各プロジェクトのライセンス(GPL / BSD 等)。実行するだけなので本プロジェクトには波及しない | テスト専用 |
 | DiskTools (`core/src/fscheck*.cpp`, `mkfs*.cpp`) | 読み取り専用の整合性検査と mkfs (docs/disk-tools.md) | 自前実装 Apache-2.0。**新しい外部依存なし** (e2fsprogs / exfatprogs / dosfstools / ntfs-3g のコードは取り込まない)。exFAT のアップケース表は Unicode の大文字写像から生成 | 実装済み |
 | fsck.fat / fsck.exfat / e2fsck / ntfsfix / mkfs.* / mtools / debugfs | DiskTools の独立検証の**テスト時の外部ツール** (検査のみの引数で呼ぶ) | GPL-2.0-or-later 他。配布物に含めない・リンクしない | テストのみ |
+| ddrescue / partclone.* / lz4 コマンド / e2fsprogs / dosfstools / exfatprogs / ntfs-3g (mkntfs) (ホストの検証専用) | 救出・バックアップの出力との照合 (`tools/check_recovery_tools.py`)。コードは取り込まず、アプリにも含めない | GPL-2.0+ 等 (実行のみ。成果物に入らない) | 検証用のみ |
+| Partclone イメージ形式 / ddrescue mapfile 形式 | 互換のため形式を再実装 (partclone 0.3.49 の実出力の解析から。partclone のソースコードは取り込んでいない)。LZ4 フレーム形式も自前実装 | 形式の仕様。自前コード (Apache-2.0) | 実装済み |
 
 ## 未解決の確認事項(推測で断定しない)
 - GPL-2.0 コードをアプリに静的リンクした場合の配布物全体の扱い、Google Play 配布との両立(ソース提供方法)。Phase 7 前に法務的確認が必要。

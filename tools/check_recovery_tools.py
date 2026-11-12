@@ -375,7 +375,12 @@ def section_partclone(tmp):
         check(r.returncode == 0 and ("Block size:   %d Byte" % mp["bs"]) in txt, "%s: partclone.info cannot read the usbmem image" % name)
         # 3. partclone.restore が usbmem の画像を復元 → 使用中ブロックが一致し fsck が通る
         rest = os.path.join(d, name + ".pc-restored")
-        r = run(["partclone.restore", "-C", "-L", log, "-O", rest, "-s", mine])
+        for attempt in range(3):  # partclone.restore は存在しないファイルへの -O で稀に open(ENOENT) になる (partclone 側の挙動)。作っておいて再試行する
+            open(rest, "wb").close()
+            os.chmod(rest, 0o600)
+            r = run(["partclone.restore", "-C", "-L", log, "-O", rest, "-s", mine])
+            if r.returncode == 0:
+                break
         if check(r.returncode == 0, "%s: partclone.restore failed on the usbmem image: %s" % (name, (r.stdout + r.stderr).decode()[-200:])):
             os.chmod(rest, 0o600)  # partclone.restore は権限 000 で作る
             bad = used_blocks_equal(img, rest, mp["bits"], mp["bs"], mp["total"])

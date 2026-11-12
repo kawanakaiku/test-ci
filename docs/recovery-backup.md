@@ -14,7 +14,7 @@
 | `src/backup_image.cpp` | Partclone イメージ形式の書き出し・読み取り・検査 |
 | `src/backup_restore.cpp` | 復元の計画 → トークン → 適用 |
 | `src/backup_lz4.cpp` | LZ4 フレーム形式 (自前実装。依存なし) |
-| `include/usbmem/c_api_recovery.h`, `src/c_api_recovery.cpp` | C API `usbmem_rescue_*` / `usbmem_backup_*` / `usbmem_restore_*` と `usbmem_job` (取り消し・一時停止・進捗) |
+| `include/usbmem/c_api_recovery.h`, `src/c_api_recovery.cpp` | C API `usbmem_rescue_*` / `usbmem_backup_*` / `usbmem_restore_*` と `usbmem_rjob` (取り消し・一時停止・進捗) |
 | `android/app/src/main/cpp/jni_recovery.cpp`, `RecoveryBackup.kt` | JNI と Kotlin (`Rescue` / `Backup` / `RestorePlan` / `RecoveryJob`) |
 | `core/recovery.cmake` | ビルド定義 (`usbmem_recovery`、テスト、CLI) |
 | `core/tests/test_recovery.cpp`, `test_backup.cpp`, `recovery_test_util.h`, `recovery_cli.cpp` | 単体テストと検証用 CLI |
@@ -48,7 +48,7 @@ GNU ddrescue の mapfile 形式 (コメントヘッダ、`現在位置 状態 �
 - 読み取り元と出力先が同じ (同じファイル・シンボリックリンク経由・同じデバイスを含む) なら、何も開始せずに拒否する (`same-file`)。
 - デバイスが抜かれた (`Disconnected` / `Closed`) 場合は不良として記録せず `InputGone` で止まる。出力側の書き込み失敗も不良とみなさない (`OutputError`)。いずれも同じ mapfile で再実行すれば続きから行う。
 - USB デバイスを痛めないための**安全弁** (0 = 無効): 連続エラー数 `max_consecutive_errors`、総エラー数 `max_errors`、一定時間内のエラー率 (`error_window_ms` 中に `max_errors_in_window` 回)、進捗が無い時間 `no_progress_timeout_ms`、読み取りの間の休止 `pause_between_reads_ms`、読み取りのタイムアウト `read_timeout_ms`。時計は注入できる (テストは偽の時計)。止まった理由は `RescueStop::SafetyAbort` で、再開できる。
-- 一時停止・取り消し・進捗: `RescueControl` (C API では `usbmem_job`)。取り消しは次の読み取りの前に効き、mapfile は保存済みの状態になる。
+- 一時停止・取り消し・進捗: `RescueControl` (C API では `usbmem_rjob`)。取り消しは次の読み取りの前に効き、mapfile は保存済みの状態になる。
 
 ## 3. バックアップ・復元 (BackupEngine)
 
@@ -93,7 +93,7 @@ GNU ddrescue の mapfile 形式 (コメントヘッダ、`現在位置 状態 �
 
 ## 4. C API / JNI / Kotlin
 
-C API は `core/include/usbmem/c_api_recovery.h`。結果はすべて UTF-8 JSON の文字列 (`usbmem_free` で解放)。長い処理は呼び出したスレッドをふさぐので、`usbmem_job` を作って別スレッドから `usbmem_job_cancel` / `usbmem_job_pause` / `usbmem_job_progress_json` を呼ぶ。
+C API は `core/include/usbmem/c_api_recovery.h`。結果はすべて UTF-8 JSON の文字列 (`usbmem_free` で解放)。長い処理は呼び出したスレッドをふさぐので、`usbmem_rjob` を作って別スレッドから `usbmem_rjob_cancel` / `usbmem_rjob_pause` / `usbmem_rjob_progress_json` を呼ぶ。
 
 Kotlin (`RecoveryBackup.kt`):
 

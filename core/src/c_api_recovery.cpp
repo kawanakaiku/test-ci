@@ -19,7 +19,7 @@
 
 using namespace usbmem;
 
-struct usbmem_job {
+struct usbmem_rjob {
   RescueControl ctl;
   CancelToken cancel;
   std::mutex mu;
@@ -98,7 +98,7 @@ std::string progress_json(const RescueProgress& p, uint64_t done = 0, uint64_t t
        ",\"done\":" + jnum(done) + ",\"total\":" + jnum(total) + "}";
   return o;
 }
-void set_progress(usbmem_job* j, const std::string& s) {
+void set_progress(usbmem_rjob* j, const std::string& s) {
   if (!j) return;
   std::lock_guard<std::mutex> l(j->mu);
   j->progress = s;
@@ -188,18 +188,18 @@ std::string image_info_json(const ImageInfo& i) {
 
 extern "C" {
 
-usbmem_job* usbmem_job_new(void) { try { return new usbmem_job(); } catch (...) { return nullptr; } }
-void usbmem_job_cancel(usbmem_job* j) { if (j) { j->ctl.cancel.store(true); j->cancel.cancel(); } }
-void usbmem_job_pause(usbmem_job* j, int p) { if (j) j->ctl.pause.store(p != 0); }
-int usbmem_job_progress_json(usbmem_job* j, char** out) {
+usbmem_rjob* usbmem_rjob_new(void) { try { return new usbmem_rjob(); } catch (...) { return nullptr; } }
+void usbmem_rjob_cancel(usbmem_rjob* j) { if (j) { j->ctl.cancel.store(true); j->cancel.cancel(); } }
+void usbmem_rjob_pause(usbmem_rjob* j, int p) { if (j) j->ctl.pause.store(p != 0); }
+int usbmem_rjob_progress_json(usbmem_rjob* j, char** out) {
   if (!j || !out) return static_cast<int>(Errc::InvalidArgument);
   std::string s;
   { std::lock_guard<std::mutex> l(j->mu); s = j->progress; }
   return emit(s, out);
 }
-void usbmem_job_free(usbmem_job* j) { delete j; }
+void usbmem_rjob_free(usbmem_rjob* j) { delete j; }
 
-int usbmem_rescue_run(usbmem_device* in, usbmem_device* out, const char* mapfile_path, const usbmem_rescue_options* o, usbmem_job* job, char** out_json) {
+int usbmem_rescue_run(usbmem_device* in, usbmem_device* out, const char* mapfile_path, const usbmem_rescue_options* o, usbmem_rjob* job, char** out_json) {
   if (!in || !in->dev || !out || !out->dev || !out_json) return static_cast<int>(Errc::InvalidArgument);
   *out_json = nullptr;
   try {
@@ -252,7 +252,7 @@ int usbmem_rescue_run(usbmem_device* in, usbmem_device* out, const char* mapfile
   } catch (...) { return static_cast<int>(Errc::NoMemory); }
 }
 
-int usbmem_backup_run(usbmem_device* src, const char* image_path, int lz4, int full_if_unclean, usbmem_job* job, char** out_json) {
+int usbmem_backup_run(usbmem_device* src, const char* image_path, int lz4, int full_if_unclean, usbmem_rjob* job, char** out_json) {
   if (!src || !src->dev || !image_path || !out_json) return static_cast<int>(Errc::InvalidArgument);
   *out_json = nullptr;
   try {
@@ -361,7 +361,7 @@ int usbmem_restore_token(usbmem_restore_plan* plan, const char* typed, char** ou
   try { return emit(make_restore_token(plan->plan, typed), out_token); } catch (...) { return static_cast<int>(Errc::NoMemory); }
 }
 
-int usbmem_restore_apply(usbmem_restore_plan* plan, const char* image_path, usbmem_device* target, const char* token, int in_use, usbmem_job* job, char** out_json) {
+int usbmem_restore_apply(usbmem_restore_plan* plan, const char* image_path, usbmem_device* target, const char* token, int in_use, usbmem_rjob* job, char** out_json) {
   if (!plan || !image_path || !target || !target->dev || !token || !out_json) return static_cast<int>(Errc::InvalidArgument);
   *out_json = nullptr;
   try {

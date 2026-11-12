@@ -35,13 +35,13 @@ usbmem_device* dev(jlong h) { return reinterpret_cast<usbmem_device*>(h); }
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_org_usbmem_app_RecoveryNative_nativeJobNew(JNIEnv*, jclass) { return reinterpret_cast<jlong>(usbmem_job_new()); }
-JNIEXPORT void JNICALL Java_org_usbmem_app_RecoveryNative_nativeJobCancel(JNIEnv*, jclass, jlong j) { usbmem_job_cancel(reinterpret_cast<usbmem_job*>(j)); }
-JNIEXPORT void JNICALL Java_org_usbmem_app_RecoveryNative_nativeJobPause(JNIEnv*, jclass, jlong j, jboolean p) { usbmem_job_pause(reinterpret_cast<usbmem_job*>(j), p ? 1 : 0); }
-JNIEXPORT void JNICALL Java_org_usbmem_app_RecoveryNative_nativeJobFree(JNIEnv*, jclass, jlong j) { usbmem_job_free(reinterpret_cast<usbmem_job*>(j)); }
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_RecoveryNative_nativeJobNew(JNIEnv*, jclass) { return reinterpret_cast<jlong>(usbmem_rjob_new()); }
+JNIEXPORT void JNICALL Java_org_usbmem_app_RecoveryNative_nativeJobCancel(JNIEnv*, jclass, jlong j) { usbmem_rjob_cancel(reinterpret_cast<usbmem_rjob*>(j)); }
+JNIEXPORT void JNICALL Java_org_usbmem_app_RecoveryNative_nativeJobPause(JNIEnv*, jclass, jlong j, jboolean p) { usbmem_rjob_pause(reinterpret_cast<usbmem_rjob*>(j), p ? 1 : 0); }
+JNIEXPORT void JNICALL Java_org_usbmem_app_RecoveryNative_nativeJobFree(JNIEnv*, jclass, jlong j) { usbmem_rjob_free(reinterpret_cast<usbmem_rjob*>(j)); }
 JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_RecoveryNative_nativeJobProgress(JNIEnv* env, jclass, jlong j) {
   char* json = nullptr;
-  if (usbmem_job_progress_json(reinterpret_cast<usbmem_job*>(j), &json) != 0) return nullptr;
+  if (usbmem_rjob_progress_json(reinterpret_cast<usbmem_rjob*>(j), &json) != 0) return nullptr;
   return to_array(env, json);
 }
 
@@ -63,7 +63,7 @@ JNIEXPORT jint JNICALL Java_org_usbmem_app_RecoveryNative_nativeRescueRun(JNIEnv
   }
   Utf mp(env, mapPath);
   char* json = nullptr;
-  int rc = usbmem_rescue_run(dev(in), dev(out), mp.c(), &o, reinterpret_cast<usbmem_job*>(job), &json);
+  int rc = usbmem_rescue_run(dev(in), dev(out), mp.c(), &o, reinterpret_cast<usbmem_rjob*>(job), &json);
   put_out(env, resultOut, json);
   return rc;
 }
@@ -72,7 +72,7 @@ JNIEXPORT jint JNICALL Java_org_usbmem_app_RecoveryNative_nativeBackupRun(JNIEnv
                                                                          jobjectArray resultOut) {
   Utf p(env, imagePath);
   char* json = nullptr;
-  int rc = usbmem_backup_run(dev(src), p.c(), lz4 ? 1 : 0, full ? 1 : 0, reinterpret_cast<usbmem_job*>(job), &json);
+  int rc = usbmem_backup_run(dev(src), p.c(), lz4 ? 1 : 0, full ? 1 : 0, reinterpret_cast<usbmem_rjob*>(job), &json);
   put_out(env, resultOut, json);
   return rc;
 }
@@ -110,7 +110,7 @@ JNIEXPORT jint JNICALL Java_org_usbmem_app_RecoveryNative_nativeRestoreApply(JNI
                                                                             jlong job, jobjectArray resultOut) {
   Utf p(env, imagePath), t(env, token);
   char* json = nullptr;
-  int rc = usbmem_restore_apply(reinterpret_cast<usbmem_restore_plan*>(plan), p.c(), dev(target), t.c(), inUse ? 1 : 0, reinterpret_cast<usbmem_job*>(job), &json);
+  int rc = usbmem_restore_apply(reinterpret_cast<usbmem_restore_plan*>(plan), p.c(), dev(target), t.c(), inUse ? 1 : 0, reinterpret_cast<usbmem_rjob*>(job), &json);
   put_out(env, resultOut, json);
   return rc;
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Btrfs のテスト用イメージを作る (core/compat/tests/test_btrfs.cpp 用)。
+"""Btrfs のテスト用イメージを作る (--shrink で最小のサイズに縮める) (core/compat/tests/test_btrfs.cpp 用)。
 使い方: tools/gen_btrfs_fixture.py <outdir> [variant...]   (PATH に mkfs.btrfs / btrfs が必要。/sbin を自動で足す)
 ツリーは tools/gen_squashfs_fixture.py (= gen_ext2_fixture.py の build() + ブロック境界のファイル + 乱数/繰り返しデータ + FIFO) と同じ。
 mkfs.btrfs は チェックサム (crc32c / xxhash / sha256 / blake2) × 圧縮 (なし / zlib / lzo / zstd) × ノードサイズ × セクタサイズ × 機能 (no-holes / mixed / block-group-tree …) × プロファイル (single / dup) の組み合わせで呼ぶ。
@@ -103,7 +103,7 @@ def make_small(outdir, name, args, size="320M"):
         for d in ("dir/sub", "dir"): man.append("D\t%s\t%d" % (d, stamp(os.path.join(tree, d))))
         img = os.path.join(outdir, name + ".img")
         if os.path.exists(img): os.remove(img)
-        r = subprocess.run(["mkfs.btrfs", "-q", "-f", "-K", "-b", size] + args + ["-r", tree, img], capture_output=True, text=True)
+        r = subprocess.run(["mkfs.btrfs", "-q", "-f", "-K", "--shrink", "-b", size] + args + ["-r", tree, img], capture_output=True, text=True)
         if r.returncode != 0:
             if os.path.exists(img): os.remove(img)
             return "mkfs.btrfs failed: " + (r.stderr or r.stdout).strip()[-200:]
@@ -120,7 +120,7 @@ def make(outdir, name, args, compressed, size="320M"):
         man = make_tree_manifest(tree, sqb)
         img = os.path.join(outdir, name + ".img")
         if os.path.exists(img): os.remove(img)
-        cmd = ["mkfs.btrfs", "-q", "-f", "-K", "-b", size] + args + ["-r", tree, img]
+        cmd = ["mkfs.btrfs", "-q", "-f", "-K", "--shrink", "-b", size] + args + ["-r", tree, img]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
             if os.path.exists(img): os.remove(img)
@@ -151,7 +151,7 @@ def make_subvols(outdir):
                 write_text(tree + "/svA/inner/i.txt", b"nested subvolume\n", T + 5)
             img = os.path.join(outdir, variant + ".img")
             if os.path.exists(img): os.remove(img)
-            r = subprocess.run(["mkfs.btrfs", "-q", "-f", "-K", "-b", "200M"] + args + ["-r", tree, img], capture_output=True, text=True)
+            r = subprocess.run(["mkfs.btrfs", "-q", "-f", "-K", "--shrink", "-b", "200M"] + args + ["-r", tree, img], capture_output=True, text=True)
             if r.returncode != 0:
                 print(variant + ": mkfs.btrfs failed (skipped):", (r.stderr or r.stdout).strip()[:160]); continue
             chk = subprocess.run(["btrfs", "check", "--readonly", img], capture_output=True, text=True)
@@ -172,7 +172,7 @@ def make_nodatasum(outdir):
         write_text(tree + "/normal.bin", data[1:], T + 2)
         img = os.path.join(outdir, "nodatasum.img")
         if os.path.exists(img): os.remove(img)
-        r = subprocess.run(["mkfs.btrfs", "-q", "-f", "-K", "-b", "200M", "--inode-flags", "nodatasum:nodatasum.bin", "--inode-flags", "nodatacow:nodatacow.bin", "-r", tree, img], capture_output=True, text=True)
+        r = subprocess.run(["mkfs.btrfs", "-q", "-f", "-K", "--shrink", "-b", "200M", "--inode-flags", "nodatasum:nodatasum.bin", "--inode-flags", "nodatacow:nodatacow.bin", "-r", tree, img], capture_output=True, text=True)
         if r.returncode != 0:
             print("nodatasum: mkfs.btrfs failed (skipped):", (r.stderr or r.stdout).strip()[:160]); return
         chk = subprocess.run(["btrfs", "check", "--readonly", img], capture_output=True, text=True)

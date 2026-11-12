@@ -576,18 +576,22 @@ static void verify_refusals(const std::string& dir) {
     int err = 0;
     CHECK(mount_img(spy, &err) == nullptr && err == EOPNOTSUPP);
   }
-  // スーパーブロックのチェックサム不一致: 主コピーだけなら 64 MiB のミラーで開ける (世代が同じ)。全コピーが無効なら EINVAL
+  // スーパーブロックのチェックサム不一致: 主コピーだけなら 64 MiB のミラーで開ける (世代が同じ。ミラーがある大きさのイメージのとき)。全コピーが無効なら EINVAL
   {
+    bool has_mirror = base->size() >= 0x4000000 + 4096;
     auto spy = std::make_shared<SpyDevice>(base);
     spy->muts()[0x10000 + 0x100] = sb[0x100] ^ 0xFF;
     int err = 0;
     auto vol = mount_img(spy, &err);
-    CHECK(vol != nullptr);
-    if (vol) { uint64_t x = 0; CHECK(resolve(vol.get(), "small.txt", &x) == 0); }
-    spy->muts()[0x4000000 + 0x100] ^= 0xFF;
-    uint8_t m = 0; base->read_at(0x4000000 + 0x100, &m, 1);
-    spy->muts()[0x4000000 + 0x100] = m ^ 0xFF;
-    CHECK(mount_img(spy, &err) == nullptr && err == EINVAL);
+    if (has_mirror) {
+      CHECK(vol != nullptr);
+      if (vol) { uint64_t x = 0; CHECK(resolve(vol.get(), "small.txt", &x) == 0); }
+      uint8_t m = 0; base->read_at(0x4000000 + 0x100, &m, 1);
+      spy->muts()[0x4000000 + 0x100] = m ^ 0xFF;
+      CHECK(mount_img(spy, &err) == nullptr && err == EINVAL);
+    } else {
+      CHECK(vol == nullptr && err == EINVAL);
+    }
   }
   // 空のスーパーブロック (全コピー)
   {

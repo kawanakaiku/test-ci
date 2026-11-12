@@ -95,3 +95,7 @@
 暗号化ボリューム (上の項 3) の進捗: BitLocker / LUKS1 / LUKS2 の読み取り専用復号 (core + C API + JNI + Kotlin ラッパ) は実装・検証済み (docs/crypto-volumes.md)。未了: UI (パスワード入力・解錠状態の表示)、Android Keystore 連携 (設計メモのみ)、ARM 実機での速度測定と ARMv8 Crypto Extensions の高速パス、Windows 7/8 実機の diffuser 付きボリュームでの確認、LUKS2 4096 バイトセクタの実カーネル照合。
 
 DiskTools (上の項 6) の進捗: 読み取り専用の整合性検査 (FAT12/16/32・exFAT・ext2/3/4・NTFS) と mkfs (ext2・exFAT・FAT32) は core + C API + JNI + Kotlin ラッパまで実装・検証済み (docs/disk-tools.md。fsck.fat / fsck.exfat / e2fsck / ntfsfix -n との突き合わせで見逃し 0・過検出 0、ASan/UBSan で破損入力 2000 件)。未了: UI、実機 USB メモリでの mkfs、NTFS の mkfs (対象外)、ext の htree 順序・bigalloc・meta_bg の検査、FAT16/FAT12 の mkfs、実 Windows / macOS での読み取り確認、修復 (明示承認つき) は未着手。
+
+Btrfs (読み取り専用) の進捗: 単一デバイスの Btrfs を自前のリーダーで読み取り専用マウントできる (カーネルの fs/btrfs は載せていない。理由は docs/btrfs-port.md)。
+チェックサム 4 種・zlib/lzo/zstd・ノード/セクタサイズ違い・サブボリューム・DUP・NODATASUM・tree-log 未再生の確認ダイアログまで host 4 構成と AVD で検証済み。
+未了: 複数デバイス / RAID、サブボリューム選択 UI、xattr、実機確認、reflink の実イメージ。XFS / F2FS は別の worktree。

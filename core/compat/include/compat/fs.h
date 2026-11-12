@@ -43,16 +43,16 @@ struct nls_table {   /* 先頭 3 つは従来どおり。以降は Linux の nls
 /* ---- page / folio */
 struct address_space;
 struct folio;
-struct page { struct folio *folio_; };
+struct page { struct folio *folio_; unsigned long private; /* erofs が page->private を直接使う */ };
 struct folio {
   unsigned long flags;
   pgoff_t index;
   struct address_space *mapping;
-  void *private;
   void *data;          /* PAGE_SIZE バイトのバッファ (ホスト側メモリ) */
   atomic_t refcount;
   struct mutex lock_;
-  struct page page;
+  /* folio->private と page->private は同じ記憶域 (カーネルでは order-0 のページでそうなっている。erofs は両方を使う)。page の folio_ と重なる位置に folio_pad_ を置く。 */
+  union { struct page page; struct { struct folio *folio_pad_; void *private; }; };
   struct folio *hash_next_;
   int read_pending_, read_err_;
   /* 512B 単位の dirty ビット (bit i = [512*i, 512*(i+1)))。実カーネルの iomap (iomap_folio_state) と同じく、書いた範囲だけを書き戻すために持つ。
@@ -166,6 +166,9 @@ struct super_block {
   struct rw_semaphore s_umount;
   int usbmem_fill_via_read_;   /* iomap の書き込みで未読の folio を埋めるとき、マッピング 1 つぶんではなく a_ops->read_folio で folio 全体を読む (exFAT: クラスタ < 4096 で 1 folio に複数の離れたエクステントが載る)。 */
   int usbmem_bh_fs_;   /* buffer_head 系 FS (ext2 など): usbmem_compat_sync がデータ → メタデータ → ディレクトリ → スーパーブロックの順に書く */
+  unsigned int s_dev;       /* erofs: 表示用 (MAJOR/MINOR)。ホストでは 0 */
+  int s_stack_depth;        /* erofs: ファイルバックマウントの検査用。常に 0 */
+  struct { unsigned char b[16]; } s_uuid; /* erofs: statfs 用 (呼ばれない) */
 };
 struct vfsmount;
 struct path { struct vfsmount *mnt; struct dentry *dentry; };
@@ -207,7 +210,7 @@ struct iomap {
 /* ---- mount (fs_context) */
 struct fs_context { unsigned int sb_flags; void *s_fs_info; struct dentry *root; unsigned int purpose; const void *ops; void *fs_private; const char *source; };
 enum fs_value_type { fs_value_is_undefined, fs_value_is_flag, fs_value_is_string, fs_value_is_blob, fs_value_is_filename, fs_value_is_file };
-struct fs_parameter { const char *key; char *string; enum fs_value_type type; size_t size; };
+struct fs_parameter { const char *key; char *string; enum fs_value_type type; size_t size; struct file *file; };
 
 #ifdef __cplusplus
 }

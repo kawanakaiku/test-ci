@@ -8,6 +8,7 @@ namespace usbmem {
 enum class FsType : uint8_t {
   Unknown = 0, Ntfs, Exfat, Fat12, Fat16, Fat32, Ext2, Ext3, Ext4,
   Iso9660, Udf, BitLocker, Luks, Btrfs, Xfs, F2fs,
+  Squashfs, Erofs,
 };
 
 const char* fs_type_name(FsType t);

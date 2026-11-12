@@ -87,7 +87,14 @@ typedef unsigned int fmode_t;
 #define ALIGN(x, a) (((x) + ((a) - 1)) & ~((__typeof__(x))(a) - 1))
 #define IS_ALIGNED(x, a) (((x) & ((__typeof__(x))(a) - 1)) == 0)
 #define swap(a, b) do { __typeof__(a) _t = (a); (a) = (b); (b) = _t; } while (0)
+#ifdef USBMEM_BUILD_BUG_ON_RELAXED
+/* 最適化時に __builtin_constant_p(var) を含む式が _Static_assert の定数式に
+ * ならない (erofs_fs.h) ため、定数と判定できた場合だけリンクエラーで検出する。 */
+extern void usbmem_build_bug_failed(void);
+#define BUILD_BUG_ON(c) do { if (__builtin_constant_p(c) && (c)) usbmem_build_bug_failed(); } while (0)
+#else
 #define BUILD_BUG_ON(c) _Static_assert(!(c), "BUILD_BUG_ON")
+#endif
 #define offsetofend(t, m) (offsetof(t, m) + sizeof(((t *)0)->m))
 #define PAGE_SHIFT 12
 #define PAGE_SIZE (1UL << PAGE_SHIFT)
@@ -135,5 +142,6 @@ typedef unsigned int fmode_t;
 #include <compat/more.h>
 #include <compat/more_blockfs.h>
 #include <compat/more_ext4.h>
+#include <compat/more_zfs.h>
 
 #endif

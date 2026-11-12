@@ -69,6 +69,8 @@ const char* fs_type_name(FsType t) {
     case FsType::Btrfs: return "btrfs";
     case FsType::Xfs: return "xfs";
     case FsType::F2fs: return "f2fs";
+    case FsType::Squashfs: return "squashfs";
+    case FsType::Erofs: return "erofs";
   }
   return "unknown";
 }
@@ -100,11 +102,17 @@ FsType probe_filesystem(BlockDevice& dev, uint64_t offset, uint64_t length, Stat
   if (FsType t = probe_boot_sector(head.data(), hn, length); t != FsType::Unknown) return t;
   if (std::memcmp(head.data(), "LUKS\xba\xbe", 6) == 0) return FsType::Luks;
   if (std::memcmp(head.data(), "XFSB", 4) == 0) return FsType::Xfs;
+  // squashfs: 先頭 4 バイトが "hsqs" (リトルエンディアンの 0x73717368)。major 4 で block_size がべき乗・範囲内のものだけ (読み取り可否は mount が決める)
+  if (hn >= 32 && std::memcmp(head.data(), "hsqs", 4) == 0 && le16(head.data() + 28) == 4) {
+    uint32_t bs = le32(head.data() + 12);
+    if (is_pow2(bs) && bs >= 4096 && bs <= (1u << 20)) return FsType::Squashfs;
+  }
 
   uint8_t sb[1024];
   if (rd(1024, sb, sizeof sb)) {
     if (FsType t = probe_ext(sb); t != FsType::Unknown) return t;
     if (le32(sb) == 0xF2F52010u) return FsType::F2fs;
+    if (le32(sb) == 0xE0F5E1E2u) return FsType::Erofs;   // erofs: スーパーブロックはオフセット 1024、magic 0xE0F5E1E2
   }
   uint8_t bt[8];
   if (rd(0x10040, bt, 8) && std::memcmp(bt, "_BHRfS_M", 8) == 0) return FsType::Btrfs;

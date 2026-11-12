@@ -160,7 +160,7 @@ struct io_context { int ioprio; };
 
 
 /* ---- 書き込み・ライトバック・iomap・ページキャッシュ周辺: 型の定義と、読み取り専用では呼ばれない (呼ばれても無害な) 定義 */
-struct xarray { int dummy_; };
+struct xarray { int dummy_; void *impl_; };   /* impl_: erofs の圧縮対応 (rt_erofs.c) が使う添字付き表。他では未使用 */
 typedef unsigned xa_mark_t;
 struct folio_batch { unsigned nr; struct folio *folios[31]; };
 static inline void folio_batch_init(struct folio_batch *fb) { fb->nr = 0; }

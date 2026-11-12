@@ -18,6 +18,7 @@ enum class Errc : int32_t {
   Unsupported = 9,
   NoMemory = 10,
   Closed = 11,       // close 済みデバイスへのアクセス
+  AuthFailed = 12,   // 暗号ボリュームのパスワード / 回復キー / 鍵ファイルが合わない (BlockTransform)
 };
 
 struct Status {

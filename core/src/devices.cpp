@@ -26,6 +26,7 @@ const char* errc_name(Errc c) {
     case Errc::Unsupported: return "unsupported";
     case Errc::NoMemory: return "no-memory";
     case Errc::Closed: return "closed";
+    case Errc::AuthFailed: return "auth-failed";
   }
   return "unknown";
 }

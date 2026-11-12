@@ -270,8 +270,16 @@ static void verify_image(const std::string& dir, const std::string& name, const 
     if (n != (int64_t)l.target.size()) std::fprintf(stderr, "symlink %s: size %llu read %lld want %zu\n", l.path.c_str(), (unsigned long long)st.size, (long long)n, l.target.size());
     CHECK(n == (int64_t)l.target.size());
     if (n == (int64_t)l.target.size()) CHECK(std::memcmp(b.data(), l.target.data(), l.target.size()) == 0);
+    // readlink (LinkResolver が使う API): 同じリンク先。短いバッファでは切り詰め
+    std::vector<char> r(4096, 'y');
+    int rn = usbmem_ext4_readlink(v, ino, r.data(), r.size());
+    CHECK(rn == (int)l.target.size());
+    if (rn == (int)l.target.size()) CHECK(std::memcmp(r.data(), l.target.data(), l.target.size()) == 0);
+    if (l.target.size() > 3) CHECK(usbmem_ext4_readlink(v, ino, r.data(), 3) == 3);
   }
   CHECK(!man.links.empty());
+  { uint64_t fi = 0; CHECK(resolve(v, "small.txt", &fi) == 0); char t[16]; CHECK(usbmem_ext4_readlink(v, fi, t, sizeof t) == -EINVAL);
+    CHECK(usbmem_ext4_readlink(v, 2, t, sizeof t) == -EINVAL); }   // 通常ファイル・ディレクトリはリンクではない
   // 名前の扱い
   uint64_t a = 0, b = 0, c = 0;
   CHECK(resolve(v, "small.txt", &a) == 0);

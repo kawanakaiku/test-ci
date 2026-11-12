@@ -57,4 +57,12 @@ int64_t Ext4Volume::read(uint64_t ino, uint64_t off, void* buf, size_t len) {
   return usbmem_ext4_read(impl_->v, ino, off, buf, len);
 }
 
+int Ext4Volume::readlink(uint64_t ino, std::string* target) {
+  char buf[4096];
+  int n = usbmem_ext4_readlink(impl_->v, ino, buf, sizeof buf);
+  if (n < 0) return n;
+  target->assign(buf, static_cast<size_t>(n));
+  return 0;
+}
+
 }  // namespace usbmem

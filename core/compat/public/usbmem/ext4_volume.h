@@ -22,6 +22,7 @@ class Ext4Volume final : public FsVolume {
   int stat(uint64_t ino, FsStat* st) override;
   int readdir(uint64_t dir, std::vector<FsDirEntry>* out) override;
   int64_t read(uint64_t ino, uint64_t off, void* buf, size_t len) override;
+  int readlink(uint64_t ino, std::string* target) override;   // シンボリックリンクのリンク先 (LinkResolver が使う)
 
  private:
   Ext4Volume() = default;

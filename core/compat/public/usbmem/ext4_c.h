@@ -28,6 +28,8 @@ int usbmem_ext4_stat_ino(usbmem_ext4 *, uint64_t ino, usbmem_ext4_stat *st);
 int usbmem_ext4_readdir(usbmem_ext4 *, uint64_t dir_ino, usbmem_ext4_dir_cb cb, void *user);
 /* 通常ファイル: off から len バイト。シンボリックリンク: リンク先の文字列 (off/len で切り出し)。 */
 int64_t usbmem_ext4_read(usbmem_ext4 *, uint64_t ino, uint64_t off, void *buf, size_t len);
+/* シンボリックリンクのリンク先 (NUL なし、最大 cap バイト)。戻り値: 長さ / 負 = -errno (リンクでなければ -EINVAL)。 */
+int usbmem_ext4_readlink(usbmem_ext4 *, uint64_t ino, char *buf, size_t cap);
 
 #ifdef __cplusplus
 }

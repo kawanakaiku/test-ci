@@ -155,3 +155,15 @@ int64_t usbmem_ext4_read(usbmem_ext4 *v, uint64_t ino, uint64_t off, void *buf, 
   }
   iput(i); return (int64_t)done;
 }
+
+/* シンボリックリンクの内容 (NUL なし。buf に最大 cap バイト)。戻り値: 長さ / 負 = -errno。読み取り専用のマウントで使える (LinkResolver 用)。
+ * 高速リンク (i_data 内)・低速リンク (データブロック)・inline_data のリンクを上流の get_link (ext4_get_link / simple_get_link) で読む。 */
+int usbmem_ext4_readlink(usbmem_ext4 *v, uint64_t ino, char *buf, size_t cap) {
+  int err = 0; struct inode *i = get_inode(v, ino, &err);
+  if (!i) return err;
+  int lnk = S_ISLNK(i->i_mode);
+  iput(i);
+  if (!lnk) return -EINVAL;
+  int64_t n = usbmem_ext4_read(v, ino, 0, buf, cap);
+  return (int)n;
+}

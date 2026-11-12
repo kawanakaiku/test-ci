@@ -208,3 +208,6 @@ if(USBMEM_BUILD_TESTS)
     set_tests_properties(ext4_read PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
   endif()
 endif()
+
+# ---- 光学メディア系 (ISO 9660 / UDF。読み取り専用)
+include(${CMAKE_CURRENT_LIST_DIR}/optical.cmake)

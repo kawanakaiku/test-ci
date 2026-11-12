@@ -222,7 +222,7 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
         fun mountDeviceRange(deviceHandle: Long, offset: Long, length: Long, allowNoload: Boolean = false): NtfsVolume {
             val h = if (allowNoload) NativeBridge.nativeNtfsMountDeviceNoload(deviceHandle, offset, length) else NativeBridge.nativeNtfsMountDevice(deviceHandle, offset, length)
             if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs mount failed: errno ${-h}")
-            return NtfsVolume(h).also { it.journalIgnored = allowNoload && it.fsName == "ext4" }
+            return NtfsVolume(h).also { it.journalIgnored = allowNoload && (it.fsName == "ext4" || it.fsName == "f2fs") }
         }
 
         /** USB 等の開いているデバイスの一区間を書き込み可能で試みる (実験的)。デバイスも書き込み可能で開いていること。[writable] は実際に書き込み可能なときだけ true。 */
@@ -242,7 +242,7 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
         fun mountReadOnly(detachedFd: Int, allowNoload: Boolean = false): NtfsVolume {
             val h = if (allowNoload) NativeBridge.nativeNtfsMountNoload(detachedFd) else NativeBridge.nativeNtfsMount(detachedFd)
             if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs mount failed: errno ${-h}")
-            return NtfsVolume(h).also { it.journalIgnored = allowNoload && it.fsName == "ext4" }
+            return NtfsVolume(h).also { it.journalIgnored = allowNoload && (it.fsName == "ext4" || it.fsName == "f2fs") }
         }
     }
 }

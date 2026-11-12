@@ -23,7 +23,7 @@ USB / SAF の fd ──→ RawImageDevice ──→ [FS ドライバ] ──→ 
   ロック順は常に「子 → 親」(子のドライバが親を読む向きだけ) なので循環しない。同じスレッドが同じボリュームに再入すると (= ネストの循環)、
   行き詰まらずに `-ELOOP` を返す。
 - **子は常に読み取り専用。** `VolumeFileDevice::write_at` は `ReadOnly`、`is_read_only()` は真。
-  子を書き込み可で開こうとしても (`mount_rw`)、下のデバイスが読み取り専用なので開けないか、読み取り専用に落ちる (テストで確認)。
+  子を書き込み可で開こうとしても、下のデバイスが読み取り専用なので読み取り専用でマウントされる (`SubRangeDevice::is_read_only()` が親の状態も見る + `mount_auto` が rw を落とす。wsan / wrel のテストで確認。以前は書き込み有効ビルドで「書き込み可」と名乗ってしまっていた)。
 - **親が書き込み可のとき**: マウント中のイメージファイルの書き換えを防ぐ二重の仕組みがある。
   1. Kotlin 側 (`NtfsVolume.pin`): 子がマウント中のファイル (とそれを含むフォルダ) への write / truncate / remove / rename / move / removeTree は `EBUSY(16)` で拒否。
   2. ネイティブ側 (`VolumeFileDevice`): 親が `writable()` なら、読むたびに親ファイルのサイズと更新時刻を開いたときと比べ、違えば `Io(ESTALE)` を返す

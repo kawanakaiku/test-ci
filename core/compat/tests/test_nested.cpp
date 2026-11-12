@@ -66,6 +66,7 @@ BlockDevicePtr open_file(const std::string& p, bool ro = true) {
 
 // jni_ntfs.cpp の mount_auto と同じ振り分け (判別できなければ NTFS として試す)
 std::unique_ptr<FsVolume> mount_raw(const BlockDevicePtr& dev, int* err, bool rw = false) {
+  if (dev->is_read_only()) rw = false;  // jni_ntfs.cpp の mount_auto と同じ
   FsType t = probe_filesystem(*dev, 0, dev->size());
   if (t == FsType::Exfat) return rw ? ExfatVolume::mount_rw(dev, err) : ExfatVolume::mount(dev, err);
   if (t == FsType::Ext2) return rw ? Ext2Volume::mount_rw(dev, err) : Ext2Volume::mount(dev, err);

@@ -23,6 +23,7 @@
 #include "usbmem/squashfs_volume.h"
 #include "usbmem/erofs_volume.h"
 #include "usbmem/btrfs_volume.h"
+#include "usbmem/f2fs_volume.h"
 
 #include "jni_vol.h"
 
@@ -83,6 +84,12 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     // 複数デバイス / RAID0・5・6・10 / 未知の機能は EOPNOTSUPP(95)。allow_noload は、ユーザーが確認したうえで tree-log を無視して開く場合だけ true (ext4 と同じ)
     usbmem::BtrfsMountOptions ob; ob.allow_noload = allow_noload;
     return usbmem::BtrfsVolume::mount(dev, err, ob);
+  }
+  if (t == usbmem::FsType::F2fs) {
+    // f2fs は読み取り専用 (自前実装、docs/f2fs-port.md)。rw を要求されても読み取り専用。暗号化 / casefold / fs-verity などは EOPNOTSUPP(95)、
+    // fsync 後のロールフォワードが必要な状態は EUCLEAN(117)。allow_noload は、確認のうえ「直近の fsync の分を無視して」開く場合だけ true
+    usbmem::F2fsMountOptions of; of.allow_noload = allow_noload;
+    return usbmem::F2fsVolume::mount(dev, err, of);
   }
   return rw ? usbmem::NtfsVolume::mount_rw(dev, err) : usbmem::NtfsVolume::mount(dev, err);
 }

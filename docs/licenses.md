@@ -14,6 +14,8 @@
 | libbde-utils (bdeinfo / bdemount) | BitLocker の復号結果を突き合わせる**テスト時の外部ツール** | LGPL-3.0-or-later。配布物に含めない・リンクしない | テストのみ |
 | cryptsetup / nbdkit (luks フィルタ) / qemu-img | LUKS フィクスチャの生成と独立検証の**テスト時の外部ツール** | GPL-2.0-or-later / BSD-3-Clause / GPL-2.0-or-later。配布物に含めない | テストのみ |
 | Python `cryptography` / `argon2-cffi` / `hashlib` | 既知値テストのベクタ生成・合成フィクスチャ生成 (`tools/*.py`) | Apache-2.0 または BSD / MIT。配布物に含めない | テストのみ |
+| DiskTools (`core/src/fscheck*.cpp`, `mkfs*.cpp`) | 読み取り専用の整合性検査と mkfs (docs/disk-tools.md) | 自前実装 Apache-2.0。**新しい外部依存なし** (e2fsprogs / exfatprogs / dosfstools / ntfs-3g のコードは取り込まない)。exFAT のアップケース表は Unicode の大文字写像から生成 | 実装済み |
+| fsck.fat / fsck.exfat / e2fsck / ntfsfix / mkfs.* / mtools / debugfs | DiskTools の独立検証の**テスト時の外部ツール** (検査のみの引数で呼ぶ) | GPL-2.0-or-later 他。配布物に含めない・リンクしない | テストのみ |
 
 ## 未解決の確認事項(推測で断定しない)
 - GPL-2.0 コードをアプリに静的リンクした場合の配布物全体の扱い、Google Play 配布との両立(ソース提供方法)。Phase 7 前に法務的確認が必要。

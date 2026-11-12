@@ -5,6 +5,8 @@
 #include <functional>
 
 #include "test_util.h"
+#include "usbmem/c_api.h"
+#include "usbmem/c_api_disktools.h"
 #include "usbmem/fscheck.h"
 #include "usbmem/mkfs.h"
 
@@ -401,4 +403,88 @@ TEST(disktools_fuzz_checkers_do_not_crash) {
       CHECK(!fscheck_report_to_json(rep).empty());
     }
   }
+}
+
+// ---- C API
+namespace {
+std::string take(char* p) {
+  std::string s = p ? p : "";
+  usbmem_free(p);
+  return s;
+}
+bool has(const std::string& s, const char* needle) { return s.find(needle) != std::string::npos; }
+}  // namespace
+
+TEST(disktools_capi_mkfs_and_check) {
+  std::string path = test_tmpdir() + "/disktools_capi_" + std::to_string(::getpid()) + ".img";
+  {
+    FILE* f = std::fopen(path.c_str(), "wb");
+    CHECK(f != nullptr);
+    if (!f) return;
+    std::vector<uint8_t> z(1 << 20, 0);
+    for (int i = 0; i < 8; i++) std::fwrite(z.data(), 1, z.size(), f);
+    std::fclose(f);
+  }
+  usbmem_device* dev = nullptr;
+  CHECK_EQ(usbmem_open_path(path.c_str(), 0, &dev), 0);
+  usbmem_mkfs* mk = nullptr;
+  CHECK_EQ(usbmem_mkfs_open(dev, "exfat", 0, 0, "CAPI", 0, 0, 0, 0, 0, 5, 1700000000, &mk), 0);
+  char* pj = nullptr;
+  CHECK_EQ(usbmem_mkfs_plan_json(mk, &pj), 0);
+  std::string plan = take(pj);
+  CHECK(has(plan, "\"ok\":true"));
+  CHECK(has(plan, "\"confirmPhrase\":\"FORMAT "));
+  // 拒否: 間違ったトークン / マウント中
+  char* rj = nullptr;
+  CHECK(usbmem_mkfs_apply(mk, "nope", nullptr, 0, 0, nullptr, &rj) != 0);
+  CHECK(has(take(rj), "\"code\":\"bad-token\""));
+  // 確認文字列を JSON から取り出す
+  size_t k = plan.find("\"confirmPhrase\":\"") + 17;
+  std::string phrase = plan.substr(k, plan.find('"', k) - k);
+  char* tok = nullptr;
+  CHECK_EQ(usbmem_mkfs_make_token(mk, phrase.c_str(), &tok), 0);
+  std::string token = take(tok);
+  CHECK(usbmem_mkfs_apply(mk, token.c_str(), nullptr, 0, 1, nullptr, &rj) != 0);   // in_use
+  CHECK(has(take(rj), "\"code\":\"in-use\""));
+  usbmem_job* job = usbmem_job_new();
+  CHECK_EQ(usbmem_mkfs_apply(mk, token.c_str(), nullptr, 0, 0, job, &rj), 0);
+  std::string res = take(rj);
+  CHECK(has(res, "\"verified\":true"));
+  char ph[32];
+  unsigned long long done = 0, total = 0;
+  usbmem_job_progress(job, ph, sizeof ph, &done, &total);
+  CHECK(done > 0);
+  usbmem_job_free(job);
+  // 適用後は計画が使えない
+  CHECK(usbmem_mkfs_apply(mk, token.c_str(), nullptr, 0, 0, nullptr, &rj) != 0);
+  CHECK(has(take(rj), "\"code\":\"no-plan\""));
+  unsigned char* bk = nullptr;
+  size_t bl = 0;
+  CHECK_EQ(usbmem_mkfs_last_backup(mk, &bk, &bl), 0);
+  char* ij = nullptr;
+  CHECK_EQ(usbmem_mkfs_backup_info_json(bk, bl, &ij), 0);
+  CHECK(has(take(ij), "\"regions\""));
+  usbmem_free(bk);
+  usbmem_mkfs_close(mk);
+  // 検査
+  char* cj = nullptr;
+  CHECK_EQ(usbmem_fscheck_run(dev, 0, 0, nullptr, 0, 0, nullptr, &cj), 0);
+  std::string rep = take(cj);
+  CHECK(has(rep, "\"verdict\":\"clean\""));
+  CHECK(has(rep, "\"fs\":\"exfat\""));
+  CHECK(usbmem_fscheck_supported("ntfs") == 1);
+  CHECK(usbmem_fscheck_supported("btrfs") == 0);
+  CHECK(usbmem_fscheck_run(dev, 0, 0, "nonsense", 0, 0, nullptr, &cj) != 0);
+  // キャンセル
+  usbmem_job* j2 = usbmem_job_new();
+  usbmem_job_cancel(j2);
+  int rc = usbmem_fscheck_run(dev, 0, 0, "exfat", 0, 0, j2, &cj);
+  CHECK_EQ(rc, static_cast<int>(Errc::Cancelled));
+  CHECK(has(take(cj), "\"verdict\":\"incomplete\""));
+  usbmem_job_free(j2);
+  // 不正な引数
+  CHECK(usbmem_mkfs_open(dev, "ntfs", 0, 0, nullptr, 0, 0, 0, 0, 0, 0, 0, &mk) != 0);
+  CHECK(usbmem_mkfs_open(nullptr, "ext2", 0, 0, nullptr, 0, 0, 0, 0, 0, 0, 0, &mk) != 0);
+  usbmem_close(dev);
+  ::unlink(path.c_str());
 }

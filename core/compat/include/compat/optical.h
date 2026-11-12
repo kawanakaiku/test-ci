@@ -167,12 +167,7 @@ static inline int usbmem_optical_utf32_to_utf8(u32 u, u8 *s, int maxout) {
 #ifndef FILEID_UDF_WITHOUT_PARENT
 #define FILEID_UDF_WITHOUT_PARENT 0x51
 #define FILEID_UDF_WITH_PARENT 0x52
-struct fid {
-  union {
-    struct { u32 block; u16 partref; u16 parent_partref; u32 generation; u32 parent_block; u32 parent_generation; } udf;
-    __u32 raw[0];
-  };
-};
+/* struct fid は more_zfs.h (kernel.h 経由) で定義済み。udf 用メンバもそちらにある */
 #endif
 
 /* 書き込み経路 (読み取り専用では呼ばれない) */

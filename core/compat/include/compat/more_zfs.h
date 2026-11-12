@@ -78,6 +78,7 @@ struct fid {
   union {
     struct { u32 ino; u32 gen; u32 parent_ino; u32 parent_gen; } i32;
     struct { u64 ino; u32 gen; } __packed i64;
+    struct { u32 block; u16 partref; u16 parent_partref; u32 generation; u32 parent_block; u32 parent_generation; } udf;   /* fs/udf */
     u32 raw[6];
   };
 };

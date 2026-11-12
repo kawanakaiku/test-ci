@@ -388,8 +388,8 @@ Status read_fs_label(BlockDevice& dev, uint64_t offset, uint64_t length, FsType 
         out->label = sanitize_bytes(s + 108, 12);
       }
       break;
-    case FsType::Unknown: {
-      // 魔法値で判別できるもの (FsType にまだ無い FS)
+    case FsType::Squashfs: case FsType::Erofs: case FsType::Unknown: {
+      // squashfs / erofs: fs_probe が分類済みでも未分類でも、魔法値で判別してラベル/UUID を読む (squashfs にはラベルがない)
       uint8_t sb[128];
       if (std::memcmp(s, "hsqs", 4) == 0) out->detected = "squashfs";
       else if (r.rd(1024, sb, sizeof sb) && le32(sb) == 0xE0F5E1E2u) {

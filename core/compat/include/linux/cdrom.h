@@ -19,3 +19,5 @@ struct cdrom_multisession { union { struct { u8 minute, second, frame; } msf; in
 #define CDROM_DRIVE_STATUS 0x5326
 static inline int cdrom_read_tocentry(struct cdrom_device_info *cdi, struct cdrom_tocentry *te) { (void)cdi; (void)te; return -EINVAL; }
 static inline int cdrom_multisession(struct cdrom_device_info *cdi, struct cdrom_multisession *ms) { (void)cdi; (void)ms; return -EINVAL; }
+/* udf の最終ブロック取得: 光学ドライブではないので常に不可 (呼び出し側はデバイス容量から求める) */
+static inline int cdrom_get_last_written(struct cdrom_device_info *cdi, unsigned long *last_written) { (void)cdi; (void)last_written; return -EINVAL; }

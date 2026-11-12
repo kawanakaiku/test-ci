@@ -49,3 +49,54 @@ if(USBMEM_BUILD_TESTS)
     set_tests_properties(isofs_read PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
   endif()
 endif()
+
+# ---- UDF (fs/udf)。読み取り専用。書き込み側 (balloc/ialloc/truncate) も上流のまま一緒にビルドするが、ホスト入口は読み取り経路しか呼ばない。
+# file.c (write_iter / mmap / ioctl / setattr) は読み取り専用では不要で、ホスト入口は i_fop を使わないので入れない (空の ops は rt_vfs_udf.c)
+foreach(f balloc dir ialloc inode lowlevel namei partition super truncate symlink directory misc udftime unicode)
+  list(APPEND UDF_SRC ${UDF_ROOT}/fs-udf/${f}.c)
+endforeach()
+if(USBMEM_SANITIZE)
+  set_source_files_properties(${UDF_SRC} PROPERTIES COMPILE_OPTIONS "-fno-sanitize=alignment;-fno-sanitize=shift-base;-fno-sanitize=nonnull-attribute;-fno-sanitize=pointer-overflow")
+  # pointer-overflow: 上流は NULL の s_vat_inode に UDF_I() (container_of) を先に適用し、使う前に範囲検査で戻る (partition.c の udf_get_pblock_virt15)。参照はしない
+endif()
+add_library(usbmem_udf STATIC ${UDF_SRC} src/rt_vfs_udf.c src/udf_volume.cpp)
+target_include_directories(usbmem_udf PUBLIC public)
+target_compile_options(usbmem_udf PRIVATE
+  $<$<COMPILE_LANGUAGE:C>:-std=gnu11>
+  $<$<COMPILE_LANGUAGE:C>:-w>
+  $<$<COMPILE_LANGUAGE:C>:-fno-strict-aliasing>
+  $<$<COMPILE_LANGUAGE:C>:-fwrapv>
+  $<$<COMPILE_LANGUAGE:C>:-Wno-incompatible-pointer-types>
+  $<$<COMPILE_LANGUAGE:C>:-Wno-int-conversion>
+  "$<$<COMPILE_LANGUAGE:C>:SHELL:-include compat/optical.h>"
+  "$<$<COMPILE_LANGUAGE:C>:SHELL:-iquote ${UDF_ROOT}/fs-udf>")
+target_compile_definitions(usbmem_udf PRIVATE CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=1 CONFIG_BLOCK=1 CONFIG_UDF_FS=1 "CONFIG_NLS_DEFAULT=\"utf8\""
+  USBMEM_MODULE_INIT_NAME=usbmem_module_init_udf)
+# 上流の udf_fiiter_release は iter->epos.bh (拡張割り当て記述子の続きブロック) を解放しない (参照漏れ)。directory.c の中の名前だけ変えて、他の翻訳単位からの呼び出しは
+# rt_vfs_udf.c の同名の関数 (epos.bh を brelse してから本物を呼ぶ) に向ける。
+set_source_files_properties(${UDF_ROOT}/fs-udf/directory.c PROPERTIES COMPILE_DEFINITIONS "udf_fiiter_release=usbmem_real_fiiter_release")
+target_link_libraries(usbmem_udf PUBLIC usbmem_compat_rt)
+
+# ---- UDF のテスト (tools/gen_udf_fixture.py: mkudffs + ホストの UDF ドライバで書いたイメージと genisoimage -udf のブリッジ)
+if(USBMEM_BUILD_TESTS)
+  add_executable(usbmem_udf_tests tests/test_udf.cpp)
+  target_link_libraries(usbmem_udf_tests PRIVATE usbmem_udf usbmem_isofs usbmem_ext2)
+  find_package(Python3 COMPONENTS Interpreter)
+  find_program(USBMEM_MKUDFFS mkudffs PATHS /sbin /usr/sbin)
+  find_program(USBMEM_UDISKSCTL udisksctl)
+  if(Python3_FOUND AND EXISTS /dev/shm AND USBMEM_MKUDFFS AND USBMEM_UDISKSCTL)
+    set(UDF_FIX_DIR /dev/shm/usbmem_udf_$ENV{USER})
+    add_test(NAME udf_gen_fixture COMMAND ${CMAKE_COMMAND} -E env "PATH=$ENV{PATH}:/sbin:/usr/sbin" ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_LIST_DIR}/../../tools/gen_udf_fixture.py ${UDF_FIX_DIR})
+    set_tests_properties(udf_gen_fixture PROPERTIES FIXTURES_SETUP udf_fixture TIMEOUT 1800)
+    add_test(NAME udf_read COMMAND usbmem_udf_tests ${UDF_FIX_DIR})
+    add_test(NAME udf_read_complex COMMAND ${CMAKE_COMMAND} -E env USBMEM_UDF_FORCE_COMPLEX_FOR_TEST=1 $<TARGET_FILE:usbmem_udf_tests> ${UDF_FIX_DIR})
+    add_test(NAME udf_corrupt COMMAND usbmem_udf_tests --corrupt ${UDF_FIX_DIR})
+    add_test(NAME udf_ioerr COMMAND usbmem_udf_tests --ioerr ${UDF_FIX_DIR})
+    add_test(NAME udf_fuzz COMMAND usbmem_udf_tests --fuzz ${UDF_FIX_DIR} 400 1)
+    add_test(NAME udf_coexist COMMAND usbmem_udf_tests --coexist ${UDF_FIX_DIR} /dev/shm/usbmem_ext2_$ENV{USER} /dev/shm/usbmem_iso_$ENV{USER})
+    set_tests_properties(udf_read udf_read_complex udf_corrupt udf_ioerr udf_fuzz PROPERTIES FIXTURES_REQUIRED udf_fixture TIMEOUT 1800)
+    set_tests_properties(udf_coexist PROPERTIES FIXTURES_REQUIRED "udf_fixture;isofs_fixture;ext2_fixture" TIMEOUT 600)
+    set_tests_properties(udf_corrupt udf_ioerr udf_fuzz udf_coexist PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
+    set_tests_properties(udf_read PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+  endif()
+endif()

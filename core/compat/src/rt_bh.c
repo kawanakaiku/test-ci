@@ -20,7 +20,7 @@ static struct buffer_head *bh_get(struct block_device *bdev, sector_t block, uns
 }
 struct buffer_head *__bread(struct block_device *bdev, sector_t block, unsigned size) { return bh_get(bdev, block, size); }
 struct buffer_head *__getblk(struct block_device *bdev, sector_t block, unsigned size) { return bh_get(bdev, block, size); }
-void __brelse(struct buffer_head *bh) { if (!bh) return; folio_put(bh->b_folio); free(bh); }
+void __brelse(struct buffer_head *bh) { if (!bh) return; if (bh->b_count > 0) { bh->b_count--; return; } folio_put(bh->b_folio); free(bh); }
 void brelse(struct buffer_head *bh) { __brelse(bh); }
 /* bforget: 変更を捨てて手放す。この範囲の dirty を外すので、後でそのブロックが別の用途 (ファイルデータなど) に再利用されても、
  * 古いメタデータが writeback で上書きすることはない (解放された間接ブロックなど)。 */

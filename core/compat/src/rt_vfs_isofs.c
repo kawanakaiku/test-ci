@@ -169,7 +169,7 @@ int usbmem_isofs_readdir(usbmem_isofs *v, uint64_t dir_ino, usbmem_isofs_dir_cb 
   if (!S_ISDIR(dir->i_mode) || !dir->i_fop || !dir->i_fop->iterate_shared) { iput(dir); return -ENOTDIR; }
   struct file f; memset(&f, 0, sizeof f);
   f.f_inode = dir; f.f_mapping = dir->i_mapping; f.f_mode = FMODE_READ;
-  { uint64_t parent = dir_ino; if (usbmem_isofs_lookup(v, dir_ino, "..", 2, &parent)) parent = dir_ino; f.private_data = (void *)(uintptr_t)parent; }   /* dir_emit_dotdot (compat/optical.h) が使う */
+  { uint64_t parent = dir_ino; if (usbmem_isofs_lookup(v, dir_ino, "..", 2, &parent)) parent = dir_ino; f.f_pos = (loff_t)parent; }   /* dir_emit_dotdot (compat/optical.h) が使う */
   int rc = 0;
   if (dir->i_fop->open) rc = ((int (*)(struct inode *, struct file *))dir->i_fop->open)(dir, &f);
   if (!rc) {

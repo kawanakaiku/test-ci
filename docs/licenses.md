@@ -8,6 +8,7 @@
 | libfdisk (util-linux) | パーティション編集 | LGPL-2.1+ | **採用しない** (自前実装。理由は docs/partition-edit.md 9 章) |
 | Linux `fs/ntfs` | Phase 2 | GPL-2.0-or-later(super.c SPDX で確認。全ファイル確認は未了) | 未取り込み |
 | Linux `fs/squashfs` (`third_party/squashfs`、無改変) | squashfs の読み取り専用 | GPL-2.0-only / GPL-2.0-or-later (各ファイルの SPDX。COPYING は GPL-2.0 全文) | 取り込み済み (docs/squashfs-port.md) |
+| XFS 読み取り専用リーダ (`core/compat/src/xfs_volume.cpp`。Linux `fs/xfs` の形式定義を仕様として**独立に実装**。カーネルのコードは取り込んでいない) | XFS の読み取り専用 | GPL-2.0-or-later として扱う (形式の出典がカーネルのため安全側) | 実装済み (docs/xfs-port.md) |
 | Linux `fs/erofs` (`third_party/erofs`、無改変) | erofs の読み取り専用 | GPL-2.0-only / GPL-2.0-or-later (各ファイルの SPDX。COPYING は GPL-2.0 全文) | 取り込み済み (docs/erofs-port.md) |
 | Linux `lib/{zlib_inflate,lz4,lzo,xz,zstd}`、`lib/xxhash.c` (`third_party/kernel-lib`、無改変) | squashfs / erofs の展開 | ファイルごとに異なる (GPL-2.0、BSD-2/3-Clause、zstd は GPL-2.0 OR BSD-3-Clause、xz は 0BSD/パブリックドメイン、zlib は zlib ライセンス)。各ファイルの SPDX / 冒頭コメントを参照。`include/linux/crc32.h` だけは本プロジェクトの自前シム | 取り込み済み。**各ファイルのライセンスの精査は未了** (配布前に確認が必要) |
 | 暗号プリミティブ一式 (AES・SHA-1/256/512・HMAC・PBKDF2・AES-CBC/XTS/CCM・BLAKE2b・Argon2) と BitLocker / LUKS の解析 (`core/src/crypto_*.cpp`, `transform_*.cpp`, `mini_json.cpp`) | 暗号化ボリュームの読み取り (docs/crypto-volumes.md) | 自前実装 Apache-2.0。**新しい外部依存なし** (OpenSSL・mbedTLS・libbde・libcryptsetup はリンクしない) | 実装済み |

@@ -33,7 +33,10 @@ def ours(cli, img, off=None, length=None, fs=None):
         cmd += ["--fs", fs]
     if off is not None:
         cmd += ["--range", str(off), str(length)]
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
+    except subprocess.TimeoutExpired:
+        return 99, {"verdict": "crash", "findings": [], "stderr": "timeout"}
     try:
         j = json.loads(p.stdout.decode("utf-8", "replace"))
     except Exception:

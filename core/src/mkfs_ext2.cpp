@@ -113,7 +113,7 @@ void build_ext2(const Params& p, Build* b) {
   p16(&sb[88], isz);
   p32(&sb[92], 0x20);              // compat: dir_index
   p32(&sb[96], 0x02);              // incompat: filetype
-  p32(&sb[100], 0x01 | 0x02 | (big ? 0x40u : 0u));
+  p32(&sb[100], 0x01 | 0x02);   // ro_compat: sparse_super + large_file (extra_isize を立てると ext4 と判別される)
   std::memcpy(&sb[104], id.data(), 16);
   std::memcpy(&sb[120], p.opt.label.data(), p.opt.label.size());
   std::memcpy(&sb[236], hs.data(), 16);

@@ -70,3 +70,6 @@ endif()
 
 # BlockTransform (BitLocker / LUKS)
 include(${CMAKE_CURRENT_LIST_DIR}/transform.cmake)
+
+# データ救出 / バックアップ (ddrescue / Partclone 方式)
+include(${CMAKE_CURRENT_LIST_DIR}/recovery.cmake)

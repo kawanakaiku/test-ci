@@ -422,6 +422,8 @@ bool cancel_work_sync(struct work_struct *);
 #define INIT_WORK(w, f) ((w)->func = (f), (w)->pending_ = 0, (w)->dnext_ = 0)
 void seq_printf(struct seq_file *, const char *, ...);
 void seq_puts(struct seq_file *, const char *);
+int register_nls(struct nls_table *);
+int unregister_nls(struct nls_table *);
 struct nls_table *load_nls(const char *);
 struct nls_table *load_nls_default(void);
 void unload_nls(struct nls_table *);

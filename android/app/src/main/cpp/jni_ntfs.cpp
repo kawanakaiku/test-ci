@@ -4,6 +4,7 @@
 #include <android/log.h>
 #include <cerrno>
 #include <chrono>
+#include <ctime>
 
 #include <memory>
 #include <string>
@@ -13,13 +14,15 @@
 #include "usbmem/ext2_volume.h"
 #include "usbmem/ext4_volume.h"
 #include "usbmem/exfat_volume.h"
+#include "usbmem/fat_c.h"
+#include "usbmem/fat_volume.h"
 #include "usbmem/fs_probe.h"
 #include "usbmem/ntfs_volume.h"
 
 namespace {
 struct Vol { std::unique_ptr<usbmem::FsVolume> v; };
 
-// dev 全体のファイルシステムを判別してマウントする。exFAT / ext2 / ext3 / ext4 と判別できたときだけそれぞれ読み取り専用でマウントする。それ以外は従来どおり NTFS として試す
+// dev 全体のファイルシステムを判別してマウントする。exFAT / ext2 / ext3 / ext4 / FAT12・16・32 と判別できたときだけそれぞれ(FAT は読み取り専用で)マウントする。それ以外は従来どおり NTFS として試す
 // (壊れた NTFS のブート領域でも、NTFS ドライバ側の検査・復旧の挙動を変えないため)。失敗時 nullptr と正の errno。
 std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, bool rw, int* err) {
   usbmem::FsType t = usbmem::probe_filesystem(*dev, 0, dev->size());
@@ -36,6 +39,14 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     // ext3 / ext4 は fs/ext4 で読み取り専用。ジャーナルは再生しない: 未再生 (needs_recovery) のボリュームは EUCLEAN(117) で拒否、
     // 暗号化 / casefold / fs-verity などは EOPNOTSUPP(95)。書き込みは未対応 (rw を要求されても読み取り専用)。NTFS として試さない
     return usbmem::Ext4Volume::mount(dev, err);
+  }
+  if (t == usbmem::FsType::Fat12 || t == usbmem::FsType::Fat16 || t == usbmem::FsType::Fat32) {
+    // FAT12/16/32 (vfat の長い名前を含む) は fs/fat で読み取り専用。書き込みは未対応 (rw を要求されても読み取り専用)。NTFS として試さない。
+    // FAT の更新時刻は書いた端末のローカル時刻 (タイムゾーン情報なし) なので、現在の端末のタイムゾーンで UTC に直す (UTC より何分西か)
+    time_t now = time(nullptr);
+    struct tm lt;
+    if (localtime_r(&now, &lt)) usbmem_fat_set_timezone(static_cast<int>(-lt.tm_gmtoff / 60));
+    return usbmem::FatVolume::mount(dev, err);
   }
   return rw ? usbmem::NtfsVolume::mount_rw(dev, err) : usbmem::NtfsVolume::mount(dev, err);
 }
@@ -87,7 +98,7 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountRw(JNIEn
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
 }
 
-// マウントしたファイルシステムの名前 ("ntfs" / "exfat" / "ext2")
+// マウントしたファイルシステムの名前 ("ntfs" / "exfat" / "ext2" / "fat")
 JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_NativeBridge_nativeFsName(JNIEnv* env, jclass, jlong h) {
   return bytes(env, reinterpret_cast<Vol*>(h)->v->fs_name());
 }

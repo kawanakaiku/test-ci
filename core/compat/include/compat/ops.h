@@ -4,6 +4,7 @@
 
 struct address_space_operations {
   void *bmap;
+  void *direct_IO;
   void *dirty_folio;
   void *error_remove_folio;
   void *invalidate_folio;
@@ -13,8 +14,8 @@ struct address_space_operations {
   void *readahead;
   void *release_folio;
   void *swap_activate;
-  void *write_begin;
-  void *write_end;
+  int (*write_begin)();
+  int (*write_end)();
   void *writepages;
 };
 struct dentry_operations {

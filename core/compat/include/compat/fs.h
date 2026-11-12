@@ -35,7 +35,10 @@ kuid_t make_kuid(struct user_namespace *ns, uid_t id);
 kgid_t make_kgid(struct user_namespace *ns, gid_t id);
 
 /* ---- NLS / UTF */
-struct nls_table { const char *charset; int (*uni2char)(u16, unsigned char *, int); int (*char2uni)(const unsigned char *, int, void *); };
+struct nls_table {   /* 先頭 3 つは従来どおり。以降は Linux の nls_table に合わせる (FAT の短い名前の文字コード表 = nls_cp437 / nls_cp932 を無改変で載せるため) */
+  const char *charset; int (*uni2char)(u16, unsigned char *, int); int (*char2uni)(const unsigned char *, int, void *);
+  const char *alias; const unsigned char *charset2lower; const unsigned char *charset2upper; void *owner; struct nls_table *next;
+};
 
 /* ---- page / folio */
 struct address_space;
@@ -176,7 +179,7 @@ struct file {
 struct kiocb { struct file *ki_filp; loff_t ki_pos; unsigned int ki_flags; };
 struct iov_iter { const char *buf; size_t count; };   /* 単一の連続バッファのみ (ホスト API 用) */
 struct kstat {
-  u32 result_mask; umode_t mode; u64 attributes, attributes_mask;
+  u32 result_mask; umode_t mode; u64 ino; u64 attributes, attributes_mask;
   struct timespec64 atime, mtime, ctime;
   u32 blksize, dio_mem_align, dio_offset_align; u64 blocks, size;
   struct timespec64 btime;

@@ -98,7 +98,7 @@ data class NtfsEntry(val name: String, val ino: Long, val isDir: Boolean, val si
  */
 class NtfsVolume private constructor(private var handle: Long, val writable: Boolean = false, val createOnly: Boolean = false) : AutoCloseable {
     private val createdHere = HashSet<String>()
-    /** マウントしたファイルシステム ("ntfs" / "exfat" / "ext2" / "ext4"。ext3 も ext4 ドライバなので "ext4")。 */
+    /** マウントしたファイルシステム ("ntfs" / "exfat" / "ext2" / "ext4" / "fat"。ext3 も ext4 ドライバなので "ext4"。FAT12/16/32 は "fat")。 */
     val fsName: String = String(NativeBridge.nativeFsName(handle), Charsets.UTF_8)
     private fun bytes(p: String) = p.toByteArray(Charsets.UTF_8)
     private fun norm(path: String) = "/" + path.split('/').filter { it.isNotEmpty() }.joinToString("/")

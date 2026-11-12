@@ -65,4 +65,6 @@
 - [x] 書き込み自己診断 (診断タブ。「すべて許可」でマウント中のみ。専用の一時フォルダだけを使い、全部消す)。AVD で検証。**実機の RAID ではまだ実行していない (ユーザーが任意のタイミングで実行する)**。
 - [ ] NTFS のリパースポイント (シンボリックリンク/ジャンクション) の表示は未対応。
 - [ ] ext4 の書き込みは ext2 の書き込み基盤の上に載せる (jbd2 の移植が必要。exFAT は完了: docs/exfat-write.md)。
-- [ ] 次: fat/vfat、isofs、squashfs/erofs、udf、ntfs3 (NTFS の第二のバックエンドとして選択可能に)。見積もり (tools/fs_compat_probe.py): ntfs3 は 33k 行で iomap/folio 前提 (gcc エラー 618 件)。
+- [x] FAT12/16/32 + vfat (fs/fat 無改変) 読み取り専用: ホスト 4 構成のテスト (8 イメージ x 約 331 ファイル、4Kn セクタ・フロッピー・断片化・日本語/サロゲートペア名・属性・2 秒時刻)、AVD (x86_64) の計装テスト 6 イメージ。docs/fat-port.md 参照。
+- [ ] FAT の実機 USB ディスクでの確認 (手順は docs/fat-port.md の末尾)。FAT の書き込み、短い名前の codepage=932 (cp932 の表は登録済み。マウントオプションを渡す口が未実装)、隠し/システム属性の表示。
+- [ ] 次: isofs、squashfs/erofs、udf、ntfs3 (NTFS の第二のバックエンドとして選択可能に)。見積もり (tools/fs_compat_probe.py): ntfs3 は 33k 行で iomap/folio 前提 (gcc エラー 618 件)。

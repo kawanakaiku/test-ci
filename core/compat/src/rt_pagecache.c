@@ -2,6 +2,7 @@
 // LinuxCompat 実行時 (2/3): ページキャッシュ(folio)・block/bio・iomap(読み取り)・NLS。
 // folio は常に PAGE_SIZE (4096) 固定。large folio は未対応。
 #include <stdio.h>
+#include <pthread.h>
 #include <compat/kernel.h>
 #include <compat/usbmem_ntfs.h>
 
@@ -620,14 +621,42 @@ static int bdev_writeback_sel(struct block_device *bd, const struct usbmem_range
 }
 
 /* ---- NLS / UTF (UTF-16LE <-> UTF-8) */
-static struct nls_table g_nls_default = { "utf8", NULL, NULL };
-struct nls_table *load_nls(const char *cs) { (void)cs; return &g_nls_default; }
-struct nls_table *load_nls_default(void) { return &g_nls_default; }
+/* utf8 表: 上流 nls_utf8.c は大文字小文字の変換が恒等 (= FAT では大文字小文字を区別する) だが、ここでは ASCII の A-Z / a-z だけ変換する
+ * (FAT の名前の照合は Windows と同じく大文字小文字を区別しない方がよい。UTF-8 の 2 バイト目以降 (0x80 以上) は変えないので、他の文字を取り違えない)。名前付きの表 (cp437 等) は register_nls で登録され、load_nls が名前で引く。未登録の名前は utf8 表 (従来どおり)。 */
+static unsigned char g_nls_lower[256], g_nls_upper[256];
+static int nls_utf8_uni2char(u16 uni, unsigned char *out, int boundlen) {
+  if (boundlen <= 0) return -ENAMETOOLONG;
+  u32 c = uni; int n = c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
+  if (c >= 0xD800 && c < 0xE000) { *out = '?'; return -EINVAL; }
+  if (n > boundlen) return -ENAMETOOLONG;
+  if (n == 1) out[0] = (unsigned char)c;
+  else if (n == 2) { out[0] = 0xC0 | (c >> 6); out[1] = 0x80 | (c & 0x3F); }
+  else { out[0] = 0xE0 | (c >> 12); out[1] = 0x80 | ((c >> 6) & 0x3F); out[2] = 0x80 | (c & 0x3F); }
+  return n;
+}
+static int nls_utf8_char2uni(const unsigned char *raw, int boundlen, u16 *uni) {
+  unicode_t u; int n = utf8_to_utf32(raw, boundlen, &u);
+  if (n < 0 || u > 0xFFFF) { *uni = 0x003f; return -EINVAL; }
+  *uni = (u16)u; return n;
+}
+static struct nls_table g_nls_default = { "utf8", nls_utf8_uni2char, (int (*)(const unsigned char *, int, void *))nls_utf8_char2uni, NULL, g_nls_lower, g_nls_upper, NULL, NULL };
+static struct nls_table *g_nls_list;
+static pthread_once_t g_nls_once = PTHREAD_ONCE_INIT;
+static void nls_once(void) { for (int i = 0; i < 256; i++) { g_nls_lower[i] = (unsigned char)((i >= 'A' && i <= 'Z') ? i + 32 : i); g_nls_upper[i] = (unsigned char)((i >= 'a' && i <= 'z') ? i - 32 : i); } }
+int register_nls(struct nls_table *t) { pthread_once(&g_nls_once, nls_once); t->next = g_nls_list; g_nls_list = t; return 0; }
+int unregister_nls(struct nls_table *t) { for (struct nls_table **p = &g_nls_list; *p; p = &(*p)->next) if (*p == t) { *p = t->next; return 0; } return -EINVAL; }
+struct nls_table *load_nls(const char *cs) {
+  pthread_once(&g_nls_once, nls_once);
+  for (struct nls_table *t = g_nls_list; cs && t; t = t->next) if (!strcmp(t->charset, cs)) return t;
+  return &g_nls_default;
+}
+struct nls_table *load_nls_default(void) { pthread_once(&g_nls_once, nls_once); return &g_nls_default; }
 void unload_nls(struct nls_table *t) { (void)t; }
 int utf16s_to_utf8s(const void *in, int inlen, int endian, u8 *out, int maxout) {
   (void)endian; const u16 *s = in; int o = 0;
   for (int i = 0; i < inlen; i++) {
     u32 c = s[i];
+    if (c == 0) break;   /* 上流 (lib/nls) と同じく NUL で終端する (fat は 255 文字ぶんのバッファを渡す) */
     if (c >= 0xD800 && c < 0xDC00 && i + 1 < inlen && s[i + 1] >= 0xDC00 && s[i + 1] < 0xE000) { c = 0x10000 + ((c - 0xD800) << 10) + (s[i + 1] - 0xDC00); i++; }
     else if (c >= 0xD800 && c < 0xE000) c = 0xFFFD;
     int n = c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;

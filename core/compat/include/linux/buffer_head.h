@@ -26,6 +26,7 @@ struct buffer_head {
   struct folio *b_folio;   /* 参照を 1 つ保持 (brelse で folio_put) */
   struct buffer_head *b_this_page;
   struct block_device *b_bdev;
+  unsigned b_refs;         /* get_bh で増やした追加の参照数 (0 なら brelse で解放)。fs/fat だけが使う */
 };
 
 void mark_buffer_dirty(struct buffer_head *bh);

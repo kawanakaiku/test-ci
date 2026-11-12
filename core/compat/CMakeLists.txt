@@ -221,3 +221,59 @@ if(USBMEM_BUILD_TESTS)
     set_tests_properties(ext4_read PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
   endif()
 endif()
+
+# ---- FAT12/16/32 + vfat (Linux fs/fat, 無改変)。読み取り専用マウントのみ。docs/fat-port.md
+# FAT 専用の補助 (include_fat/ = 空シムと compat/fat_shim.h) は、このライブラリにだけ入る。
+set(FAT_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/fat)
+foreach(f cache dir fatent file inode misc namei_vfat)
+  list(APPEND FAT_SRC ${FAT_ROOT}/fs-fat/${f}.c)
+endforeach()
+set(FAT_NLS_SRC ${FAT_ROOT}/nls/nls_cp437.c ${FAT_ROOT}/nls/nls_cp932.c)
+add_library(usbmem_fat STATIC ${FAT_SRC} ${FAT_NLS_SRC} src/rt_vfs_fat.c src/fat_volume.cpp)
+target_include_directories(usbmem_fat PUBLIC public)
+target_include_directories(usbmem_fat PRIVATE ${CMAKE_CURRENT_LIST_DIR}/include_fat ${FAT_ROOT}/include)
+target_compile_options(usbmem_fat PRIVATE
+  $<$<COMPILE_LANGUAGE:C>:-std=gnu11>
+  $<$<COMPILE_LANGUAGE:C>:-w>
+  $<$<COMPILE_LANGUAGE:C>:-Wno-incompatible-pointer-types>            # nls_cp*.c の表は char2uni を wchar_t * (16 ビット) で定義する。互換層の表の型 (void *) とは関数ポインタの引数型が違うだけ (GCC14 は -w でもエラーにする)
+  $<$<COMPILE_LANGUAGE:C>:-Wno-incompatible-function-pointer-types>   # clang の同等のオプション
+  $<$<COMPILE_LANGUAGE:C>:-fno-strict-aliasing>
+  $<$<COMPILE_LANGUAGE:C>:-fwrapv>
+  $<$<COMPILE_LANGUAGE:C>:-fshort-wchar>   # カーネルは wchar_t = 16 ビット (-fshort-wchar)。FAT / nls_cp*.c は UTF-16 の配列を wchar_t で持つ
+  "$<$<COMPILE_LANGUAGE:C>:SHELL:-include compat/fat_shim.h>"
+  "$<$<COMPILE_LANGUAGE:C>:SHELL:-iquote ${FAT_ROOT}/fs-fat>")
+# USBMEM_RCU_DEFER: fat_put_super が sbi を call_rcu で解放した後に、残りの inode (fat_inode / fsinfo_inode) の evict が sbi を読むため、call_rcu を umount の最後まで遅らせる (ext4 と同じ)
+target_compile_definitions(usbmem_fat PRIVATE USBMEM_RCU_DEFER=1 CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=1 CONFIG_FAT_DEFAULT_CODEPAGE=437 "CONFIG_FAT_DEFAULT_IOCHARSET=\"utf8\"")
+# module_init は翻訳単位ごとに別名にする (src/rt_vfs_fat.c の usbmem_module_init_fat が順に呼ぶ)
+set_source_files_properties(${FAT_ROOT}/fs-fat/inode.c PROPERTIES COMPILE_DEFINITIONS USBMEM_MODULE_INIT_NAME=usbmem_fat_init_core)
+set_source_files_properties(${FAT_ROOT}/fs-fat/namei_vfat.c PROPERTIES COMPILE_DEFINITIONS USBMEM_MODULE_INIT_NAME=usbmem_fat_init_vfat)
+set_source_files_properties(${FAT_ROOT}/nls/nls_cp437.c PROPERTIES COMPILE_DEFINITIONS USBMEM_MODULE_INIT_NAME=usbmem_fat_init_cp437)
+set_source_files_properties(${FAT_ROOT}/nls/nls_cp932.c PROPERTIES COMPILE_DEFINITIONS USBMEM_MODULE_INIT_NAME=usbmem_fat_init_cp932)
+if(USBMEM_SANITIZE)
+  set_source_files_properties(${FAT_SRC} ${FAT_NLS_SRC} PROPERTIES COMPILE_OPTIONS "-fno-sanitize=alignment;-fno-sanitize=shift-base;-fno-sanitize=nonnull-attribute")
+endif()
+target_link_libraries(usbmem_fat PUBLIC usbmem_compat_rt)
+
+# FAT のテスト: mtools (mformat / mcopy) で作ったイメージ (tools/gen_fat_fixture.py。7z と mtools の読み出しで検証済み) を、fs/fat の読み取りで全項目検証する
+if(USBMEM_BUILD_TESTS)
+  add_executable(usbmem_fat_tests tests/test_fat.cpp)
+  target_link_libraries(usbmem_fat_tests PRIVATE usbmem_fat usbmem_exfat usbmem_ext2 usbmem_core)
+  find_package(Python3 COMPONENTS Interpreter)
+  if(Python3_FOUND AND EXISTS /dev/shm)
+    set(FAT_FIX_DIR /dev/shm/usbmem_fat_$ENV{USER})
+    add_test(NAME fat_gen_fixture COMMAND ${CMAKE_COMMAND} -E env "PATH=$ENV{PATH}:/sbin:/usr/sbin" ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_LIST_DIR}/../../tools/gen_fat_fixture.py ${FAT_FIX_DIR})
+    set_tests_properties(fat_gen_fixture PROPERTIES FIXTURES_SETUP fat_fixture SKIP_RETURN_CODE 77 TIMEOUT 900)
+    add_test(NAME fat_read COMMAND usbmem_fat_tests ${FAT_FIX_DIR})
+    add_test(NAME fat_corrupt COMMAND usbmem_fat_tests --corrupt ${FAT_FIX_DIR})
+    add_test(NAME fat_ioerr COMMAND usbmem_fat_tests --ioerr ${FAT_FIX_DIR})
+    add_test(NAME fat_fuzz COMMAND usbmem_fat_tests --fuzz ${FAT_FIX_DIR} 600 1)
+    add_test(NAME fat_coexist COMMAND usbmem_fat_tests --coexist ${FAT_FIX_DIR} /dev/shm/usbmem_exfat_$ENV{USER} /dev/shm/usbmem_ext2_$ENV{USER})
+    set_tests_properties(fat_read fat_corrupt fat_ioerr fat_fuzz PROPERTIES FIXTURES_REQUIRED fat_fixture TIMEOUT 1800)
+    add_test(NAME fat_probe COMMAND usbmem_fat_tests --probe ${FAT_FIX_DIR} /dev/shm/usbmem_exfat_$ENV{USER} /dev/shm/usbmem_ntfs_$ENV{USER} /dev/shm/usbmem_ext2_$ENV{USER})
+    set_tests_properties(fat_probe PROPERTIES FIXTURES_REQUIRED "fat_fixture;exfat_fixture;ntfs_fixture;ext2_fixture" TIMEOUT 300)
+    set_tests_properties(fat_coexist PROPERTIES FIXTURES_REQUIRED "fat_fixture;exfat_fixture;ext2_fixture" TIMEOUT 600)
+    # 失敗したマウントの後始末は inode 内部の確保物を解放しきれない (NTFS / exFAT / ext2 と同じ既知事項)。メモリ安全性 (UAF/OOB/ハング) の検査に集中する。
+    set_tests_properties(fat_corrupt fat_ioerr fat_fuzz fat_coexist PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
+    set_tests_properties(fat_read PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+  endif()
+endif()

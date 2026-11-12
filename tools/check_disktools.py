@@ -27,7 +27,7 @@ def main():
     mods = {"fat": ("dt_fat", "run_fat", ["fsck.fat", "mkfs.fat", "mcopy"]),
             "exfat": ("dt_exfat", "run_exfat", ["fsck.exfat", "mkfs.exfat"]),
             "ext": ("dt_ext", "run_ext", ["e2fsck", "mke2fs", "debugfs"]),
-            "ntfs": ("dt_ntfs", "run_ntfs", ["ntfsfix", "mkfs.ntfs"]),
+            "ntfs": ("dt_ntfs", "run_ntfs", ["ntfsfix", "mkntfs"]),
             "mkfs": ("dt_mkfs", "run_mkfs", ["fsck.fat", "fsck.exfat", "e2fsck"])}
     for k, (mod, fn, tools) in mods.items():
         if "all" not in which and k not in which:

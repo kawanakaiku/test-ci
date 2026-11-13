@@ -13,3 +13,4 @@ captures/
 *.jks
 *.keystore
 ci-logs/
+real_usb_reports/

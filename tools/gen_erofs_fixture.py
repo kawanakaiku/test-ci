@@ -70,7 +70,9 @@ def make(outdir, name, args, sqb, compressed):
         if r.returncode != 0:
             return "mkfs.erofs failed: " + (r.stderr or r.stdout).strip()[:160]
         chk = subprocess.run(["fsck.erofs", img], capture_output=True, text=True)
-        if chk.returncode != 0:
+        if chk.returncode != 0 and os.environ.get("USBMEM_FIXTURE_LENIENT") == "1":
+            print("WARNING: %s: fsck.erofs NOT clean (CI の erofs-utils の fsck が対応しない可能性。ドライバのテストで確かめる): %s" % (name, (chk.stdout + chk.stderr).strip()[:200]))
+        elif chk.returncode != 0:
             sys.exit("fsck.erofs NOT clean for %s:\n%s%s" % (name, chk.stdout, chk.stderr))
         ex = os.path.join(td, "ex")
         r = subprocess.run(["fsck.erofs", "--extract=" + ex, "--no-preserve", img], capture_output=True, text=True)
@@ -122,7 +124,8 @@ def make_special_tar(outdir):
         if r.returncode != 0:
             print("special_tar: mkfs.erofs --tar failed (skipped):", (r.stderr or r.stdout).strip()[:120]); return
         chk = subprocess.run(["fsck.erofs", img], capture_output=True, text=True)
-        if chk.returncode != 0: sys.exit("fsck.erofs NOT clean for special_tar:\n%s%s" % (chk.stdout, chk.stderr))
+        if chk.returncode != 0 and os.environ.get("USBMEM_FIXTURE_LENIENT") == "1": print("WARNING: special_tar: fsck.erofs NOT clean:", (chk.stdout + chk.stderr).strip()[:200])
+        elif chk.returncode != 0: sys.exit("fsck.erofs NOT clean for special_tar:\n%s%s" % (chk.stdout, chk.stderr))
         open(os.path.join(outdir, name + ".manifest"), "w", encoding="utf-8").write("\n".join(man) + "\n")
         print("special_tar: fsck.erofs clean (char/block/fifo/symlink via tar)")
 

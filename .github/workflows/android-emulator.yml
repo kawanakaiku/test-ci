@@ -104,7 +104,7 @@ jobs:
           path: |
             ~/.android/avd/*
             ~/.android/adb*
-          key: avd-${{ runner.os }}-api${{ env.API_LEVEL }}-google_apis-x86_64-v1
+          key: avd-${{ runner.os }}-api${{ env.API_LEVEL }}-google_apis-x86_64-v2
 
       - name: Create AVD and snapshot (cache miss only)
         if: steps.avd-cache.outputs.cache-hit != 'true'
@@ -115,6 +115,7 @@ jobs:
           arch: x86_64
           cores: 3
           ram-size: 3072M
+          heap-size: 512M
           disk-size: 8192M
           force-avd-creation: false
           emulator-options: -no-window -no-audio -gpu swiftshader_indirect -no-boot-anim -camera-back none
@@ -129,6 +130,7 @@ jobs:
           arch: x86_64
           cores: 3
           ram-size: 3072M
+          heap-size: 512M
           disk-size: 8192M
           force-avd-creation: false
           emulator-options: -no-window -no-audio -no-snapshot-save -gpu swiftshader_indirect -no-boot-anim -camera-back none

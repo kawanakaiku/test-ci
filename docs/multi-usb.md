@@ -109,11 +109,11 @@ JVM 単体テスト (偽のセッション):
 
 | クラス | 件数 | 内容 |
 |---|---|---|
-| `UsbSessionManagerTest` | 29 | 3 本同時、片方の close/抜去が他に影響しない、二重 open 拒否、open 中の抜去、閉じている最中の open 拒否、デバイスごとの書き込みモード (書き込み無効ビルドでの拒否含む)、抜去で設定を捨てる、アイドル分数、回転ディスク以外では確認なしに自動停止しない (docs/media-kind.md)、命名 (同機種 3 本、シリアル重複、シリアル無し)、2 本以上の同時 I/O + open/close/抜去の混在 (ストレス) |
+| `UsbSessionManagerTest` | 43 | 3 本同時、片方の close/抜去が他に影響しない、二重 open 拒否、open 中の抜去、閉じている最中の open 拒否、デバイスごとの書き込みモード (書き込み無効ビルドでの拒否含む)、抜去で設定を捨てる、アイドル分数、回転ディスク以外では確認なしに自動停止しない (docs/media-kind.md)、命名 (同機種 3 本、シリアル重複、シリアル無し)、2 本以上の同時 I/O + open/close/抜去の混在 (ストレス)、複数 LUN (スロットキー・LUN の独立した開閉・LUN ごとの設定・抜去・一覧の skip。11 章) |
 | `OsMountScopeTest` | 3 | OS マウントの持ち主判定。別デバイスのマウントで拒否しない、持ち主不明は妨げる、sysfs パスから USB デバイスを求める |
 | 既存 | 9 | `OsMountGuardTest` / `UsbMscSelectorTest` / `HandleTest` / `PartitionModelTest` |
 
-AVD (emulator-5556) の計装テスト `MultiUsbTest` (4 件、`tools/run_android_multi_usb_test.sh`): 本物の `UsbSessionManager` + 偽セッション + 実イメージ (ext4) のマウントで、ルートがデバイス・ボリュームごとに分かれること、1 本を閉じるとそのデバイスのルート (ネストした子を含む) だけが消え `notifyChange` が届くこと、1 本を抜去している間も別のデバイスを読み続けられること、3 本分のマウントを別スレッドで同時に行って壊れないこと。
+AVD (emulator-5556) の計装テスト `MultiUsbTest` (5 件、LUN 版を含む、`tools/run_android_multi_usb_test.sh`): 本物の `UsbSessionManager` + 偽セッション + 実イメージ (ext4) のマウントで、ルートがデバイス・ボリュームごとに分かれること、1 本を閉じるとそのデバイスのルート (ネストした子を含む) だけが消え `notifyChange` が届くこと、1 本を抜去している間も別のデバイスを読み続けられること、3 本分のマウントを別スレッドで同時に行って壊れないこと。
 
 既存の計装テスト (fat 6 件、ext2 書き込み 3 件、nested 13 件、btrfs 全構成) もそのまま通る。
 
@@ -131,9 +131,57 @@ USB メモリ 3 本 + 給電付きハブ。**実機に触れるときは、OS �
 8. 1 本ずつ「安全に閉じる」。他の本がそのままであること。
 9. (確認したい点) OS が一方の USB の FAT 領域を自動マウントしている状態で、もう一方のメモリが開けること (sysfs による持ち主判定が機種で効くか)。効かなければ従来どおり「OS マウント中」で拒否される (安全側)。
 
-## 11. 未了
+## 11. 複数 LUN (カードリーダーの SD / microSD スロット)
+
+背景: 「USB3.0 Card Reader」(05e3:0749) は LUN が 2 つあり、SD カードは LUN 1 にあった。LUN 0 しか開かなかったので、メディアのない LUN 0 を開いて `open failed: disconnected` になっていた。
+
+### 11.1 core (`core/include/usbmem/usb_msc.h`, `core/src/usb_msc.cpp`)
+
+- **GET MAX LUN** (Bulk-Only のクラス要求: `bmRequestType=0xA1, bRequest=0xFE, wLength=1`) は `MscBus::create` が接続ごとに**最初の 1 回だけ**送る。STALL・転送エラー・不正な値 (最大 LUN が 15 を超える = 16 個以上) は失敗にせず「LUN 1 つ」とみなす (`max_lun_note()` に理由)。LUN を調べない従来の `MscDevice::open` / `usbmem_open_usb_msc` は GET MAX LUN を送らない (従来の動作のまま)。
+- LUN 番号は CBW の `bCBWLUN` に入れる。CDB には入れない (SCSI-2 の CDB の LUN ビットは使わない)。
+- **MscBus**: 1 つの Mass Storage インタフェース (= 1 組の bulk エンドポイント) を表す共有物。LUN ごとの `MscDevice` はバスを共有ポインタで持つ。BOT のコマンド (CBW → データ → CSW) は**バスの中で 1 つずつ直列化**する (別の LUN の同時 I/O は安全。tag と dead 状態もバスで共有)。リセット・切断は全 LUN に及ぶ。バスの寿命は最後のハンドルが閉じるまで (`usbmem_usb_bus_close` の後も開いたデバイスは使える)。
+- **LUN 一覧** (`MscBus::scan_luns` / C API `usbmem_usb_bus_scan_luns` が JSON を返す): LUN ごとに INQUIRY (周辺デバイス型・RMB)、TEST UNIT READY、READ CAPACITY(10/16) で、状態 `ready / no-media / not-ready / unsupported / error / skipped` と容量を返す。使うのは読み取り専用の許可リストのコマンドだけ (書き込み系は一切送らない)。メディアなしは REQUEST SENSE の 02/3A (または容量のブロック長 0)。1 つの LUN の失敗は他の LUN の結果に影響しない。接続が切れたときだけ全体の失敗 (Disconnected)。`skip_mask` の LUN (すでに開いている) は調べない。
+- LUN を開く `usbmem_open_usb_msc_lun(bus, lun, read_only, out)`: メディアなしの LUN は Disconnected (従来と同じ)。LUN 数以上・15 超は InvalidArgument。
+
+### 11.2 Android
+
+- **スロット** = (デバイス名, LUN)。文字列では `deviceName` (LUN 0) または `deviceName/l<LUN>` (LUN 1 以上) (`UsbSlotKey`)。LUN 0 は従来と同じ文字列なので、LUN 1 つの機器のキー (セッション・書き込みモード・アイドル設定・ボリュームキー) は変わらない。
+- **ボリュームキー**: `usb:<デバイス名>@<開始バイト>` (LUN 0。従来と同じ) / `usb:<デバイス名>/l<LUN>@<開始バイト>`。公開名は「機種名 [識別子] · LUN 1 #パーティション」、SAF のルートの説明は「USB 1-5 LUN 1」。
+- **`UsbSessionManager`**: スロットごとに独立して開閉する (`open(device, lun)`)。抜去 (`onDetached`) はそのデバイスの全スロットを閉じ、開いていなかった LUN の設定も捨てる。`scanLuns(device)` は開いている LUN を `skip_mask` で除く。`releaseDevice(device)` は全 LUN を閉じて接続を OS に返す。書き込みモード・アイドル停止・スピンダウンの確認・メディア種別の判別・START STOP UNIT は**LUN ごと** (保存キーは LUN 0 が `0781:5581`、LUN 1 以上が `0781:5581/l1`)。
+- **接続の共有** (`UsbLink`): `claimInterface` はデバイス (インタフェース) 単位。同じデバイスの LUN は 1 つの `UsbDeviceConnection` + 確保済みインタフェース + ネイティブのバスを**参照カウント**で共有する。参照 = LUN ごとのセッション + LUN 一覧のための保持。LUN 1 を閉じても LUN 0 は使えたままで、最後の参照が消えたとき (全 LUN を閉じる・抜去・「OS に返す」) にバス → インタフェース解放 → 接続の順で後始末する。GET MAX LUN は接続を開いた最初の 1 回だけ。
+- **OS マウントの検査はデバイス単位のまま**: 接続を作るときに 1 回行う。同じデバイスのどの LUN でも OS がマウントしていれば拒否する (強制 claim で下から引き抜くことになるため)。警告 (「取り出してから」) の文言は従来どおり。
+- **画面**: LUN が 1 つ (または未調査) のデバイスは従来どおり 1 本 1 枚。「開く」を押すと LUN 数を調べ、2 つ以上なら LUN ごとのカード (「USB3.0 Card Reader [識別子] · LUN 1 · 15.6 GB」) にする。メディアなしの LUN は灰色の「メディアなし」で、開けない。**メディアのある LUN がちょうど 1 つなら、そのまま開く**。複数あれば、使うカードで「開く」を押す (LUN ごとに独立して開ける)。カードの入れ替えは各カードの「LUN 一覧を更新」で取り直す (開いている LUN には何も送らない)。使い終えたら「この USB を OS に返す」。
+- LUN 一覧を取った後は接続 (インタフェースの確保) を保つ。続けて開くまで OS の usb-storage を戻さない (戻すと、開く直前に OS がカードを再マウントしてしまうため)。LUN 1 つの機器で開けなかったときは、保持を OS に返す (従来どおり、失敗したら何も確保しない)。
+
+### 11.3 制約
+
+- BOT のみ (UAS は対象外)。LUN は最大 16 個。
+- 同じバスの LUN は 1 組の bulk エンドポイントを共有するので、複数の LUN を同時に読み書きすると、帯域は分け合う (コマンド単位で交互になる)。
+- 起動時・接続時には LUN を調べない (ユーザーが「開く」を押したとき、または「LUN 一覧を更新」を押したとき)。調べる間は USB のインタフェースを確保する。
+- 取り出した LUN の再取得 (カード交換) は手動の更新。メディアが変わったことを UNIT ATTENTION で自動検出することはしない。
+- 実機 (カードリーダー) での確認は未実施 (§11.5)。
+
+### 11.4 検証
+
+- core (`core/tests/test_usb_lun.cpp`、`fake_bot.h` の `MultiLunBot`): GET MAX LUN の応答 (0 / 1 / STALL / エラー / 不正な値)、1 回だけ送る、LUN 0 メディアなし + LUN 1 あり、両方あり、LUN ごとに別のディスクイメージ、CBW の LUN が正しい、メディアの取り外し (NOT READY) と再挿入が他の LUN に影響しない、別 LUN の同時 I/O がバスで直列化される (バスのロックを外すとクラッシュすることを確認した)、切断は全 LUN に及ぶ、バスはハンドルより長生き、LUN 一覧が許可リストのコマンドだけを使う、START STOP UNIT がその LUN だけ、など 16 件。
+- JVM (`UsbSessionManagerTest` の LUN 版): スロットキーの互換、LUN の独立した開閉、同じ LUN の二重 open 拒否、書き込みモード・アイドル設定が LUN ごと、抜去で全 LUN を閉じて保持を手放す、一覧が開いている LUN を skip する、LUN 1 つの機器は従来どおり、など。
+- AVD (`MultiUsbTest.lunsOfOneReaderGetSeparateRootsAndCloseIndependently`): 本物の `UsbSessionManager` + 偽セッションの LUN 版で、LUN ごとに SAF のルートが分かれ、片方を閉じても他方が読め、抜去で残りが消えること。
+
+### 11.5 実機での確認手順 (未実施。ユーザーの許可を得て行う)
+
+1. 「USB3.0 Card Reader」に SD カードを入れて Xperia に挿す (LUN 1 側)。OS が自動マウントしていれば先に取り出す。
+2. カードの「開く」を押す。LUN 0 (メディアなし)・LUN 1 (容量付き) のカードに分かれ、**LUN 1 が自動で開く**こと。LUN 0 のカードは灰色の「メディアなし」で、「開く」が押せないこと。
+3. パーティションを公開して、ファイルアプリで読めること。公開名に「LUN 1」が入ること。
+4. 閉じて SD カードを抜き、別のカードを入れて「LUN 一覧を更新」を押す。容量が変わること。
+5. 両方のスロットにカードを入れて更新し、2 枚とも「開く」ができて、片方を閉じても他方が読み続けられること。
+6. 「この USB を OS に返す」で OS がカードを再マウントすること。
+7. LUN 1 つの USB メモリが従来どおり 1 回の「開く」で開けること (回帰)。
+
+## 12. 未了
 
 - 実機での上記の確認、同時転送の性能・給電の挙動。
 - マウントのプロセス全体の直列化の緩和 (LinuxCompat のマウント状態の分割)。
 - シリアル単位のアイドル・チューニング設定の保存。
 - DiskTools / PartitionEditor / Recovery の UI の入口。
+- 実機でのカードリーダー (複数 LUN) の確認 (§11.5)。
+- UAS 接続の機器の LUN (BOT のみ対応)。

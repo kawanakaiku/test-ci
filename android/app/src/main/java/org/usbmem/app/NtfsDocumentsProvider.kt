@@ -53,7 +53,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
     private fun rootSummary(e: VolumeRegistry.Entry): String {
         val fs = e.volume.fsName.uppercase()
         val mode = if (e.parentId != null) "読み取り専用・イメージ内" else if (!e.volume.writable) "読み取り専用" else if (e.volume.createOnly) "新規作成のみ・実験的" else "読み書き・実験的"
-        val dev = e.deviceName?.let { " · USB " + UsbDeviceNaming.busId(it) } ?: ""
+        val dev = e.deviceName?.let { " · USB " + UsbDeviceNaming.busLabel(it) } ?: ""
         return "$fs ($mode)$dev"
     }
 

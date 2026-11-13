@@ -45,6 +45,52 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeOpenUsbMsc(JNIEnv
   return reinterpret_cast<jlong>(dev);
 }
 
+// ---- 複数 LUN (カードリーダー)。1 本の USB 接続を表す bus を作り、LUN ごとにデバイスを開く。fd の所有権は Kotlin に残る (bus とそこから開いた全デバイスより長く生かすこと)。
+// 戻り値: >0 ハンドル / <=0 = -(usbmem::Errc)
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbBusOpen(JNIEnv*, jclass, jint fd, jint epIn, jint epOut, jint iface, jboolean queryMaxLun) {
+  usbmem_usb_bus* bus = nullptr;
+  int rc = usbmem_usb_bus_open(fd, epIn, epOut, iface, queryMaxLun ? 1 : 0, &bus);
+  if (rc != 0) return -static_cast<jlong>(rc);
+  return reinterpret_cast<jlong>(bus);
+}
+
+JNIEXPORT jint JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbBusLunCount(JNIEnv*, jclass, jlong bus) {
+  return usbmem_usb_bus_lun_count(reinterpret_cast<usbmem_usb_bus*>(bus));
+}
+
+JNIEXPORT jstring JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbBusMaxLunNote(JNIEnv* env, jclass, jlong bus) {
+  char buf[96];
+  usbmem_usb_bus_max_lun_note(reinterpret_cast<usbmem_usb_bus*>(bus), buf, sizeof buf);
+  return env->NewStringUTF(buf);   // ASCII のみ
+}
+
+// LUN 一覧の JSON (UTF-8 の byte[])。失敗時 null (errorOut[0] にコード)
+JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbBusScanLuns(JNIEnv* env, jclass, jlong bus, jint skipMask, jint readyWaitMs, jintArray errorOut) {
+  char* json = nullptr;
+  int rc = usbmem_usb_bus_scan_luns(reinterpret_cast<usbmem_usb_bus*>(bus), static_cast<unsigned int>(skipMask), readyWaitMs, &json);
+  if (rc != 0 || !json) {
+    jint e = rc;
+    if (errorOut) env->SetIntArrayRegion(errorOut, 0, 1, &e);
+    return nullptr;
+  }
+  size_t n = std::strlen(json);
+  jbyteArray arr = env->NewByteArray(static_cast<jsize>(n));
+  if (arr) env->SetByteArrayRegion(arr, 0, static_cast<jsize>(n), reinterpret_cast<const jbyte*>(json));
+  usbmem_free(json);
+  return arr;
+}
+
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeOpenUsbMscLun(JNIEnv*, jclass, jlong bus, jint lun, jboolean readOnly) {
+  usbmem_device* dev = nullptr;
+  int rc = usbmem_open_usb_msc_lun(reinterpret_cast<usbmem_usb_bus*>(bus), lun, readOnly ? 1 : 0, &dev);
+  if (rc != 0) return -static_cast<jlong>(rc);
+  return reinterpret_cast<jlong>(dev);
+}
+
+JNIEXPORT void JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbBusClose(JNIEnv*, jclass, jlong bus) {
+  usbmem_usb_bus_close(reinterpret_cast<usbmem_usb_bus*>(bus));
+}
+
 // 直近の SCSI センス [key, asc, ascq] (診断表示用)
 JNIEXPORT void JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbLastSense(JNIEnv* env, jclass, jlong handle, jintArray out) {
   int k = 0, a = 0, q = 0;

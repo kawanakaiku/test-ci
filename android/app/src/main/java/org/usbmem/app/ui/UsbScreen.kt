@@ -31,13 +31,19 @@ import org.usbmem.app.MediaKindInfo
 import org.usbmem.app.PartitionTable
 import org.usbmem.app.R
 import org.usbmem.app.UsbDeviceNaming
+import org.usbmem.app.UsbLunInfo
+import org.usbmem.app.UsbLunState
 import org.usbmem.app.WriteMode
 import org.usbmem.app.formatBytes
 
-/** USB 画面で起こせる操作。実処理は MainActivity。どれも [key] (UsbDevice.deviceName) のデバイスだけが対象で、他のデバイスには影響しない。 */
+/** USB 画面で起こせる操作。実処理は MainActivity。どれも [key] (スロット名: UsbDevice.deviceName + LUN) のスロットだけが対象で、他のデバイス・他の LUN には影響しない。 */
 interface UsbActions : LinkActions {
     fun openStorageSettings()
     fun openUsb(key: String)
+    /** 複数 LUN のデバイスの LUN 一覧を取り直す (カードを入れ替えた後)。開いている LUN は調べない。 */
+    fun rescanLuns(key: String)
+    /** 複数 LUN のデバイスを OS に返す (LUN 一覧を閉じ、接続を解放する)。どの LUN も開いていないときだけ。 */
+    fun releaseUsb(key: String)
     fun publishPartition(key: String, startBytes: Long, sizeBytes: Long, label: String)
     fun publishPartitionNoload(key: String, startBytes: Long, sizeBytes: Long, label: String)
     fun cancelNoload(key: String)
@@ -64,7 +70,7 @@ fun UsbScreen(m: AppModel, a: UsbActions, modifier: Modifier = Modifier) {
             Banner(Notice(Severity.Info, stringResource(R.string.usb_none_title), stringResource(R.string.usb_none_detail)))
         } else {
             if (m.usbDevices.size >= 2) Banner(Notice(Severity.Info, stringResource(R.string.usb_hub_hint)))
-            m.usbDevices.forEach { d -> key(d.key) { DeviceCard(d, a) } }
+            m.usbDevices.forEach { d -> key(d.key) { DeviceCard(d, a, canRelease = d.lunInfo != null && m.usbDevices.none { it.deviceName == d.deviceName && (it.open || it.busy != null) }) } }
         }
 
         // ---- 手順 (どれも開いていないときだけ)
@@ -86,15 +92,24 @@ private fun modeLabel(mode: WriteMode) = when (mode) { WriteMode.ReadOnly -> R.s
 
 /** USB 1 本分のカード。書き込みモード・開閉・パーティションと公開中ボリューム・ディスクの電源が、すべてこのデバイスのもの。 */
 @Composable
-private fun DeviceCard(d: UsbDeviceState, a: UsbActions) {
+private fun DeviceCard(d: UsbDeviceState, a: UsbActions, canRelease: Boolean = false) {
     var linkFor by remember { mutableStateOf<PublishedVolume?>(null) }
     var confirmClose by remember { mutableStateOf(false) }
     var confirmFull by remember { mutableStateOf(false) }
     val idle = d.busy == null
+    val li = d.lunInfo
+    val noMedia = li != null && !li.openable   // 複数 LUN の機器で、メディアなし (など) の LUN: 開けない
     SectionCard(
         d.title, subtitle = "${d.vidPid}  ·  ${d.shortId}",
         trailing = { if (d.open) Chip(stringResource(R.string.usb_connected), severity = Severity.Success) else Chip(stringResource(R.string.usb_not_connected)) },
     ) {
+        // ---- 複数 LUN: この LUN の状態 (メディアなしは灰色で、開けない)
+        if (li != null && !d.open) {
+            Text(
+                lunStatusText(li), style = MaterialTheme.typography.bodyMedium,
+                color = if (li.openable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         // ---- 書き込みモード (この USB を開く前に決める。ビルドで書き込みが無効なら読み取り専用のみ)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -122,11 +137,16 @@ private fun DeviceCard(d: UsbDeviceState, a: UsbActions) {
             )
         }
 
-        // ---- 開く
+        // ---- 開く (メディアなしの LUN は開けない)
         if (!d.open) {
-            Button(onClick = { a.openUsb(d.key) }, enabled = idle, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = { a.openUsb(d.key) }, enabled = idle && !noMedia, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(when (d.writeMode) { WriteMode.ReadOnly -> R.string.usb_open_read_only; WriteMode.CreateOnly -> R.string.usb_open_write; WriteMode.Full -> R.string.usb_open_full }))
             }
+        }
+        // ---- 複数 LUN: カードの入れ替え後に LUN 一覧を取り直す / 全部の LUN を使い終えたら OS に返す
+        if (li != null && !d.open) {
+            OutlinedButton(onClick = { a.rescanLuns(d.key) }, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_lun_rescan)) }
+            if (canRelease) TextButton(onClick = { a.releaseUsb(d.key) }, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_lun_release)) }
         }
 
         if (d.busy != null) {
@@ -184,6 +204,17 @@ private fun DeviceCard(d: UsbDeviceState, a: UsbActions) {
             onDismiss = { confirmClose = false },
         )
     }
+}
+
+/** 複数 LUN の機器の LUN 1 つの状態の文言 (例: 「メディアなし」「15.6 GB」)。 */
+@Composable
+private fun lunStatusText(li: UsbLunInfo): String = when (li.state) {
+    UsbLunState.Ready -> stringResource(R.string.usb_lun_ready, formatBytes(li.sizeBytes))
+    UsbLunState.NoMedia -> stringResource(R.string.usb_lun_no_media)
+    UsbLunState.NotReady -> stringResource(R.string.usb_lun_not_ready)
+    UsbLunState.Unsupported -> stringResource(R.string.usb_lun_unsupported)
+    UsbLunState.Error -> stringResource(R.string.usb_lun_error, li.note)
+    UsbLunState.Skipped -> stringResource(R.string.usb_lun_skipped)
 }
 
 /** 種別の表示用の文言 (例: 「HDD 7200rpm」「SSD/フラッシュ」「種別不明 (USB メモリの可能性)」)。 */
@@ -302,7 +333,7 @@ private fun PartitionList(d: UsbDeviceState, t: PartitionTable, a: UsbActions, o
                 } else if (fsMountable(p.fs)) {
                     // FAT / ISO 9660 / UDF / squashfs / erofs / btrfs / f2fs / xfs は読み取り専用 (書き込みは未対応)。NTFS・exFAT・ext2・ext3・ext4 は、このデバイスの書き込みモードに従う (ext3/ext4 は jbd2: docs/ext4-write.md)
                     val mode = if (p.fs == "ntfs" || p.fs == "exfat" || p.fs == "ext2" || p.fs == "ext3" || p.fs == "ext4") writeMode else WriteMode.ReadOnly
-                    Button(onClick = { a.publishPartition(d.key, p.startBytes, p.sizeBytes, UsbDeviceNaming.volumeLabel(d.productName, d.shortId, p.index)) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = { a.publishPartition(d.key, p.startBytes, p.sizeBytes, UsbDeviceNaming.volumeLabel(d.productName, d.shortId, p.index, if (d.lunInfo != null) d.lun else null)) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) {
                         Text(stringResource(when (mode) { WriteMode.ReadOnly -> R.string.usb_publish_read_only; WriteMode.CreateOnly -> R.string.usb_publish_write; WriteMode.Full -> R.string.usb_publish_full }))
                     }
                 }
@@ -311,7 +342,7 @@ private fun PartitionList(d: UsbDeviceState, t: PartitionTable, a: UsbActions, o
         if (t.wholeDeviceVolume) {
             val pub = d.published.firstOrNull { it.startBytes == 0L }
             if (pub != null) PublishedActions(d, pub, a, onLink)
-            else OutlinedButton(onClick = { a.publishPartition(d.key, 0, t.diskBytes, UsbDeviceNaming.volumeLabel(d.productName, d.shortId, null)) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_publish_whole_device)) }
+            else OutlinedButton(onClick = { a.publishPartition(d.key, 0, t.diskBytes, UsbDeviceNaming.volumeLabel(d.productName, d.shortId, null, if (d.lunInfo != null) d.lun else null)) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_publish_whole_device)) }
         }
         t.diagnostics.forEach { x -> Text("${x.severity}: ${x.message}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }
     }

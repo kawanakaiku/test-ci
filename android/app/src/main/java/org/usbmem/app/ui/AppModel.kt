@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import org.usbmem.app.MediaKindInfo
 import org.usbmem.app.PartitionTable
+import org.usbmem.app.UsbLunInfo
+import org.usbmem.app.UsbSlotKey
 import org.usbmem.app.WriteMode
 
 /** ext3/ext4 のジャーナル未再生 (EUCLEAN) で拒否したパーティション。ユーザーが確認すれば、読み取り専用で開き直せる。 */
@@ -21,10 +23,20 @@ data class PublishedVolume(
 )
 
 /**
- * USB デバイス 1 本分の画面の状態 (Compose の状態保持)。デバイス名 (UsbDevice.deviceName) をキーに、接続している間ずっと同じオブジェクトを使う。
+ * USB のスロット 1 つ分の画面の状態 (Compose の状態保持)。スロット名 ([UsbSlotKey.of]: LUN 0 は UsbDevice.deviceName そのもの) をキーに、接続している間ずっと同じオブジェクトを使う。
+ * LUN が 1 つの機器は 1 本 = 1 スロット。複数 LUN のカードリーダーは、LUN ごとに 1 スロット (= 1 枚のカード)。
  * 状態の持ち主はプロセス側の UsbSessionManager で、これはその写し。画面は読むだけ、更新は MainActivity (メインスレッド)。
  */
 class UsbDeviceState(val key: String) {
+    /** 物理デバイス名 (UsbDevice.deviceName)。OS のマウント検査・抜去はこの単位 */
+    val deviceName: String get() = UsbSlotKey.deviceOf(key)
+    /** このスロットの LUN (論理ユニット) */
+    val lun: Int get() = UsbSlotKey.lunOf(key)
+    /** 非 null = このデバイスは複数 LUN で、このカードは LUN [lun] (メディアの有無・容量はこの値)。null = LUN 1 つ、またはまだ調べていないデバイス */
+    var lunInfo by mutableStateOf<UsbLunInfo?>(null)
+    var lunCount by mutableIntStateOf(1)
+    /** 保存する設定 (アイドル停止・スピンダウンの確認) のキー: 機種 (VID:PID)。複数 LUN では LUN ごと ("0781:5581/l1") */
+    var settingsId by mutableStateOf("")
     var title by mutableStateOf("")                          // 機種名 + 識別子 (例: "SanDisk Ultra [A1B2]")
     var vidPid by mutableStateOf("")
     var shortId by mutableStateOf("")                        // シリアル下 4 桁 / バス番号-デバイス番号

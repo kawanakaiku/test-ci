@@ -231,6 +231,20 @@
 
     <!-- 複数の USB (docs/multi-usb.md) -->
     <string name="usb_not_connected">未接続</string>
+    <string name="usb_lun_ready">メディアあり · %1$s</string>
+    <string name="usb_lun_no_media">メディアなし (カードを入れて「LUN 一覧を更新」を押してください)</string>
+    <string name="usb_lun_not_ready">準備中です (しばらくして「LUN 一覧を更新」を押してください)</string>
+    <string name="usb_lun_unsupported">未対応の LUN (ディスクではありません)</string>
+    <string name="usb_lun_error">LUN の状態を調べられませんでした (%1$s)</string>
+    <string name="usb_lun_skipped">使用中</string>
+    <string name="usb_lun_rescan">LUN 一覧を更新 (カードの入れ替え後)</string>
+    <string name="usb_lun_release">この USB を OS に返す (LUN 一覧を閉じる)</string>
+    <string name="busy_rescanning_luns">LUN 一覧を取得しています…</string>
+    <string name="notice_lun_none_ready">メディアが入っている LUN がありません</string>
+    <string name="notice_lun_none_ready_detail">このカードリーダーは LUN が %1$d 個あります。カードを入れて、各カードの「LUN 一覧を更新」を押してください。</string>
+    <string name="notice_lun_choose">メディアが入っている LUN が複数あります</string>
+    <string name="notice_lun_choose_detail">使う LUN のカードで「開く」を押してください。LUN ごとに独立に開けます。</string>
+    <string name="notice_lun_released">USB を OS に返しました</string>
     <string name="usb_hub_hint">複数の USB を同時に開くと、USB の帯域と給電を分け合います。給電付きのハブを使ってください。遅い・切れるときは 1 本ずつ開いてください。</string>
     <string name="usb_card_open_title">パーティションとマウント</string>
     <string name="usb_partition_mounted">マウント中</string>

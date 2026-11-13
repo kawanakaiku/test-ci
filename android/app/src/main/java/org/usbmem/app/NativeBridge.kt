@@ -9,6 +9,17 @@ object NativeBridge {
     @JvmStatic external fun nativeOpenFd(fd: Int, readOnly: Boolean): Long
     @JvmStatic external fun nativeListPartitions(handle: Long, errorOut: IntArray?): ByteArray?
     @JvmStatic external fun nativeOpenUsbMsc(fd: Int, epIn: Int, epOut: Int, iface: Int, lun: Int, readOnly: Boolean): Long
+    // ---- 複数 LUN (カードリーダー)。bus = 1 本の USB 接続。LUN ごとにデバイスを開く。fd は bus と開いたデバイスより長く生かす。docs/multi-usb.md
+    /** bus を作る。queryMaxLun なら GET MAX LUN を 1 回だけ送る (STALL・エラー・不正な値でも失敗にせず LUN 1 つ)。戻り値: >0 ハンドル / <=0 = -Errc。閉じるのは nativeUsbBusClose。 */
+    @JvmStatic external fun nativeUsbBusOpen(fd: Int, epIn: Int, epOut: Int, iface: Int, queryMaxLun: Boolean): Long
+    @JvmStatic external fun nativeUsbBusLunCount(bus: Long): Int
+    @JvmStatic external fun nativeUsbBusMaxLunNote(bus: Long): String
+    /** LUN 一覧の JSON (UTF-8)。skipMask の bit n が 1 の LUN は調べない。失敗時 null (errorOut[0] にコード)。 */
+    @JvmStatic external fun nativeUsbBusScanLuns(bus: Long, skipMask: Int, readyWaitMs: Int, errorOut: IntArray?): ByteArray?
+    /** bus の LUN を開く。メディアなしの LUN は Disconnected。戻り値: >0 ハンドル (nativeClose で閉じる) / <=0 = -Errc。 */
+    @JvmStatic external fun nativeOpenUsbMscLun(bus: Long, lun: Int, readOnly: Boolean): Long
+    /** bus の参照を手放す (開いたデバイスは、閉じるまで使える)。 */
+    @JvmStatic external fun nativeUsbBusClose(bus: Long)
     @JvmStatic external fun nativeUsbLastSense(handle: Long, out: IntArray)
     @JvmStatic external fun nativeNtfsMountDevice(devHandle: Long, offset: Long, length: Long): Long
     @JvmStatic external fun nativeUsbLastOpenTrace(): String

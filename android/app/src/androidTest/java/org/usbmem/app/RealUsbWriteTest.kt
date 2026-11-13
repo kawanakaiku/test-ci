@@ -12,7 +12,7 @@ import org.junit.Test
 import java.security.MessageDigest
 
 /**
- * 実機 USB メモリへの**書き込み**試験 (NTFS / exFAT / ext2 / ext3 / ext4 のみ)。1 回の実行で 1 本の USB の、指定した 1 パーティションだけを扱う。
+ * 実機 USB メモリへの**書き込み**試験 (NTFS / exFAT / ext2 / ext3 / ext4 / Btrfs / F2FS のみ。Btrfs と F2FS は自前の書き込み実装で、実機では未確認の実験段階)。1 回の実行で 1 本の USB の、指定した 1 パーティションだけを扱う。
  * 通常の AVD の試験では skip (`-e usbmem.real true` と `-e usbmem.write true` の両方が無ければ assumeTrue)。実行は tools/run_android_real_usb_verify.sh --write。
  *
  * 手順 (パーティションごと):
@@ -32,8 +32,8 @@ class RealUsbWriteTest {
     private val args = RealUsb.Args(InstrumentationRegistry.getArguments())
 
     companion object {
-        /** 書き込みを許す FS (パーティション表の fs 名)。FAT32 は書き込み未対応、XFS/Btrfs/F2FS/squashfs/erofs/UDF/ISO は読み取り専用 FS。 */
-        val WRITABLE_FS = setOf("ntfs", "exfat", "ext2", "ext3", "ext4")
+        /** 書き込みを許す FS (パーティション表の fs 名)。FAT32 は書き込み未対応、XFS/squashfs/erofs/UDF/ISO は読み取り専用 FS。 */
+        val WRITABLE_FS = setOf("ntfs", "exfat", "ext2", "ext3", "ext4", "btrfs", "f2fs")
         const val BIG_SKIP = "02_big/big_4p5GiB.bin"
     }
 

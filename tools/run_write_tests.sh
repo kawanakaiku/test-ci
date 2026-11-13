@@ -73,8 +73,9 @@ ntfs_ops() {  # ntfs_ops <名前> <script ファイル>
 import sys, re
 l = sys.stdin.read()
 ops = dict(re.findall(r'([0-9a-f]{2})x(\d+)', l.split('(')[0]))
-allowed = {'00','12','1a','25','9e','28','88','2a','8a','35','03'}
+allowed = {'00','12','1a','25','9e','28','88','2a','8a','35','03','a1','85'}   # a1/85 = 種別判別の ATA IDENTIFY (open 時に各 1 回まで。docs/media-kind.md)
 bad = sorted(set(ops) - allowed)
+bad += [k for k in ('a1','85') if int(ops.get(k, 0)) > 1]
 if bad or not ({'2a','8a'} & set(ops)) or '35' not in ops: print('unexpected SCSI ops:', l.strip()); sys.exit(1)
 " || { echo "FAIL[$name] SCSI opcodes"; return 1; }
   fi

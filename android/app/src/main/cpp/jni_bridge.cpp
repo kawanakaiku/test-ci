@@ -63,6 +63,19 @@ JNIEXPORT jboolean JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbSpunDown(JN
   return usbmem_usb_spun_down(reinterpret_cast<usbmem_device*>(handle)) ? JNI_TRUE : JNI_FALSE;
 }
 
+// 回転ディスクか、フラッシュ/SSD か。out = [kind, rpm, basis, hint, removable, probed]。戻り値 0 / <0 = -Errc。detail は診断の 1 行 (ASCII)
+JNIEXPORT jint JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbMediaInfo(JNIEnv* env, jclass, jlong handle, jintArray out, jobjectArray detailOut) {
+  int v[6] = {0, 0, 0, 0, 0, 0};
+  char detail[512];
+  int rc = usbmem_usb_media_info(reinterpret_cast<usbmem_device*>(handle), v, detail, sizeof detail);
+  if (rc != 0) return -rc;
+  if (!out || env->GetArrayLength(out) < 6) return -22;
+  jint j[6] = {v[0], v[1], v[2], v[3], v[4], v[5]};
+  env->SetIntArrayRegion(out, 0, 6, j);
+  if (detailOut && env->GetArrayLength(detailOut) >= 1) env->SetObjectArrayElement(detailOut, 0, env->NewStringUTF(detail));
+  return 0;
+}
+
 // ディスクの回転を止める (start=0) / 再開 (start=1)。SCSI START STOP UNIT。0 / <0 = -Errc (未対応は -9)
 JNIEXPORT jint JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbStartStop(JNIEnv*, jclass, jlong handle, jboolean start) {
   int rc = usbmem_usb_start_stop(reinterpret_cast<usbmem_device*>(handle), start ? 1 : 0);

@@ -8,6 +8,7 @@
 #include <chrono>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "usbmem/block_device.h"
 
@@ -38,10 +39,64 @@ struct MscOptions {
   uint32_t io_timeout_ms = 10000;
   uint32_t ready_wait_ms = 10000;         // TEST UNIT READY を待つ上限
   uint32_t retry_delay_ms = 200;
+  uint32_t probe_timeout_ms = 5000;       // 種別判別 (INQUIRY EVPD / ATA IDENTIFY) の 1 コマンドあたりの上限。再試行はしない
+  bool probe_media = true;                // false なら種別判別をしない (MediaKind::Unknown のまま)。既定は判別する
 };
 
 // SCSI SENSE の要約 (診断・エラー対応表示用)
 struct ScsiSense { uint8_t key = 0, asc = 0, ascq = 0; };
+
+// ---- 媒体の種別判別 (回転ディスクか、フラッシュ/SSD か)。docs/media-kind.md
+enum class MediaKind : int { Unknown = 0, Rotational = 1, NonRotational = 2 };
+// 判定の根拠 (どの方法で分かったか)
+enum class MediaBasis : int {
+  None = 0,
+  VpdBlockDeviceChars = 1,   // INQUIRY EVPD 0xB1 (Block Device Characteristics) の MEDIUM ROTATION RATE
+  AtaInfoVpd = 2,            // INQUIRY EVPD 0x89 (ATA Information) に入っている IDENTIFY DEVICE の語 217
+  AtaPassThrough12 = 3,      // SAT ATA PASS-THROUGH(12) で ATA IDENTIFY DEVICE の語 217
+  AtaPassThrough16 = 4,      // SAT ATA PASS-THROUGH(16) で同上
+};
+// 判定できなかったときの手掛かり (kind が Unknown のときの補助。確定ではない)
+enum class MediaHint : int {
+  None = 0,
+  RemovableNoVpd = 1,        // RMB=1 (リムーバブル) で回転数の情報が得られない: USB メモリ (フラッシュ) の可能性が高い
+  UnmapSupported = 2,        // UNMAP/TRIM に対応 (VPD 0xB2 の LBPU / IDENTIFY 語 169): SSD・フラッシュのヒント (シン・プロビジョニングの RAID もありうる)
+};
+
+struct MediaInfo {
+  MediaKind kind = MediaKind::Unknown;
+  uint32_t rpm = 0;                       // kind == Rotational で回転数が分かるとき (0 = 回転数は不明)
+  MediaBasis basis = MediaBasis::None;
+  MediaHint hint = MediaHint::None;
+  // ---- 診断用の生の値 (判別できなかったときの調査用)
+  bool probed = false;                    // 判別を実行した (false = probe_media=false など)
+  bool removable = false;                 // 標準 INQUIRY の RMB
+  uint8_t inquiry_version = 0;            // 標準 INQUIRY のバイト 2 (VERSION)
+  uint8_t inquiry_ptype = 0;              // 標準 INQUIRY のペリフェラルデバイスタイプ (VPD 応答の検査用)
+  bool vpd_tried = false;                 // VPD 0x00 を問い合わせた (INQUIRY の VERSION が SPC-2 未満の機器には問い合わせない)
+  bool vpd_supported = false;             // VPD 0x00 に正常に応答した
+  std::vector<uint8_t> vpd_pages;         // 対応ページ一覧 (VPD 0x00)
+  int32_t rotation_rate_raw = -1;         // VPD 0xB1 の MEDIUM ROTATION RATE (-1 = 取得していない)
+  int32_t unmap_raw = -1;                 // VPD 0xB2 の LBPU (0/1, -1 = 取得していない)
+  int32_t ata_word0 = -1, ata_word169 = -1, ata_word217 = -1;   // ATA IDENTIFY DEVICE の語 (-1 = 取得していない)
+  uint8_t sat_tried = 0;                  // 試した SAT: bit0 = 0x89, bit1 = PASS-THROUGH(12), bit2 = PASS-THROUGH(16)
+  bool sat_skipped = false;               // RMB=1 で VPD 0x89 も無いため、ATA PASS-THROUGH を送らなかった (USB メモリへの未知コマンドを避ける)
+  std::string stop_reason;                // 判別を途中で諦めた理由 (空 = 最後まで進んだ)
+  /** 診断用の 1 行要約 (例: "rmb=0 ver=6 vpd=00,80,83,b0,b1,b2 b1=0x1c20 -> rotational 7200rpm [vpd-b1]")。ASCII のみ。 */
+  std::string describe() const;
+};
+
+/** 読み取り専用モードで BOT に流してよい CDB か (最後の安全弁。MscDevice::exec が使う。単体テストから直接検査できるよう公開)。
+ *  - 許可: TEST UNIT READY / REQUEST SENSE / INQUIRY (標準と EVPD。CMDDT は不可) / MODE SENSE(6) / READ CAPACITY(10) / READ(10,16) / SERVICE ACTION IN(16) の READ CAPACITY(16)
+ *  - START STOP UNIT (0x1B) は allow_start_stop のときだけ
+ *  - ATA PASS-THROUGH(12) (0xA1) / (16) (0x85) は allow_ata_identify のときだけ、**IDENTIFY DEVICE (0xEC) の正規形のみ**
+ *    (PIO データイン・拡張なし・512 バイト・レジスタはすべて 0 / セクタ数 1)。それ以外の ATA コマンドは常に拒否する。 */
+bool scsi_cdb_allowed_read_only(const uint8_t* cdb, size_t cdb_len, bool allow_start_stop, bool allow_ata_identify);
+/** ATA PASS-THROUGH の CDB を、書き込み可のモードでも制限するための検査: 0xA1/0x85 なら IDENTIFY DEVICE の正規形だけ true。他のオペコードは true (対象外)。 */
+bool scsi_cdb_ata_passthrough_ok(const uint8_t* cdb, size_t cdb_len, bool allow_ata_identify);
+/** ATA IDENTIFY DEVICE の 512 バイトを検査し、語 217 (NOMINAL MEDIA ROTATION RATE) などを取り出す。
+ *  不正 (ATAPI・チェックサム不一致など) なら false。語 255 の下位バイトが 0xA5 のときだけチェックサム (全バイトの和 = 0) を検査する。 */
+bool parse_ata_identify(const uint8_t* data512, MediaInfo* out);
 
 class MscDevice final : public BlockDevice {
  public:
@@ -79,6 +134,8 @@ class MscDevice final : public BlockDevice {
   bool write_protected() const { return write_protected_; }
   const std::string& vendor() const { return vendor_; }
   const std::string& product() const { return product_; }
+  /** 回転ディスクか、フラッシュ/SSD か。open() の中で 1 度だけ判別して保持する (以後コマンドは送らない)。判別できなければ Unknown。 */
+  const MediaInfo& media_info() const { return media_; }
 
  private:
   MscDevice(std::unique_ptr<BulkTransport> t, const MscOptions& o) : t_(std::move(t)), opt_(o) {}
@@ -105,6 +162,13 @@ class MscDevice final : public BlockDevice {
   Status start_stop_locked(bool start);
   Status resume_if_stopped_locked();   // I/O の前に呼ぶ: 停止中なら START を送る。最終 I/O 時刻も更新
   bool allow_start_stop_ = false;   // start_stop() の実行中だけ true (読み取り専用の許可リストに START STOP UNIT を通す)
+  bool allow_ata_identify_ = false; // probe_media() の IDENTIFY 送信中だけ true (ATA PASS-THROUGH は IDENTIFY DEVICE の正規形だけを通す)
+  MediaInfo media_;
+  // 種別判別。1 コマンド 1 回だけ (再試行なし)、probe_timeout_ms の上限。失敗は Unknown にして open は続ける (Disconnected だけは伝える)。
+  struct ProbeResult { enum Kind { Ok, IllegalRequest, Abort } kind = Abort; size_t n = 0; };
+  ProbeResult probe_cmd(const uint8_t* cdb, uint8_t cdb_len, void* data, size_t len, const char* what);
+  bool probe_vpd(uint8_t page, uint8_t* buf, size_t len, size_t min_len, ProbeResult* res);
+  void probe_media(const uint8_t* inq36);
   ScsiSense last_sense_;
   uint32_t op_counts_[256] = {0};
   std::string trace_;

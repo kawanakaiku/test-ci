@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import org.usbmem.app.MediaKindInfo
 import org.usbmem.app.PartitionTable
 import org.usbmem.app.WriteMode
 
@@ -36,6 +37,8 @@ class UsbDeviceState(val key: String) {
     var osBlocked by mutableIntStateOf(0)                    // このデバイスを開くのを妨げる OS のマウント数 (0 でないと、開く前に取り出しが必要)
     var idleSpinDownMin by mutableIntStateOf(0)              // アイドル自動スピンダウン (分、0 = オフ)。このデバイスだけの設定
     var diskIdleStopped by mutableStateOf(false)             // アイドルで止まっている (次のアクセスで自動再開)
+    var mediaKind by mutableStateOf(MediaKindInfo.UNKNOWN)   // 回転ディスクか、フラッシュ/SSD か (開くとき 1 度だけ判別)。開いている間だけ有効
+    var spinDownUnlocked by mutableStateOf(false)            // スピンダウンの操作を出してよい: 回転ディスク、または回転ディスク以外でユーザーが確認済み
     var diskStopped by mutableStateOf(false)                 // ディスクの回転を止めた状態 (再開するまで公開などはできない)
     var busy by mutableStateOf<String?>(null)                // このデバイスの処理中の説明 (null = なし)
     var notice by mutableStateOf<Notice?>(null)
@@ -51,6 +54,7 @@ class UsbDeviceState(val key: String) {
     /** 閉じたときに戻す項目 (接続中の状態だけ。モード・アイドル設定・通知は残す)。 */
     fun resetAfterClose() {
         open = false; writable = false; table = null; published = emptyList(); diskStopped = false; diskIdleStopped = false
+        mediaKind = MediaKindInfo.UNKNOWN; spinDownUnlocked = false
         busy = null; noloadPrompt = null; ops = ""; tuneLog = ""; tuningSaved = null; selfTestLog = ""; selfTestPassed = null
     }
 }

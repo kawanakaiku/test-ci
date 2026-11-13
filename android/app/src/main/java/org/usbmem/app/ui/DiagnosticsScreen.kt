@@ -57,6 +57,12 @@ private fun DeviceDiagnostics(d: UsbDeviceState, a: DiagnosticsActions) {
             d.selfTestPassed?.let { Text(stringResource(if (it) R.string.diag_selftest_passed else R.string.diag_selftest_failed), style = MaterialTheme.typography.titleSmall) }
             if (d.selfTestLog.isNotEmpty()) Text(d.selfTestLog, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
         }
+        SectionCard(stringResource(R.string.diag_media_title), subtitle = stringResource(R.string.diag_media_subtitle)) {
+            KeyValue(stringResource(R.string.usb_media_title), mediaKindLabel(d.mediaKind))
+            Text(mediaBasisLabel(d.mediaKind), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(d.mediaKind.detail.ifEmpty { "-" }, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+            Text(stringResource(R.string.diag_media_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         SectionCard(stringResource(R.string.diag_scsi_title), subtitle = stringResource(R.string.diag_scsi_subtitle)) {
             Text(if (d.ops.isEmpty()) stringResource(R.string.diag_scsi_empty) else d.ops, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
             Text(

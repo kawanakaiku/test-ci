@@ -58,6 +58,8 @@ class UsbStorageSession private constructor(
     override val tuningIndex: Int = -1,
     override val vendorId: Int = 0,
     override val productId: Int = 0,
+    /** 開くときに 1 度だけ判別した媒体の種別 (回転ディスクか、フラッシュ/SSD か)。 */
+    override val mediaKind: MediaKindInfo = MediaKindInfo.UNKNOWN,
 ) : UsbSession {
     private val volumes = mutableListOf<NtfsVolume>()
 
@@ -263,7 +265,12 @@ class UsbStorageSession private constructor(
                 tuningIndex = TransferTuning.LADDER.indexOf(saved)
                 android.util.Log.i("usbmem", "saved read tuning applied: chunk=${saved.first}K cmd=${saved.second}K")
             }
-            return UsbStorageSession(device.deviceName, conn, intf, h, writable, tuningIndex, device.vendorId, device.productId)
+            // 回転ディスクか、フラッシュ/SSD か (ネイティブが open の中で 1 度だけ判別済み。ここは結果を読むだけでコマンドは送らない)
+            val kindVals = IntArray(6)
+            val kindDetail = arrayOfNulls<String>(1)
+            val mediaKind = if (NativeBridge.nativeUsbMediaInfo(h, kindVals, kindDetail) == 0) MediaKindInfo.fromNative(kindVals, kindDetail[0]) else MediaKindInfo.UNKNOWN
+            android.util.Log.i("usbmem", "media kind [${device.deviceName}]: ${mediaKind.kind} rpm=${mediaKind.rpm} basis=${mediaKind.basis} hint=${mediaKind.hint} :: ${mediaKind.detail}")
+            return UsbStorageSession(device.deviceName, conn, intf, h, writable, tuningIndex, device.vendorId, device.productId, mediaKind)
         }
     }
 }

@@ -39,7 +39,7 @@ nops=$(ls "$W/st" | wc -l); nops=$((nops - 1)); last=$(printf '%04d' $nops)
 cmp -s "$W/st/$last.tree" "$W/ref.tree" || { diff "$W/st/$last.tree" "$W/ref.tree" | head; echo "final state differs from the POSIX reference"; exit 1; }
 # 状態の表 (sha256 → 操作番号)。既存のブロックへの上書き (write) はその場で書くので、コミット前の電源断で中身だけが先に変わって見える (ext4 の ordered と同じ。メタデータとの原子性は無い)。
 # そのため上書きするファイル (tiny.txt など) は中身の sha256 を比較から外し、サイズ・存在だけを操作境界の状態と突き合わせる。
-norm() { sed -E 's/^(f [0-9]+) [0-9a-f]{64} (tiny\.txt|one_block\.bin|mid\.bin|keep\/a\.txt)$/\1 - \2/' "$1"; }
+norm() { sed -E 's/^(f [0-9]+) [0-9a-f]{64} (tiny\.txt|one_block\.bin|mid\.bin|keep\/a\.txt)$/\1 - \2/' "$1" | LC_ALL=C sort; }   # sha を消すと並びが変わるので並べ直す
 : > "$W/states.tbl"
 for k in $(seq 0 $nops); do echo "$(norm "$W/st/$(printf '%04d' $k).tree" | sha256sum | cut -d' ' -f1) $k" >> "$W/states.tbl"; done
 n=0; k_fail=0; s_fail=0; a_fail=0; p_fail=0; kp_fail=0; nfsck=2; in_states=0; changed=0; same_as_base=0; post_done=0; post_ro=0; dirty_images=0; kpost_n=0; replayed=0; logprint_bad=0
@@ -51,7 +51,7 @@ for sync_variant in batch each; do
   total=$(USBMEM_CRASH_AT=-1 "$T" --ops "$W/c.img" "$W/ops" 2>&1 | grep -a "^writes:" | sed 's/writes: //')
   echo "操作列の総書き込み数: $total (sync=$sync_variant, $nops ops, stride=$STRIDE)"
   for mode in $modes; do
-    at=0
+    at=${USBMEM_CRASH_FROM:-0}; [ -z "${USBMEM_CRASH_TO:-}" ] || total=$USBMEM_CRASH_TO
     while [ $at -le "$total" ]; do
       # チャンク: at から CH 個のカットポイント (× torn 0/1)
       rm -rf "$W/cut"; mkdir -p "$W/cut"; list=""; cnt=0; first=$at
@@ -84,10 +84,11 @@ for sync_variant in batch each; do
         # (S)
         h=$(norm "$img.ktree" | sha256sum | cut -d' ' -f1)
         k_hit=$(grep "^$h " "$W/states.tbl" | head -1 | cut -d' ' -f2 || true)
-        if [ -z "$k_hit" ]; then s_fail=$((s_fail+1)); echo "S-FAIL: $tag: tree matches no operation boundary state"; norm "$img.ktree" > "$W/n1.tree"; norm "$W/st/0000.tree" > "$W/n0.tree"; diff "$W/n1.tree" "$W/n0.tree" | head -4
+        if [ -z "$k_hit" ]; then s_fail=$((s_fail+1)); echo "S-FAIL: $tag: tree matches no operation boundary state"; norm "$img.ktree" > "$W/n1.tree"; for dk in $acked $((acked + 1)); do norm "$W/st/$(printf '%04d' $dk).tree" > "$W/n0.tree"; echo "  (差: カーネルが見たツリー vs 操作 $dk の後の状態)"; diff "$W/n1.tree" "$W/n0.tree" | head -6; done
         else
           in_states=$((in_states+1))
-          if [ $sync_variant = each ] && [ "$k_hit" -ne "$acked" ] && [ "$k_hit" -ne $((acked + 1)) ]; then s_fail=$((s_fail+1)); echo "S-FAIL: $tag: state matches op $k_hit (expected $acked or $((acked+1)))"; fi
+          # 失敗した操作や同じ状態に戻る操作では隣り合う状態が同一になる (表では最初の番号が引かれる)。acked か acked+1 の状態と同じであれば良い
+          if [ $sync_variant = each ] && ! grep -q -e "^$h $acked\$" -e "^$h $((acked + 1))\$" "$W/states.tbl"; then s_fail=$((s_fail+1)); echo "S-FAIL: $tag: state matches op $k_hit (expected $acked or $((acked+1)))"; fi
         fi
         orig_part "$img.ktree" > "$W/c.part"
         cmp -s "$W/orig.part" "$W/c.part" || { a_fail=$((a_fail+1)); echo "A-FAIL: $tag: 元のファイルが変わった/消えた"; diff "$W/orig.part" "$W/c.part" | head -3; }

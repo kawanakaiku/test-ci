@@ -437,7 +437,9 @@ static void test_features(const std::string& dir) {
     }
     // v5: メタデータが 1 バイト壊れていて CRC が合わない → スーパーブロック CRC で拒否
     if (s.v5) {
-      auto mut = sb_edit(base, Q(32, 0xAB, 1), false);   // uuid の 1 バイト (CRC は計算し直さない)
+      // uuid の 1 バイトを必ず元と違う値にする (固定値 0xAB だと、フィクスチャの uuid がたまたま 0xAB のとき何も変わらず 1/256 で落ちていた)
+      SbInfo s2; std::vector<uint8_t> sec2; read_sb(base, &s2, &sec2);
+      auto mut = sb_edit(base, Q(32, (uint8_t)(sec2[32] ^ 0xFF), 1), false);   // CRC は計算し直さない
       auto m = mount_dev(std::make_shared<SpyDevice>(base, -1, mut));
       CHECK(m->err == EUCLEAN);
       std::fprintf(stderr, "   %-10s %-48s -> mount %s (%d)\n", name.c_str(), "bad superblock crc", m->err ? "failed" : "ok", m->err);

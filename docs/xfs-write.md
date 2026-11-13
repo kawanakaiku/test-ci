@@ -127,4 +127,12 @@ mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・
 - xattr / ACL / プロジェクト ID は書かない (新規 inode には付けない)。
 
 ## 実測結果
-(2026-11-13)
+(2026-11-13 / 14。CI は kawanakaiku/test-ci の `usbmem-ci-xfs` ブランチ。mkfs.xfs / xfs_repair 6.18.0、カーネル再生は loop マウント)
+
+- **書き込みテスト** (`tools/run_xfs_write_tests.sh`、CI run 43482508837): all passed。構成 (fresh / seeded / isize=1024 / agcount=2 / 2 GiB agcount=16 / finobt=0 / sparse=0 / bigtime=0 inobtcount=0 reflink=0 / imaxpct=90 …) ごとに 1045 操作が失敗 0 で、自前リーダーのツリーが POSIX 参照と一致 (1073 エントリ)、`xfs_repair -n` clean、ログ CLEAN。ファジング (書き込みマウント) 400 イメージ × 2 回 (339 / 334 がマウント、250 / 252 が書き込み可、61 / 66 が拒否) でクラッシュなし。
+- **電源断の模擬のフル版** (run 43482508837): 6708 試行 (cache 方式は flush もカットに数える)、(K) / (S) / (A) / (P) / (KP) すべて 0。うち未再生のログが残っていたのが 3242、カーネルが再生して mount できたのが 6708、`xfs_repair` 計 13840 回、カーネルの続きの書き込み 422 回。
+- **突然変異** (同 run の別ジョブ): 7 種すべて検出 (7/7)。NO_FLUSH_LOG は S=6、NO_FLUSH_COMMIT は K=278、NO_FLUSH_INPLACE は K=48、INPLACE_FIRST は K=1182、TAIL_OWN は K=1032、DATA_AFTER は S=1716、NO_CRC は自己検査 (CRC なしの通常実行をカーネルが拒否)。flush カットを入れる前は NO_FLUSH_LOG / NO_FLUSH_INPLACE は検出できていなかった (5/7)。
+- **Android エミュレータ** (CI run 43482508697、`btrfs-xfs` グループ): `XfsWriteTest` 3 テスト OK。書き込んだイメージをホストに取り出して、1073 エントリが実カーネルの参照と同一、`xfs_repair -n` clean、ログ CLEAN。
+- **ホストテスト** (ctest、CI run 43482508701): `xfs_write` / `xfs_crash` は plain / san / wrel / wsan で通る。失敗は既存の 13 (plain / san) と 20 (wrel / wsan) の別テスト (`xfs_read` など。本変更と無関係)。
+- 手元: `run_xfs_write_tests.sh` で `xfs_repair` 47 回・カーネル相互確認 17 回。plain 7/7・wrel 9/9 (`xfs` ctest)。
+- 未確認: 実機 USB、V4 / rmapbt / realtime / 外部ログ / クォータ / ストライプ (すべて書き込み拒否)、Full の操作 (未実装)。

@@ -44,13 +44,111 @@ object UsbMscSelector {
 }
 
 /**
- * 接続済みの USB マスストレージ。常に読み取り専用で開く (書き込みは検証済みになるまで有効化しない)。
- * close() は NTFS ボリュームを先に閉じてから、ネイティブデバイス → インタフェース解放 → 接続 の順で後始末する。
+ * 1 本の USB 接続 (UsbDeviceConnection + 確保済みのインタフェース + ネイティブの bus) を、同じデバイスの複数 LUN のセッションで共有する。
+ * claimInterface はデバイス (インタフェース) 単位なので、LUN ごとに確保し直さず、1 つの接続を参照カウントで共有する:
+ * 参照 = LUN ごとのセッション + LUN 一覧のために保つ「調査の保持」。0 になったら bus → インタフェース解放 → 接続 の順に後始末する
+ * (片方の LUN を閉じてももう片方は使える)。GET MAX LUN は、接続を開いた最初の 1 回だけ送る。docs/multi-usb.md
+ */
+class UsbLink internal constructor(
+    val deviceName: String,
+    private val usb: UsbManager,
+    private val queryMaxLun: Boolean,
+    private val onShutdown: (UsbLink) -> Unit,
+) {
+    private var conn: UsbDeviceConnection? = null
+    private var intf: UsbInterface? = null
+    var bus: Long = 0L
+        private set
+    /** GET MAX LUN で分かった LUN 数 (応答しない・STALL・不正な値の機器は 1)。開いた後だけ有効 */
+    var lunCount: Int = 1
+        private set
+    private var opened = false
+    private var shut = false
+    private var refs = 0
+    private var sessions = 0
+    private var scanHeld = false
+
+    /** 参照を 1 つ取る。すでに後始末済み (参照が 0 になった) なら false: 呼び出し側は新しい接続を作る。 */
+    @Synchronized internal fun tryRef(): Boolean { if (shut) return false; refs++; return true }
+
+    /** 取った参照を手放す (0 になれば後始末)。 */
+    @Synchronized internal fun unref() { refs--; if (refs <= 0) shutdown() }
+
+    /** 取った参照を「セッション 1 つ」に変える (セッションが閉じるとき [sessionClosed] で手放す)。 */
+    @Synchronized internal fun markSession() { sessions++ }
+
+    /** セッションが閉じた。最後のセッションなら、LUN 一覧のための保持も手放す (= OS に返す: 閉じると OS の usb-storage が戻る従来の動作)。 */
+    @Synchronized internal fun sessionClosed() {
+        sessions--; refs--
+        if (sessions <= 0 && scanHeld) { scanHeld = false; refs-- }
+        if (refs <= 0) shutdown()
+    }
+
+    /** 取った参照を「LUN 一覧のための保持」に変える (すでに保持していれば、余分な参照を手放すだけ)。 */
+    @Synchronized internal fun keepForScan() { if (scanHeld) { refs-- } else scanHeld = true }
+
+    /** LUN 一覧のための保持を手放す。セッションが開いていれば、それが閉じるまで接続は保たれる。 */
+    @Synchronized internal fun releaseHold() { if (scanHeld) { scanHeld = false; refs--; if (refs <= 0) shutdown() } }
+
+    /** 物理的に開く (1 回だけ): OS マウントの検査 → 接続 → インタフェースの確保 → ネイティブの bus (GET MAX LUN を 1 回)。 */
+    @Synchronized internal fun ensureOpen(device: UsbDevice) {
+        if (opened) return
+        val pick = UsbMscSelector.pick(UsbMscSelector.describe(device)) ?: throw NativeException(9, "Mass Storage (Bulk-Only) インタフェースがありません")
+        if (!usb.hasPermission(device)) throw SecurityException("USB permission not granted")
+        // 安全策: OS がこのような USB ボリュームをマウント中は、ドライバの強制切り離しをしない (取り出してから再試行する)。
+        // 検査はデバイス単位: 同じデバイスのどの LUN でも OS がマウントしていれば、強制 claim で下から引き抜くことになる。
+        // /proc/mounts を読めなかった場合は判断できないので、安全側 (拒否) に倒す。
+        val mounts = try { java.io.File("/proc/mounts").readText() } catch (_: Exception) { throw NativeException(16, "/proc/mounts を読めないため、OS のマウント状態を確認できません") }
+        val busy = UsbStorageSession.osMountedBlocking(mounts, device.deviceName) { UsbStorageSession.sysfsOwnerOfVoldNode(it) }
+        if (busy.isNotEmpty()) throw NativeException(16, "OS が USB ボリュームをマウント中です(${busy.size} 個)。先に「取り出し」てから再試行してください")
+        val intf = (0 until device.interfaceCount).map { device.getInterface(it) }.first { it.id == pick.interfaceNumber }
+        val conn = usb.openDevice(device) ?: throw NativeException(2, "USB デバイスを開けません")
+        // 他ドライバ(カーネルの usb-storage など)が掴んでいれば force=true で奪う。Android では通常は掴まれていない。
+        if (!conn.claimInterface(intf, true)) { conn.close(); throw NativeException(2, "インタフェースを確保できません") }
+        val b = NativeBridge.nativeUsbBusOpen(conn.fileDescriptor, pick.epIn, pick.epOut, pick.interfaceNumber, queryMaxLun)
+        if (Handle.isError(b)) {
+            runCatching { conn.releaseInterface(intf) }
+            conn.close()
+            throw NativeException((-b).toInt(), "USB 初期化に失敗: ${NativeBridge.nativeErrcName((-b).toInt())}")
+        }
+        this.conn = conn; this.intf = intf; this.bus = b
+        lunCount = NativeBridge.nativeUsbBusLunCount(b).coerceAtLeast(1)
+        android.util.Log.i("usbmem", "USB link [${device.deviceName}]: luns=$lunCount max-lun=${NativeBridge.nativeUsbBusMaxLunNote(b)}")
+        opened = true
+    }
+
+    /** LUN 一覧 (skipMask の bit n が 1 の LUN は調べない)。接続を開いた後に呼ぶ。 */
+    @Synchronized internal fun scan(skipMask: Int): List<UsbLunInfo> {
+        check(opened && !shut) { "closed" }
+        val err = IntArray(1)
+        val bytes = NativeBridge.nativeUsbBusScanLuns(bus, skipMask, 3000, err)
+            ?: throw NativeException(err[0], "LUN 一覧の取得に失敗: ${NativeBridge.nativeErrcName(err[0])}")
+        return UsbLunInfo.parseList(String(bytes, Charsets.UTF_8))
+    }
+
+    /** bus → インタフェース解放 → 接続。呼ぶのは、全セッションを閉じた後だけ (fd をネイティブが使い終えている)。 */
+    private fun shutdown() {
+        if (shut) return
+        shut = true
+        if (opened) {
+            if (Handle.valid(bus)) NativeBridge.nativeUsbBusClose(bus)
+            bus = 0
+            runCatching { conn?.let { c -> intf?.let { c.releaseInterface(it) } } }
+            runCatching { conn?.close() }
+        }
+        onShutdown(this)
+    }
+}
+
+/**
+ * 接続済みの USB マスストレージの LUN 1 つ。常に読み取り専用で開く (書き込みは検証済みになるまで有効化しない)。
+ * close() は NTFS ボリュームを先に閉じてから、ネイティブデバイスを閉じ、接続の参照 ([UsbLink]) を手放す
+ * (同じデバイスの他の LUN が開いていれば、インタフェースの解放・接続のクローズは最後の LUN が閉じるまで行わない)。
  */
 class UsbStorageSession private constructor(
     override val deviceName: String,
-    private val conn: UsbDeviceConnection,
-    private val intf: UsbInterface,
+    private val link: UsbLink,
+    override val lun: Int,
     private var handle: Long,
     /** true = 書き込み可能で開いている (MSC が WRITE を送れる)。既定は読み取り専用。 */
     override val writable: Boolean = false,
@@ -161,6 +259,8 @@ class UsbStorageSession private constructor(
         return us
     }
 
+    private var closed = false
+
     @Synchronized
     override fun close() {
         idleWatcher?.interrupt(); idleWatcher = null
@@ -168,8 +268,7 @@ class UsbStorageSession private constructor(
         volumes.clear()
         if (Handle.valid(handle)) NativeBridge.nativeClose(handle)
         handle = 0
-        runCatching { conn.releaseInterface(intf) }
-        conn.close()
+        if (!closed) { closed = true; link.sessionClosed() }   // 最後の LUN なら、ここでインタフェースを解放して接続を閉じる
     }
 
     companion object {
@@ -226,35 +325,26 @@ class UsbStorageSession private constructor(
             if (!real.path.startsWith("/sys/")) null else usbOwnerOfSysfsPath(real)
         }.getOrNull()
 
-        /** USB パーミッション取得済みのデバイスを読み取り専用で開く。 */
-        fun open(ctx: Context, usb: UsbManager, device: UsbDevice, writable: Boolean = false): UsbStorageSession {
-            val pick = UsbMscSelector.pick(UsbMscSelector.describe(device)) ?: throw NativeException(9, "Mass Storage (Bulk-Only) インタフェースがありません")
-            if (!usb.hasPermission(device)) throw SecurityException("USB permission not granted")
-            // 安全策: OS がこのような USB ボリュームをマウント中は、ドライバの強制切り離しをしない (取り出してから再試行する)。
-            // /proc/mounts を読めなかった場合は判断できないので、安全側 (拒否) に倒す。
-            val mounts = try { java.io.File("/proc/mounts").readText() } catch (_: Exception) { throw NativeException(16, "/proc/mounts を読めないため、OS のマウント状態を確認できません") }
-            val busy = osMountedBlocking(mounts, device.deviceName) { sysfsOwnerOfVoldNode(it) }
-            if (busy.isNotEmpty()) throw NativeException(16, "OS が USB ボリュームをマウント中です(${busy.size} 個)。先に「取り出し」てから再試行してください")
-            val intf = (0 until device.interfaceCount).map { device.getInterface(it) }.first { it.id == pick.interfaceNumber }
-            val conn = usb.openDevice(device) ?: throw NativeException(2, "USB デバイスを開けません")
-            // 他ドライバ(カーネルの usb-storage など)が掴んでいれば force=true で奪う。Android では通常は掴まれていない。
-            if (!conn.claimInterface(intf, true)) { conn.close(); throw NativeException(2, "インタフェースを確保できません") }
+        /**
+         * 確保済みの接続 [link] の [lun] を開く (USB パーミッション取得済み。接続は [UsbLink.ensureOpen] 済み)。成功したら [link] の参照はセッションのものになる
+         * (失敗時の参照は呼び出し側が [UsbLink.unref] で手放す)。
+         */
+        internal fun open(ctx: Context, link: UsbLink, device: UsbDevice, lun: Int, writable: Boolean): UsbStorageSession {
             // 初回の INQUIRY が EPROTO(71) で失敗することがある (J9260 で毎回)。インタフェースを確保したまま (カーネルの usb-storage を戻さず) 少し待って再試行する。
             // 解放して開き直すと OS が FAT を再マウントして、手動の取り出しが必要になる。開く時のコマンドは読み取り系だけ (INQUIRY/TUR/READ CAPACITY) なので、再試行しても安全。
-            var h = NativeBridge.nativeOpenUsbMsc(conn.fileDescriptor, pick.epIn, pick.epOut, pick.interfaceNumber, 0, !writable)
+            var h = NativeBridge.nativeOpenUsbMscLun(link.bus, lun, !writable)
             var attempt = 1
             while (Handle.isError(h) && attempt < 3) {
-                android.util.Log.w("usbmem", "USB open attempt $attempt failed: ${NativeBridge.nativeErrcName((-h).toInt())} trace=${NativeBridge.nativeUsbLastOpenTrace()} -> retry")
+                android.util.Log.w("usbmem", "USB open attempt $attempt failed (lun $lun): ${NativeBridge.nativeErrcName((-h).toInt())} trace=${NativeBridge.nativeUsbLastOpenTrace()} -> retry")
                 Thread.sleep(700)
-                h = NativeBridge.nativeOpenUsbMsc(conn.fileDescriptor, pick.epIn, pick.epOut, pick.interfaceNumber, 0, !writable)
+                h = NativeBridge.nativeOpenUsbMscLun(link.bus, lun, !writable)
                 attempt++
             }
             if (Handle.isError(h)) {
                 val code = (-h).toInt()
                 // 失敗の原因調査用 (SCSI コマンドと結果のみ。個人情報なし)
-                android.util.Log.w("usbmem", "USB open failed: ${NativeBridge.nativeErrcName(code)} trace=${NativeBridge.nativeUsbLastOpenTrace()}")
-                runCatching { conn.releaseInterface(intf) }
-                conn.close()
+                android.util.Log.w("usbmem", "USB open failed (lun $lun): ${NativeBridge.nativeErrcName(code)} trace=${NativeBridge.nativeUsbLastOpenTrace()}")
+                if (link.lunCount > 1 && NativeBridge.nativeErrcName(code) == "disconnected") throw NativeException(code, "LUN $lun にメディアがありません (カードを入れて「更新」を押してください)")
                 throw NativeException(code, "USB 初期化に失敗: ${NativeBridge.nativeErrcName(code)}")
             }
             // 転送サイズは既定 (USB 16K / コマンド 64K)。「最適化」で、この端末・この USB 機器で実際に通った設定が保存されていれば、読み取りだけそれを使う
@@ -269,16 +359,64 @@ class UsbStorageSession private constructor(
             val kindVals = IntArray(6)
             val kindDetail = arrayOfNulls<String>(1)
             val mediaKind = if (NativeBridge.nativeUsbMediaInfo(h, kindVals, kindDetail) == 0) MediaKindInfo.fromNative(kindVals, kindDetail[0]) else MediaKindInfo.UNKNOWN
-            android.util.Log.i("usbmem", "media kind [${device.deviceName}]: ${mediaKind.kind} rpm=${mediaKind.rpm} basis=${mediaKind.basis} hint=${mediaKind.hint} :: ${mediaKind.detail}")
-            return UsbStorageSession(device.deviceName, conn, intf, h, writable, tuningIndex, device.vendorId, device.productId, mediaKind)
+            android.util.Log.i("usbmem", "media kind [${device.deviceName} lun $lun]: ${mediaKind.kind} rpm=${mediaKind.rpm} basis=${mediaKind.basis} hint=${mediaKind.hint} :: ${mediaKind.detail}")
+            link.markSession()
+            return UsbStorageSession(device.deviceName, link, lun, h, writable, tuningIndex, device.vendorId, device.productId, mediaKind)
         }
     }
 }
 
-/** 実機の [UsbManager] でデバイスを開く [UsbSessionFactory]。パーミッション取得済みのデバイスだけを開ける。 */
+/**
+ * 実機の [UsbManager] でデバイスの LUN を開く [UsbSessionFactory]。パーミッション取得済みのデバイスだけを開ける。
+ * 同じデバイスの LUN は 1 つの [UsbLink] (接続 + 確保済みのインタフェース) を共有する。
+ */
 class UsbStorageSessionFactory(private val ctx: Context, private val usb: UsbManager) : UsbSessionFactory {
-    override fun open(device: UsbDeviceInfo, writable: Boolean): UsbSession {
-        val dev = usb.deviceList[device.deviceName] ?: throw NativeException(2, "USB デバイスが見つかりません (抜かれました)")
-        return UsbStorageSession.open(ctx, usb, dev, writable)
+    private val lock = Any()
+    private val links = HashMap<String, UsbLink>()
+
+    /** デバイスの接続を 1 つ参照する (無ければ作る。物理的に開くのは [UsbLink.ensureOpen])。デバイスごとに別なので、他のデバイスを待たせない。 */
+    private fun acquire(dev: UsbDevice): UsbLink {
+        while (true) {
+            val link = synchronized(lock) { links.getOrPut(dev.deviceName) { UsbLink(dev.deviceName, usb, true) { l -> synchronized(lock) { if (links[l.deviceName] === l) links.remove(l.deviceName) } } } }
+            if (link.tryRef()) return link
+            synchronized(lock) { if (links[dev.deviceName] === link) links.remove(dev.deviceName) }   // 後始末済みの接続: 作り直す
+        }
+    }
+
+    private fun deviceOf(info: UsbDeviceInfo): UsbDevice = usb.deviceList[info.deviceName] ?: throw NativeException(2, "USB デバイスが見つかりません (抜かれました)")
+
+    override fun open(device: UsbDeviceInfo, writable: Boolean): UsbSession = open(device, 0, writable)
+
+    override fun open(device: UsbDeviceInfo, lun: Int, writable: Boolean): UsbSession {
+        val dev = deviceOf(device)
+        val link = acquire(dev)
+        try {
+            link.ensureOpen(dev)
+            if (lun >= link.lunCount) throw NativeException(22, "LUN $lun はありません (LUN 数 ${link.lunCount})")
+            return UsbStorageSession.open(ctx, link, dev, lun, writable)
+        } catch (t: Throwable) {
+            link.unref()
+            throw t
+        }
+    }
+
+    override fun scanLuns(device: UsbDeviceInfo, skipMask: Int): UsbLunScan {
+        val dev = deviceOf(device)
+        val link = acquire(dev)
+        try {
+            link.ensureOpen(dev)
+            val n = link.lunCount
+            val scan = if (n <= 1) UsbLunScan(1) else UsbLunScan(n, link.scan(skipMask))
+            link.keepForScan()   // 続けて開くまで (または releaseDevice まで) インタフェースを OS に返さない
+            return scan
+        } catch (t: Throwable) {
+            link.unref()
+            throw t
+        }
+    }
+
+    override fun releaseDevice(deviceName: String) {
+        val l = synchronized(lock) { links[deviceName] }
+        l?.releaseHold()
     }
 }

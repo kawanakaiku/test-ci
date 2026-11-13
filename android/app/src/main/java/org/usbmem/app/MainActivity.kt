@@ -36,6 +36,10 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     private val model = AppModel.shared
     /** 権限を得た機器のシリアル (識別子の元)。メインスレッドだけで読み書きする */
     private val serials = HashMap<String, String>()
+    /** 複数 LUN と分かったデバイスの LUN 一覧 (デバイス名 → 調査結果)。メインスレッドだけで読み書きする。ここにあるデバイスは LUN ごとのカードで表示する */
+    private val lunScans = HashMap<String, UsbLunScan>()
+    /** 権限の確認を待っている間に覚えておく、開く LUN (null = 自動)。確認が済んだら続きを開く */
+    private val permLun = HashMap<String, Int?>()
 
     private fun ui(block: () -> Unit) = runOnUiThread(block)
 
@@ -61,7 +65,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 else @Suppress("DEPRECATION") i.getParcelableExtra(UsbManager.EXTRA_DEVICE)
             when (i.action) {
                 UsbStorageSession.ACTION_PERMISSION ->
-                    if (dev != null && i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) openUsb(dev)
+                    if (dev != null && i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) openUsb(dev, permLun.remove(dev.deviceName))
                     else {
                         val d = dev?.let { state(it.deviceName) }
                         val n = Notice(Severity.Error, if (d != null) getString(R.string.notice_usb_permission_denied_named, d.title) else getString(R.string.notice_usb_permission_denied), getString(R.string.notice_usb_permission_denied_detail))
@@ -95,41 +99,60 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         return UsbDeviceInfo(dev.deviceName, dev.productName ?: getString(R.string.usb_device_default_name), dev.vendorId, dev.productId, serials[dev.deviceName])
     }
 
+    // vidPid は設定の識別子 (UsbDeviceState.settingsId): LUN 0 は "0781:5581" (従来のキーと同じ)、LUN 1 以上は "0781:5581/l1"
     private fun idleKey(vidPid: String) = "idle_spindown_min:$vidPid"
     /** 回転ディスク以外でスピンダウンを使うと確認した種別 (MediaKind の名前)。機種 (VID:PID) ごと。種別が変わったら無効に倒す (UsbSessionManager が照合) */
     private fun spinAckKey(vidPid: String) = "spindown_ack:$vidPid"
     private fun loadSpinAck(vidPid: String): MediaKind? = runCatching { settingsPrefs().getString(spinAckKey(vidPid), null) }.getOrNull()?.let { n -> MediaKind.entries.firstOrNull { it.name == n } }?.takeIf { it != MediaKind.Rotational }
 
-    /** 画面の一覧を、接続中の USB とセッションの実際の状態に合わせる (メインスレッド)。抜かれたのにまだ開いているセッションがあれば閉じる。 */
+    /**
+     * 画面の一覧を、接続中の USB とセッションの実際の状態に合わせる (メインスレッド)。抜かれたのにまだ開いているセッションがあれば閉じる。
+     * 複数 LUN と分かったデバイス ([lunScans]) は LUN ごとに 1 枚 (スロット名がキー)、それ以外は 1 本 1 枚。
+     */
     private fun refreshUsb() {
         val list = usbManager.deviceList.values.filter { UsbMscSelector.pick(UsbMscSelector.describe(it)) != null }.sortedBy { it.deviceName }
         val infos = list.map { infoOf(it) }
         val ids = UsbDeviceNaming.shortIds(infos)
         val old = model.usbDevices.associateBy { it.key }
         val mounts = readMounts()
-        val next = list.zip(infos).map { (dev, info) ->
-            val st = old[dev.deviceName] ?: UsbDeviceState(dev.deviceName).also {
-                val vp = String.format("%04x:%04x", dev.vendorId, dev.productId)
-                // アイドル停止の設定は機種 (VID:PID) ごとに覚えておく (無ければ従来の全体設定を初期値に)
-                it.idleSpinDownMin = runCatching { settingsPrefs().getInt(idleKey(vp), settingsPrefs().getInt("idle_spindown_min", 0)) }.getOrDefault(0)
-                sessions.setSpinDownConfirmed(dev.deviceName, loadSpinAck(vp))   // 先に確認済みの種別を渡す (開いたときに照合される)
-                sessions.setIdleSpinDownMinutes(dev.deviceName, it.idleSpinDownMin)
+        val next = ArrayList<UsbDeviceState>()
+        for ((dev, info) in list.zip(infos)) {
+            val scan = lunScans[dev.deviceName]?.takeIf { it.multi }
+            val vp = String.format("%04x:%04x", dev.vendorId, dev.productId)
+            val shortId = ids.getValue(dev.deviceName)
+            // OS がこのデバイスのボリュームをマウント中か (開く前に取り出してもらう)。他の USB のマウントは数えない。デバイス単位なので、どの LUN のカードにも同じ値
+            val osBlocked = if (mounts == null) 0 else UsbStorageSession.osMountedBlocking(mounts, dev.deviceName) { UsbStorageSession.sysfsOwnerOfVoldNode(it) }.size
+            for (lun in 0 until (scan?.lunCount ?: 1)) {
+                val key = UsbSlotKey.of(dev.deviceName, lun)
+                val sid = if (lun == 0) vp else "$vp/l$lun"
+                val st = old[key] ?: UsbDeviceState(key).also {
+                    // アイドル停止の設定は機種 (VID:PID) ごとに覚えておく (無ければ従来の全体設定を初期値に)。複数 LUN は LUN ごと
+                    it.idleSpinDownMin = runCatching { settingsPrefs().getInt(idleKey(sid), settingsPrefs().getInt("idle_spindown_min", 0)) }.getOrDefault(0)
+                    sessions.setSpinDownConfirmed(key, loadSpinAck(sid))   // 先に確認済みの種別を渡す (開いたときに照合される)
+                    sessions.setIdleSpinDownMinutes(key, it.idleSpinDownMin)
+                }
+                val li = scan?.luns?.firstOrNull { it.lun == lun }?.let { n -> if (n.state == UsbLunState.Skipped && st.lunInfo != null) st.lunInfo!! else n }   // 調べなかった (開いている) LUN は前の情報のまま
+                st.lunInfo = li
+                st.lunCount = scan?.lunCount ?: 1
+                st.settingsId = sid
+                st.productName = info.productName
+                st.shortId = shortId
+                st.title = if (scan != null) UsbDeviceNaming.lunTitle(info.productName, shortId, lun, li?.sizeBytes ?: 0) else UsbDeviceNaming.displayName(info.productName, shortId)
+                st.vidPid = vp
+                st.writeMode = sessions.writeMode(key)
+                if (st.open && !sessions.isBusy(key)) st.resetAfterClose()   // 画面が知らない間に閉じていた
+                st.osBlocked = osBlocked
+                next.add(st)
             }
-            st.productName = info.productName
-            st.shortId = ids.getValue(dev.deviceName)
-            st.title = UsbDeviceNaming.displayName(info.productName, st.shortId)
-            st.vidPid = String.format("%04x:%04x", dev.vendorId, dev.productId)
-            st.writeMode = sessions.writeMode(dev.deviceName)
-            if (st.open && !sessions.isBusy(dev.deviceName)) st.resetAfterClose()   // 画面が知らない間に閉じていた
-            // OS がこのデバイスのボリュームをマウント中か (開く前に取り出してもらう)。他の USB のマウントは数えない
-            st.osBlocked = if (mounts == null) 0 else UsbStorageSession.osMountedBlocking(mounts, dev.deviceName) { UsbStorageSession.sysfsOwnerOfVoldNode(it) }.size
-            st
         }
         model.usbDevices = next
-        // 抜かれたのに残っているセッション (画面が止まっていて抜去の通知を受けなかった場合など) を、そのデバイスだけ閉じる
-        for (k in old.keys - list.map { it.deviceName }.toSet()) {
+        // 抜かれたのに残っているセッション (画面が止まっていて抜去の通知を受けなかった場合など) を、そのデバイスだけ閉じる。LUN 一覧のために保っていた接続も手放す
+        val present = list.map { it.deviceName }.toSet()
+        for (k in old.keys.map { UsbSlotKey.deviceOf(it) }.toSet() - present) {
             serials.remove(k)
-            if (sessions.isBusy(k)) Thread({ sessions.onDetached(k) }, "usbmem-detach").start()
+            val scanned = lunScans.remove(k) != null
+            permLun.remove(k)
+            if (scanned || sessions.isDeviceBusy(k)) Thread({ sessions.onDetached(k) }, "usbmem-detach").start()
         }
     }
 
@@ -144,25 +167,66 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     }
 
     override fun openUsb(key: String) {
-        val dev = usbManager.deviceList[key] ?: return
+        val dev = usbManager.deviceList[UsbSlotKey.deviceOf(key)] ?: return
         val d = state(key) ?: return
         if (d.open || d.busy != null) return
-        if (usbManager.hasPermission(dev)) openUsb(dev) else usbManager.requestPermission(dev, UsbStorageSession.permissionIntent(this))
+        // 複数 LUN と分かっているデバイスは、押されたカードの LUN を開く。まだ分からないデバイスは null (LUN 数を調べてから決める)
+        val lun = if (d.lunInfo != null) d.lun else null
+        if (d.lunInfo?.openable == false) return
+        if (usbManager.hasPermission(dev)) openUsb(dev, lun) else { permLun[dev.deviceName] = lun; usbManager.requestPermission(dev, UsbStorageSession.permissionIntent(this)) }
     }
 
-    private fun openUsb(dev: UsbDevice) {
-        val key = dev.deviceName
-        val d = state(key) ?: return
+    /**
+     * [lun] = null: LUN の数を調べる (GET MAX LUN)。LUN 1 つなら LUN 0 を開く。複数なら LUN ごとのカードにして、メディアのある LUN がちょうど 1 つならそれを開く
+     * (複数あれば、使う LUN のカードを選んでもらう)。[lun] != null: その LUN を開く。
+     */
+    private fun openUsb(dev: UsbDevice, lun: Int?) {
+        val origKey = UsbSlotKey.of(dev.deviceName, lun ?: 0)
+        val d = state(origKey) ?: return
         if (d.open || d.busy != null) return
         d.busy = getString(R.string.busy_opening_usb)
         d.notice = null
         val info = infoOf(dev)
+        if (lun == null) scanThenOpen(dev, info, origKey) else openLun(dev, info, lun)
+    }
+
+    /** LUN 一覧を取って、結果をメインスレッドで反映する (rescan も同じ)。[thenOpen] = 取った後に、開く LUN を決めて続けて開く。 */
+    private fun scanThenOpen(dev: UsbDevice, info: UsbDeviceInfo, origKey: String, thenOpen: Boolean = true) {
+        Thread {
+            var scan: UsbLunScan? = null
+            var notice: Notice? = null
+            try { scan = sessions.scanLuns(info) }
+            catch (e: NativeException) { notice = Notice(Severity.Error, getString(R.string.notice_usb_open_failed), e.message ?: "native error") }
+            catch (e: SecurityException) { notice = Notice(Severity.Error, getString(R.string.notice_usb_permission_denied)) }
+            catch (e: Exception) { notice = Notice(Severity.Error, getString(R.string.notice_usb_open_failed), e.javaClass.simpleName) }
+            val sc = scan; val n = notice
+            ui {
+                val st = state(origKey)
+                st?.busy = null
+                if (sc == null) { st?.notice = n; refreshUsb(); return@ui }
+                if (!usbManager.deviceList.containsKey(dev.deviceName)) { refreshUsb(); return@ui }   // 調べている間に抜かれた
+                if (sc.multi) lunScans[dev.deviceName] = sc else lunScans.remove(dev.deviceName)
+                refreshUsb()
+                when {
+                    !thenOpen -> {}
+                    !sc.multi -> openUsb(dev, 0)
+                    sc.ready.size == 1 -> openUsb(dev, sc.ready[0].lun)
+                    sc.ready.isEmpty() -> state(origKey)?.notice = Notice(Severity.Warning, getString(R.string.notice_lun_none_ready), getString(R.string.notice_lun_none_ready_detail, sc.lunCount))
+                    else -> state(origKey)?.notice = Notice(Severity.Info, getString(R.string.notice_lun_choose), getString(R.string.notice_lun_choose_detail))
+                }
+            }
+        }.start()
+    }
+
+    private fun openLun(dev: UsbDevice, info: UsbDeviceInfo, lun: Int) {
+        val key = UsbSlotKey.of(dev.deviceName, lun)
+        val d = state(key) ?: return
         Thread {
             var notice: Notice? = null
             var table: PartitionTable? = null
             var s: UsbSession? = null
             try {
-                s = sessions.open(info)
+                s = sessions.open(info, lun)
                 table = s.partitionTable()
                 updateOps(key, "after open+partition scan")
             } catch (e: UsbSessionException) {
@@ -180,6 +244,8 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             }
             if (s != null && table == null) sessions.close(key)   // 開けたがパーティションを読めなかった: 画面に出ないセッションを残さない
             val opened = s; val tbl = table; val n = notice
+            // LUN 一覧を使っていない (LUN 1 つの) デバイスで開けなかったら、調査のために保っていた接続を OS に返す (従来どおり、失敗したら何も確保しない)
+            if (opened == null && n != null && !lunScans.containsKey(dev.deviceName) && !sessions.isDeviceBusy(dev.deviceName)) sessions.releaseDevice(dev.deviceName)
             ui {
                 val st = state(key)
                 if (st != null) {
@@ -199,6 +265,31 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                     }
                 }
                 refreshUsb()
+            }
+        }.start()
+    }
+
+    /** 複数 LUN のデバイスの LUN 一覧を取り直す (カードを入れ替えた後)。開いている LUN には何も送らない。 */
+    override fun rescanLuns(key: String) {
+        val dev = usbManager.deviceList[UsbSlotKey.deviceOf(key)] ?: return
+        val d = state(key) ?: return
+        if (d.busy != null) return
+        if (!usbManager.hasPermission(dev)) return
+        d.busy = getString(R.string.busy_rescanning_luns)
+        d.notice = null
+        scanThenOpen(dev, infoOf(dev), key, thenOpen = false)
+    }
+
+    /** 複数 LUN のデバイスを OS に返す: LUN 一覧のために保っていた接続を解放する。どれかの LUN が開いている最中は何もしない。 */
+    override fun releaseUsb(key: String) {
+        val name = UsbSlotKey.deviceOf(key)
+        if (model.usbDevices.any { it.deviceName == name && (it.open || it.busy != null) }) return
+        Thread {
+            sessions.releaseDevice(name)
+            ui {
+                lunScans.remove(name)
+                refreshUsb()
+                state(UsbSlotKey.of(name, 0))?.notice = Notice(Severity.Success, getString(R.string.notice_lun_released))
             }
         }.start()
     }
@@ -285,7 +376,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         val d = state(key) ?: return
         if (d.open && !d.spinDownUnlocked) return   // 回転ディスク以外では、確認するまで設定できない
         d.idleSpinDownMin = minutes
-        runCatching { settingsPrefs().edit().putInt(idleKey(d.vidPid), minutes).apply() }
+        runCatching { settingsPrefs().edit().putInt(idleKey(d.settingsId), minutes).apply() }
         sessions.setIdleSpinDownMinutes(key, minutes)
         if (minutes == 0) d.diskIdleStopped = false
     }
@@ -295,7 +386,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         val d = state(key) ?: return
         val kind = d.mediaKind.kind
         if (!d.open || kind == MediaKind.Rotational) return
-        runCatching { settingsPrefs().edit().putString(spinAckKey(d.vidPid), kind.name).putInt(idleKey(d.vidPid), 0).apply() }
+        runCatching { settingsPrefs().edit().putString(spinAckKey(d.settingsId), kind.name).putInt(idleKey(d.settingsId), 0).apply() }
         sessions.setSpinDownConfirmed(key, kind)
         sessions.setIdleSpinDownMinutes(key, 0)
         d.idleSpinDownMin = 0
@@ -306,7 +397,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     override fun lockSpinDown(key: String) {
         val d = state(key) ?: return
         if (d.mediaKind.kind == MediaKind.Rotational || d.diskStopped) return
-        runCatching { settingsPrefs().edit().remove(spinAckKey(d.vidPid)).putInt(idleKey(d.vidPid), 0).apply() }
+        runCatching { settingsPrefs().edit().remove(spinAckKey(d.settingsId)).putInt(idleKey(d.settingsId), 0).apply() }
         sessions.setSpinDownConfirmed(key, null)
         sessions.setIdleSpinDownMinutes(key, 0)
         d.idleSpinDownMin = 0

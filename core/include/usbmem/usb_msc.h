@@ -4,8 +4,10 @@
 // 仕様: USB Mass Storage Class Bulk-Only Transport 1.0, SCSI SPC-4 / SBC-3 (INQUIRY, TEST UNIT READY, REQUEST SENSE,
 // READ CAPACITY(10/16), MODE SENSE(6), READ/WRITE(10/16), SYNCHRONIZE CACHE(10))。
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <chrono>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -29,6 +31,9 @@ class BulkTransport {
   virtual Status clear_halt(UsbDir ep) = 0;
   // クラス要求 Bulk-Only Mass Storage Reset (bRequest 0xFF)。
   virtual Status mass_storage_reset() = 0;
+  // クラス要求 GET MAX LUN (bmRequestType 0xA1, bRequest 0xFE, wValue 0, wIndex = インタフェース, wLength 1)。*max_lun = 最大の LUN 番号 (LUN 数 - 1)。
+  // 制御転送の STALL は Errc::Io + sys_errno=EPIPE (= LUN 1 つの機器が返す正常な応答)。既定は未対応 (Unsupported)。
+  virtual Status get_max_lun(uint8_t* max_lun) { (void)max_lun; return Status::Make(Errc::Unsupported); }
 };
 
 struct MscOptions {
@@ -98,9 +103,67 @@ bool scsi_cdb_ata_passthrough_ok(const uint8_t* cdb, size_t cdb_len, bool allow_
  *  不正 (ATAPI・チェックサム不一致など) なら false。語 255 の下位バイトが 0xA5 のときだけチェックサム (全バイトの和 = 0) を検査する。 */
 bool parse_ata_identify(const uint8_t* data512, MediaInfo* out);
 
+// ---- 複数 LUN (論理ユニット)。docs/multi-usb.md の LUN の節
+// 1 つの LUN の状態 (LUN 一覧)。判別に使うコマンドは INQUIRY / TEST UNIT READY / REQUEST SENSE / READ CAPACITY だけ (読み取り専用の許可リスト内)。
+enum class LunState : int {
+  Ready = 0,        // メディアあり・容量が分かった (開ける)
+  NoMedia = 1,      // メディアなし (カードが入っていない)
+  NotReady = 2,     // 準備中のまま待ち時間を超えた (NOT READY / becoming ready)
+  Unsupported = 3,  // 直接アクセス型ディスクではない (光学ドライブなど)、または LUN が接続されていない
+  Error = 4,        // コマンドが失敗した (note に理由)
+  Skipped = 5,      // 調べなかった (スキップ指定。すでに開いている LUN に余計なコマンドを送らないため)
+};
+struct LunInfo {
+  uint8_t lun = 0;
+  LunState state = LunState::Error;
+  uint8_t ptype = 0;             // INQUIRY のペリフェラルデバイスタイプ
+  bool removable = false;        // INQUIRY の RMB
+  std::string vendor, product;
+  uint64_t blocks = 0;           // state == Ready のとき
+  uint32_t block_size = 0;
+  std::string note;              // Error / NotReady / Unsupported の理由 (診断用。ASCII)
+  uint64_t size() const { return blocks * block_size; }
+};
+const char* lun_state_name(LunState s);
+
+class MscDevice;
+
+/**
+ * 1 つの Mass Storage インタフェース (= 1 本の USB 接続) を、複数の LUN で共有するための土台。BulkTransport を所有し、
+ * **BOT のコマンド (CBW → データ → CSW) を 1 つずつ直列化する** (bulk エンドポイントは LUN で共有なので、別の LUN の I/O が割り込むと壊れる)。
+ * 切断 (dead) も共有する。LUN ごとの [MscDevice] は shared_ptr でこれを保持する (bus を閉じた後も、デバイスが生きている間はトランスポートも生きる)。
+ */
+class MscBus : public std::enable_shared_from_this<MscBus> {
+ public:
+  /** query_max_lun = true なら GET MAX LUN を**1 回だけ**送る。STALL・エラー・不正な値 (>= 16) は LUN 1 つとみなし、失敗にしない。 */
+  static Status create(std::unique_ptr<BulkTransport> transport, bool query_max_lun, std::shared_ptr<MscBus>* out);
+  ~MscBus() = default;
+  /** LUN の数 (1..16)。GET MAX LUN を問い合わせていなければ 1。 */
+  uint32_t lun_count() const { return lun_count_; }
+  /** GET MAX LUN の結果の診断用 1 行 ("not-queried" / "max_lun=1" / "stall" / "error:..." / "bogus:..." / "short-reply")。 */
+  const std::string& max_lun_note() const { return lun_note_; }
+  bool dead() const { return dead_; }
+  /** LUN を開く (INQUIRY → TEST UNIT READY → READ CAPACITY…)。opt.lun が LUN 番号。問い合わせ済みで範囲外なら InvalidArgument。 */
+  Status open_lun(const MscOptions& opt, BlockDevicePtr* out);
+  /** 全 LUN を調べる (読み取り専用のコマンドだけ)。skip_mask の bit n が立っている LUN は調べず Skipped にする。
+   *  メディアなし・未対応・個別のコマンド失敗は LUN ごとの状態で表し、戻り値は成功。切断されたときだけ Disconnected を返す。 */
+  Status scan_luns(const MscOptions& opt, uint32_t skip_mask, std::vector<LunInfo>* out);
+
+ private:
+  friend class MscDevice;
+  explicit MscBus(std::unique_ptr<BulkTransport> t) : t_(std::move(t)) {}
+  std::unique_ptr<BulkTransport> t_;
+  std::mutex cmd_mu_;               // 1 コマンド (CBW → データ → CSW、失敗時のリセット回復まで) の間ずっと持つ
+  std::atomic<bool> dead_{false};
+  uint32_t tag_ = 1;                // cmd_mu_ の下で更新
+  uint32_t lun_count_ = 1;
+  std::string lun_note_ = "not-queried";
+};
+
 class MscDevice final : public BlockDevice {
  public:
-  // transport の所有権を取る。INQUIRY → TEST UNIT READY → READ CAPACITY まで行い、失敗時は out を設定しない。
+  // transport の所有権を取る。INQUIRY → TEST UNIT READY → READ CAPACITY まで行い、失敗時は out を設定しない。opt.lun の LUN を開く
+  // (GET MAX LUN は送らない: 従来の単一 LUN の使い方)。複数 LUN を扱うときは MscBus を使う。
   static Status open(std::unique_ptr<BulkTransport> transport, const MscOptions& opt, BlockDevicePtr* out);
 
   Status read_at(uint64_t, void*, size_t, const IoOptions& = {}) override;
@@ -136,9 +199,11 @@ class MscDevice final : public BlockDevice {
   const std::string& product() const { return product_; }
   /** 回転ディスクか、フラッシュ/SSD か。open() の中で 1 度だけ判別して保持する (以後コマンドは送らない)。判別できなければ Unknown。 */
   const MediaInfo& media_info() const { return media_; }
+  uint8_t lun() const { return opt_.lun; }
 
  private:
-  MscDevice(std::unique_ptr<BulkTransport> t, const MscOptions& o) : t_(std::move(t)), opt_(o) {}
+  friend class MscBus;
+  MscDevice(std::shared_ptr<MscBus> bus, const MscOptions& o) : bus_(std::move(bus)), opt_(o) {}
   struct Cmd;
   Status exec(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* data, size_t len, size_t* transferred, uint32_t timeout_ms, bool* check_condition);
   Status exec_checked(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* data, size_t len, uint32_t timeout_ms, size_t min_len = SIZE_MAX);
@@ -148,15 +213,18 @@ class MscDevice final : public BlockDevice {
   Status read_locked(uint64_t off, void* buf, size_t len, const IoOptions& io);
   Status write_locked(uint64_t off, const void* buf, size_t len, const IoOptions& io);
   Status initialize();
+  Status inquiry(uint8_t* inq36);
+  Status wait_ready(uint32_t wait_ms);
+  Status read_capacity(uint64_t* blocks, uint32_t* block_size);
+  Status probe_lun(LunInfo* li, uint32_t ready_wait_ms);   // MscBus::scan_luns 用: 1 つの LUN の状態 (切断以外は戻り値 Ok で li->state に)
   Status map_sense(const ScsiSense& s);
 
-  std::unique_ptr<BulkTransport> t_;
+  std::shared_ptr<MscBus> bus_;
   MscOptions opt_;
   mutable std::mutex mu_;
-  uint32_t tag_ = 1;
   uint64_t blocks_ = 0;
   uint32_t block_size_ = 0;
-  bool read_only_ = true, write_protected_ = false, dead_ = false, closed_ = false;
+  bool read_only_ = true, write_protected_ = false, closed_ = false;
   bool spun_down_ = false, stop_unsupported_ = false;
   std::chrono::steady_clock::time_point last_io_ = std::chrono::steady_clock::now();
   Status start_stop_locked(bool start);

@@ -130,7 +130,9 @@ Status MscDevice::exec_impl(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, voi
                             uint32_t timeout_ms, bool* check_condition) {
   if (check_condition) *check_condition = false;
   if (transferred) *transferred = 0;
-  if (dead_) return Status::Make(Errc::Disconnected);
+  // 1 つの BOT インタフェースを複数の LUN で共有するので、CBW → データ → CSW (と失敗時のリセット回復) の間は他の LUN のコマンドを入れない。
+  std::lock_guard<std::mutex> bus_lock(bus_->cmd_mu_);
+  if (bus_->dead_) return Status::Make(Errc::Disconnected);
   if (cdb_len == 0 || cdb_len > 16 || len > 0xFFFFFFFFu) return Status::Make(Errc::InvalidArgument);
   // 最後の安全弁 (1): ATA PASS-THROUGH は、読み取り専用かどうかに関わらず、probe_media() の中で IDENTIFY DEVICE (0xEC) の正規形だけを通す。
   if (!scsi_cdb_ata_passthrough_ok(cdb, cdb_len, allow_ata_identify_)) return Status::Make(Errc::InvalidArgument);
@@ -140,7 +142,7 @@ Status MscDevice::exec_impl(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, voi
   if (read_only_ && !scsi_cdb_allowed_read_only(cdb, cdb_len, allow_start_stop_, allow_ata_identify_)) return Status::Make(Errc::ReadOnly);
   op_counts_[cdb[0]]++;
   uint8_t cbw[kCbwLen] = {0};
-  uint32_t tag = tag_++;
+  uint32_t tag = bus_->tag_++;
   put32le(cbw, kCbwSig); put32le(cbw + 4, tag); put32le(cbw + 8, static_cast<uint32_t>(len));
   cbw[12] = (dir == UsbDir::In && len) ? 0x80 : 0x00;
   cbw[13] = opt_.lun; cbw[14] = cdb_len;
@@ -148,18 +150,18 @@ Status MscDevice::exec_impl(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, voi
 
   size_t done = 0;
   phase_ = 'C';   // CBW 送信
-  Status st = t_->bulk_out(cbw, kCbwLen, &done, timeout_ms);
-  if (is_fatal(st)) { dead_ = true; return st; }
+  Status st = bus_->t_->bulk_out(cbw, kCbwLen, &done, timeout_ms);
+  if (is_fatal(st)) { bus_->dead_ = true; return st; }
   if (!st.ok() || done != kCbwLen) { reset_recovery(); return st.ok() ? Status::Make(Errc::Io, EIO) : st; }
 
   size_t moved = 0;
   phase_ = 'D';   // データ段階
   if (len) {
-    Status ds = dir == UsbDir::In ? t_->bulk_in(data, len, &moved, timeout_ms) : t_->bulk_out(data, len, &moved, timeout_ms);
-    if (is_fatal(ds)) { dead_ = true; return ds; }
+    Status ds = dir == UsbDir::In ? bus_->t_->bulk_in(data, len, &moved, timeout_ms) : bus_->t_->bulk_out(data, len, &moved, timeout_ms);
+    if (is_fatal(ds)) { bus_->dead_ = true; return ds; }
     if (is_stall(ds)) {
-      Status c = t_->clear_halt(dir == UsbDir::In ? UsbDir::In : UsbDir::Out);  // 仕様 6.7.2/6.7.3: halt を解除して CSW を読む
-      if (is_fatal(c)) { dead_ = true; return c; }
+      Status c = bus_->t_->clear_halt(dir == UsbDir::In ? UsbDir::In : UsbDir::Out);  // 仕様 6.7.2/6.7.3: halt を解除して CSW を読む
+      if (is_fatal(c)) { bus_->dead_ = true; return c; }
     } else if (!ds.ok()) {
       reset_recovery();
       return ds;
@@ -169,14 +171,14 @@ Status MscDevice::exec_impl(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, voi
   phase_ = 'S';   // CSW 受信
   uint8_t csw[kCswLen] = {0};
   size_t cdone = 0;
-  Status cs = t_->bulk_in(csw, kCswLen, &cdone, timeout_ms);
+  Status cs = bus_->t_->bulk_in(csw, kCswLen, &cdone, timeout_ms);
   if (is_stall(cs)) {  // CSW 取得時の STALL: 1 回だけ再試行 (仕様 6.7.2)
-    Status c = t_->clear_halt(UsbDir::In);
-    if (is_fatal(c)) { dead_ = true; return c; }
+    Status c = bus_->t_->clear_halt(UsbDir::In);
+    if (is_fatal(c)) { bus_->dead_ = true; return c; }
     cdone = 0;
-    cs = t_->bulk_in(csw, kCswLen, &cdone, timeout_ms);
+    cs = bus_->t_->bulk_in(csw, kCswLen, &cdone, timeout_ms);
   }
-  if (is_fatal(cs)) { dead_ = true; return cs; }
+  if (is_fatal(cs)) { bus_->dead_ = true; return cs; }
   if (!cs.ok() || cdone != kCswLen) { reset_recovery(); return cs.ok() ? Status::Make(Errc::Io, EIO) : cs; }
   // CSW の妥当性 (13.2): 長さ・署名・タグ。不一致はデバイスの状態が信用できないのでリセット回復。
   if (get32le(csw) != kCswSig || get32le(csw + 4) != tag) { reset_recovery(); return Status::Make(Errc::Corrupt); }
@@ -194,17 +196,17 @@ Status MscDevice::exec_impl(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, voi
 }
 
 Status MscDevice::reset_recovery() {
-  Status r = t_->mass_storage_reset();
-  if (is_fatal(r)) { dead_ = true; return r; }
-  Status a = t_->clear_halt(UsbDir::In);
-  if (is_fatal(a)) { dead_ = true; return a; }
-  Status b = t_->clear_halt(UsbDir::Out);
-  if (is_fatal(b)) { dead_ = true; return b; }
+  Status r = bus_->t_->mass_storage_reset();
+  if (is_fatal(r)) { bus_->dead_ = true; return r; }
+  Status a = bus_->t_->clear_halt(UsbDir::In);
+  if (is_fatal(a)) { bus_->dead_ = true; return a; }
+  Status b = bus_->t_->clear_halt(UsbDir::Out);
+  if (is_fatal(b)) { bus_->dead_ = true; return b; }
   return r;
 }
 
 void MscDevice::tune(size_t read_chunk, uint32_t read_max_transfer) {
-  if (read_chunk) t_->set_chunk(UsbDir::In, read_chunk);
+  if (read_chunk) { std::lock_guard<std::mutex> bl(bus_->cmd_mu_); bus_->t_->set_chunk(UsbDir::In, read_chunk); }   // 転送要求のサイズは接続全体 (全 LUN) で共通
   if (read_max_transfer) {
     opt_.max_read_transfer = std::max<uint32_t>(read_max_transfer, block_size_);
     opt_.max_read_transfer -= opt_.max_read_transfer % block_size_;
@@ -263,24 +265,20 @@ Status MscDevice::exec_checked(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, 
   return Status::Make(Errc::Io, EIO);
 }
 
-Status MscDevice::initialize() {
-  uint8_t inq[36] = {0};
+Status MscDevice::inquiry(uint8_t* inq) {
   uint8_t cdb_inq[6] = {0x12, 0, 0, 0, 36, 0};
-  Status st = exec_checked(cdb_inq, 6, UsbDir::In, inq, sizeof inq, opt_.io_timeout_ms);
-  if (!st.ok()) return st;
-  uint8_t ptype = inq[0] & 0x1F;
-  if ((inq[0] >> 5) != 0 || (ptype != 0x00 && ptype != 0x0E)) return Status::Make(Errc::Unsupported);  // 直接アクセス/RBC のみ
-  vendor_ = trim(inq + 8, 8);
-  product_ = trim(inq + 16, 16);
+  return exec_checked(cdb_inq, 6, UsbDir::In, inq, 36, opt_.io_timeout_ms);
+}
 
-  // TEST UNIT READY: 起動直後は NOT READY / UNIT ATTENTION を返すので待つ
-  auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(opt_.ready_wait_ms);
+// TEST UNIT READY: 起動直後は NOT READY / UNIT ATTENTION を返すので待つ。メディアなし (NOT READY / 3A) は Disconnected。
+Status MscDevice::wait_ready(uint32_t wait_ms) {
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(wait_ms);
   for (;;) {
     uint8_t tur[6] = {0};
     size_t n = 0;
     bool cc = false;
-    st = exec(tur, 6, UsbDir::In, nullptr, 0, &n, opt_.io_timeout_ms, &cc);
-    if (st.ok()) break;
+    Status st = exec(tur, 6, UsbDir::In, nullptr, 0, &n, opt_.io_timeout_ms, &cc);
+    if (st.ok()) return st;
     if (!cc) return st;
     ScsiSense s;
     Status rs = request_sense(&s);
@@ -290,13 +288,18 @@ Status MscDevice::initialize() {
     if (!retryable || std::chrono::steady_clock::now() >= deadline) return map_sense(s);
     std::this_thread::sleep_for(std::chrono::milliseconds(opt_.retry_delay_ms));
   }
+}
 
+// READ CAPACITY(10) (2TiB 超は 16)。*blocks / *bs には検証前の値も入れる (呼び出し側が「容量 0 = メディアなし」を見分けるため)。
+Status MscDevice::read_capacity(uint64_t* blocks_out, uint32_t* bs_out) {
+  *blocks_out = 0; *bs_out = 0;
   uint8_t cap10[8] = {0};
   uint8_t cdb_c10[10] = {0x25};
-  st = exec_checked(cdb_c10, 10, UsbDir::In, cap10, sizeof cap10, opt_.io_timeout_ms);
+  Status st = exec_checked(cdb_c10, 10, UsbDir::In, cap10, sizeof cap10, opt_.io_timeout_ms);
   if (!st.ok()) return st;
   uint64_t last = get32be(cap10);
   uint32_t bs = get32be(cap10 + 4);
+  *bs_out = bs;
   if (last == 0xFFFFFFFFull) {  // 2TiB 超: READ CAPACITY(16)
     uint8_t cap16[32] = {0};
     uint8_t cdb_c16[16] = {0x9E, 0x10};
@@ -305,11 +308,32 @@ Status MscDevice::initialize() {
     if (!st.ok()) return st;
     last = get64be(cap16);
     bs = get32be(cap16 + 8);
+    *bs_out = bs;
     if (last == UINT64_MAX) return Status::Make(Errc::Corrupt);
   }
   if (bs < 512 || bs > 65536 || (bs & (bs - 1))) return Status::Make(Errc::Corrupt);  // 異常なブロック長は拒否
   uint64_t blocks = last + 1;
   if (blocks > UINT64_MAX / bs) return Status::Make(Errc::Corrupt);
+  *blocks_out = blocks;
+  return Status::Ok();
+}
+
+Status MscDevice::initialize() {
+  uint8_t inq[36] = {0};
+  Status st = inquiry(inq);
+  if (!st.ok()) return st;
+  uint8_t ptype = inq[0] & 0x1F;
+  if ((inq[0] >> 5) != 0 || (ptype != 0x00 && ptype != 0x0E)) return Status::Make(Errc::Unsupported);  // 直接アクセス/RBC のみ
+  vendor_ = trim(inq + 8, 8);
+  product_ = trim(inq + 16, 16);
+
+  st = wait_ready(opt_.ready_wait_ms);
+  if (!st.ok()) return st;
+
+  uint64_t blocks = 0;
+  uint32_t bs = 0;
+  st = read_capacity(&blocks, &bs);
+  if (!st.ok()) return st;
   blocks_ = blocks; block_size_ = bs;
 
   // 書き込み禁止 (MODE SENSE(6) の DEVICE-SPECIFIC PARAMETER bit7)。取得できなければ「禁止ではない」とみなすが、
@@ -326,7 +350,7 @@ Status MscDevice::initialize() {
   // 判別の失敗は open の失敗にしない (Unknown のまま続ける)。デバイスが抜けた (Disconnected) ときだけ伝える。
   if (opt_.probe_media) probe_media(inq);
   else { media_ = MediaInfo{}; media_.removable = (inq[1] & 0x80) != 0; media_.inquiry_version = inq[2]; }
-  if (dead_) return Status::Make(Errc::Disconnected);
+  if (bus_->dead_) return Status::Make(Errc::Disconnected);
   read_only_ = opt_.read_only || write_protected_;
 
   if (opt_.max_transfer < block_size_) opt_.max_transfer = block_size_;
@@ -344,7 +368,7 @@ MscDevice::ProbeResult MscDevice::probe_cmd(const uint8_t* cdb, uint8_t cdb_len,
   bool cc = false;
   Status st = exec(cdb, cdb_len, UsbDir::In, data, len, &n, opt_.probe_timeout_ms, &cc);
   auto stop = [&](const std::string& why) { if (media_.stop_reason.empty()) media_.stop_reason = std::string(what) + ": " + why; };
-  if (dead_) { stop("disconnected"); return r; }
+  if (bus_->dead_) { stop("disconnected"); return r; }
   if (!cc) {
     if (!st.ok()) { stop(errc_name(st.code)); return r; }     // 転送エラー・タイムアウト・CSW 不整合 (exec が BOT リセット回復済み)
     r.kind = ProbeResult::Ok; r.n = n;
@@ -469,14 +493,103 @@ void MscDevice::probe_media(const uint8_t* inq) {
   finish();
 }
 
+const char* lun_state_name(LunState s) {
+  switch (s) {
+    case LunState::Ready: return "ready";
+    case LunState::NoMedia: return "no-media";
+    case LunState::NotReady: return "not-ready";
+    case LunState::Unsupported: return "unsupported";
+    case LunState::Error: return "error";
+    case LunState::Skipped: return "skipped";
+  }
+  return "?";
+}
+
 Status MscDevice::open(std::unique_ptr<BulkTransport> transport, const MscOptions& opt, BlockDevicePtr* out) {
   if (!transport || !out) return Status::Make(Errc::InvalidArgument);
-  std::unique_ptr<MscDevice> d(new (std::nothrow) MscDevice(std::move(transport), opt));
+  std::shared_ptr<MscBus> bus;
+  Status st = MscBus::create(std::move(transport), /*query_max_lun=*/false, &bus);
+  if (!st.ok()) return st;
+  return bus->open_lun(opt, out);
+}
+
+// ---- MscBus
+Status MscBus::create(std::unique_ptr<BulkTransport> transport, bool query_max_lun, std::shared_ptr<MscBus>* out) {
+  if (!transport || !out) return Status::Make(Errc::InvalidArgument);
+  std::shared_ptr<MscBus> bus(new (std::nothrow) MscBus(std::move(transport)));
+  if (!bus) return Status::Make(Errc::NoMemory);
+  if (query_max_lun) {
+    // GET MAX LUN は open の最初の 1 回だけ。STALL (= LUN 1 つ)・エラー・不正な値でも open を失敗させない。
+    uint8_t mx = 0;
+    Status st;
+    { std::lock_guard<std::mutex> lk(bus->cmd_mu_); st = bus->t_->get_max_lun(&mx); }
+    char b[48];
+    if (st.ok()) {
+      if (mx >= 16) { snprintf(b, sizeof b, "bogus:%u", static_cast<unsigned>(mx)); bus->lun_note_ = b; }   // 壊れた値の機器は無視して LUN 1 つ
+      else { bus->lun_count_ = static_cast<uint32_t>(mx) + 1; snprintf(b, sizeof b, "max_lun=%u", static_cast<unsigned>(mx)); bus->lun_note_ = b; }
+    } else if (is_stall(st)) bus->lun_note_ = "stall";
+    else { snprintf(b, sizeof b, "error:%s/%d", errc_name(st.code), st.sys_errno); bus->lun_note_ = b; }
+  }
+  *out = std::move(bus);
+  return Status::Ok();
+}
+
+Status MscBus::open_lun(const MscOptions& opt, BlockDevicePtr* out) {
+  if (!out) return Status::Make(Errc::InvalidArgument);
+  if (opt.lun >= 16 || (lun_note_ != "not-queried" && opt.lun >= lun_count_)) return Status::Make(Errc::InvalidArgument);
+  std::unique_ptr<MscDevice> d(new (std::nothrow) MscDevice(shared_from_this(), opt));
   if (!d) return Status::Make(Errc::NoMemory);
   Status st = d->initialize();
   { g_last_open_trace = d->trace_ + (st.ok() ? " [open ok]" : std::string(" [open failed: ") + errc_name(st.code) + "/" + std::to_string(st.sys_errno) + "]"); }
   if (!st.ok()) return st;
   out->reset(d.release());
+  return Status::Ok();
+}
+
+Status MscBus::scan_luns(const MscOptions& opt, uint32_t skip_mask, std::vector<LunInfo>* out) {
+  if (!out) return Status::Make(Errc::InvalidArgument);
+  out->clear();
+  for (uint32_t lun = 0; lun < lun_count_; lun++) {
+    LunInfo li;
+    li.lun = static_cast<uint8_t>(lun);
+    if (skip_mask & (1u << lun)) { li.state = LunState::Skipped; out->push_back(li); continue; }
+    MscOptions o = opt;
+    o.lun = li.lun; o.read_only = true; o.probe_media = false;   // 一覧は読み取り専用の基本コマンドだけ (種別判別はしない)
+    MscDevice d(shared_from_this(), o);
+    Status st = d.probe_lun(&li, std::min<uint32_t>(opt.ready_wait_ms, 5000));
+    if (!st.ok()) return st;
+    out->push_back(li);
+  }
+  return Status::Ok();
+}
+
+// 1 つの LUN の状態。切断以外の失敗は li->state に畳み込み、戻り値は Ok。
+Status MscDevice::probe_lun(LunInfo* li, uint32_t ready_wait_ms) {
+  auto fail = [&](LunState s, const Status& st) { li->state = s; li->note = std::string(errc_name(st.code)) + "/" + std::to_string(st.sys_errno); return bus_->dead_ ? Status::Make(Errc::Disconnected) : Status::Ok(); };
+  uint8_t inq[36] = {0};
+  Status st = inquiry(inq);
+  if (!st.ok()) return fail(LunState::Error, st);
+  li->ptype = inq[0] & 0x1F;
+  li->removable = (inq[1] & 0x80) != 0;
+  li->vendor = trim(inq + 8, 8);
+  li->product = trim(inq + 16, 16);
+  if ((inq[0] >> 5) != 0) { li->state = LunState::Unsupported; li->note = "lun-not-connected"; return Status::Ok(); }
+  if (li->ptype != 0x00 && li->ptype != 0x0E) { li->state = LunState::Unsupported; li->note = "device-type-" + std::to_string(li->ptype); return Status::Ok(); }
+  st = wait_ready(ready_wait_ms);
+  if (!st.ok()) {
+    if (bus_->dead_) return Status::Make(Errc::Disconnected);
+    if (st.code == Errc::Disconnected) { li->state = LunState::NoMedia; return Status::Ok(); }   // NOT READY / medium not present
+    return fail(st.code == Errc::Io && st.sys_errno == EAGAIN ? LunState::NotReady : LunState::Error, st);
+  }
+  uint64_t blocks = 0;
+  uint32_t bs = 0;
+  st = read_capacity(&blocks, &bs);
+  if (!st.ok()) {
+    if (bus_->dead_) return Status::Make(Errc::Disconnected);
+    if (st.code == Errc::Disconnected || (st.code == Errc::Corrupt && bs == 0)) { li->state = LunState::NoMedia; return Status::Ok(); }   // 読む直前に抜かれた / 容量 0 を返す古い機器
+    return fail(LunState::Error, st);
+  }
+  li->state = LunState::Ready; li->blocks = blocks; li->block_size = bs;
   return Status::Ok();
 }
 
@@ -552,7 +665,7 @@ Status MscDevice::write_locked(uint64_t off, const void* buf, size_t len, const 
 Status MscDevice::read_at(uint64_t off, void* buf, size_t len, const IoOptions& io) {
   std::lock_guard<std::mutex> lk(mu_);
   if (closed_) return Status::Make(Errc::Closed);
-  if (dead_) return Status::Make(Errc::Disconnected);
+  if (bus_->dead_) return Status::Make(Errc::Disconnected);
   if (!range_ok(size(), off, len)) return Status::Make(Errc::OutOfRange);
   if (Status rs = resume_if_stopped_locked(); !rs.ok()) return rs;
   Status rst = read_locked(off, buf, len, io);
@@ -564,7 +677,7 @@ Status MscDevice::write_at(uint64_t off, const void* buf, size_t len, const IoOp
   if (read_only_) return Status::Make(Errc::ReadOnly);
   std::lock_guard<std::mutex> lk(mu_);
   if (closed_) return Status::Make(Errc::Closed);
-  if (dead_) return Status::Make(Errc::Disconnected);
+  if (bus_->dead_) return Status::Make(Errc::Disconnected);
   if (!range_ok(size(), off, len)) return Status::Make(Errc::OutOfRange);
   if (Status rs = resume_if_stopped_locked(); !rs.ok()) return rs;
   Status wst = write_locked(off, buf, len, io);
@@ -576,7 +689,7 @@ Status MscDevice::flush() {
   if (read_only_) return Status::Ok();
   std::lock_guard<std::mutex> lk(mu_);
   if (closed_) return Status::Make(Errc::Closed);
-  if (dead_) return Status::Make(Errc::Disconnected);
+  if (bus_->dead_) return Status::Make(Errc::Disconnected);
   if (spun_down_) return Status::Ok();   // 止める前に SYNCHRONIZE CACHE 済み。以後の書き込みは自動再開してから行うので、ここで起こさない
   uint8_t cdb[10] = {0x35};  // SYNCHRONIZE CACHE(10): LBA 0 / 長さ 0 = 全体
   size_t n = 0;
@@ -611,7 +724,7 @@ Status MscDevice::resume_if_stopped_locked() {
 int MscDevice::idle_stop(uint64_t idle_ms) {
   std::unique_lock<std::mutex> lk(mu_, std::try_to_lock);
   if (!lk.owns_lock()) return 0;   // I/O 実行中 = 使用中
-  if (closed_ || dead_ || spun_down_ || stop_unsupported_) return 0;
+  if (closed_ || bus_->dead_ || spun_down_ || stop_unsupported_) return 0;
   auto idle = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - last_io_).count();
   if (idle < 0 || static_cast<uint64_t>(idle) < idle_ms) return 0;
   Status st = start_stop_locked(false);
@@ -622,7 +735,7 @@ int MscDevice::idle_stop(uint64_t idle_ms) {
 
 Status MscDevice::start_stop_locked(bool start) {
   if (closed_) return Status::Make(Errc::Closed);
-  if (dead_) return Status::Make(Errc::Disconnected);
+  if (bus_->dead_) return Status::Make(Errc::Disconnected);
   size_t n = 0;
   bool cc = false;
   if (!start && !read_only_) {   // 止める前に、書き込みキャッシュをディスクへ (未対応なら無視)

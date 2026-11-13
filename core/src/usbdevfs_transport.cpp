@@ -55,6 +55,23 @@ class UsbdevfsTransport final : public BulkTransport {
     return Status::Ok();
   }
 
+  Status get_max_lun(uint8_t* max_lun) override {
+    struct usbdevfs_ctrltransfer c = {};
+    uint8_t v = 0;
+    c.bRequestType = 0xA1;  // device→host, class, interface
+    c.bRequest = 0xFE;      // GET MAX LUN
+    c.wValue = 0;
+    c.wIndex = eps_.interface;
+    c.wLength = 1;
+    c.timeout = 3000;       // 応答しない機器で長く待たない
+    c.data = &v;
+    int r = ::ioctl(fd_, USBDEVFS_CONTROL, &c);
+    if (r < 0) return map_errno(errno);   // STALL は EPIPE = Io/EPIPE (制御パイプの STALL は自動で解除される。LUN 1 つの機器の正常な応答)
+    if (r != 1) return Status::Make(Errc::Io, EIO);
+    *max_lun = v;
+    return Status::Ok();
+  }
+
  private:
   Status xfer(uint8_t ep, void* buf, size_t len, size_t* done, uint32_t timeout_ms, size_t& chunk) {
     *done = 0;

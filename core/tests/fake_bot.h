@@ -6,6 +6,7 @@
 #include <cstring>
 #include <functional>
 #include <map>
+#include <memory>
 #include <set>
 
 #include "usbmem/usb_msc.h"
@@ -53,6 +54,7 @@ struct MediaCfg {
   bool ident_atapi = false;          // IDENTIFY 語 0 bit15 = 1 (ATAPI)
   bool ident_zero = false;           // IDENTIFY が全部 0
   uint8_t ptype = 0x00;
+  uint8_t pqual = 0;                 // INQUIRY のペリフェラルクォリファイア (0 = 接続あり。1/3 = その LUN には何も接続されていない)
 };
 
 class BotDevice : public BulkTransport {
@@ -71,6 +73,10 @@ class BotDevice : public BulkTransport {
   std::vector<std::vector<uint8_t>> cdb_log;   // 受け取った CDB (全体)
   std::vector<uint8_t> ata_cmds;               // ATA PASS-THROUGH で受け取った ATA コマンドバイト
   int vpd_requests = 0;                        // INQUIRY EVPD の回数
+  uint8_t salt = 0;                            // 未書き込みブロックの内容に XOR する値 (LUN ごとに別のディスクイメージに見せる)
+  std::vector<uint8_t> cbw_luns;               // 受け取った CBW の bCBWLUN の履歴
+  bool yanked = false;                         // true なら抜去された (以後すべて Disconnected)
+  bool idle() const { return state_ == St::Idle; }
 
   // 設定すると、未書き込みブロックの内容をこの関数から得る (実イメージを USB デバイスとして見せる統合テスト用)
   std::function<void(uint64_t lba, uint8_t* out)> backing;
@@ -80,7 +86,7 @@ class BotDevice : public BulkTransport {
     if (it != written.end()) return it->second;
     std::vector<uint8_t> b(bs_);
     if (backing) { backing(lba, b.data()); return b; }
-    for (uint32_t i = 0; i < bs_; i++) b[i] = pattern(lba, i);
+    for (uint32_t i = 0; i < bs_; i++) b[i] = static_cast<uint8_t>(pattern(lba, i) ^ salt);
     return b;
   }
 
@@ -92,6 +98,7 @@ class BotDevice : public BulkTransport {
       if (len != 31 || rd32(p) != 0x43425355) return Status::Make(Errc::Io, EPIPE);
       cmds_++;
       if (dead()) return Status::Make(Errc::Disconnected);
+      cbw_luns.push_back(p[13]);
       tag_ = rd32(p + 4); dlen_ = rd32(p + 8); dir_in_ = (p[12] & 0x80) != 0; cdb_.assign(p + 15, p + 15 + p[14]);
       start_command();
       *done = f.short_cbw_accept ? 30 : len;
@@ -159,7 +166,7 @@ class BotDevice : public BulkTransport {
   uint8_t pending_sense_[3] = {0, 0, 0};
   bool have_sense_ = false;
 
-  bool dead() const { return f.disconnect_after_commands >= 0 && cmds_ > f.disconnect_after_commands; }
+  bool dead() const { return yanked || (f.disconnect_after_commands >= 0 && cmds_ > f.disconnect_after_commands); }
   static uint32_t rd32(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | (static_cast<uint32_t>(p[3]) << 24); }
   static void wr32(uint8_t* p, uint32_t v) { for (int i = 0; i < 4; i++) p[i] = static_cast<uint8_t>(v >> (8 * i)); }
   static uint32_t be32(const uint8_t* p) { return (static_cast<uint32_t>(p[0]) << 24) | (p[1] << 16) | (p[2] << 8) | p[3]; }
@@ -240,7 +247,7 @@ class BotDevice : public BulkTransport {
       case 0x12: {  // INQUIRY
         if (cdb_[1] & 0x01) { vpd_inquiry(); break; }
         std::vector<uint8_t> d(36, 0);
-        d[0] = media.ptype; d[1] = media.rmb ? 0x80 : 0x00; d[2] = media.version;
+        d[0] = static_cast<uint8_t>(media.ptype | (media.pqual << 5)); d[1] = media.rmb ? 0x80 : 0x00; d[2] = media.version;
         d[4] = 31;
         std::memcpy(&d[8], "FAKEVEND", 8); std::memcpy(&d[16], "FAKE-BOT-DISK   ", 16); std::memcpy(&d[32], "0001", 4);
         data_in(d); break;
@@ -311,5 +318,70 @@ class BotDevice : public BulkTransport {
       written[lba + i] = std::vector<uint8_t>(outbuf_.begin() + static_cast<long>(i) * bs_, outbuf_.begin() + static_cast<long>(i + 1) * bs_);
     }
   }
+};
+
+// 複数 LUN の BOT デバイス (カードリーダー)。LUN ごとに BotDevice (別のディスクイメージ・別のメディアの有無・別の故障設定) を持ち、
+// bulk エンドポイントは 1 組を共有する。CBW の bCBWLUN で宛先の LUN を選び、データ段階と CSW はその LUN へ流す。
+// 別の LUN のコマンドが割り込んだ (前のコマンドの CSW を読む前に次の CBW が来た) 回数を overlap_violations に数える (BOT 上の直列化の検査)。
+class MultiLunBot : public BulkTransport {
+ public:
+  enum class MaxLunMode { Value, Stall, Error, Disconnected };
+  explicit MultiLunBot(std::vector<std::shared_ptr<BotDevice>> luns) : luns(std::move(luns)) {}
+  std::vector<std::shared_ptr<BotDevice>> luns;
+  MaxLunMode max_lun_mode = MaxLunMode::Value;
+  int max_lun_value = -1;            // -1 = luns.size() - 1。壊れた機器の再現に 16 以上も指定できる
+  int max_lun_calls = 0;
+  int overlap_violations = 0;        // 前のコマンドが終わらないうちに次の CBW が来た回数 (直列化されていれば 0)
+  int bad_lun_cbws = 0;              // 存在しない LUN 宛の CBW
+  int resets = 0;
+  std::vector<uint8_t> all_cbw_luns; // 受け取った CBW の bCBWLUN の履歴 (全 LUN)
+
+  void yank() { for (auto& l : luns) l->yanked = true; yanked_ = true; }
+
+  Status bulk_out(const void* buf, size_t len, size_t* done, uint32_t t) override {
+    if (yanked_) { *done = 0; return Status::Make(Errc::Disconnected); }
+    auto* p = static_cast<const uint8_t*>(buf);
+    bool is_cbw = len == 31 && p[0] == 'U' && p[1] == 'S' && p[2] == 'B' && p[3] == 'C';
+    if (is_cbw && cur_ && !cur_->idle()) overlap_violations++;
+    if (is_cbw && (!cur_ || cur_->idle())) {
+      uint8_t lun = p[13];
+      all_cbw_luns.push_back(lun);
+      if (lun >= luns.size()) { bad_lun_cbws++; lun = 0; }
+      cur_ = luns[lun].get();
+    }
+    if (!cur_) { *done = 0; return Status::Make(Errc::Io, EPIPE); }
+    return cur_->bulk_out(buf, len, done, t);
+  }
+  Status bulk_in(void* buf, size_t len, size_t* done, uint32_t t) override {
+    if (yanked_) { *done = 0; return Status::Make(Errc::Disconnected); }
+    if (!cur_) { *done = 0; return Status::Make(Errc::Io, EPIPE); }
+    return cur_->bulk_in(buf, len, done, t);
+  }
+  Status clear_halt(UsbDir d) override {
+    if (yanked_) return Status::Make(Errc::Disconnected);
+    for (auto& l : luns) l->clear_halt(d);
+    return Status::Ok();
+  }
+  Status mass_storage_reset() override {
+    if (yanked_) return Status::Make(Errc::Disconnected);
+    resets++;
+    for (auto& l : luns) l->mass_storage_reset();
+    return Status::Ok();
+  }
+  Status get_max_lun(uint8_t* out) override {
+    max_lun_calls++;
+    switch (max_lun_mode) {
+      case MaxLunMode::Stall: return Status::Make(Errc::Io, EPIPE);
+      case MaxLunMode::Error: return Status::Make(Errc::Io, EPROTO);
+      case MaxLunMode::Disconnected: return Status::Make(Errc::Disconnected);
+      case MaxLunMode::Value: break;
+    }
+    *out = static_cast<uint8_t>(max_lun_value >= 0 ? max_lun_value : static_cast<int>(luns.size()) - 1);
+    return Status::Ok();
+  }
+
+ private:
+  BotDevice* cur_ = nullptr;
+  bool yanked_ = false;
 };
 }  // namespace fake

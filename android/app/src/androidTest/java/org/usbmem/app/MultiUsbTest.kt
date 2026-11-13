@@ -56,7 +56,7 @@ class MultiUsbTest {
     }
 
     /** 偽のセッション。close で closed になる。 */
-    private class FakeSession(override val deviceName: String, override val writable: Boolean) : UsbSession {
+    private class FakeSession(override val deviceName: String, override val writable: Boolean, override val lun: Int = 0) : UsbSession {
         @Volatile var closed = false
         override val vendorId = 0x0781; override val productId = 0x5581; override val tuningIndex = -1
         override fun partitionTable() = PartitionTable("mbr", 512, 1L shl 30, "", false, false, emptyList(), emptyList())
@@ -73,11 +73,22 @@ class MultiUsbTest {
     }
 
     private fun newManager(): UsbSessionManager = UsbSessionManager(
-        { d, w -> FakeSession(d.deviceName, w) },
+        object : UsbSessionFactory {
+            override fun open(device: UsbDeviceInfo, writable: Boolean): UsbSession = FakeSession(device.deviceName, writable)
+            override fun open(device: UsbDeviceInfo, lun: Int, writable: Boolean): UsbSession = FakeSession(device.deviceName, writable, lun)
+        },
         onDeviceClosing = { name -> try { VolumeRegistry.removeByDevice(name) } finally { VolumeRegistry.notifyRoots(ctx) } },   // 本番 (UsbSessions) と同じ後始末
     ).also { mgrs += it }
 
     private fun dev(n: Int) = UsbDeviceInfo("/dev/bus/usb/001/%03d".format(n), "Stick $n", 0x0781, 0x5581)
+
+    /** デバイスの LUN 1 つの公開ボリューム。スロット名 ([UsbSlotKey.of]) をデバイス名として登録する (本番の MainActivity.publishPartition と同じ)。 */
+    private fun publishLun(d: UsbDeviceInfo, lun: Int, startBytes: Long, label: String): VolumeRegistry.Entry {
+        val slot = UsbSlotKey.of(d.deviceName, lun)
+        val pfd = ParcelFileDescriptor.open(image, ParcelFileDescriptor.MODE_READ_ONLY)
+        val v = NtfsVolume.mountReadOnly(pfd.detachFd())
+        return VolumeRegistry.addVolume(label, VolumeRegistry.usbKey(slot, startBytes), v, deviceName = slot)
+    }
 
     /** デバイス [d] の公開ボリュームを 1 つ登録する (USB のパーティションのマウントと同じ登録の仕方)。 */
     private fun publish(d: UsbDeviceInfo, startBytes: Long, label: String): VolumeRegistry.Entry {
@@ -202,4 +213,37 @@ class MultiUsbTest {
         for (x in d) VolumeRegistry.removeByDevice(x.deviceName)
         assertEquals(0, VolumeRegistry.all(ctx).count { it.deviceName != null })
     }
+
+    // ---- 複数 LUN (1 本のカードリーダーの 2 つのスロット)。偽のセッションの LUN 版
+
+    @Test fun lunsOfOneReaderGetSeparateRootsAndCloseIndependently() {
+        val m = newManager()
+        val r = UsbDeviceInfo("/dev/bus/usb/001/009", "USB3.0 Card Reader", 0x05e3, 0x0749, "000000001")
+        val other = dev(2)
+        m.open(r, 0); m.open(r, 1); m.open(other)
+        val ids = UsbDeviceNaming.shortIds(listOf(r, other))
+        val l0 = publishLun(r, 0, 0, UsbDeviceNaming.volumeLabel(r.productName, ids.getValue(r.deviceName), 1, 0))
+        val l1 = publishLun(r, 1, 0, UsbDeviceNaming.volumeLabel(r.productName, ids.getValue(r.deviceName), 1, 1))
+        val o1 = publish(other, 0, "O #1")
+        // 同じオフセットでも LUN が違えばボリュームキーが違う (登録が衝突しない)
+        assertEquals("usb:${r.deviceName}@0", VolumeRegistry.usbKey(UsbSlotKey.of(r.deviceName, 0), 0))
+        assertEquals("usb:${r.deviceName}/l1@0", VolumeRegistry.usbKey(UsbSlotKey.of(r.deviceName, 1), 0))
+        assertEquals(3, setOf(l0.id, l1.id, o1.id).size)
+        val before = roots()
+        assertEquals(3, listOf(l0, l1, o1).map { before.getValue(it.id).first }.toSet().size)
+        assertTrue(before.getValue(l0.id).first.contains("LUN 0") && before.getValue(l1.id).first.contains("LUN 1"))
+        assertTrue("LUN の違いが説明に出る", before.getValue(l1.id).second.contains("USB 1-9 LUN 1"))
+        // LUN 1 だけを閉じる: LUN 0 のルートと別デバイスのルートは残る
+        assertTrue(m.close(UsbSlotKey.of(r.deviceName, 1)))
+        val after = roots()
+        assertFalse(after.containsKey(l1.id)); assertTrue(after.containsKey(l0.id)); assertTrue(after.containsKey(o1.id))
+        assertEquals(listOf(other.deviceName, r.deviceName), m.openDevices())   // 名前順 (dev(2) < 009)
+        assertTrue(l0.volume.list("/").isNotEmpty())   // LUN 0 のボリュームはそのまま読める
+        // 抜去: 残りの LUN (LUN 0) のルートも消える。別デバイスは残る
+        assertTrue(m.onDetached(r.deviceName))
+        val last = roots()
+        assertFalse(last.containsKey(l0.id)); assertTrue(last.containsKey(o1.id))
+        assertEquals(listOf(other.deviceName), m.openDevices())
+    }
 }
+

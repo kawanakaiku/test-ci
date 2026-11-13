@@ -29,6 +29,7 @@ class FakeUsbSession(
     override val vendorId: Int = 0x1234,
     override val productId: Int = 0x5678,
     override val mediaKind: MediaKindInfo = FakeKinds.HDD,
+    override val lun: Int = 0,
 ) : UsbSession {
     @Volatile var closed = false
     val closeCalls = AtomicInteger()
@@ -64,14 +65,31 @@ class FakeFactory : UsbSessionFactory {
     /** デバイスごとの種別 (既定は回転ディスク) */
     val kinds: MutableMap<String, MediaKindInfo> = java.util.concurrent.ConcurrentHashMap()
 
-    override fun open(device: UsbDeviceInfo, writable: Boolean): UsbSession {
+    /** 複数 LUN: デバイス名 → 調査結果 (無ければ LUN 1 つ)。scanLuns / releaseDevice の呼び出しも記録する */
+    val scans: MutableMap<String, UsbLunScan> = java.util.concurrent.ConcurrentHashMap()
+    val scanCalls = CopyOnWriteArrayList<Pair<String, Int>>()   // (deviceName, skipMask)
+    val released = CopyOnWriteArrayList<String>()
+    val lunRequests = CopyOnWriteArrayList<Pair<String, Int>>()   // (deviceName, lun)
+
+    override fun open(device: UsbDeviceInfo, writable: Boolean): UsbSession = open(device, 0, writable)
+
+    override fun open(device: UsbDeviceInfo, lun: Int, writable: Boolean): UsbSession {
         requests += device.deviceName to writable
+        lunRequests += device.deviceName to lun
         gate?.invoke(device)
-        if (device.deviceName in failFor) throw NativeException(2, "fake open failure")
-        return FakeUsbSession(device.deviceName, writable, device.vendorId, device.productId, kinds[device.deviceName] ?: FakeKinds.HDD).also { opened += it }
+        if (device.deviceName in failFor || UsbSlotKey.of(device.deviceName, lun) in failFor) throw NativeException(2, "fake open failure")
+        return FakeUsbSession(device.deviceName, writable, device.vendorId, device.productId, kinds[device.deviceName] ?: FakeKinds.HDD, lun).also { opened += it }
     }
 
+    override fun scanLuns(device: UsbDeviceInfo, skipMask: Int): UsbLunScan {
+        scanCalls += device.deviceName to skipMask
+        return scans[device.deviceName] ?: UsbLunScan(1)
+    }
+
+    override fun releaseDevice(deviceName: String) { released += deviceName }
+
     fun sessionsOf(name: String) = opened.filter { it.deviceName == name }
+    fun sessionOf(name: String, lun: Int) = opened.filter { it.deviceName == name && it.lun == lun }
 }
 
 class UsbSessionManagerTest {
@@ -499,4 +517,177 @@ class UsbSessionManagerTest {
         assertEquals("USB [1-5]", UsbDeviceNaming.displayName("  ", "1-5"))
         assertEquals("USB [1-5]", UsbDeviceNaming.displayName(null, "1-5"))
     }
+
+    // ---- 複数 LUN (カードリーダーの SD スロット / microSD スロット): スロット = (デバイス名, LUN)
+
+    private fun reader() = UsbDeviceInfo("/dev/bus/usb/001/007", "USB3.0 Card Reader", 0x05e3, 0x0749, "000000001")
+    private fun lunInfo(lun: Int, state: UsbLunState, size: Long = 0) = UsbLunInfo(lun, state, "Generic", "STORAGE DEVICE", true, size, if (size > 0) 512 else 0)
+
+    @Test fun slotKeysAreCompatibleWithOldKeysForLun0() {
+        val n = "/dev/bus/usb/001/005"
+        assertEquals(n, UsbSlotKey.of(n, 0))
+        assertEquals("$n/l1", UsbSlotKey.of(n, 1))
+        assertEquals(n, UsbSlotKey.deviceOf(n)); assertEquals(0, UsbSlotKey.lunOf(n))
+        assertEquals(n, UsbSlotKey.deviceOf("$n/l1")); assertEquals(1, UsbSlotKey.lunOf("$n/l1"))
+        assertEquals(n, UsbSlotKey.deviceOf("$n/l15")); assertEquals(15, UsbSlotKey.lunOf("$n/l15"))
+        assertEquals("usb:$n@0", VolumeRegistry.usbKey(UsbSlotKey.of(n, 0), 0))          // 従来のボリュームキーのまま
+        assertEquals("usb:$n/l1@1048576", VolumeRegistry.usbKey(UsbSlotKey.of(n, 1), 1048576))
+        // 表示用
+        assertEquals("1-5", UsbDeviceNaming.busId("$n/l1"))
+        assertEquals("1-5 LUN 1", UsbDeviceNaming.busLabel("$n/l1")); assertEquals("1-5", UsbDeviceNaming.busLabel(n))
+        assertEquals("USB3.0 Card Reader [1-5] · LUN 1 · ${formatBytes(16_000_000_000L)}", UsbDeviceNaming.lunTitle("USB3.0 Card Reader", "1-5", 1, 16_000_000_000L))
+        assertEquals("USB3.0 Card Reader [1-5] · LUN 0", UsbDeviceNaming.lunTitle("USB3.0 Card Reader", "1-5", 0))
+    }
+
+    @Test fun lunLabelsAreDistinctPerLun() {
+        val a = UsbDeviceNaming.volumeLabel("Reader", "1-7", 1, 0); val b = UsbDeviceNaming.volumeLabel("Reader", "1-7", 1, 1)
+        assertEquals("Reader [1-7] · LUN 0 #1", a); assertEquals("Reader [1-7] · LUN 1 #1", b)
+        assertEquals("Reader [1-7] #1", UsbDeviceNaming.volumeLabel("Reader", "1-7", 1))   // LUN 1 つの機器は従来のまま
+    }
+
+    @Test fun parsesLunListJsonFromNative() {
+        val json = """[{"lun":0,"state":"no-media","ptype":0,"removable":true,"vendor":"Generic","product":"STORAGE DEVICE","blocks":"0","blockSize":0,"note":"02/3a"},
+            {"lun":1,"state":"ready","ptype":0,"removable":true,"vendor":"Generic","product":"STORAGE DEVICE","blocks":"30535680","blockSize":512,"note":""},
+            {"lun":2,"state":"skipped","ptype":0,"removable":false,"vendor":"","product":"","blocks":"0","blockSize":0,"note":""},
+            {"lun":3,"state":"weird","ptype":0,"removable":false,"vendor":"","product":"","blocks":"x","blockSize":512,"note":"e"}]"""
+        val l = UsbLunInfo.parseList(json)
+        assertEquals(4, l.size)
+        assertEquals(UsbLunState.NoMedia, l[0].state); assertFalse(l[0].openable)
+        assertEquals(UsbLunState.Ready, l[1].state); assertTrue(l[1].openable); assertEquals(30535680L * 512, l[1].sizeBytes)
+        assertEquals(UsbLunState.Skipped, l[2].state)
+        assertEquals(UsbLunState.Error, l[3].state); assertEquals(0L, l[3].sizeBytes)
+        val scan = UsbLunScan(4, l)
+        assertTrue(scan.multi); assertEquals(listOf(1), scan.ready.map { it.lun })
+        assertFalse(UsbLunScan(1).multi)
+    }
+
+    @Test fun lunsOfOneDeviceOpenAndCloseIndependently() {
+        val f = FakeFactory(); val closing = CopyOnWriteArrayList<String>()
+        val m = mgr(f, closing = { closing += it })
+        val r = reader()
+        val s0 = m.open(r, 0) as FakeUsbSession; val s1 = m.open(r, 1) as FakeUsbSession
+        assertEquals(0, s0.lun); assertEquals(1, s1.lun)
+        assertEquals(listOf(r.deviceName, r.deviceName + "/l1"), m.openDevices())
+        assertEquals(listOf(r.deviceName, r.deviceName + "/l1"), m.slotsOf(r.deviceName))
+        assertSame(s1, m.session(r.deviceName + "/l1")); assertSame(s0, m.session(r.deviceName))
+        assertEquals(listOf(r.deviceName to 0, r.deviceName to 1), f.lunRequests.toList())
+        // LUN 1 を閉じても LUN 0 は使える (後始末も LUN 1 の分だけ)
+        assertTrue(m.close(r.deviceName + "/l1"))
+        assertEquals(listOf(r.deviceName + "/l1"), closing.toList())
+        assertTrue(s1.closed); assertFalse(s0.closed); s0.io()
+        assertNull(m.session(r.deviceName + "/l1"))
+        assertTrue(m.isDeviceBusy(r.deviceName))
+        // 閉じた LUN をもう一度開ける
+        val s1b = m.open(r, 1); assertNotSame(s1, s1b)
+        assertTrue(m.isOpen(r.deviceName + "/l1"))
+    }
+
+    @Test fun sameLunCannotBeOpenedTwiceButOtherLunCan() {
+        val m = mgr(); val r = reader()
+        m.open(r, 1)
+        try { m.open(r, 1); fail() } catch (e: UsbSessionException) { assertEquals(UsbSessionException.Kind.AlreadyOpen, e.kind) }
+        m.open(r, 0)   // 別の LUN は開ける
+        assertEquals(2, m.openCount())
+    }
+
+    @Test fun lunSessionsAreIndependentInIoAndFailure() {
+        val f = FakeFactory(); val m = mgr(f); val r = reader()
+        f.failFor += r.deviceName    // LUN 0 だけ開けない (スロット名で指定)
+        try { m.open(r, 0); fail() } catch (e: NativeException) { }
+        assertFalse(m.isBusy(r.deviceName))              // 失敗したスロットは残らない
+        f.failFor.clear(); f.failFor += r.deviceName + "/l1"
+        val s0 = m.open(r, 0) as FakeUsbSession
+        try { m.open(r, 1); fail() } catch (e: NativeException) { }
+        s0.io(); assertEquals(1, s0.ioCount.get())
+        assertEquals(listOf(r.deviceName), m.openDevices())
+    }
+
+    @Test fun writeModeIsPerLun() {
+        val f = FakeFactory(); val m = mgr(f); val r = reader()
+        assertTrue(m.setWriteMode(r.deviceName + "/l1", WriteMode.Full))
+        assertEquals(WriteMode.ReadOnly, m.writeMode(r.deviceName))       // LUN 0 は読み取り専用のまま
+        val s0 = m.open(r, 0); val s1 = m.open(r, 1)
+        assertFalse(s0.writable); assertTrue(s1.writable)
+        assertEquals(WriteMode.Full, m.writeMode(r.deviceName + "/l1"))
+        assertFalse("開いている LUN のモードは変えられない", m.setWriteMode(r.deviceName + "/l1", WriteMode.ReadOnly))
+        assertTrue("開いていない別の LUN は変えられる", m.setWriteMode(r.deviceName + "/l2", WriteMode.CreateOnly))
+        assertEquals(WriteMode.ReadOnly, m.writeMode(r.deviceName + "/l3"))
+    }
+
+    @Test fun idleSpinDownAndSpinConfirmationArePerLun() {
+        val f = FakeFactory(); val m = mgr(f); val r = reader()
+        m.setIdleSpinDownMinutes(r.deviceName + "/l1", 10)
+        val s0 = m.open(r, 0) as FakeUsbSession; val s1 = m.open(r, 1) as FakeUsbSession
+        assertEquals(-1, s0.idleMinutes)      // LUN 0 には設定していない
+        assertEquals(10, s1.idleMinutes)
+        assertEquals(0, m.idleSpinDownMinutes(r.deviceName))
+    }
+
+    @Test fun detachClosesEveryLunOfThatDeviceOnlyAndReleasesTheLink() {
+        val f = FakeFactory(); val closing = CopyOnWriteArrayList<String>(); val rec = Recorder()
+        val m = mgr(f, closing = { closing += it }); m.addListener(rec)
+        val r = reader(); val other = A
+        m.open(r, 0); m.open(r, 1); m.open(other)
+        m.setWriteMode(r.deviceName + "/l1", WriteMode.Full)
+        assertTrue(m.onDetached(r.deviceName))
+        assertEquals(listOf(other.deviceName), m.openDevices())
+        assertEquals(setOf(r.deviceName, r.deviceName + "/l1"), closing.toSet())
+        assertTrue(f.sessionsOf(r.deviceName).all { it.closed }); assertFalse(f.sessionsOf(other.deviceName).single().closed)
+        assertEquals(listOf(r.deviceName), f.released)                  // LUN 一覧のために保っていた接続も手放す
+        assertTrue(rec.events.contains("closed:${r.deviceName}/l1:Detached"))
+        assertEquals("抜かれた機器の LUN の設定は引き継がない", WriteMode.ReadOnly, m.writeMode(r.deviceName + "/l1"))
+    }
+
+    @Test fun detachWithoutOpenSlotsStillReleasesTheScanHold() {
+        val f = FakeFactory(); val m = mgr(f); val r = reader()
+        f.scans[r.deviceName] = UsbLunScan(2, listOf(lunInfo(0, UsbLunState.NoMedia), lunInfo(1, UsbLunState.Ready, 1L shl 30)))
+        m.setWriteMode(r.deviceName + "/l1", WriteMode.CreateOnly)   // 開いていないスロットの設定
+        assertFalse(m.onDetached(r.deviceName))
+        assertEquals(listOf(r.deviceName), f.released)
+        assertEquals(WriteMode.ReadOnly, m.writeMode(r.deviceName + "/l1"))
+    }
+
+    @Test fun scanLunsSkipsLunsThatAreAlreadyOpen() {
+        val f = FakeFactory(); val m = mgr(f); val r = reader()
+        f.scans[r.deviceName] = UsbLunScan(3, listOf(lunInfo(0, UsbLunState.Ready, 1L shl 30), lunInfo(1, UsbLunState.NoMedia), lunInfo(2, UsbLunState.NoMedia)))
+        val first = m.scanLuns(r)
+        assertTrue(first.multi); assertEquals(3, first.lunCount)
+        assertEquals(listOf(r.deviceName to 0), f.scanCalls.toList())    // 何も開いていなければ skip なし
+        m.open(r, 0); m.open(r, 2)
+        m.scanLuns(r)
+        assertEquals(r.deviceName to 0b101, f.scanCalls.last())          // 開いている LUN 0 と 2 は調べない
+        // 他のデバイスの LUN は skip に影響しない
+        m.open(A)
+        m.scanLuns(r)
+        assertEquals(r.deviceName to 0b101, f.scanCalls.last())
+    }
+
+    @Test fun singleLunDevicesAreUnaffected() {
+        val f = FakeFactory(); val m = mgr(f)
+        val scan = m.scanLuns(A)
+        assertFalse(scan.multi); assertEquals(1, scan.lunCount); assertTrue(scan.luns.isEmpty())
+        val s = m.open(A)                                                 // 従来の呼び方 (LUN 0)
+        assertEquals(0, s.lun); assertSame(s, m.session(A.deviceName))
+        assertEquals(listOf(A.deviceName to 0), f.lunRequests.toList())
+    }
+
+    @Test fun releaseDeviceClosesItsLunsAndTheHoldButNotOtherDevices() {
+        val f = FakeFactory(); val m = mgr(f); val r = reader()
+        m.open(r, 1); m.open(A)
+        assertEquals(1, m.releaseDevice(r.deviceName))
+        assertEquals(listOf(A.deviceName), m.openDevices())
+        assertEquals(listOf(r.deviceName), f.released)
+    }
+
+    @Test fun concurrentOpenOfDifferentLunsOfOneDeviceBothSucceed() {
+        val f = FakeFactory(); val m = mgr(f); val r = reader()
+        val gate = CountDownLatch(2)
+        f.gate = { gate.countDown(); gate.await(5, TimeUnit.SECONDS) }   // 2 つの open が同時に factory の中にいる
+        val pool = Executors.newFixedThreadPool(2)
+        val futs = (0..1).map { l -> pool.submit<UsbSession> { m.open(r, l) } }
+        futs.forEach { it.get(10, TimeUnit.SECONDS) }
+        pool.shutdown()
+        assertEquals(2, m.openCount()); assertEquals(0, gate.count)
+    }
 }
+

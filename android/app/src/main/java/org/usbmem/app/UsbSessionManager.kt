@@ -24,7 +24,10 @@ data class UsbDeviceInfo(
  * テストでは偽物に差し替える。すべてのメソッドはスレッドセーフで、close 後に呼ぶと IllegalStateException。
  */
 interface UsbSession : AutoCloseable {
+    /** 物理デバイス名 (UsbDevice.deviceName)。複数 LUN のカードリーダーでは、LUN が違っても同じ。スロット名は [UsbSlotKey.of]。 */
     val deviceName: String
+    /** このセッションの LUN (論理ユニット)。LUN 1 つの機器は 0。 */
+    val lun: Int get() = 0
     /** true = 書き込み可能で開いている (MSC が WRITE を送れる)。 */
     val writable: Boolean
     val vendorId: Int
@@ -51,9 +54,26 @@ interface UsbSession : AutoCloseable {
     fun <T> withHandle(block: (Long) -> T): T
 }
 
-/** デバイスを開いて [UsbSession] にする。実機では [UsbStorageSessionFactory]、テストでは偽物。失敗は例外 (NativeException など)。 */
+/**
+ * デバイスを開いて [UsbSession] にする。実機では [UsbStorageSessionFactory]、テストでは偽物。失敗は例外 (NativeException など)。
+ * 抽象メソッドは LUN 0 を開く [open] (従来の形。LUN 1 つの機器だけを扱うファクトリはこれだけでよい)。複数 LUN は他のメソッドを実装する。
+ */
 fun interface UsbSessionFactory {
     fun open(device: UsbDeviceInfo, writable: Boolean): UsbSession
+
+    /** [lun] を開く。LUN 0 は [open] に委ねる。複数 LUN を扱うファクトリが上書きする。 */
+    fun open(device: UsbDeviceInfo, lun: Int, writable: Boolean): UsbSession =
+        if (lun == 0) open(device, writable) else throw NativeException(9, "このファクトリは複数 LUN に対応していません")
+
+    /**
+     * LUN の数を調べ、2 以上なら全 LUN の状態 (メディアの有無・容量) を返す。[skipMask] の bit n が 1 の LUN (すでに開いている LUN) は調べない。
+     * 既定は「LUN 1 つ」。実機のファクトリは、結果を返したあとも接続 (インタフェースの確保) を保つ: 続けて [open] するまで OS に返さない。
+     * [releaseDevice] で手放す。
+     */
+    fun scanLuns(device: UsbDeviceInfo, skipMask: Int): UsbLunScan = UsbLunScan(1)
+
+    /** [scanLuns] で保っている接続を手放す (開いているセッションがあれば、それが閉じるまで保たれる)。抜去・「OS に返す」で呼ばれる。 */
+    fun releaseDevice(deviceName: String) {}
 }
 
 enum class CloseReason { User, Detached, Shutdown }
@@ -83,9 +103,13 @@ interface UsbSessionListener {
 }
 
 /**
- * 複数の USB デバイスを同時に開いて、デバイス名をキーに 1 本ずつ管理する。docs/multi-usb.md
+ * 複数の USB デバイスを同時に開いて、**スロット (デバイス名 + LUN)** をキーに 1 つずつ管理する。docs/multi-usb.md
  *
- * - デバイスごとに独立: 開く・閉じる・抜去・書き込みモード・アイドル停止の設定は、他のデバイスに影響しない。
+ * 文字列のキーは [UsbSlotKey.of] のスロット名 (LUN 0 は deviceName そのもの、LUN 1 以上は `deviceName/l<lun>`)。LUN 1 つの機器は従来どおり deviceName で扱える。
+ * 同じデバイスの別 LUN は別のスロットとして独立に開閉できる (インタフェースの確保はファクトリが LUN 間で共有し、参照カウントで管理する)。
+ * 抜去は物理デバイス単位: [onDetached] はそのデバイスの全スロットを閉じる。
+ *
+ * - スロットごとに独立: 開く・閉じる・抜去・書き込みモード・アイドル停止の設定は、他のデバイスに影響しない。
  * - 同じデバイスの二重オープンは拒否する ([UsbSessionException.Kind.AlreadyOpen])。開く最中・閉じる最中も状態として持つ。
  * - 遅い処理 (USB を開く・書き込みの確定・クローズ) は**ロックの外**で行う。ロックは状態の読み書きだけを守るので、1 本の遅い処理が他の本を止めない。
  * - 同時に開ける数は [maxOpen] (既定は無制限)。USB の帯域・給電は物理的な制約で、画面で注意を出す。
@@ -119,6 +143,12 @@ class UsbSessionManager(
     fun removeListener(l: UsbSessionListener) { listeners.remove(l) }
 
     // ---- 状態の参照
+
+    /** そのデバイス (物理) のスロット名の一覧 (開く最中・閉じる最中を含む)。 */
+    fun slotsOf(deviceName: String): List<String> = synchronized(lock) { slots.keys.filter { UsbSlotKey.deviceOf(it) == deviceName }.sorted() }
+
+    /** そのデバイスのどれかの LUN が、開く最中・開いている・閉じる最中か (= OS に返してはいけない)。 */
+    fun isDeviceBusy(deviceName: String): Boolean = synchronized(lock) { slots.keys.any { UsbSlotKey.deviceOf(it) == deviceName } }
 
     /** 開き終えている (操作できる) か。開く最中・閉じる最中は false。 */
     fun isOpen(deviceName: String): Boolean = synchronized(lock) { slots[deviceName]?.phase == Phase.Open }
@@ -206,8 +236,8 @@ class UsbSessionManager(
      * 既に開いている/開いている最中なら [UsbSessionException.Kind.AlreadyOpen]。他のデバイスが開いていても影響しない。
      * 開く最中にデバイスが抜かれたら ClosedWhileOpening (開いたセッションは閉じて返さない)。
      */
-    fun open(device: UsbDeviceInfo): UsbSession {
-        val name = device.deviceName
+    fun open(device: UsbDeviceInfo, lun: Int = 0): UsbSession {
+        val name = UsbSlotKey.of(device.deviceName, lun)
         val slot: Slot
         synchronized(lock) {
             slots[name]?.let { throw UsbSessionException(if (it.phase == Phase.Closing) UsbSessionException.Kind.Closing else UsbSessionException.Kind.AlreadyOpen, "already open: $name") }
@@ -217,7 +247,7 @@ class UsbSessionManager(
             slot = Slot(Phase.Opening, mode).also { slots[name] = it }
         }
         val session = try {
-            factory.open(device, slot.mode != WriteMode.ReadOnly)
+            factory.open(device, lun, slot.mode != WriteMode.ReadOnly)
         } catch (t: Throwable) {
             synchronized(lock) { if (slots[name] === slot) slots.remove(name) }
             throw t
@@ -270,13 +300,39 @@ class UsbSessionManager(
     }
 
     /**
-     * デバイスが抜かれた。そのデバイスのセッションだけを閉じ、そのデバイスの書き込みモードなどの設定は捨てる (次に挿したときは読み取り専用から)。
-     * 抜かれたデバイスへの I/O はすでに失敗するが、後始末 (ボリュームを閉じる) は必ず行う。
+     * デバイスが抜かれた。そのデバイスの**全スロット (全 LUN)** のセッションだけを閉じ、そのスロットの書き込みモードなどの設定は捨てる (次に挿したときは読み取り専用から)。
+     * 抜かれたデバイスへの I/O はすでに失敗するが、後始末 (ボリュームを閉じる) は必ず行う。LUN 一覧のために保っていた接続も手放す。
+     * 閉じる処理を始めたスロットが 1 つでもあれば true。
      */
     fun onDetached(deviceName: String): Boolean {
-        val closed = close(deviceName, CloseReason.Detached)
-        if (!closed) synchronized(lock) { if (!slots.containsKey(deviceName)) { modes.remove(deviceName); idleMinutes.remove(deviceName); spinConfirmed.remove(deviceName) } }   // 開いていなかった機器の設定
+        var closed = false
+        for (n in slotsOf(deviceName)) if (close(n, CloseReason.Detached)) closed = true
+        synchronized(lock) {   // 開いていなかったスロット (LUN) の設定も捨てる
+            for (m in listOf<MutableMap<String, *>>(modes, idleMinutes, spinConfirmed))
+                m.keys.filter { UsbSlotKey.deviceOf(it) == deviceName && !slots.containsKey(it) }.forEach { m.remove(it) }
+        }
+        runCatching { factory.releaseDevice(deviceName) }
         return closed
+    }
+
+    // ---- 複数 LUN
+
+    /**
+     * LUN の数と各 LUN の状態を調べる (ブロックする。UI スレッドでは呼ばない)。LUN が 1 つの機器は `UsbLunScan(1)` で、続けて `open(device)` で LUN 0 を開く。
+     * すでに開いている LUN は調べない ([UsbLunState.Skipped])。メディアを交換したあとの取り直しにも使う。
+     * 実機では接続 (インタフェースの確保) を保つので、使い終えたら [open] するか [releaseDevice] で OS に返すこと。
+     */
+    fun scanLuns(device: UsbDeviceInfo): UsbLunScan {
+        val mask = synchronized(lock) { slots.keys.filter { UsbSlotKey.deviceOf(it) == device.deviceName }.fold(0) { m, k -> m or (1 shl UsbSlotKey.lunOf(k)) } }
+        return factory.scanLuns(device, mask)
+    }
+
+    /** そのデバイスの全 LUN のセッションを閉じ (User)、LUN 一覧のために保っていた接続も手放す = OS に返す。閉じたスロット数を返す。 */
+    fun releaseDevice(deviceName: String): Int {
+        var n = 0
+        for (s in slotsOf(deviceName)) if (close(s, CloseReason.User)) n++
+        runCatching { factory.releaseDevice(deviceName) }
+        return n
     }
 
     /** 全部閉じる (アプリの終了時)。1 本の失敗で他を止めない。 */
@@ -293,7 +349,8 @@ object UsbDeviceNaming {
     private const val DEFAULT_NAME = "USB"
 
     /** バス番号-デバイス番号 ("/dev/bus/usb/001/005" -> "1-5")。読めなければ deviceName のハッシュ 4 桁。同時に接続している間は一意。 */
-    fun busId(deviceName: String): String {
+    fun busId(slotOrDeviceName: String): String {
+        val deviceName = UsbSlotKey.deviceOf(slotOrDeviceName)   // LUN の接尾辞 (/l1) は除く
         val m = Regex("""/(\d+)/(\d+)$""").find(deviceName)
         if (m != null) return "${m.groupValues[1].toInt()}-${m.groupValues[2].toInt()}"
         return "%04x".format(deviceName.hashCode() and 0xffff)
@@ -326,7 +383,14 @@ object UsbDeviceNaming {
 
     fun displayName(productName: String?, shortId: String): String = "${productName?.takeIf { it.isNotBlank() } ?: DEFAULT_NAME} [$shortId]"
 
+    /** 複数 LUN の機器の LUN 1 つの題: 「機種名 [識別子] · LUN 1」(容量が分かっていれば「 · 15.6 GB」)。LUN 1 つの機器は [displayName] のまま。 */
+    fun lunTitle(productName: String?, shortId: String, lun: Int, sizeBytes: Long = 0): String =
+        displayName(productName, shortId) + " · LUN $lun" + (if (sizeBytes > 0) " · " + formatBytes(sizeBytes) else "")
+
+    /** SAF のルートの説明に出す「USB 1-5」の識別 ("1-5"、LUN 1 以上は "1-5 LUN 1")。引数はスロット名。 */
+    fun busLabel(slot: String): String = busId(slot) + (if (UsbSlotKey.lunOf(slot) > 0) " LUN ${UsbSlotKey.lunOf(slot)}" else "")
+
     /** SAF のルート名になるボリューム名: 「機種名 [識別子] #パーティション番号」(パーティション表が無い全体は番号なし)。 */
-    fun volumeLabel(productName: String?, shortId: String, partitionIndex: Int?): String =
-        displayName(productName, shortId) + (if (partitionIndex != null) " #$partitionIndex" else "")
+    fun volumeLabel(productName: String?, shortId: String, partitionIndex: Int?, lun: Int? = null): String =
+        displayName(productName, shortId) + (if (lun != null) " · LUN $lun" else "") + (if (partitionIndex != null) " #$partitionIndex" else "")
 }

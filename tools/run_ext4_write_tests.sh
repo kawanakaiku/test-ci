@@ -134,21 +134,35 @@ for jc in "4096 -" "1024 -" "4096 ^metadata_csum" ; do
   ours=$(blocks_of "$W/jo.img" $bs $bl); ref=$(blocks_of "$W/je.img" $bs $bl)
   [ "$ours" = "$ref" ] || { echo "ours: $ours"; echo "ref:  $ref"; fail "replay ($jc): replayed blocks differ from e2fsck's replay"; continue; }
   # 再生の途中で電源断 → もう一度再生すると同じ結果に収束する
-  total=$(USBMEM_CRASH_AT=-1 "$T" --replay "$W/jx.img" 2>&1 >/dev/null; true)
   cp "$W/j.img" "$W/jx.img"; total=$(USBMEM_CRASH_AT=-1 "$T" --replay "$W/jx.img" 2>&1 | grep -a '^writes:' | sed 's/writes: //')
-  conv=0; tried=0
+  conv=0; tried=0; tornsb=0; tornsb_nobk=0
   for at in $(seq 0 $total); do
     for mode in prefix cache; do
       cp "$W/j.img" "$W/jx.img"
       USBMEM_CRASH_AT=$at USBMEM_CRASH_MODE=$mode USBMEM_CRASH_TORN=1 USBMEM_CRASH_SEED=$at "$T" --replay "$W/jx.img" >/dev/null 2>&1 || true
-      "$T" --replay "$W/jx.img" >/dev/null 2>&1 || { fail "replay ($jc): second replay failed after cut at $at/$mode"; continue; }
+      sha_before=$(sha256sum "$W/jx.img" | cut -d' ' -f1)
+      if ! "$T" --replay "$W/jx.img" >"$W/r2.log" 2>&1; then
+        # スーパーブロック自身がセクタ途中で切れた (1024 バイトの超ブロックの前半だけ書けてチェックサムが合わない = EFSBADCRC, errno 74):
+        # カーネルの ext4 と同じくマウントを拒否するのが正しい。条件: (1) 拒否は 1 バイトも書かない (2) e2fsck がバックアップ超ブロックで直せるなら、直せて clean になる
+        # (グループが 1 つだけの小さなボリュームにはバックアップが無く、e2fsck でも直せない = 実カーネルでも同じ)。
+        if grep -aq 'mount_rw failed: errno 74' "$W/r2.log"; then
+          [ "$(sha256sum "$W/jx.img" | cut -d' ' -f1)" = "$sha_before" ] || { fail "replay ($jc): torn superblock at $at/$mode: the refused mount changed the image"; continue; }
+          frc=0; e2fsck -fy "$W/jx.img" >/dev/null 2>&1 || frc=$?
+          if [ $frc -le 1 ]; then
+            e2fsck -fn "$W/jx.img" >/dev/null 2>&1 || { fail "replay ($jc): torn superblock at $at/$mode: not clean after e2fsck"; continue; }
+            tornsb=$((tornsb + 1)); nfsck=$((nfsck + 1))
+          else tornsb_nobk=$((tornsb_nobk + 1)); fi
+          continue
+        fi
+        fail "replay ($jc): second replay failed after cut at $at/$mode"; continue
+      fi
       tried=$((tried + 1))
       e2fsck -fn "$W/jx.img" >/dev/null 2>&1 || { fail "replay ($jc): not clean after cut at $at/$mode + re-replay"; continue; }
       nfsck=$((nfsck + 1))
       [ "$(blocks_of "$W/jx.img" $bs $bl)" = "$ref" ] && conv=$((conv + 1)) || fail "replay ($jc): cut at $at/$mode did not converge"
     done
   done
-  echo "[replay bs=$bs $o] blocks match e2fsck's replay ($ref); e2fsck clean; interrupted replay: $conv/$tried cut points converged (journal writes $total)"
+  echo "[replay bs=$bs $o] blocks match e2fsck's replay ($ref); e2fsck clean; interrupted replay: $conv/$tried cut points converged, $tornsb torn-superblock cuts refused without writing + repaired by e2fsck, $tornsb_nobk refused without writing (no backup superblock) (journal writes $total)"
 done
 
 # ---------- 4b. 壊したイメージを書き込み可でマウントして操作する (ファジング: クラッシュ・ハング・ASan エラーが無いこと) ----------

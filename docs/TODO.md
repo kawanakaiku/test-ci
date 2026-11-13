@@ -87,7 +87,7 @@
    (kjournald2 は作らず「待ち」で同期実行。カーネルと同じ意味の buffer_head `rt_kbh.c`)。① `Ext4Volume::readlink` ② 書き込み可のマウントだけでジャーナルを再生
    (debugfs が書いたトランザクションの再生が e2fsck とブロック一致、再生の途中の電源断も再実行で収束) ③ CreateOnly ④ Full (上書き・truncate・削除・rename・symlink・hardlink)。
    ホワイトリスト (extent / 64bit / flex_bg / metadata_csum / csum_seed / orphan_file / huge_file / dir_nlink / extra_isize / gdt_csum、ext3) 以外は読み取り専用。
-   電源断の模擬 (R/E/S/A/B の 5 検査) と突然変異 4 種 (flush・ダーティ印・ordered・解放ブロックの再利用) を検出。
+   電源断の模擬 (R/E/S/A/B の 5 検査。満杯 + 解放ブロック再利用シナリオで 640 試行・80 カットポイント失敗 0) と突然変異 4 種 (flush・ダーティ印・ordered・解放ブロックの再利用) を検出。
    - [ ] 残り: 実機 USB、meta_bg / inline_data / bigalloc / quota / largedir / ea_inode の書き込み、delalloc、大きなファイルの書き込み性能、ACL/xattr の書き込み。
    - 続き: 自前実装リーダー (F2FS / Btrfs / XFS) の**書き込み**も対象 (ユーザー希望)。順は ext4 (カーネルの jbd2) → F2FS → Btrfs → XFS の見込み。各 FS とも「新規作成のみ (CreateOnly)」→ 完全書き込みの順に段階化し、書き込み前の必須条件は ext2/exFAT と同じ: ダーティフラグ先行、解放ブロックの再利用禁止、順序付き書き戻し、クラッシュ模擬 (接頭辞/キャッシュ × 途切れ書き込み)、独立ツール (fsck.f2fs / btrfs check / xfs_repair) と実カーネルで作ったイメージによる検証、ミューテーションテスト、AVD での自己テスト。
 6. [ ] **ディスク管理 DiskTools** (6 章): 読み取り専用の整合性検査 (fsck 相当: ext / exFAT / FAT)、フォーマット (mkfs: FAT / exFAT / ext2-4 / NTFS)。NTFS の ntfsfix による自動修復は使わない (要件)。修復は明示承認 + バックアップ推奨。

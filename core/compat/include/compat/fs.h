@@ -149,6 +149,7 @@ struct super_block {
   loff_t s_maxbytes;
   void *s_fs_info;
   struct dentry *s_root;
+  struct dentry *usbmem_root_made_;   /* d_make_root が作った根 dentry (fill_super 失敗時の解放用。ext4 は失敗時に dput(s_root) して s_root を NULL にする) */
   char s_id[32];
   errseq_t s_wb_err;
   u32 s_time_gran;

@@ -24,6 +24,18 @@
 void usbmem_jbd2_set_current(journal_t *j);   /* src/rt_jbd2.c */
 int usbmem_module_init_jbd2(void);            /* fs/jbd2/journal.c の module_init (slab の作成) */
 
+/* fill_super 失敗後の強制破棄 (rt_core.c の drop_inodes_sb) から呼ばれる: ext4 の inode が持つ extent status 木を解放する。
+ * 壊れたイメージのマウント失敗では s_fs_info (sbi) が既に解放済みなので ext4_es_remove_extent (sbi の統計を触る) は呼べない。木の節だけを直接解放する。 */
+void usbmem_drop_inode_extra(struct inode *inode) {
+  const char *n = inode->i_sb && inode->i_sb->s_type ? inode->i_sb->s_type->name : NULL;
+  if (!n || strncmp(n, "ext", 3) != 0) return;
+  struct rb_node *nd;
+  while ((nd = rb_first(&EXT4_I(inode)->i_es_tree.root)) != NULL) {
+    rb_erase(nd, &EXT4_I(inode)->i_es_tree.root);
+    free(rb_entry(nd, struct extent_status, rb_node));
+  }
+}
+
 struct usbmem_ext4 {
   struct super_block *sb;
   int can_write;      /* 書き込み要求あり、かつ前提を満たす */

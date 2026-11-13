@@ -259,13 +259,14 @@ static int evict_inodes_sb(struct super_block *sb) {
 /* fill_super 失敗後の強制破棄: s_fs_info は既に解放済みなので evict_inode コールバックは呼べない。
  * sb アドレスが再利用されたとき古い inode と誤一致して UAF になるのを防ぐため、ハッシュから外して inode 本体だけ解放する
  * (inode 内部の確保物は失敗経路では解放しきれずリークしうるが、安全側を優先する)。 */
+extern void usbmem_drop_inode_extra(struct inode *) __attribute__((weak));   /* rt_vfs_ext4.c: ext4 の extent status 木 */
 static void drop_inodes_sb(struct super_block *sb) {
   pthread_mutex_lock(&g_inode_lock);
   for (int b = 0; b < 1024; b++) {
     struct inode **p = &g_inode_hash[b];
     while (*p) {
       struct inode *i = *p;
-      if (i->i_sb == sb) { *p = i->i_hash_next_; i->i_hashed_ = false; truncate_inode_pages_final(&i->i_data); destroy_inode(i); }
+      if (i->i_sb == sb) { *p = i->i_hash_next_; i->i_hashed_ = false; if (usbmem_drop_inode_extra) usbmem_drop_inode_extra(i); truncate_inode_pages_final(&i->i_data); destroy_inode(i); }
       else p = &i->i_hash_next_;
     }
   }
@@ -470,7 +471,7 @@ struct dentry *d_make_root(struct inode *i) {
   if (!i) return NULL;
   struct qstr q = { (const unsigned char *)"/", 1, 0 };
   struct dentry *d = dentry_alloc(i->i_sb, NULL, &q);
-  if (d) d->d_inode = i;
+  if (d) { d->d_inode = i; i->i_sb->usbmem_root_made_ = d; }
   return d;
 }
 struct dentry *d_obtain_alias(struct inode *i) {
@@ -587,7 +588,9 @@ int get_tree_bdev(struct fs_context *fc, int (*fill_super)(struct super_block *,
   strcpy(sb->s_id, "usbmem");
   sb->s_fc_ = fc;
   int rc = fill_super(sb, fc);
-  if (rc) { fprintf(stderr, "usbmem-compat: fill_super failed: %d\n", rc); drop_inodes_sb(sb); if (sb->s_type && sb->s_type->kill_sb) sb->s_type->kill_sb(sb); free(sb); usbmem_rcu_flush(); return rc; }
+  if (rc) { fprintf(stderr, "usbmem-compat: fill_super failed: %d\n", rc);
+    if (sb->usbmem_root_made_) { struct dentry *rd = sb->usbmem_root_made_; sb->usbmem_root_made_ = NULL; sb->s_root = NULL; usbmem_d_free_root(rd); }   /* dput が何もしないので、失敗時に根 dentry (と inode 参照) が漏れる */
+    drop_inodes_sb(sb); if (sb->s_type && sb->s_type->kill_sb) sb->s_type->kill_sb(sb); free(sb); usbmem_rcu_flush(); return rc; }
   fc->root = sb->s_root;
   return 0;
 }

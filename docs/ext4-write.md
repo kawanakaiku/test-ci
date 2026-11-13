@@ -84,6 +84,23 @@ LinuxCompat の上で**ジャーナル付きの書き込み**を動かした。e
 | `USBMEM_MUTATE_NO_ORDERED` | データをコミットの後に書く | S (サイズはあるのに中身が違う) が検出 |
 | `USBMEM_MUTATE_WRITEBACK` | data=writeback: 解放したデータブロックをコミット前に再利用 | A (消したはずの元ファイルの中身が新しいデータに入れ替わる) が検出 |
 
+## 実測結果 (2026-11-13、ホストと AVD。実機は未確認)
+| 項目 | 結果 |
+|---|---|
+| `run_ext4_write_tests.sh` (wsan = ASan+UBSan 書き込み有効) | 全通過 (`e2fsck -fn` 61 回): 決まった操作列 3 フィクスチャ (各 767 操作・6269 エントリ) が fuse2fs とツリー一致、モデル 14 構成 (4k/1k/2k ^metadata_csum/ext3/^orphan_file/CreateOnly) 一致、3000 ファイル (1k/4k) 一致、ジャーナル再生 3 構成が e2fsck の再生とブロック一致、書き込みファジング 2 × 200 反復 (クラッシュ・ハング・リークなし)、noop・拒否 10 種・満杯/inode 枯渇 |
+| 再生中の電源断 (カットポイント 6 書き込み × prefix/cache × torn) | 4k: 12/12 収束 (うち 2 点は超ブロックがセクタ途中で切れて拒否、バックアップ無し)、1k: 12/12 (うち 2 点は拒否 + e2fsck が直して clean)、4k ^metadata_csum: 14/14 |
+| `run_ext4_crash_tests.sh` (wrel、満杯 + 解放ブロック再利用シナリオ) | 1k 40 点 = 320 試行、4k 20 点 = 160 試行、1k ^metadata_csum 20 点 = 160 試行: 合計 640 試行・カットポイント 80 点で R/E/S/A/B すべて 0 失敗 (e2fsck -fn 検査 643 回) |
+| 突然変異 4 種 (各 12 点 = 96 試行) | NO_FLUSH: S 12・A 18・B 16 / NO_SB_WRITE: E 36・S 24・A 36・B 88 / NO_ORDERED: S 20 / WRITEBACK: A 42 — すべて検出 |
+| AVD (emulator-5556) `Ext4WriteTest` 4 件 | OK。操作列の結果は 6109 エントリが fuse2fs の参照と一致、e2fsck clean、needs_recovery 消去。Android 上のジャーナル再生は e2fsck の再生とブロック一致。CreateOnly の拒否・汚れたボリュームの読み取り専用も通過 |
+| AVD `Ext2WriteTest` 3 件 (ext4 を書かずに閉じればイメージ不変を含む) | OK (1092 エントリが fuse2fs の参照と一致) |
+
+この段階で見つけて直したもの (どれもテストが捕まえた):
+- **ENOSPC 後の folio 漏れ**: `ext4_write_begin` は ENOSPC で `ext4_truncate_failed_write` が folio をキャッシュから捨てたあと、同じ folio を持ったまま再試行する。
+  カーネルは切り離した folio の `mapping` を NULL にするので再試行側が `folio->mapping != mapping` で取り直せるが、互換層は NULL にしていなかった (KBH の folio だけ NULL にするよう修正、`rt_pagecache.c`)。
+- **マウント失敗時の漏れ**: `fill_super` 失敗で根 dentry (と inode 参照) が漏れる (ext4 は `dput(s_root)` してから `s_root = NULL` にし、互換層の `dput` は何もしない)。`d_make_root` が作った dentry を `sb->usbmem_root_made_` に覚えて失敗経路で解放。
+  失敗した inode の extent status 木も漏れていた (`drop_inodes_sb` から `usbmem_drop_inode_extra` で解放)。
+- テストスクリプト: `run_ext4_write_tests.sh` の再生カットポイントの節に `set -e` で途中終了する行があった (削除)。作業ディレクトリは `USBMEM_WORK_DIR` で /dev/shm 以外にできる。
+
 ## 既知の限界・未実装
 - **実機 (USB ディスク) では未確認**。ホスト (ASan/UBSan を含む 4 構成) と AVD のみ。flush を無視する USB ブリッジでは順序の保証が効かない (ジャーナルのチェックサムで壊れたトランザクションは捨てられるが、同期済みの変更が失われうる)。
 - ホワイトリスト外の機能 (meta_bg・inline_data・bigalloc・quota・largedir・ea_inode・mmp・fast_commit・外部ジャーナル・ブロックサイズ 8K 以上) は書き込み不可 (読み取りはできる)。
@@ -91,4 +108,5 @@ LinuxCompat の上で**ジャーナル付きの書き込み**を動かした。e
 - コミットはタイマーで起きない: アプリは操作ごとに `sync` する (SAF と同じ使い方)。`sync` しないまま電源が切れると、最後の同期以降の操作は失われる (ジャーナルなので整合性は保たれる)。
 - ACL・xattr の書き込み (security.* など) は公開していない。所有者は親ディレクトリから引き継ぐ (ext2 と同じ)。
 - 予約ブロック: ext2 と同じく uid 0 扱い (root 予約まで使える)。
+- **超ブロックの途中で切れた書き込み (torn write)**: 1024 バイトの超ブロックがセクタ途中で切れる (前半だけ書けてチェックサムが合わない) と、カーネルの ext4 と同じくマウントは拒否される (1 バイトも書かない)。バックアップ超ブロックがあれば e2fsck で直る。ブロックグループが 1 つだけの小さなボリュームにはバックアップが無い。
 - jbd2 の `/proc` 統計・lockdep・トレースは空実装。`kthread_run` は jbd2 以外を拒否する (lazyinit / kmmpd はマウントオプションで起きないようにしている)。

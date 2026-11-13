@@ -236,7 +236,13 @@ void truncate_inode_pages(struct address_space *m, loff_t from) {
       struct folio *f = *pp;
       if (f->index >= first) {
         *pp = f->hash_next_; p->count--;
-        if (((f->flags >> FOLIO_KBH_RING) & 1) && usbmem_kbh_release_folio) usbmem_kbh_release_folio(f);   /* 輪の持つ参照も外す (カーネルの invalidate_folio 相当) */
+        if (((f->flags >> FOLIO_KBH_RING) & 1) && usbmem_kbh_release_folio) {
+          usbmem_kbh_release_folio(f);   /* 輪の持つ参照も外す (カーネルの invalidate_folio 相当) */
+          /* カーネルは切り離した folio の mapping を NULL にする。ext4_write_begin は ENOSPC の失敗後 (ext4_truncate_failed_write が folio を捨てる) に
+           * 同じ folio を持ったまま再試行するので、`folio->mapping != mapping` を見て取り直せるようにする (しないと、捨てた folio に輪を付け直して漏れる)。
+           * KBH (ext4) の folio だけ: 他の FS は従来どおり。 */
+          f->mapping = NULL;
+        }
         folio_put(f); /* キャッシュ参照を外す。使用中なら最後の put で解放 */
       } else pp = &f->hash_next_;
     }

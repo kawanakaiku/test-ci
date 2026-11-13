@@ -113,3 +113,5 @@ DiskTools (上の項 6) の進捗: 読み取り専用の整合性検査 (FAT12/1
 Btrfs (読み取り専用) の進捗: 単一デバイスの Btrfs を自前のリーダーで読み取り専用マウントできる (カーネルの fs/btrfs は載せていない。理由は docs/btrfs-port.md)。
 チェックサム 4 種・zlib/lzo/zstd・ノード/セクタサイズ違い・サブボリューム・DUP・NODATASUM・tree-log 未再生の確認ダイアログまで host 4 構成と AVD で検証済み。
 未了: 複数デバイス / RAID、サブボリューム選択 UI、xattr、実機確認、reflink の実イメージ。XFS / F2FS は別の worktree。
+Btrfs の書き込み (実験的・`USBMEM_NTFS_WRITE` ビルドのみ・docs/btrfs-write.md): 読み取りリーダーの上に自前の COW エンジンを足した (カーネルの fs/btrfs は載せていない)。CreateOnly と Full (削除・上書き・truncate・rename・hardlink・symlink) を実装し、ホスト (btrfs check / btrfs restore / 実カーネル相互確認は CI) で検証。
+ホワイトリスト外 (RAID・サブボリューム・quota・ログツリー未再生・未知フラグ・ミラー不一致など) は読み取り専用。未了: 実機 USB、システム chunk の確保、サブボリューム/スナップショット/reflink 共有 extent の書き込み、tree-log への書き込み、大量削除の分割トランザクション。

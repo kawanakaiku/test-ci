@@ -8,10 +8,15 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
+#include <deque>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <unordered_map>
 
 #include "usbmem/crypto.h"
@@ -49,7 +54,7 @@ enum : u8 {
   kInodeItem = 1, kInodeRef = 12, kDirItem = 84, kDirIndex = 96, kExtentData = 108, kExtentCsum = 128,
   kRootItem = 132, kRootRef = 156, kChunkItem = 228,
 };
-constexpr u64 kRootTreeObj = 1, kChunkTreeObj = 3, kFsTreeObj = 5, kRootTreeDirObj = 6, kCsumTreeObj = 7, kFirstFree = 256;
+constexpr u64 kRootTreeObj = 1, kExtentTreeObj = 2, kChunkTreeObj = 3, kFsTreeObj = 5, kRootTreeDirObj = 6, kCsumTreeObj = 7, kFirstFree = 256;
 constexpr u64 kExtentCsumObj = static_cast<u64>(-10);
 constexpr u64 kFirstChunkObj = 256;
 
@@ -173,6 +178,10 @@ struct BtrfsVolume::Impl {
   std::string label_;
   bool log_ignored = false;
 
+  // スーパーブロックの各コピーの状態 (書き込みマウントの検査用: ミラーが壊れている / 世代が違うときは書かない)
+  bool sb_inrange[3] = {false, false, false}, sb_valid_seen[3] = {false, false, false};
+  u64 sb_gen_seen[3] = {0, 0, 0};
+
   std::map<u64, Chunk> chunks;
   std::unordered_map<u64, NodeP> ncache;
   size_t ncache_max = 64;
@@ -253,6 +262,12 @@ struct BtrfsVolume::Impl {
   }
 
   int read_node(u64 logical, int expect_level, NodeP* out) {
+#ifdef USBMEM_NTFS_WRITE
+    {   // 現在のトランザクションで作った (未書き込みの) ブロックを優先
+      auto dit = dirty.find(logical);
+      if (dit != dirty.end()) { *out = dit->second; return 0; }
+    }
+#endif
     auto it = ncache.find(logical);
     if (it != ncache.end() && (expect_level < 0 || it->second->level == expect_level)) { *out = it->second; return 0; }
     std::vector<u64> phys;
@@ -340,6 +355,7 @@ struct BtrfsVolume::Impl {
   // ---- ルート / サブボリューム
   int load_root_item(u64 id, Subvol* sv) {
     if (id == kRootTreeObj) { sv->id = id; sv->bytenr = root_bytenr; sv->level = root_level; return 0; }
+    if (id == kChunkTreeObj) { sv->id = id; sv->bytenr = chunk_root; sv->level = chunk_level; return 0; }
     Cursor c;
     int rc = search(root_bytenr, root_level, Key{id, kRootItem, ~0ull}, true, c);
     if (rc < 0) return rc;
@@ -693,7 +709,9 @@ struct BtrfsVolume::Impl {
     std::array<u8, kSbSize> cand{};
     u64 best_gen = 0;
     for (int i = 0; i < 3; i++) {
+      sb_inrange[i] = false; sb_valid_seen[i] = false; sb_gen_seen[i] = 0;
       if (!range_ok(dev->size(), kSbOffsets[i], kSbSize)) continue;
+      sb_inrange[i] = true;
       if (devread(kSbOffsets[i], cand.data(), kSbSize)) continue;
       if (std::memcmp(&cand[0x40], "_BHRfS_M", 8) != 0) continue;
       if (le64(&cand[0x30]) != kSbOffsets[i]) continue;
@@ -704,6 +722,7 @@ struct BtrfsVolume::Impl {
       calc_csum(ct, &cand[32], kSbSize - 32, cs);
       if (std::memcmp(cs, cand.data(), cl) != 0) continue;
       u64 gen = le64(&cand[0x48]);
+      sb_valid_seen[i] = true; sb_gen_seen[i] = gen;
       if (best < 0 || gen > best_gen) { best = i; best_gen = gen; sb = cand; }
     }
     return best < 0 ? -EINVAL : 0;
@@ -830,6 +849,11 @@ struct BtrfsVolume::Impl {
     if ((ri.mode & 0170000) != 0040000) return -EIO;
     return 0;
   }
+
+#ifdef USBMEM_NTFS_WRITE
+#include "btrfs_write.inc"
+#include "btrfs_write_ops.inc"
+#endif
 };
 
 // ---- 公開 API
@@ -850,7 +874,18 @@ std::unique_ptr<BtrfsVolume> BtrfsVolume::mount(BlockDevicePtr dev, int* err, co
   }
   return v;
 }
-BtrfsVolume::~BtrfsVolume() = default;
+BtrfsVolume::~BtrfsVolume() {
+#ifdef USBMEM_NTFS_WRITE
+  // 未コミットの変更があればコミットする (失敗しても例外は出さない。確定済みの状態は壊れない)
+  try {
+    if (impl_) {
+      std::lock_guard<std::mutex> lk(impl_->mu);
+      if (impl_->writable_ && impl_->txn_open) impl_->commit_txn();
+    }
+  } catch (...) {
+  }
+#endif
+}
 
 uint64_t BtrfsVolume::root() const { return Impl::make_ino(0, kFirstFree); }
 uint64_t BtrfsVolume::mounted_subvolume() const { return impl_->mount_subvol; }
@@ -1019,5 +1054,90 @@ int BtrfsVolume::list_subvolumes(std::vector<BtrfsSubvolume>* out) {
     return 0;
   )
 }
+
+// ---- 書き込み系の公開 API (USBMEM_NTFS_WRITE のビルドだけ実体。そうでなければ全て EROFS)
+#ifdef USBMEM_NTFS_WRITE
+std::unique_ptr<BtrfsVolume> BtrfsVolume::mount_rw(BlockDevicePtr dev, int* err) {
+  auto v = mount(std::move(dev), err, BtrfsMountOptions{});
+  if (!v) return nullptr;
+  try {
+    std::lock_guard<std::mutex> lk(v->impl_->mu);
+    std::string why = v->impl_->rw_load();
+    if (why.empty()) v->impl_->writable_ = true;
+    else v->impl_->ro_reason = why;
+  } catch (...) {
+    v->impl_->ro_reason = "書き込み可の検査中に例外";
+  }
+  return v;
+}
+bool BtrfsVolume::writable() const { return impl_->writable_; }
+std::string BtrfsVolume::read_only_reason() const { return impl_->ro_reason; }
+int BtrfsVolume::sync() { BTRFS_GUARD(return impl_->do_sync();) }
+int BtrfsVolume::create(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) {
+  BTRFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.op_create(dir, name, mode, ino); });)
+}
+int BtrfsVolume::mkdir(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) {
+  BTRFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.op_mkdir(dir, name, mode, ino); });)
+}
+int BtrfsVolume::unlink(uint64_t dir, const std::string& name) {
+  BTRFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.op_unlink(dir, name); }, 0, true);)
+}
+int BtrfsVolume::rmdir(uint64_t dir, const std::string& name) {
+  BTRFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.op_rmdir(dir, name); }, 0, true);)
+}
+int BtrfsVolume::rename(uint64_t od, const std::string& on, uint64_t nd, const std::string& nn) {
+  BTRFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.op_rename(od, on, nd, nn); });)
+}
+int BtrfsVolume::symlink(uint64_t dir, const std::string& name, const std::string& target, uint64_t* ino) {
+  BTRFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.op_symlink(dir, name, target, ino); });)
+}
+int BtrfsVolume::link(uint64_t dir, const std::string& name, uint64_t target_ino) {
+  BTRFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.op_link(dir, name, target_ino); });)
+}
+int BtrfsVolume::truncate(uint64_t ino, uint64_t size) {
+  BTRFS_GUARD(
+    Impl& m = *impl_;
+    if (ino >> 48) return m.writable_ ? -EOPNOTSUPP : -EROFS;
+    if (size > (1ull << 62)) return m.writable_ ? -EFBIG : -EROFS;
+    return m.run_op([&] { return m.truncate_file(ino, size); }, size > 0 ? 2 * static_cast<u64>(m.sectorsize) : 0, size == 0);
+  )
+}
+int64_t BtrfsVolume::write(uint64_t ino, uint64_t off, const void* buf, size_t len) {
+  BTRFS_GUARD(return impl_->write_all(ino, off, buf, len);)
+}
+int64_t BtrfsVolume::write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len) {
+  BTRFS_GUARD(
+    Impl& m = *impl_;
+    if (!m.writable_) return m.aborted ? -EIO : -EROFS;
+    if (ino >> 48) return -EOPNOTSUPP;
+    std::vector<u8> iv;
+    int rc = m.inode_get(ino, &iv);
+    if (rc) return rc;
+    u32 fmt = Impl::i_mode(iv) & 0170000;
+    if (fmt == 0040000) return -EISDIR;
+    if (fmt != 0100000) return -EINVAL;
+    if (off + len < off || off + len > Impl::i_size(iv)) return -EINVAL;
+    return m.write_all(ino, off, buf, len);
+  )
+}
+#else
+std::unique_ptr<BtrfsVolume> BtrfsVolume::mount_rw(BlockDevicePtr, int* err) {
+  if (err) *err = EROFS;
+  return nullptr;
+}
+bool BtrfsVolume::writable() const { return false; }
+std::string BtrfsVolume::read_only_reason() const { return "このビルドは書き込み非対応 (USBMEM_NTFS_WRITE=OFF)"; }
+int BtrfsVolume::sync() { return -EROFS; }
+int BtrfsVolume::create(uint64_t, const std::string&, uint32_t, uint64_t*) { return -EROFS; }
+int BtrfsVolume::mkdir(uint64_t, const std::string&, uint32_t, uint64_t*) { return -EROFS; }
+int BtrfsVolume::unlink(uint64_t, const std::string&) { return -EROFS; }
+int BtrfsVolume::rmdir(uint64_t, const std::string&) { return -EROFS; }
+int BtrfsVolume::rename(uint64_t, const std::string&, uint64_t, const std::string&) { return -EROFS; }
+int BtrfsVolume::symlink(uint64_t, const std::string&, const std::string&, uint64_t*) { return -EROFS; }
+int BtrfsVolume::link(uint64_t, const std::string&, uint64_t) { return -EROFS; }
+int BtrfsVolume::truncate(uint64_t, uint64_t) { return -EROFS; }
+int64_t BtrfsVolume::write(uint64_t, uint64_t, const void*, size_t) { return -EROFS; }
+int64_t BtrfsVolume::write_inplace(uint64_t, uint64_t, const void*, size_t) { return -EROFS; }
+#endif
 
 }  // namespace usbmem

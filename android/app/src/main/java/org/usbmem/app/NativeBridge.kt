@@ -103,7 +103,7 @@ data class NtfsEntry(val name: String, val ino: Long, val isDir: Boolean, val si
  */
 class NtfsVolume private constructor(private var handle: Long, val writable: Boolean = false, val createOnly: Boolean = false) : AutoCloseable {
     private val createdHere = HashSet<String>()
-    /** マウントしたファイルシステム ("ntfs" / "exfat" / "ext2" / "ext4" / "fat" / "iso9660" / "udf"。ext3 も ext4 ドライバなので "ext4"。FAT12/16/32 は "fat")。 */
+    /** マウントしたファイルシステム ("ntfs" / "exfat" / "ext2" / "ext4" / "btrfs" / "fat" / "iso9660" / "udf"。ext3 も ext4 ドライバなので "ext4"。FAT12/16/32 は "fat")。 */
     val fsName: String = String(NativeBridge.nativeFsName(handle), Charsets.UTF_8)
     /** ext3/ext4 のジャーナルが未再生のまま (再生せず) 読み取り専用で開いている。内容が古い/欠けている可能性がある。 */
     @Volatile var journalIgnored: Boolean = false
@@ -187,7 +187,7 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
         val b = NativeBridge.nativeFsReadlink(handle, bytes(path), err) ?: throw NativeException(err[0], "readlink '$path' failed: errno ${err[0]}")
         return String(b, Charsets.UTF_8)
     }
-    /** parent の下に name のシンボリックリンクを作る (新規作成なので createOnly でも可)。inode 番号を返す。ext2 / ext4 (ext3 を含む)。 */
+    /** parent の下に name のシンボリックリンクを作る (新規作成なので createOnly でも可)。inode 番号を返す。ext2 / ext4 (ext3 を含む) / btrfs。 */
     @Synchronized
     fun symlink(parent: String, name: String, target: String): Long {
         checkWritable()
@@ -196,7 +196,7 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
         sync()
         return ino
     }
-    /** 既存の existing へのハードリンクを parent の下に name で作る (既存データに別名を付けるので createOnly では拒否)。ext2 / ext4 (ext3 を含む)。 */
+    /** 既存の existing へのハードリンクを parent の下に name で作る (既存データに別名を付けるので createOnly では拒否)。ext2 / ext4 (ext3 を含む) / btrfs。 */
     @Synchronized
     fun link(parent: String, name: String, existing: String) {
         checkWritable(); denyIfCreateOnly("link")

@@ -228,7 +228,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                     pub = PublishedVolume(label, getString(R.string.mode_read_only_journal_ignored), false, volumeKey = vk, startBytes = startBytes)
                     notice = Notice(Severity.Warning, getString(R.string.notice_journal_ignored), getString(R.string.notice_journal_ignored_detail))
                 } else if (!sess.writable) pub = PublishedVolume(label, roText, false, volumeKey = vk, startBytes = startBytes)
-                else if (v.writable) pub = PublishedVolume(label, getString(if (v.createOnly) R.string.mode_create_only else R.string.mode_full), true, fullWrite = !v.createOnly, canLink = v.fsName == "ext2" || v.fsName == "ext4", volumeKey = vk, startBytes = startBytes)
+                else if (v.writable) pub = PublishedVolume(label, getString(if (v.createOnly) R.string.mode_create_only else R.string.mode_full), true, fullWrite = !v.createOnly, canLink = v.fsName == "ext2" || v.fsName == "ext4" || v.fsName == "btrfs", volumeKey = vk, startBytes = startBytes)
                 else {
                     pub = PublishedVolume(label, roText, false, volumeKey = vk, startBytes = startBytes)
                     notice = Notice(Severity.Warning, getString(R.string.notice_published_read_only), getString(R.string.notice_published_read_only_detail))

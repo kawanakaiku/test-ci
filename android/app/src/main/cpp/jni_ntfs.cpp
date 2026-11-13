@@ -84,8 +84,11 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     return usbmem::ErofsVolume::mount(dev, err);
   }
   if (t == usbmem::FsType::Btrfs) {
-    // Btrfs は自前の読み取り専用リーダー (docs/btrfs-port.md)。rw を要求されても読み取り専用でマウントする。tree-log が未再生なら EUCLEAN(117)。
+    // Btrfs は自前のリーダー (docs/btrfs-port.md) と、実験的な書き込み (docs/btrfs-write.md)。tree-log が未再生なら EUCLEAN(117)。
     // 複数デバイス / RAID0・5・6・10 / 未知の機能は EOPNOTSUPP(95)。allow_noload は、ユーザーが確認したうえで tree-log を無視して開く場合だけ true (ext4 と同じ)
+    // rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。書き込みのホワイトリスト (single / DUP・free space tree・サブボリュームなし・
+    // ミラー一致など: docs/btrfs-write.md) を満たさないボリュームは mount_rw の中で読み取り専用に落ちる (writable() == false で分かる)
+    if (rw && !allow_noload) return usbmem::BtrfsVolume::mount_rw(dev, err);
     usbmem::BtrfsMountOptions ob; ob.allow_noload = allow_noload;
     return usbmem::BtrfsVolume::mount(dev, err, ob);
   }

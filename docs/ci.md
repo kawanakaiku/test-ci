@@ -19,7 +19,7 @@
 
 | グループ | 中身 (`tools/run_android_<fs>_test.sh` を呼ぶ) | ジョブ時間の目安 |
 |---|---|---|
-| `ext-fat` | `fat`、`ext2_write`、`exfat_write` | 約 5 分 |
+| `ext-fat` | `fat`、`fat_write`、`ext2_write`、`exfat_write` | 約 7 分 |
 | `btrfs-xfs` | `btrfs` (16 イメージ)、`xfs` | 約 7 分 (btrfs が約 80-100 秒) |
 | `squash-erofs` | `squashfs`、`erofs`、`f2fs` (`ext` イメージのみ) | 約 6 分 |
 | `nested-ntfs` | `nested`、`write` (NTFS 書き込み + SAF) | 約 5 分 |
@@ -61,6 +61,7 @@ Java は Temurin 17、Gradle は 9.0.0 (ラッパー)、NDK 30.0.16248370、CMak
 | FS | 件数 | 備考 |
 |---|---|---|
 | fat | 6 | |
+| fat_write | 3 | FAT12 / FAT16 / FAT32 の操作列 (fsck.fat・7z・ホスト参照ツリーとの比較) + ダーティ 2 種が読み取り専用に落ちる |
 | ext2_write | 3 | ホスト側の fsck / fuse2fs 参照実装との比較を含む |
 | exfat_write | 2 | 同上 (exfat-fuse) |
 | btrfs | 18 | 16 イメージ (チェックサム 4 種・圧縮 4 種・ノード/セクタサイズ・dup・subvol・ログ再生拒否など) |

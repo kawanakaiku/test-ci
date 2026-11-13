@@ -13,11 +13,13 @@ struct FatVolume::Impl {
   usbmem_bdev* bd = nullptr;
 };
 
-std::unique_ptr<FatVolume> FatVolume::mount(BlockDevicePtr dev, int* err) {
+std::unique_ptr<FatVolume> FatVolume::mount(BlockDevicePtr dev, int* err) { return mount_impl(std::move(dev), 1, err); }
+std::unique_ptr<FatVolume> FatVolume::mount_rw(BlockDevicePtr dev, int* err) { return mount_impl(std::move(dev), 0, err); }
+std::unique_ptr<FatVolume> FatVolume::mount_impl(BlockDevicePtr dev, int ro, int* err) {
   std::unique_ptr<FatVolume> vol(new FatVolume());
   vol->impl_.reset(new Impl());
   vol->impl_->bd = usbmem_bdev_wrap(&dev);
-  int rc = usbmem_fat_mount(vol->impl_->bd, 1, &vol->impl_->v);
+  int rc = usbmem_fat_mount(vol->impl_->bd, ro, &vol->impl_->v);
   if (rc) {
     if (err) *err = -rc;
     usbmem_bdev_free(vol->impl_->bd);
@@ -56,5 +58,17 @@ int FatVolume::readdir(uint64_t dir, std::vector<FsDirEntry>* out) {
 int64_t FatVolume::read(uint64_t ino, uint64_t off, void* buf, size_t len) {
   return usbmem_fat_read(impl_->v, ino, off, buf, len);
 }
+bool FatVolume::writable() const { return usbmem_fat_writable(impl_->v) != 0; }
+int FatVolume::sync() { return usbmem_fat_sync(impl_->v); }
+int FatVolume::create(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) { return usbmem_fat_create(impl_->v, dir, name.data(), name.size(), mode, ino); }
+int FatVolume::mkdir(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) { return usbmem_fat_mkdir(impl_->v, dir, name.data(), name.size(), mode, ino); }
+int FatVolume::unlink(uint64_t dir, const std::string& name) { return usbmem_fat_unlink(impl_->v, dir, name.data(), name.size()); }
+int FatVolume::rmdir(uint64_t dir, const std::string& name) { return usbmem_fat_rmdir(impl_->v, dir, name.data(), name.size()); }
+int FatVolume::rename(uint64_t od, const std::string& on, uint64_t nd, const std::string& nn) {
+  return usbmem_fat_rename(impl_->v, od, on.data(), on.size(), nd, nn.data(), nn.size());
+}
+int64_t FatVolume::write(uint64_t ino, uint64_t off, const void* buf, size_t len) { return usbmem_fat_write(impl_->v, ino, off, buf, len); }
+int FatVolume::truncate(uint64_t ino, uint64_t size) { return usbmem_fat_truncate(impl_->v, ino, size); }
+int64_t FatVolume::write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len) { return usbmem_fat_write_inplace(impl_->v, ino, off, buf, len); }
 
 }  // namespace usbmem

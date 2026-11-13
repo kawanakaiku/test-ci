@@ -69,7 +69,9 @@
 - [ ] NTFS のリパースポイント (シンボリックリンク/ジャンクション) の表示は未対応。
 - [x] ext4 の書き込み: jbd2 (fs/jbd2 無改変) を互換層に載せた (docs/ext4-write.md)。ext2 の bh 基盤ではなく、カーネルと同じ意味の bh (`rt_kbh.c`) を ext4/jbd2 専用に足した。
 - [x] FAT12/16/32 + vfat (fs/fat 無改変) 読み取り専用: ホスト 4 構成のテスト (8 イメージ x 約 331 ファイル、4Kn セクタ・フロッピー・断片化・日本語/サロゲートペア名・属性・2 秒時刻)、AVD (x86_64) の計装テスト 6 イメージ。docs/fat-port.md 参照。
-- [ ] FAT の実機 USB ディスクでの確認 (手順は docs/fat-port.md の末尾)。FAT の書き込み、短い名前の codepage=932 (cp932 の表は登録済み。マウントオプションを渡す口が未実装)、隠し/システム属性の表示。
+- [x] FAT12/16/32 の書き込み (fs/fat 無改変、実験的・`USBMEM_NTFS_WRITE` ビルドのみ): ダーティ印 (ブートセクタ + FAT[1]) の先行確定、データ → FAT1 → FAT2 → エントリの同期順序、FSInfo、LFN / 8.3 衝突、電源断の模擬 (突然変異テスト 6 種で検出力を確認)、fsck.fat / mtools / 7z とカーネル vfat (CI) による独立検証、AVD の `FatWriteTest`。docs/fat-write.md 参照。
+- [ ] FAT の書き込み: 実機 USB での確認 (flush の効き方)、複数セクタにまたがる FAT 更新の途中での電源断 (fsck.fat が直す。軽減なし)、16M クラスタ超の FAT32 の FSInfo (不明のまま)。
+- [ ] FAT の実機 USB ディスクでの確認 (手順は docs/fat-port.md の末尾)。短い名前の codepage=932 (cp932 の表は登録済み。マウントオプションを渡す口が未実装)、隠し/システム属性の表示。
 - [x] F2FS 読み取り専用 (docs/f2fs-port.md。**カーネルの fs/f2fs は取り込まず、オンディスク形式からの自前実装**。圧縮の展開のみ usbmem_kdecomp): インライン / 圧縮 (lz4・lzo・lzo-rle・zstd) / 二重間接 / roll-forward 検出 (EUCLEAN、確認のうえ無視して開ける)。検証は mkfs/sload/fsck.f2fs と、QEMU 上の本物のカーネルが書いたイメージ。実機 USB は未確認。
 - [ ] F2FS: 実機での確認、圧縮の chksum 検証、xattr/ACL の公開、暗号化・casefold・verity・4K 以外のブロックサイズ、書き込み。
 - [ ] 次: squashfs/erofs (進行中)、ntfs3 (NTFS の第二のバックエンドとして選択可能に)。見積もり (tools/fs_compat_probe.py): ntfs3 は 33k 行で iomap/folio 前提 (gcc エラー 618 件)。

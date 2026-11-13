@@ -130,11 +130,12 @@ int __block_write_begin(struct folio *folio, loff_t pos, unsigned len, get_block
   struct inode *inode = folio->mapping->host;
   unsigned bits = inode->i_blkbits, bs = 1u << bits;
   size_t from = (size_t)(pos & (PAGE_SIZE - 1)), to = from + len;
-  if (to > PAGE_SIZE || !len) return -EINVAL;
+  if (to > PAGE_SIZE) return -EINVAL;
   if (!folio_test_uptodate(folio) && !(from == 0 && to == PAGE_SIZE)) {
     int e = fill_folio_from_disk(folio, get_block);
     if (e) return e;
   }
+  if (!len) return 0;   /* 長さ 0 (FAT の拡張 truncate = fat_cont_expand_simple): ブロックの確保はしない。folio は上で読んでおく (write_end が uptodate にするため) */
   sector_t block = ((sector_t)folio->index << (PAGE_SHIFT - bits)) + (from >> bits);
   size_t b0 = from & ~(size_t)(bs - 1), b1 = (to + bs - 1) & ~(size_t)(bs - 1);
   char *data = folio->data;
@@ -220,6 +221,54 @@ ssize_t generic_file_write_iter(struct kiocb *iocb, struct iov_iter *from) {
   }
   inode_unlock(inode);
   return ret;
+}
+
+/* cont_write_begin (fs/buffer.c): ファイルの終端 *bytes (割り当て済みの長さ。FAT の mmu_private) より先へ書くとき、間をゼロで埋めてから書く (FAT は穴を持てない)。
+ * 間の埋め込みは a_ops->write_begin / write_end をそのまま呼ぶ (呼び出し側 FS が割り当て・i_size 更新を行う)。 */
+static int cont_expand_zero(const void *iocb, struct address_space *mapping, loff_t pos, loff_t *bytes) {
+  struct inode *inode = mapping->host;
+  unsigned blocksize = i_blocksize(inode);
+  const struct address_space_operations *aops = mapping->a_ops;
+  typedef int (*wb_t)(const struct kiocb *, struct address_space *, loff_t, unsigned, struct folio **, void **);
+  typedef int (*we_t)(const struct kiocb *, struct address_space *, loff_t, unsigned, unsigned, struct folio *, void *);
+  pgoff_t index = (pgoff_t)(pos >> PAGE_SHIFT), curidx;
+  loff_t curpos;
+  unsigned offset = (unsigned)(pos & (PAGE_SIZE - 1)), zerofrom, len;
+  struct folio *folio; void *fsdata; int err = 0;
+  while (index > (curidx = (pgoff_t)((curpos = *bytes) >> PAGE_SHIFT))) {
+    zerofrom = (unsigned)(curpos & (PAGE_SIZE - 1));
+    if (zerofrom & (blocksize - 1)) { *bytes |= (blocksize - 1); (*bytes)++; }
+    len = (unsigned)PAGE_SIZE - zerofrom;
+    err = ((wb_t)aops->write_begin)(iocb, mapping, curpos, len, &folio, &fsdata);
+    if (err) return err;
+    folio_zero_segment(folio, zerofrom, zerofrom + len);
+    err = ((we_t)aops->write_end)(iocb, mapping, curpos, len, len, folio, fsdata);
+    if (err < 0) return err;
+    err = 0;
+  }
+  if (index == curidx) {   /* pos を含むページ */
+    zerofrom = (unsigned)(curpos & (PAGE_SIZE - 1));
+    if (offset <= zerofrom) return 0;   /* 拡張しない (最後のブロックは書き込みで埋まる) */
+    if (zerofrom & (blocksize - 1)) { *bytes |= (blocksize - 1); (*bytes)++; }
+    len = offset - zerofrom;
+    err = ((wb_t)aops->write_begin)(iocb, mapping, curpos, len, &folio, &fsdata);
+    if (err) return err;
+    folio_zero_segment(folio, zerofrom, zerofrom + len);
+    err = ((we_t)aops->write_end)(iocb, mapping, curpos, len, len, folio, fsdata);
+    if (err < 0) return err;
+    err = 0;
+  }
+  return err;
+}
+int cont_write_begin(const void *iocb, struct address_space *mapping, loff_t pos, unsigned len, struct folio **foliop, void **fsdata, void *get_block, loff_t *bytes) {
+  struct inode *inode = mapping->host;
+  unsigned blocksize = i_blocksize(inode);
+  (void)fsdata;
+  int err = cont_expand_zero(iocb, mapping, pos, bytes);
+  if (err) return err;
+  unsigned zerofrom = (unsigned)(*bytes & (PAGE_SIZE - 1));
+  if (pos + len > *bytes && (zerofrom & (blocksize - 1))) { *bytes |= (blocksize - 1); (*bytes)++; }
+  return block_write_begin(mapping, pos, len, foliop, (get_block_t *)get_block);
 }
 
 /* truncate / 拡張で、新しいサイズが含まれるブロックの末尾 (サイズ以降) をゼロにする (そのブロックが穴ならすることはない)。呼び出しは i_size を変える前。 */

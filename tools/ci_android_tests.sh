@@ -3,7 +3,7 @@
 #   tools/ci_android_tests.sh gen <グループ>...   ホストでフィクスチャを作る (エミュレータ不要。apt のホストツールが要る)
 #   tools/ci_android_tests.sh run <グループ>...   エミュレータ上で FS 別の計装テストを順に実行し、失敗を集計する (1 つでも失敗なら終了コード 1)
 # グループ (workflow の matrix と同じ名前):
-#   ext-fat        FAT (6 種) / ext2 書き込み / exFAT 書き込み
+#   ext-fat        FAT (6 種) / FAT 書き込み / ext2 書き込み / exFAT 書き込み
 #   btrfs-xfs      Btrfs (16 イメージ) / XFS (5 イメージ)
 #   squash-erofs   squashfs / erofs / F2FS (mkfs.f2fs + sload.f2fs で作る 1 イメージだけ。カーネル製 k_* は VM が要るので CI では扱わない)
 #   nested-ntfs    ネスト (ループバック) マウント / NTFS 書き込み (SAF)
@@ -35,6 +35,7 @@ export USBMEM_FIXTURE_LENIENT=1   # gen_erofs_fixture.py: Ubuntu の古い erofs
 gen_fs() {
   case $1 in
     fat)         py "$HERE/gen_fat_fixture.py" "$FIX/fat" ;;
+    fat_write)   [ -f "$FIX/fat/fat32_c4k.img" ] || py "$HERE/gen_fat_fixture.py" "$FIX/fat" ;;   # fat と同じフィクスチャ (fat の後なら生成済み)
     ext2_write)  py "$HERE/gen_ext2_fixture.py" "$FIX/ext2" ;;
     exfat_write) py "$HERE/gen_exfat_fixture.py" "$FIX/exfat" ;;
     btrfs)       py "$HERE/gen_btrfs_fixture.py" "$FIX/btrfs" ;;
@@ -111,6 +112,7 @@ APP=org.usbmem.app
 run_fs() {
   case $1 in
     fat) bash "$HERE/run_android_fat_test.sh" "$FIX/fat" ;;
+    fat_write) bash "$HERE/run_android_fat_write_test.sh" "$FIX/fat" ;;
     ext2_write) bash "$HERE/run_android_ext2_write_test.sh" "$FIX/ext2" ;;
     exfat_write) bash "$HERE/run_android_exfat_write_test.sh" "$FIX/exfat" ;;
     btrfs)       bash "$HERE/run_android_btrfs_test.sh" "$FIX/btrfs" "$ADB" ;;
@@ -134,7 +136,7 @@ run_fs() {
 
 group_fs() {
   case $1 in
-    ext-fat)       echo "fat ext2_write exfat_write" ;;
+    ext-fat)       echo "fat fat_write ext2_write exfat_write" ;;
     btrfs-xfs)     echo "btrfs xfs" ;;
     squash-erofs)  echo "squashfs erofs f2fs" ;;
     nested-ntfs)   echo "nested write" ;;

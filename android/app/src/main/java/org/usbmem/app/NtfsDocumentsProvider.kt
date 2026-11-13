@@ -43,10 +43,18 @@ class NtfsDocumentsProvider : DocumentsProvider() {
                 .add(Root.COLUMN_FLAGS, Root.FLAG_LOCAL_ONLY or Root.FLAG_SUPPORTS_IS_CHILD or (if (e.volume.writable) Root.FLAG_SUPPORTS_CREATE else 0))
                 .add(Root.COLUMN_TITLE, e.label)
                 .add(Root.COLUMN_DOCUMENT_ID, "${e.id}:/")
-                .add(Root.COLUMN_SUMMARY, if (e.parentId != null) "${e.volume.fsName} (読み取り専用・イメージ内)" else if (!e.volume.writable) "NTFS (読み取り専用)" else if (e.volume.createOnly) "NTFS (新規作成のみ・実験的)" else "NTFS (読み書き・実験的)")
+                .add(Root.COLUMN_SUMMARY, rootSummary(e))
                 .add(Root.COLUMN_ICON, android.R.drawable.ic_menu_save)
         }
         return c
+    }
+
+    /** ルートの説明。USB 由来はどのデバイスか (デバイス名はバス番号-デバイス番号) が分かるようにする。ルート名 (label) にも機種名と識別子が入っている。 */
+    private fun rootSummary(e: VolumeRegistry.Entry): String {
+        val fs = e.volume.fsName.uppercase()
+        val mode = if (e.parentId != null) "読み取り専用・イメージ内" else if (!e.volume.writable) "読み取り専用" else if (e.volume.createOnly) "新規作成のみ・実験的" else "読み書き・実験的"
+        val dev = e.deviceName?.let { " · USB " + UsbDeviceNaming.busId(it) } ?: ""
+        return "$fs ($mode)$dev"
     }
 
     /** "<id>:<path>" を分解し、ボリュームを返す。".." や "." を含むパスは拒否(パストラバーサル対策)。 */

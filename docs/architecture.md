@@ -29,3 +29,8 @@ FS プローブは「検出」のみで、マウント対応を意味しない�
 
 Kotlin ⇄ JNI: `nativeOpenFd(fd, readOnly)`(fd 所有権はネイティブへ), `nativeListPartitions`(JSON), `nativeClose`。
 64bit 値は JSON 文字列で受け渡し(Kotlin 側 `toULong`)。Phase 1 は常に読み取り専用。
+
+## 複数 USB デバイス(Android アプリ)
+
+USB は `UsbSessionManager`(プロセスに 1 つ)が `deviceName` をキーに 1 本ずつ管理し、ネイティブハンドル・ボリューム・SAF ルート・書き込みモード・アイドル停止はデバイスごとに独立。
+ネイティブ側のプロセス共通の状態は互換層(ミューテックス保護、マウントは直列化)と診断トレース(`thread_local`)のみ。設計・状態遷移・制約は docs/multi-usb.md。

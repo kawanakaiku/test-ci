@@ -33,18 +33,18 @@ import org.usbmem.app.LinkResolver
 import org.usbmem.app.NtfsEntry
 import org.usbmem.app.R
 
-/** マウント中のボリューム上での、アプリ内のリンク作成。ファイルアプリ (SAF) にはリンクを作る操作が無いため、ここで行う。 */
+/** マウント中のボリューム上での、アプリ内のリンク作成。ファイルアプリ (SAF) にはリンクを作る操作が無いため、ここで行う。[volumeKey] = 対象ボリューム (VolumeRegistry の登録キー)。 */
 interface LinkActions {
     /** ディレクトリの中身 (名前順ではない。呼び出し側で並べる)。IO スレッドから呼ぶ。失敗は例外。 */
-    fun listDir(path: String): List<NtfsEntry>
+    fun listDir(volumeKey: String, path: String): List<NtfsEntry>
     /** リンクを作る。成功で null、失敗でエラー文。[hard] = ハードリンク。IO スレッドから呼ぶ。 */
-    fun createLink(hard: Boolean, folder: String, name: String, target: String): String?
-    /** 作成に成功した後の通知 (画面の通知バナーを出す)。UI スレッドから呼ぶ。 */
-    fun linkCreated(name: String)
+    fun createLink(volumeKey: String, hard: Boolean, folder: String, name: String, target: String): String?
+    /** 作成に成功した後の通知 (そのデバイスのカードに通知バナーを出す)。UI スレッドから呼ぶ。 */
+    fun linkCreated(deviceKey: String, name: String)
 }
 
 @Composable
-fun LinkDialog(a: LinkActions, allowHard: Boolean, onDone: (String) -> Unit, onDismiss: () -> Unit) {
+fun LinkDialog(a: LinkActions, volumeKey: String, allowHard: Boolean, onDone: (String) -> Unit, onDismiss: () -> Unit) {
     var hard by remember { mutableStateOf(false) }
     var folder by remember { mutableStateOf("/") }
     var name by remember { mutableStateOf("") }
@@ -74,7 +74,7 @@ fun LinkDialog(a: LinkActions, allowHard: Boolean, onDone: (String) -> Unit, onD
             TextButton(enabled = !working && name.isNotBlank() && target.isNotBlank(), onClick = {
                 working = true; error = null
                 scope.launch {
-                    val r = withContext(Dispatchers.IO) { try { a.createLink(hard, folder.ifBlank { "/" }, name.trim(), target.trim()) } catch (e: Exception) { e.message ?: e.javaClass.simpleName } }
+                    val r = withContext(Dispatchers.IO) { try { a.createLink(volumeKey, hard, folder.ifBlank { "/" }, name.trim(), target.trim()) } catch (e: Exception) { e.message ?: e.javaClass.simpleName } }
                     working = false
                     if (r == null) onDone(name.trim()) else error = r
                 }
@@ -85,7 +85,7 @@ fun LinkDialog(a: LinkActions, allowHard: Boolean, onDone: (String) -> Unit, onD
 
     pick?.let { which ->
         PathPicker(
-            a, start = if (which == 1) folder else folder, foldersOnly = which == 1,
+            a, volumeKey, start = if (which == 1) folder else folder, foldersOnly = which == 1,
             onPick = { p ->
                 if (which == 1) folder = p
                 else target = if (hard) p else LinkResolver.relative(folder, p)   // シンボリックリンクは、作る場所からの相対パスにする (別の機器でマウントしても切れない)
@@ -98,13 +98,13 @@ fun LinkDialog(a: LinkActions, allowHard: Boolean, onDone: (String) -> Unit, onD
 
 /** ボリュームの中を辿って、フォルダ (または項目) を 1 つ選ぶ。 */
 @Composable
-private fun PathPicker(a: LinkActions, start: String, foldersOnly: Boolean, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+private fun PathPicker(a: LinkActions, volumeKey: String, start: String, foldersOnly: Boolean, onPick: (String) -> Unit, onDismiss: () -> Unit) {
     var dir by remember { mutableStateOf(if (start.startsWith("/")) start else "/") }
     var items by remember { mutableStateOf<List<NtfsEntry>>(emptyList()) }
     var err by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(dir) {
         err = null
-        items = try { withContext(Dispatchers.IO) { a.listDir(dir).sortedWith(compareBy({ !it.isDir }, { it.name.lowercase() })) } }
+        items = try { withContext(Dispatchers.IO) { a.listDir(volumeKey, dir).sortedWith(compareBy({ !it.isDir }, { it.name.lowercase() })) } }
         catch (e: Exception) { err = e.message ?: e.javaClass.simpleName; emptyList() }
     }
     AlertDialog(

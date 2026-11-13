@@ -73,7 +73,7 @@ class MscDevice final : public BlockDevice {
   /** **読み取り**の転送サイズの調整 (速度計測・チューニング用。書き込みの設定は変えない)。0 = 変更しない。
    *  read_chunk = 1 回の USB 転送要求 (IN, 16KiB の倍数)、read_max_transfer = 1 SCSI READ コマンドあたり (ブロック長の倍数に丸める)。 */
   void tune(size_t read_chunk, uint32_t read_max_transfer);
-  /** 診断用: 直近の open() 中に送った SCSI コマンドと結果の記録 (失敗時の原因調査用)。 */
+  /** 診断用: 直近の open() 中に送った SCSI コマンドと結果の記録 (失敗時の原因調査用)。**呼んだスレッドで open した分**だけ (スレッドごと)。 */
   static std::string last_open_trace();
   uint32_t op_count(uint8_t opcode) const { return op_counts_[opcode]; }
   bool write_protected() const { return write_protected_; }

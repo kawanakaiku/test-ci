@@ -31,11 +31,12 @@ std::string trim(const uint8_t* p, size_t n) {
   while (!s.empty() && s.back() == ' ') s.pop_back();
   return s;
 }
-std::mutex g_trace_mu;
-std::string g_last_open_trace;
+// 直近の open の記録 (診断用)。**スレッドごと**: 複数の USB を別スレッドで同時に開いても、別の機器の記録と混ざらない。
+// open を呼んだスレッドが、失敗後すぐに同じスレッドで読む (JNI の nativeOpenUsbMsc -> nativeUsbLastOpenTrace)。docs/multi-usb.md
+thread_local std::string g_last_open_trace;
 }  // namespace
 
-std::string MscDevice::last_open_trace() { std::lock_guard<std::mutex> g(g_trace_mu); return g_last_open_trace; }
+std::string MscDevice::last_open_trace() { return g_last_open_trace; }
 
 // ---- BOT: 1 コマンド (CBW → データ → CSW)。check_condition=true で CSW が Command Failed のとき呼び出し側が REQUEST SENSE する。
 Status MscDevice::exec(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* data, size_t len, size_t* transferred,
@@ -268,7 +269,7 @@ Status MscDevice::open(std::unique_ptr<BulkTransport> transport, const MscOption
   std::unique_ptr<MscDevice> d(new (std::nothrow) MscDevice(std::move(transport), opt));
   if (!d) return Status::Make(Errc::NoMemory);
   Status st = d->initialize();
-  { std::lock_guard<std::mutex> g(g_trace_mu); g_last_open_trace = d->trace_ + (st.ok() ? " [open ok]" : std::string(" [open failed: ") + errc_name(st.code) + "/" + std::to_string(st.sys_errno) + "]"); }
+  { g_last_open_trace = d->trace_ + (st.ok() ? " [open ok]" : std::string(" [open failed: ") + errc_name(st.code) + "/" + std::to_string(st.sys_errno) + "]"); }
   if (!st.ok()) return st;
   out->reset(d.release());
   return Status::Ok();

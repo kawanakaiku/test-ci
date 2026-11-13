@@ -8,7 +8,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import org.usbmem.app.ui.AppModel
-import org.usbmem.app.ui.WriteMode
 import org.usbmem.app.ui.AppScaffold
 import org.usbmem.app.ui.AppTheme
 import org.usbmem.app.ui.DiagnosticsActions
@@ -22,28 +21,34 @@ import org.usbmem.app.ui.NoloadPrompt
 import org.usbmem.app.ui.PublishedVolume
 import org.usbmem.app.ui.Severity
 import org.usbmem.app.ui.UsbActions
-import org.usbmem.app.ui.UsbDeviceRow
+import org.usbmem.app.ui.UsbDeviceState
 
 /**
  * 画面 (ui/) と、USB・NTFS の処理をつなぐ。画面は AppModel の値を読むだけで、操作はこのクラスの *Actions 実装が受ける。
- * USB のセッションはこの Activity が持つ (Activity が終わるとき、公開中のボリュームごと閉じる)。
+ *
+ * USB のセッションは**プロセスが持つ** ([UsbSessions] / [UsbSessionManager]。デバイス名をキーに複数本)。この Activity は表示と操作の入口で、
+ * 作り直されてもセッションは失われない。Activity が終わるとき (isFinishing) は、全部のデバイスを公開中のボリュームごと閉じる。
+ * 操作はすべてデバイス名 (key) で対象を指定し、他のデバイスには影響しない。docs/multi-usb.md
  */
 class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsActions {
     private val usbManager by lazy { getSystemService(USB_SERVICE) as UsbManager }
-    private var usbSession: UsbStorageSession? = null
-    private var devices: Map<String, UsbDevice> = emptyMap()
-    private val model = AppModel()
+    private val sessions by lazy { UsbSessions.manager(this) }
+    private val model = AppModel.shared
+    /** 権限を得た機器のシリアル (識別子の元)。メインスレッドだけで読み書きする */
+    private val serials = HashMap<String, String>()
 
     private fun ui(block: () -> Unit) = runOnUiThread(block)
 
-    private fun updateOps(tag: String) {
-        val o = usbSession?.opStats() ?: return
-        android.util.Log.i("usbmem", "SCSI ops [$tag]: $o")
-        ui { model.ops = o }
+    private fun state(key: String): UsbDeviceState? = model.device(key)
+
+    private fun updateOps(key: String, tag: String) {
+        val o = sessions.session(key)?.opStats() ?: return
+        android.util.Log.i("usbmem", "SCSI ops [$key $tag]: $o")
+        ui { state(key)?.ops = o }
     }
 
     /** 保存した転送設定の表示。null = 既定 (画面側で既定の文言にする)。 */
-    private fun describeTuning(s: UsbStorageSession?): String? {
+    private fun describeTuning(s: UsbSession?): String? {
         if (s == null) return null
         val t = TransferTuning.load(this, s.vendorId, s.productId) ?: return null
         return getString(R.string.tuning_saved, t.first, t.second)
@@ -57,24 +62,71 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             when (i.action) {
                 UsbStorageSession.ACTION_PERMISSION ->
                     if (dev != null && i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) openUsb(dev)
-                    else model.usbNotice = Notice(Severity.Error, getString(R.string.notice_usb_permission_denied), getString(R.string.notice_usb_permission_denied_detail))
-                UsbManager.ACTION_USB_DEVICE_DETACHED -> {
-                    // 抜去: 公開中のボリュームと接続を直ちに閉じる (抜けた後の I/O は Disconnected になるが、後始末を先に行う)
-                    if (dev != null && dev.deviceName == usbSession?.deviceName) closeUsbWith(Notice(Severity.Warning, getString(R.string.notice_usb_detached)))
-                    else refreshUsb()
-                }
-                UsbManager.ACTION_USB_DEVICE_ATTACHED -> refreshUsb()
+                    else {
+                        val d = dev?.let { state(it.deviceName) }
+                        val n = Notice(Severity.Error, if (d != null) getString(R.string.notice_usb_permission_denied_named, d.title) else getString(R.string.notice_usb_permission_denied), getString(R.string.notice_usb_permission_denied_detail))
+                        if (d != null) d.notice = n else model.usbNotice = n
+                    }
+                // 抜去の後始末 (そのデバイスのセッションだけを閉じる) は UsbApp の受信側と、リスナ (下) が行う。ここは一覧を更新するだけ
+                UsbManager.ACTION_USB_DEVICE_DETACHED, UsbManager.ACTION_USB_DEVICE_ATTACHED -> refreshUsb()
             }
         }
     }
 
+    /** セッションの変化を画面へ。呼び出しはどのスレッドからでも (UsbApp の抜去処理・アイドル監視スレッドなど)。 */
+    private val sessionListener = object : UsbSessionListener {
+        override fun onClosed(deviceName: String, reason: CloseReason) = ui {
+            val d = state(deviceName)
+            if (d != null) {
+                val title = d.title
+                d.resetAfterClose()
+                if (reason == CloseReason.Detached) model.usbNotice = Notice(Severity.Warning, getString(R.string.notice_usb_detached_named, title), getString(R.string.notice_usb_detached_named_detail))
+            }
+            refreshUsb()
+        }
+
+        override fun onIdleChanged(deviceName: String, stopped: Boolean) = ui { state(deviceName)?.diskIdleStopped = stopped }
+    }
+
+    private fun readMounts(): String? = try { java.io.File("/proc/mounts").readText() } catch (_: Exception) { null }
+
+    private fun infoOf(dev: UsbDevice): UsbDeviceInfo {
+        if (usbManager.hasPermission(dev) && !serials.containsKey(dev.deviceName)) runCatching { dev.serialNumber }.getOrNull()?.let { serials[dev.deviceName] = it }
+        return UsbDeviceInfo(dev.deviceName, dev.productName ?: getString(R.string.usb_device_default_name), dev.vendorId, dev.productId, serials[dev.deviceName])
+    }
+
+    private fun idleKey(vidPid: String) = "idle_spindown_min:$vidPid"
+
+    /** 画面の一覧を、接続中の USB とセッションの実際の状態に合わせる (メインスレッド)。抜かれたのにまだ開いているセッションがあれば閉じる。 */
     private fun refreshUsb() {
-        val list = usbManager.deviceList.values.filter { UsbMscSelector.pick(UsbMscSelector.describe(it)) != null }
-        devices = list.associateBy { it.deviceName }
-        model.usbDevices = list.map { UsbDeviceRow(it.deviceName, it.productName ?: getString(R.string.usb_device_default_name), String.format("%04x:%04x", it.vendorId, it.productId)) }
-        // OS が USB ボリュームをマウント中か (開く前に取り出してもらう)
-        usbSession?.let { model.diskIdleStopped = model.idleSpinDownMin > 0 && !model.diskStopped && it.isSpunDown() }
-        model.osMountedUsb = runCatching { UsbStorageSession.osMountedUsbVolumes(java.io.File("/proc/mounts").readText()).size }.getOrDefault(0)
+        val list = usbManager.deviceList.values.filter { UsbMscSelector.pick(UsbMscSelector.describe(it)) != null }.sortedBy { it.deviceName }
+        val infos = list.map { infoOf(it) }
+        val ids = UsbDeviceNaming.shortIds(infos)
+        val old = model.usbDevices.associateBy { it.key }
+        val mounts = readMounts()
+        val next = list.zip(infos).map { (dev, info) ->
+            val st = old[dev.deviceName] ?: UsbDeviceState(dev.deviceName).also {
+                val vp = String.format("%04x:%04x", dev.vendorId, dev.productId)
+                // アイドル停止の設定は機種 (VID:PID) ごとに覚えておく (無ければ従来の全体設定を初期値に)
+                it.idleSpinDownMin = runCatching { settingsPrefs().getInt(idleKey(vp), settingsPrefs().getInt("idle_spindown_min", 0)) }.getOrDefault(0)
+                sessions.setIdleSpinDownMinutes(dev.deviceName, it.idleSpinDownMin)
+            }
+            st.productName = info.productName
+            st.shortId = ids.getValue(dev.deviceName)
+            st.title = UsbDeviceNaming.displayName(info.productName, st.shortId)
+            st.vidPid = String.format("%04x:%04x", dev.vendorId, dev.productId)
+            st.writeMode = sessions.writeMode(dev.deviceName)
+            if (st.open && !sessions.isBusy(dev.deviceName)) st.resetAfterClose()   // 画面が知らない間に閉じていた
+            // OS がこのデバイスのボリュームをマウント中か (開く前に取り出してもらう)。他の USB のマウントは数えない
+            st.osBlocked = if (mounts == null) 0 else UsbStorageSession.osMountedBlocking(mounts, dev.deviceName) { UsbStorageSession.sysfsOwnerOfVoldNode(it) }.size
+            st
+        }
+        model.usbDevices = next
+        // 抜かれたのに残っているセッション (画面が止まっていて抜去の通知を受けなかった場合など) を、そのデバイスだけ閉じる
+        for (k in old.keys - list.map { it.deviceName }.toSet()) {
+            serials.remove(k)
+            if (sessions.isBusy(k)) Thread({ sessions.onDetached(k) }, "usbmem-detach").start()
+        }
     }
 
     // ---- UsbActions
@@ -82,81 +134,107 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         startActivity(android.content.Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS))
     }
 
-    override fun setWriteMode(mode: WriteMode) { if (usbSession == null) model.writeMode = mode }
+    /** そのデバイスの書き込みモードを変える。開く前 (開く最中・閉じる最中でない) だけ。ビルドで書き込みが無効なら読み取り専用以外は選べない。 */
+    override fun setWriteMode(key: String, mode: WriteMode) {
+        if (sessions.setWriteMode(key, mode)) state(key)?.writeMode = mode
+    }
 
     override fun openUsb(key: String) {
-        val dev = devices[key] ?: return
+        val dev = usbManager.deviceList[key] ?: return
+        val d = state(key) ?: return
+        if (d.open || d.busy != null) return
         if (usbManager.hasPermission(dev)) openUsb(dev) else usbManager.requestPermission(dev, UsbStorageSession.permissionIntent(this))
     }
 
     private fun openUsb(dev: UsbDevice) {
-        model.busy = getString(R.string.busy_opening_usb)
-        model.usbNotice = null
+        val key = dev.deviceName
+        val d = state(key) ?: return
+        if (d.open || d.busy != null) return
+        d.busy = getString(R.string.busy_opening_usb)
+        d.notice = null
+        val info = infoOf(dev)
         Thread {
             var notice: Notice? = null
             var table: PartitionTable? = null
+            var s: UsbSession? = null
             try {
-                closeUsbQuiet()
-                val s = UsbStorageSession.open(this, usbManager, dev, writable = model.allowUsbWrite)
-                usbSession = s
-                applyIdleSpinDown(s)
+                s = sessions.open(info)
                 table = s.partitionTable()
-                updateOps("after open+partition scan")
-                ui { model.tuningSaved = describeTuning(s) }
+                updateOps(key, "after open+partition scan")
+            } catch (e: UsbSessionException) {
+                notice = when (e.kind) {
+                    UsbSessionException.Kind.AlreadyOpen -> Notice(Severity.Info, getString(R.string.notice_usb_already_open))
+                    UsbSessionException.Kind.Closing -> Notice(Severity.Info, getString(R.string.notice_usb_closing))
+                    UsbSessionException.Kind.WriteNotAllowed -> Notice(Severity.Error, getString(R.string.notice_usb_write_disabled))
+                    UsbSessionException.Kind.ClosedWhileOpening -> Notice(Severity.Warning, getString(R.string.notice_usb_closed_while_opening))
+                    UsbSessionException.Kind.LimitReached -> Notice(Severity.Error, getString(R.string.notice_usb_open_failed), e.message)
+                }
             } catch (e: NativeException) {
                 notice = Notice(Severity.Error, getString(R.string.notice_usb_open_failed), e.message ?: "native error")
             } catch (e: Exception) {
                 notice = Notice(Severity.Error, getString(R.string.notice_usb_open_failed), e.javaClass.simpleName)
             }
-            val s = usbSession
+            if (s != null && table == null) sessions.close(key)   // 開けたがパーティションを読めなかった: 画面に出ないセッションを残さない
+            val opened = s; val tbl = table; val n = notice
             ui {
-                model.busy = null
-                model.published = null
-                model.usbNotice = notice
-                if (table != null && s != null) {
-                    model.usbOpenKey = dev.deviceName
-                    model.usbWritable = s.writable
-                    model.usbLabel = dev.productName ?: "USB"
-                    model.table = table
-                } else { model.usbOpenKey = null; model.table = null }
+                val st = state(key)
+                if (st != null) {
+                    st.busy = null
+                    st.notice = n
+                    if (tbl != null && opened != null) {   // 二重オープンの拒否のときは、すでに開いているセッションの表示を壊さない (ここには来ない)
+                        st.open = true
+                        st.writable = opened.writable
+                        st.writeMode = sessions.writeMode(key)
+                        st.published = emptyList()
+                        st.table = tbl
+                        st.tuningSaved = describeTuning(opened)
+                    }
+                }
                 refreshUsb()
             }
         }.start()
     }
 
-    /** USB 上の NTFS パーティションをマウントして SAF に公開する (開いたセッションが書き込み可なら、新規作成のみ書き込み可)。 */
-    override fun publishPartition(startBytes: Long, sizeBytes: Long, label: String) = publishPartition(startBytes, sizeBytes, label, allowNoload = false)
+    /** USB 上のパーティションをマウントして SAF に公開する (開いたセッションが書き込み可なら、新規作成のみ書き込み可。同じ USB の別のパーティションも同時に公開できる)。 */
+    override fun publishPartition(key: String, startBytes: Long, sizeBytes: Long, label: String) = publishPartition(key, startBytes, sizeBytes, label, allowNoload = false)
 
     /** ext3/ext4 のジャーナル未再生を承知のうえで (確認ダイアログの後)、読み取り専用でマウントする。書き込みは常に不可。 */
-    override fun publishPartitionNoload(startBytes: Long, sizeBytes: Long, label: String) { model.noloadPrompt = null; publishPartition(startBytes, sizeBytes, label, allowNoload = true) }
-    override fun cancelNoload() { model.noloadPrompt = null }
+    override fun publishPartitionNoload(key: String, startBytes: Long, sizeBytes: Long, label: String) { state(key)?.noloadPrompt = null; publishPartition(key, startBytes, sizeBytes, label, allowNoload = true) }
+    override fun cancelNoload(key: String) { state(key)?.noloadPrompt = null }
 
-    private fun publishPartition(startBytes: Long, sizeBytes: Long, label: String, allowNoload: Boolean) {
-        val sess = usbSession ?: return
-        model.busy = getString(if (sess.writable) R.string.busy_mounting_write else R.string.busy_mounting_read_only)
-        model.usbNotice = null
+    private fun publishPartition(key: String, startBytes: Long, sizeBytes: Long, label: String, allowNoload: Boolean) {
+        val sess = sessions.session(key) ?: return
+        val d = state(key) ?: return
+        val mode = sessions.writeMode(key)
+        d.busy = getString(if (sess.writable) R.string.busy_mounting_write else R.string.busy_mounting_read_only)
+        d.notice = null
         Thread {
             var notice: Notice? = null
             var pub: PublishedVolume? = null
             var pendingNoload: NoloadPrompt? = null
             try {
-                val v = sess.mountNtfs(startBytes, sizeBytes, writable = sess.writable && !allowNoload, createOnly = model.writeMode != WriteMode.Full, allowNoload = allowNoload)
-                VolumeRegistry.addVolume(label, "usb:" + sess.deviceName, v)
+                val v = sess.mountNtfs(startBytes, sizeBytes, writable = sess.writable && !allowNoload, createOnly = mode != WriteMode.Full, allowNoload = allowNoload)
+                val vk = VolumeRegistry.usbKey(key, startBytes)
+                VolumeRegistry.addVolume(label, vk, v, deviceName = key)
+                if (sessions.session(key) !== sess) {   // マウントしている間にこのデバイスが閉じられた/抜かれた: 登録を取り消す
+                    VolumeRegistry.removeByKey(vk)
+                    throw IllegalStateException("device closed")
+                }
                 notifyRoots()
-                updateOps("after ntfs mount")
-                android.util.Log.i("usbmem", "ntfs mount: sessionWritable=${sess.writable} volumeWritable=${v.writable} createOnly=${v.createOnly}")
+                updateOps(key, "after ntfs mount")
+                android.util.Log.i("usbmem", "ntfs mount [$key]: sessionWritable=${sess.writable} volumeWritable=${v.writable} createOnly=${v.createOnly}")
                 val roText = getString(R.string.mode_read_only)
                 if (v.journalIgnored) {
-                    pub = PublishedVolume(label, getString(R.string.mode_read_only_journal_ignored), false)
+                    pub = PublishedVolume(label, getString(R.string.mode_read_only_journal_ignored), false, volumeKey = vk, startBytes = startBytes)
                     notice = Notice(Severity.Warning, getString(R.string.notice_journal_ignored), getString(R.string.notice_journal_ignored_detail))
-                } else if (!sess.writable) pub = PublishedVolume(label, roText, false)
-                else if (v.writable) pub = PublishedVolume(label, getString(if (v.createOnly) R.string.mode_create_only else R.string.mode_full), true, fullWrite = !v.createOnly, canLink = v.fsName == "ext2" || v.fsName == "ext4")
+                } else if (!sess.writable) pub = PublishedVolume(label, roText, false, volumeKey = vk, startBytes = startBytes)
+                else if (v.writable) pub = PublishedVolume(label, getString(if (v.createOnly) R.string.mode_create_only else R.string.mode_full), true, fullWrite = !v.createOnly, canLink = v.fsName == "ext2" || v.fsName == "ext4", volumeKey = vk, startBytes = startBytes)
                 else {
-                    pub = PublishedVolume(label, roText, false)
+                    pub = PublishedVolume(label, roText, false, volumeKey = vk, startBytes = startBytes)
                     notice = Notice(Severity.Warning, getString(R.string.notice_published_read_only), getString(R.string.notice_published_read_only_detail))
                 }
             } catch (e: NativeException) {
-                android.util.Log.w("usbmem", "ntfs mount failed: code=${e.code} ${e.message}")
+                android.util.Log.w("usbmem", "ntfs mount failed [$key]: code=${e.code} ${e.message}")
                 if (e.code == 117 && !allowNoload) pendingNoload = NoloadPrompt(startBytes, sizeBytes, label)   // ジャーナル未再生: 確認すれば読み取り専用で開ける
                 notice = if (fsRefusalNotice(e) != null) fsRefusalNotice(e)!!   // ext3/ext4 の意図的な拒否 (転送設定とは無関係)
                 else if (sess.tuningIndex >= 0) {   // 保存した転送設定が原因かもしれない → 既定に戻す (次の最適化で、その設定以上は試さない)
@@ -167,98 +245,111 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             } catch (e: Exception) {
                 notice = Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.javaClass.simpleName)
             }
-            ui { model.busy = null; model.published = pub; model.usbNotice = notice; model.noloadPrompt = pendingNoload }
+            val p = pub; val n = notice; val np = pendingNoload
+            ui {
+                val st = state(key)
+                if (st != null) {
+                    st.busy = null
+                    if (p != null && st.open) st.published = st.published.filter { it.volumeKey != p.volumeKey } + p
+                    st.notice = n; st.noloadPrompt = np
+                }
+            }
         }.start()
     }
 
-    /**
-     * ディスクを止める: 公開中のボリュームを閉じて (アンマウント + 書き込みの確定)、SCSI START STOP UNIT で回転を止める。
-     * セッション (USB の確保) は保つ: 閉じると OS の usb-storage が戻って FAT をマウントし、ディスクがまた動くため。止めた後は、USB を抜く。
-     */
+    /** 公開中のボリューム 1 つだけをアンマウントする (書き込みの確定を含む)。USB は開いたまま、同じ USB の他のボリュームも他の USB もそのまま。 */
+    override fun unpublish(key: String, volumeKey: String) {
+        val d = state(key) ?: return
+        d.busy = getString(R.string.busy_closing_usb)
+        d.notice = null
+        Thread {
+            var notice: Notice? = null
+            try { VolumeRegistry.removeByKey(volumeKey) } catch (e: Exception) { notice = Notice(Severity.Error, getString(R.string.notice_usb_open_failed), e.javaClass.simpleName) }
+            notifyRoots()
+            ui { state(key)?.let { it.busy = null; it.published = it.published.filter { p -> p.volumeKey != volumeKey }; it.notice = notice } }
+        }.start()
+    }
+
     private fun settingsPrefs() = getSharedPreferences("usbmem_settings", MODE_PRIVATE)
 
-    /** アイドル自動スピンダウンの設定 (分、0 = オフ)。保存して、開いているセッションにも反映する。 */
-    override fun setIdleSpinDown(minutes: Int) {
-        model.idleSpinDownMin = minutes
-        runCatching { settingsPrefs().edit().putInt("idle_spindown_min", minutes).apply() }
-        applyIdleSpinDown(usbSession)
+    /** アイドル自動スピンダウンの設定 (分、0 = オフ)。**このデバイスだけ**の設定で、機種 (VID:PID) ごとに保存する。開いていれば直ちに反映する。 */
+    override fun setIdleSpinDown(key: String, minutes: Int) {
+        val d = state(key) ?: return
+        d.idleSpinDownMin = minutes
+        runCatching { settingsPrefs().edit().putInt(idleKey(d.vidPid), minutes).apply() }
+        sessions.setIdleSpinDownMinutes(key, minutes)
+        if (minutes == 0) d.diskIdleStopped = false
     }
 
-    private fun applyIdleSpinDown(s: UsbStorageSession?) {
-        s?.setIdleSpinDown(model.idleSpinDownMin) { stopped -> ui { if (stopped && !model.diskIdleStopped) model.usbNotice = null; model.diskIdleStopped = stopped } }
-        if (model.idleSpinDownMin == 0) model.diskIdleStopped = false
-    }
-
-    override fun stopDisk() {
-        val s = usbSession ?: return
-        model.busy = getString(R.string.busy_stopping_disk)
-        model.usbNotice = null
+    /**
+     * ディスクを止める: このデバイスの公開中のボリュームを閉じて (アンマウント + 書き込みの確定)、SCSI START STOP UNIT で回転を止める。
+     * セッション (USB の確保) は保つ: 閉じると OS の usb-storage が戻って FAT をマウントし、ディスクがまた動くため。止めた後は、USB を抜く。他のデバイスは止めない。
+     */
+    override fun stopDisk(key: String) {
+        val s = sessions.session(key) ?: return
+        val d = state(key) ?: return
+        d.busy = getString(R.string.busy_stopping_disk)
+        d.notice = null
         Thread {
             var notice: Notice
             var stopped = false
-            VolumeRegistry.removeByKey("usb:" + s.deviceName)   // アンマウント + 書き込みの確定
+            VolumeRegistry.removeByDevice(key)   // アンマウント + 書き込みの確定 (このデバイスのボリュームだけ。ネストした子も)
             notifyRoots()
             try {
                 s.startStop(false)
                 stopped = true
                 notice = Notice(Severity.Success, getString(R.string.notice_disk_stopped), getString(R.string.notice_disk_stopped_detail))
             } catch (e: NativeException) {
-                android.util.Log.w("usbmem", "stop disk failed: code=${e.code} ${e.message}")
+                android.util.Log.w("usbmem", "stop disk failed [$key]: code=${e.code} ${e.message}")
                 notice = if (e.code == 9) Notice(Severity.Warning, getString(R.string.notice_disk_stop_unsupported), getString(R.string.notice_disk_stop_unsupported_detail))
                 else Notice(Severity.Error, getString(R.string.notice_disk_stop_failed), e.message)
             }
-            updateOps("after stop disk")
-            ui { model.busy = null; model.published = null; model.diskStopped = stopped; model.usbNotice = notice }
+            updateOps(key, "after stop disk")
+            ui { state(key)?.let { it.busy = null; it.published = emptyList(); it.diskStopped = stopped; it.notice = notice } }
         }.start()
     }
 
-    override fun resumeDisk() {
-        val s = usbSession ?: return
-        model.busy = getString(R.string.busy_resuming_disk)
+    override fun resumeDisk(key: String) {
+        val s = sessions.session(key) ?: return
+        val d = state(key) ?: return
+        d.busy = getString(R.string.busy_resuming_disk)
         Thread {
             var notice: Notice
             var ok = false
             try { s.startStop(true); ok = true; notice = Notice(Severity.Success, getString(R.string.notice_disk_resumed)) }
             catch (e: NativeException) { notice = Notice(Severity.Error, getString(R.string.notice_disk_stop_failed), e.message) }
-            updateOps("after resume disk")
-            ui { model.busy = null; if (ok) model.diskStopped = false; model.usbNotice = notice }
+            updateOps(key, "after resume disk")
+            ui { state(key)?.let { it.busy = null; if (ok) it.diskStopped = false; it.notice = notice } }
         }.start()
     }
 
-    override fun closeUsb() {
-        model.busy = getString(R.string.busy_closing_usb)
-        Thread { closeUsbWith(Notice(Severity.Success, getString(R.string.notice_usb_closed), getString(R.string.notice_usb_closed_detail))) }.start()
+    /** このデバイスを閉じる (公開中のボリュームのアンマウントと書き込みの確定 → USB の解放)。他のデバイスは開いたまま。 */
+    override fun closeUsb(key: String) {
+        val d = state(key) ?: return
+        d.busy = getString(R.string.busy_closing_usb)
+        Thread {
+            sessions.close(key, CloseReason.User)
+            ui {
+                state(key)?.let {
+                    it.resetAfterClose()
+                    it.notice = Notice(Severity.Success, getString(R.string.notice_usb_closed), getString(R.string.notice_usb_closed_detail))
+                }
+                refreshUsb()
+            }
+        }.start()
     }
 
-    private fun closeUsbQuiet() {
-        VolumeRegistry.removeByKey("usb:" + (usbSession?.deviceName ?: ""))
-        runCatching { usbSession?.close() }
-        usbSession = null
-    }
-
-    private fun closeUsbWith(notice: Notice) {
-        closeUsbQuiet()
-        notifyRoots()
-        ui {
-            model.busy = null; model.usbOpenKey = null; model.usbWritable = false; model.table = null; model.published = null; model.diskStopped = false; model.diskIdleStopped = false
-            model.usbNotice = notice; model.ops = ""; model.tuneLog = ""; model.tuningSaved = null
-            refreshUsb()
-        }
-    }
-
-    private fun notifyRoots() {
-        contentResolver.notifyChange(android.provider.DocumentsContract.buildRootsUri("org.usbmem.app.documents"), null)
-    }
+    private fun notifyRoots() = VolumeRegistry.notifyRoots(this)
 
     // ---- LinkActions (アプリ内のリンク作成)
-    private fun linkVolume(): NtfsVolume = VolumeRegistry.byKey("usb:" + (usbSession?.deviceName ?: ""))?.volume ?: throw IllegalStateException("not mounted")
-    override fun listDir(path: String): List<NtfsEntry> {
-        val v = linkVolume()
+    private fun linkVolume(volumeKey: String): NtfsVolume = VolumeRegistry.byKey(volumeKey)?.volume ?: throw IllegalStateException("not mounted")
+    override fun listDir(volumeKey: String, path: String): List<NtfsEntry> {
+        val v = linkVolume(volumeKey)
         return v.list(LinkResolver.physical(v, path, true))
     }
-    override fun createLink(hard: Boolean, folder: String, name: String, target: String): String? {
+    override fun createLink(volumeKey: String, hard: Boolean, folder: String, name: String, target: String): String? {
         return try {
-            val v = linkVolume()
+            val v = linkVolume(volumeKey)
             if (name.contains('/') || name == "." || name == ".." || name.any { it.code < 0x20 }) return getString(R.string.link_err_name)
             val dir = LinkResolver.physical(v, folder, true)
             if (!v.stat(dir).isDir) return getString(R.string.link_err_folder)
@@ -271,19 +362,19 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         } catch (e: NativeException) { getString(R.string.link_err_failed, e.code, e.message ?: "") }
         catch (e: Exception) { getString(R.string.link_err_failed, -1, e.message ?: e.javaClass.simpleName) }
     }
-    override fun linkCreated(name: String) {
-        model.usbNotice = Notice(Severity.Success, getString(R.string.link_done, name))
+    override fun linkCreated(deviceKey: String, name: String) {
+        state(deviceKey)?.notice = Notice(Severity.Success, getString(R.string.link_done, name))
         notifyRoots()
     }
 
     // ---- DiagnosticsActions
-    /** 書き込み自己診断。マウント中の「すべて許可」ボリュームに、専用の一時フォルダだけを作って検証し、全部消す。既存のファイルには触れない。 */
-    override fun writeSelfTest() {
-        val sess = usbSession ?: return
-        val v = VolumeRegistry.byKey("usb:" + sess.deviceName)?.volume
+    /** 書き込み自己診断。そのデバイスのマウント中の「すべて許可」ボリュームに、専用の一時フォルダだけを作って検証し、全部消す。既存のファイルには触れない。 */
+    override fun writeSelfTest(key: String) {
+        val d = state(key) ?: return
+        val v = d.published.firstOrNull { it.fullWrite }?.let { VolumeRegistry.byKey(it.volumeKey)?.volume }
         if (v == null || !v.writable || v.createOnly) return
-        model.busy = getString(R.string.busy_selftest)
-        model.selfTestPassed = null; model.selfTestLog = ""
+        d.busy = getString(R.string.busy_selftest)
+        d.selfTestPassed = null; d.selfTestLog = ""
         Thread {
             val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
             val r = try { WriteSelfTest.run(v, stamp) } catch (e: Throwable) { null }
@@ -291,21 +382,22 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             if (r == null) sb.appendLine(getString(R.string.diag_failed_simple, "exception"))
             else {
                 for (s in r.steps) {
-                    android.util.Log.i("usbmem", "selftest step '${s.name}' ok=${s.ok} ${s.ms}ms ${s.detail}")
+                    android.util.Log.i("usbmem", "selftest [$key] step '${s.name}' ok=${s.ok} ${s.ms}ms ${s.detail}")
                     sb.appendLine((if (s.ok) "OK  " else "NG  ") + s.name + " (" + s.ms + " ms)" + if (s.detail.isNotEmpty()) " — " + s.detail else "")
                 }
             }
-            updateOps("after selftest")
-            ui { model.busy = null; model.selfTestPassed = r?.passed == true; model.selfTestLog = sb.toString().trimEnd() }
+            updateOps(key, "after selftest")
+            ui { state(key)?.let { it.busy = null; it.selfTestPassed = r?.passed == true; it.selfTestLog = sb.toString().trimEnd() } }
         }.start()
     }
 
-    override fun refreshOps() { Thread { updateOps("manual refresh") }.start() }
+    override fun refreshOps(key: String) { Thread { updateOps(key, "manual refresh") }.start() }
 
     /** 読み取り専用の速度計測。転送サイズの組を順に試し、MB/s を表示・ログへ出す。デバイスの先頭付近を読むだけで、何も書かない。 */
-    override fun benchmark() {
-        val s = usbSession ?: return
-        model.busy = getString(R.string.busy_benchmark)
+    override fun benchmark(key: String) {
+        val s = sessions.session(key) ?: return
+        val d = state(key) ?: return
+        d.busy = getString(R.string.busy_benchmark)
         Thread {
             val sb = StringBuilder()
             try {
@@ -318,13 +410,13 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                         val us = s.benchRead(off, total, 1024)
                         getString(R.string.diag_bench_line, chunk, mt, total / 1048576.0 / (us / 1e6))
                     } catch (e: NativeException) { getString(R.string.diag_bench_line_failed, chunk, mt, e.message ?: "") }
-                    android.util.Log.i("usbmem", "bench $line"); sb.appendLine(line)
+                    android.util.Log.i("usbmem", "bench [$key] $line"); sb.appendLine(line)
                 }
                 val saved = TransferTuning.load(this, s.vendorId, s.productId)
                 s.tune(saved?.first ?: UsbStorageSession.READ_CHUNK_KIB, saved?.second ?: UsbStorageSession.READ_MAX_TRANSFER_KIB)   // 保存済み (無ければ既定) へ戻す
             } catch (e: Exception) { sb.appendLine(getString(R.string.diag_failed_simple, e.javaClass.simpleName)) }
-            updateOps("after bench")
-            ui { model.busy = null; model.tuneLog = sb.toString().trim() }
+            updateOps(key, "after bench")
+            ui { state(key)?.let { it.busy = null; it.tuneLog = sb.toString().trim() } }
         }.start()
     }
 
@@ -333,9 +425,10 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
      * 保存した設定は次回から USB を開くたびに使われる (書き込みの転送サイズは変えない)。失敗した設定は記録して二度と試さない。
      * 失敗すると USB が切れて OS が FAT を再マウントすることがある (J9260)。その場合は USB を閉じて、OS の FAT を取り出し、開き直す。
      */
-    override fun optimize() {
-        val s = usbSession ?: return
-        model.busy = getString(R.string.busy_optimize)
+    override fun optimize(key: String) {
+        val s = sessions.session(key) ?: return
+        val d = state(key) ?: return
+        d.busy = getString(R.string.busy_optimize)
         Thread {
             val sb = StringBuilder()
             val ladder = TransferTuning.LADDER
@@ -368,7 +461,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                     val us = s.benchReadHash(off, 64 * mb, 1024, h)
                     val mbps = 64.0 / (us / 1e6)
                     sb.appendLine(getString(R.string.diag_opt_line_ok, chunk, mt, mbps))
-                    android.util.Log.i("usbmem", "optimize chunk=${chunk}K cmd=${mt}K: %.1f MB/s".format(mbps))
+                    android.util.Log.i("usbmem", "optimize [$key] chunk=${chunk}K cmd=${mt}K: %.1f MB/s".format(mbps))
                     if (mbps > bestMbps * 1.03) { best = i; bestMbps = mbps }
                     TransferTuning.markOk(this, vid, pid, best)   // 途中経過も保存 (試行中の印はここで消える)
                 }
@@ -376,7 +469,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 sb.appendLine(getString(R.string.diag_opt_saved, ladder[best].first, ladder[best].second, bestMbps))
             } catch (e: Exception) {
                 val code = (e as? NativeException)?.code
-                android.util.Log.w("usbmem", "optimize failed: ${e.message}")
+                android.util.Log.w("usbmem", "optimize failed [$key]: ${e.message}")
                 // 失敗した試行は「試行中」の印が残っている → 次回の最適化で失敗として扱われる。ここでも確定させておく
                 val trying = TransferTuning.failedFrom(this, vid, pid)
                 if (trying < ladder.size) TransferTuning.markFailed(this, vid, pid, trying)
@@ -385,8 +478,8 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 sb.appendLine(getString(R.string.diag_opt_failed_hint))
                 sb.appendLine(getString(R.string.diag_opt_best_so_far, ladder[best].first, ladder[best].second))
             }
-            updateOps("after optimize")
-            ui { model.busy = null; model.tuneLog = sb.toString().trim(); model.tuningSaved = describeTuning(s) }
+            updateOps(key, "after optimize")
+            ui { state(key)?.let { it.busy = null; it.tuneLog = sb.toString().trim(); it.tuningSaved = describeTuning(s) } }
         }.start()
     }
 
@@ -476,7 +569,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
         }
         if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(usbReceiver, f, RECEIVER_NOT_EXPORTED) else @Suppress("UnspecifiedRegisterReceiverFlag") registerReceiver(usbReceiver, f)
-        refreshUsb()
+        refreshUsb()   // 止まっている間に抜かれた/閉じられたデバイスも、ここで画面とセッションを合わせる
     }
 
     override fun onResume() {
@@ -490,14 +583,16 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     }
 
     override fun onDestroy() {
-        if (isFinishing) closeUsbQuiet()
+        // 終了するとき (戻るボタンなど) だけ、全部のデバイスを閉じる。システムによる作り直しでは、セッションはプロセスが持っているので閉じない
+        if (isFinishing) sessions.closeAll()
+        sessions.removeListener(sessionListener)
         super.onDestroy()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        model.idleSpinDownMin = runCatching { settingsPrefs().getInt("idle_spindown_min", 0) }.getOrDefault(0)
+        sessions.addListener(sessionListener)
         setContent { AppTheme { AppScaffold(model, this, this, this) } }
     }
 }

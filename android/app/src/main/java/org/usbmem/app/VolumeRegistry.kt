@@ -10,10 +10,16 @@ import java.security.MessageDigest
  *
  * ネスト (ループバック): ボリューム内のイメージをマウントした子は、親の id を [Entry.parentId] に持つ。**閉じる順は 内 → 外**:
  * 親を閉じる (または置き換える) と、その子 (孫も) を先に閉じてから親を閉じる。docs/nested-mount.md
+ *
+ * 複数の USB: USB 由来のボリュームは [Entry.deviceName] (UsbDevice.deviceName) を持ち、[removeByDevice] でそのデバイスの分 (ネストした子を含む) だけを閉じる。
+ * ボリュームを**閉じる処理 (書き込みの確定など。遅いことがある) はロックの外**で行う: 1 本の USB を閉じている間も、他の USB の SAF アクセスは止まらない。docs/multi-usb.md
  */
 object VolumeRegistry {
     /** [parentId] / [backingPath] = ネストした子のとき、親ボリュームの id とイメージファイルのパス。[closer] = ボリュームを閉じた後に行う後始末 (イメージのデバイスを閉じる・親のピン解除)。 */
-    class Entry(val id: String, val label: String, val volume: NtfsVolume, val parentId: String? = null, val backingPath: String? = null, internal val closer: (() -> Unit)? = null)
+    class Entry(val id: String, val label: String, val volume: NtfsVolume, val parentId: String? = null, val backingPath: String? = null,
+                /** USB 由来 (UsbDevice.deviceName)。USB 以外・ネストした子は null (子は親をたどって、親のデバイスと一緒に閉じる) */
+                val deviceName: String? = null,
+                internal val closer: (() -> Unit)? = null)
 
     private val volumes = LinkedHashMap<String, Entry>()
     private var restored = false
@@ -29,6 +35,13 @@ object VolumeRegistry {
 
     @Synchronized
     fun byKey(key: String): Entry? = volumes[idOf(key)]
+
+    /** USB のボリュームの登録キー。1 本のデバイスに複数のパーティションを同時に公開できるよう、開始位置を含める。 */
+    fun usbKey(deviceName: String, startBytes: Long): String = "usb:$deviceName@$startBytes"
+
+    /** そのデバイスから公開しているボリューム (直接のもの。ネストした子は含まない)。 */
+    @Synchronized
+    fun byDevice(deviceName: String): List<Entry> = volumes.values.filter { it.deviceName == deviceName }
 
     @Synchronized
     fun get(ctx: Context, id: String): Entry? { restore(ctx); return volumes[id] }
@@ -79,10 +92,10 @@ object VolumeRegistry {
 
     /** マウント済みの NTFS ボリュームを登録する (USB など。永続化しない: 再接続時に再度登録される)。所有権は登録簿に移る。 */
     @Synchronized
-    fun addVolume(label: String, key: String, volume: NtfsVolume): Entry {
+    fun addVolume(label: String, key: String, volume: NtfsVolume, deviceName: String? = null): Entry {
         val id = idOf(key)
         volumes.remove(id)?.let { closeEntry(it) }
-        return Entry(id, label, volume).also { volumes[id] = it }
+        return Entry(id, label, volume, deviceName = deviceName).also { volumes[id] = it }
     }
 
     /**
@@ -115,21 +128,56 @@ object VolumeRegistry {
         return e
     }
 
-    @Synchronized
-    fun removeByKey(key: String) { volumes.remove(idOf(key))?.let { closeEntry(it) } }
+    /** キーのボリューム (とその子) を閉じる。閉じる処理はロックの外で行う。 */
+    fun removeByKey(key: String) = removeById(idOf(key))
 
-    @Synchronized
-    fun remove(ctx: Context, id: String) {
-        volumes.remove(id)?.let { closeEntry(it) }
+    fun remove(ctx: Context, id: String) = removeById(id)
+
+    private fun removeById(id: String) {
+        val victims = synchronized(this) { volumes.remove(id)?.let { takeOut(it) } ?: return }
+        closeInOrder(victims)
     }
 
-    /** 内 → 外の順に閉じる: 子 (孫を含む) を先に、そのあとこのボリューム、最後にイメージのデバイス (closer)。 */
-    private fun closeEntry(e: Entry) {
-        for (c in volumes.values.filter { it.parentId == e.id }) {
-            volumes.remove(c.id)
-            closeEntry(c)
+    /**
+     * そのデバイスから公開しているボリュームを、ネストした子ごと全部閉じる。他のデバイスのボリュームには触れない。閉じた数 (子を含む) を返す。
+     * USB を抜いた/閉じたときの後始末。閉じる処理 (書き込みの確定) はロックの外なので、他のデバイスの SAF アクセスを止めない。
+     */
+    fun removeByDevice(deviceName: String): Int {
+        val victims = synchronized(this) {
+            volumes.values.filter { it.deviceName == deviceName }.toList().flatMap { e -> if (volumes.remove(e.id) != null) takeOut(e) else emptyList() }
         }
-        try { e.volume.close() } finally { e.closer?.invoke() }
+        closeInOrder(victims)
+        return victims.size
+    }
+
+    /** ロック内で呼ぶ。[e] の子 (孫を含む) を登録簿から外し、閉じる順 (内 → 外: 子、そのあと e) に並べて返す。e は呼び出し側が外してある。 */
+    private fun takeOut(e: Entry): List<Entry> {
+        val out = ArrayList<Entry>()
+        fun walk(x: Entry) {
+            for (c in volumes.values.filter { it.parentId == x.id }.toList()) { volumes.remove(c.id); walk(c) }
+            out += x
+        }
+        walk(e)
+        return out
+    }
+
+    /** 内 → 外の順に閉じる: 子 (孫を含む) を先に、そのあとこのボリューム、最後にイメージのデバイス (closer)。1 つの失敗で残りを止めない (最初の例外を最後に投げる)。 */
+    private fun closeInOrder(list: List<Entry>) {
+        var first: Throwable? = null
+        for (x in list) {
+            try { x.volume.close() } catch (t: Throwable) { if (first == null) first = t } finally {
+                try { x.closer?.invoke() } catch (t: Throwable) { if (first == null) first = t }
+            }
+        }
+        first?.let { throw it }
+    }
+
+    /** ロック内で呼ぶ (置き換え時)。 */
+    private fun closeEntry(e: Entry) = closeInOrder(takeOut(e))
+
+    /** SAF のルート一覧が変わったことをシステムの Documents UI へ知らせる。 */
+    fun notifyRoots(ctx: Context) {
+        ctx.contentResolver.notifyChange(android.provider.DocumentsContract.buildRootsUri(OWN_AUTHORITY), null)
     }
 
     private fun mountUri(ctx: Context, uri: Uri, writable: Boolean = false, allowNoload: Boolean = false): Entry {

@@ -1,0 +1,74 @@
+# ホスト (x86_64 Linux) の ctest を 4 構成で実行する: plain / san (ASan+UBSan) / wsan (書き込み有効+san) / wrel (書き込み有効 release)。
+# 手元のメモリが足りないときに、重い 4 構成を GitHub Actions へ逃がすために使う。docs/ci.md
+# トリガ: workflow_dispatch (ctest_regex で絞れる)、または usbmem-ci* ブランチへの push。
+name: Host tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      ctest_regex:
+        description: "ctest -R に渡す正規表現 (空なら全件)"
+        required: false
+        default: ""
+  push:
+    branches: ['usbmem-ci*']
+
+concurrency:
+  group: host-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    name: host (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        mode: [plain, san, wsan, wrel]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build g++ python3 e2fsprogs fuse2fs fuse3 mtools p7zip-full dosfstools exfatprogs exfat-fuse ntfs-3g \
+            btrfs-progs xfsprogs f2fs-tools erofs-utils squashfs-tools zstd lzop lz4 xz-utils \
+            gdisk fdisk bc genisoimage xorriso cryptsetup-bin nbdkit libnbd-bin qemu-utils partclone gddrescue zlib1g-dev
+          echo user_allow_other | sudo tee -a /etc/fuse.conf
+
+      - name: Configure
+        run: |
+          flags=""; bt=Debug
+          case "${{ matrix.mode }}" in
+            san)  flags="-DUSBMEM_SANITIZE=ON" ;;
+            wsan) flags="-DUSBMEM_SANITIZE=ON -DUSBMEM_NTFS_WRITE=ON" ;;
+            wrel) flags="-DUSBMEM_NTFS_WRITE=ON"; bt=Release ;;
+          esac
+          cmake -S core -B build -G Ninja -DCMAKE_BUILD_TYPE=$bt $flags
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: ctest
+        working-directory: build
+        env:
+          PATH_EXTRA: /sbin:/usr/sbin
+          ASAN_OPTIONS: verify_asan_link_order=0:detect_leaks=1
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          re="${{ github.event.inputs.ctest_regex }}"
+          if [ -n "$re" ]; then ctest --output-on-failure -R "$re"; else ctest --output-on-failure; fi
+
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-log-${{ matrix.mode }}
+          path: build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore

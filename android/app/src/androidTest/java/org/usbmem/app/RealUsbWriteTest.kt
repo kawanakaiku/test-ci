@@ -23,7 +23,7 @@ import java.security.MessageDigest
  *             速度の計測 (32 MiB)。閉じて、読み取り専用で再オープン → 全ファイル照合 + fsck + 残骸が無いことの確認。
  * 失敗したら、そのパーティションではそこで止める (後片付けは自動で試み、残骸があれば読み取り専用で一覧するだけ。手では消さない)。
  *
- * 安全: 書き込めるのは [WRITABLE_FS] だけ。FAT/exFAT 以外の FS・needs_recovery の ext (復旧検証用の固定イメージ)・MBR の ext4 は、指定されても拒否する。
+ * 安全: 書き込めるのは [WRITABLE_FS] だけ。許可リスト外の FS・needs_recovery の ext (復旧検証用の固定イメージ)・MBR の ext4 は、指定されても拒否する。
  * instrument 引数 (usbmem.*): real=true write=true devices=<VID:PID 1 つ> part=<パーティション番号 1 つ> stage=createonly|full|both (既定 both) preverify=true|false
  */
 class RealUsbWriteTest {
@@ -33,7 +33,7 @@ class RealUsbWriteTest {
 
     companion object {
         /** 書き込みを許す FS (パーティション表の fs 名)。FAT32 は書き込み未対応、XFS/squashfs/erofs/UDF/ISO は読み取り専用 FS。 */
-        val WRITABLE_FS = setOf("ntfs", "exfat", "ext2", "ext3", "ext4", "btrfs", "f2fs")
+        val WRITABLE_FS = setOf("ntfs", "exfat", "fat12", "fat16", "fat32", "ext2", "ext3", "ext4", "btrfs", "f2fs")
         const val BIG_SKIP = "02_big/big_4p5GiB.bin"
     }
 

@@ -119,4 +119,13 @@
 | `REUSE_FREED` (同一世代で解放したブロックを再利用) | 自己検査 (クリーンな実行そのものが失敗) で検出 |
 
   `NO_SB_WRITE` と `REUSE_FREED` は電源断の試行に入る前の自己検査で落ちる。つまり検出はされているが、試行ごとの内訳は出ない。
-- CI (GitHub Actions、`usbmem-ci-btrfs` ブランチ): CI_RESULTS_PLACEHOLDER
+- CI (GitHub Actions、`usbmem-ci-btrfs` ブランチ、コミット 3f802dc。実カーネルは Linux 7.0 azure、btrfs-progs 6.17.1):
+  - `Btrfs write` ワークフロー (https://github.com/kawanakaiku/test-ci/actions/runs/43410460023) 成功。以下の数値は前のコミット (1b8f90b、run 43404576373) のログから (後のコミットも成功):
+    決まった操作列 8 構成すべてで「実カーネルが loop マウントして読める・scrub ok・ツリー一致」、カーネルが書いたイメージを自前エンジンが変更した結果をカーネルが読み scrub も通る (crc32c / xxhash の 2 構成)、`btrfs check` 53 回 clean、
+    書き込みマウントのファジング 400 イメージ × 2 構成、電源断のフル版 320 + 192 + 192 = **704 試行** (K/S/A/P すべて 0、有効なスーパーブロックのコピー 629 + 383 + 379 個、`btrfs check` 933 + 572 + 566 回)、突然変異 4/4 検出。
+  - `Host tests` ワークフロー (https://github.com/kawanakaiku/test-ci/actions/runs/43410459942、plain / san / wsan / wrel の 4 構成): btrfs の ctest はすべて通過 (plain / san は読み取りの 6、wsan / wrel は書き込みと電源断を含む 8)。
+    各構成の失敗は btrfs と無関係の既存分 (FUSE の権限などで落ちる exfat / ext4 / ntfs / erofs / xfs / disktools / partedit など。変更前のコミットの実行 43394464872 と同じ 20 件 (wrel / wsan)、13 件 (plain / san))で、新たな失敗は無い。
+  - `Android emulator tests` ワークフロー (https://github.com/kawanakaiku/test-ci/actions/runs/43410459864。前のコミットの run 43404576311 も成功) 成功: `btrfs-xfs` グループの `btrfs_write` で、AVD 上の `BtrfsWriteTest` 3 テスト通過、
+    結果イメージを pull して 241 エントリが POSIX 参照と一致、`btrfs check` clean。
+- Debug (`_GLIBCXX_ASSERTIONS` 有効) + 書き込み有効のビルド (wdbg) を手元で作って同じ検証を実行したところ、最初の実行で**範囲外参照**が見つかった (葉のデータ領域が空のとき `&d[末尾]` を作る `leaf_insert` / `leaf_delete`。Release では長さ 0 の `memmove` なので害は無いが UB)。
+  `data()` からのポインタ演算に直した。直したあと wdbg でも操作列・モデル・満杯・ファジング・電源断 (48 試行) すべて通過し、CI の wsan でも通る。

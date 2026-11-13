@@ -237,7 +237,7 @@ class MultiUsbTest {
         assertTrue(m.close(UsbSlotKey.of(r.deviceName, 1)))
         val after = roots()
         assertFalse(after.containsKey(l1.id)); assertTrue(after.containsKey(l0.id)); assertTrue(after.containsKey(o1.id))
-        assertEquals(listOf(r.deviceName, other.deviceName), m.openDevices())
+        assertEquals(listOf(other.deviceName, r.deviceName), m.openDevices())   // 名前順 (dev(2) < 009)
         assertTrue(l0.volume.list("/").isNotEmpty())   // LUN 0 のボリュームはそのまま読める
         // 抜去: 残りの LUN (LUN 0) のルートも消える。別デバイスは残る
         assertTrue(m.onDetached(r.deviceName))

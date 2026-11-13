@@ -22,6 +22,8 @@ void put32be(uint8_t* p, uint32_t v) { for (int i = 0; i < 4; i++) p[i] = static
 void put64be(uint8_t* p, uint64_t v) { for (int i = 0; i < 8; i++) p[i] = static_cast<uint8_t>(v >> (56 - 8 * i)); }
 uint32_t get32be(const uint8_t* p) { return (static_cast<uint32_t>(p[0]) << 24) | (p[1] << 16) | (p[2] << 8) | p[3]; }
 uint64_t get64be(const uint8_t* p) { return (static_cast<uint64_t>(get32be(p)) << 32) | get32be(p + 4); }
+uint32_t get16be(const uint8_t* p) { return (static_cast<uint32_t>(p[0]) << 8) | p[1]; }
+uint32_t get16le(const uint8_t* p) { return p[0] | (static_cast<uint32_t>(p[1]) << 8); }
 bool is_stall(const Status& s) { return s.code == Errc::Io && s.sys_errno == EPIPE; }
 bool is_fatal(const Status& s) { return s.code == Errc::Disconnected; }
 
@@ -37,6 +39,75 @@ thread_local std::string g_last_open_trace;
 }  // namespace
 
 std::string MscDevice::last_open_trace() { return g_last_open_trace; }
+
+// ---- CDB の許可検査 (純粋関数)
+bool scsi_cdb_ata_passthrough_ok(const uint8_t* cdb, size_t len, bool allow_ata_identify) {
+  if (!cdb || len == 0) return false;
+  if (cdb[0] != 0xA1 && cdb[0] != 0x85) return true;   // ATA PASS-THROUGH 以外は対象外
+  if (!allow_ata_identify) return false;
+  // SAT: PROTOCOL=4 (PIO データイン)・EXTEND=0 (byte1=0x08)、T_DIR=1・BYTE_BLOCK=1・T_LENGTH=2 = セクタ数フィールドで 512 バイト (byte2=0x0E)。
+  // レジスタ値はセクタ数=1 以外すべて 0、コマンド=0xEC (IDENTIFY DEVICE)。他のコマンドバイト・フラグの組み合わせは一切通さない。
+  if (cdb[0] == 0xA1) {
+    if (len != 12) return false;
+    for (int i : {3, 5, 6, 7, 8, 10, 11}) if (cdb[i] != 0) return false;
+    return cdb[1] == 0x08 && cdb[2] == 0x0E && cdb[4] == 1 && cdb[9] == 0xEC;
+  }
+  if (len != 16) return false;
+  for (int i : {3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 15}) if (cdb[i] != 0) return false;
+  return cdb[1] == 0x08 && cdb[2] == 0x0E && cdb[6] == 1 && cdb[14] == 0xEC;
+}
+
+bool scsi_cdb_allowed_read_only(const uint8_t* cdb, size_t len, bool allow_start_stop, bool allow_ata_identify) {
+  if (!cdb || len == 0) return false;
+  switch (cdb[0]) {
+    case 0x00: case 0x03: case 0x1A: case 0x25: case 0x28: case 0x88: return true;
+    case 0x12: return len >= 6 && (cdb[1] & 0xFE) == 0;                          // INQUIRY: EVPD ビットだけ (CMDDT は不可)
+    case 0x1B: return allow_start_stop;                                           // START STOP UNIT: start_stop() の中だけ (媒体の内容は変えない)
+    case 0x9E: return len >= 2 && (cdb[1] & 0x1F) == 0x10;                        // SERVICE ACTION IN: READ CAPACITY(16) のみ
+    case 0xA1: case 0x85: return scsi_cdb_ata_passthrough_ok(cdb, len, allow_ata_identify);
+    default: return false;
+  }
+}
+
+bool parse_ata_identify(const uint8_t* d, MediaInfo* out) {
+  uint32_t w0 = get16le(d), w169 = get16le(d + 169 * 2), w217 = get16le(d + 217 * 2), w255 = get16le(d + 255 * 2);
+  bool zero = true;
+  unsigned sum = 0;
+  for (int i = 0; i < 512; i++) { if (d[i]) zero = false; sum += d[i]; }
+  if (zero) return false;                         // 全部 0 = 何も返していない
+  if (w0 & 0x8000) return false;                  // ATAPI など ATA ディスクではない
+  if ((w255 & 0xFF) == 0xA5 && (sum & 0xFF) != 0) return false;   // 完全性シグネチャがあるのにチェックサムが合わない
+  if (out) { out->ata_word0 = static_cast<int32_t>(w0); out->ata_word169 = static_cast<int32_t>(w169); out->ata_word217 = static_cast<int32_t>(w217); }
+  return true;
+}
+
+std::string MediaInfo::describe() const {
+  std::string o;
+  char b[64];
+  snprintf(b, sizeof b, "rmb=%d ver=%02x", removable ? 1 : 0, inquiry_version); o += b;
+  if (!probed) return o + " (not probed)";
+  o += " vpd=";
+  if (!vpd_tried) o += "skip";
+  else if (!vpd_supported) o += "none";
+  else { for (size_t i = 0; i < vpd_pages.size(); i++) { snprintf(b, sizeof b, "%s%02x", i ? "," : "", vpd_pages[i]); o += b; } }
+  if (rotation_rate_raw >= 0) { snprintf(b, sizeof b, " b1=0x%04x", static_cast<unsigned>(rotation_rate_raw)); o += b; }
+  if (unmap_raw >= 0) { snprintf(b, sizeof b, " b2.lbpu=%d", unmap_raw); o += b; }
+  if (ata_word0 >= 0) { snprintf(b, sizeof b, " ata.w0=0x%04x w169=0x%04x w217=0x%04x", static_cast<unsigned>(ata_word0), static_cast<unsigned>(ata_word169), static_cast<unsigned>(ata_word217)); o += b; }
+  o += " sat=";
+  if (sat_skipped) o += "skip(rmb)";
+  else if (!sat_tried) o += "-";
+  else { if (sat_tried & 1) o += "89"; if (sat_tried & 2) o += "+12"; if (sat_tried & 4) o += "+16"; }
+  o += " -> ";
+  if (kind == MediaKind::Rotational) { o += "rotational"; if (rpm) o += " " + std::to_string(rpm) + "rpm"; }
+  else if (kind == MediaKind::NonRotational) o += "non-rotational";
+  else o += "unknown";
+  static const char* const basis_name[] = {"none", "vpd-b1", "ata-info-vpd", "sat12", "sat16"};
+  o += std::string(" [") + basis_name[static_cast<int>(basis) % 5] + "]";
+  if (hint == MediaHint::RemovableNoVpd) o += " hint=removable";
+  else if (hint == MediaHint::UnmapSupported) o += " hint=unmap";
+  if (!stop_reason.empty()) o += " stop=" + stop_reason;
+  return o;
+}
 
 // ---- BOT: 1 コマンド (CBW → データ → CSW)。check_condition=true で CSW が Command Failed のとき呼び出し側が REQUEST SENSE する。
 Status MscDevice::exec(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* data, size_t len, size_t* transferred,
@@ -61,16 +132,12 @@ Status MscDevice::exec_impl(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, voi
   if (transferred) *transferred = 0;
   if (dead_) return Status::Make(Errc::Disconnected);
   if (cdb_len == 0 || cdb_len > 16 || len > 0xFFFFFFFFu) return Status::Make(Errc::InvalidArgument);
-  // 最後の安全弁: 読み取り専用のときは、メディアの内容を変えうるコマンドを (呼び出し側の誤りがあっても) 絶対に送らない。
-  // 許可: TEST UNIT READY / REQUEST SENSE / INQUIRY / MODE SENSE(6) / READ CAPACITY(10,16) / READ(10,16)
-  if (read_only_) {
-    switch (cdb[0]) {
-      case 0x00: case 0x03: case 0x12: case 0x1A: case 0x25: case 0x28: case 0x88: case 0x9E: break;
-      case 0x1B: if (allow_start_stop_) break; return Status::Make(Errc::ReadOnly);   // START STOP UNIT: start_stop() の中だけ (媒体の内容は変えない)
-      default: return Status::Make(Errc::ReadOnly);
-    }
-    if (cdb[0] == 0x9E && (cdb_len < 2 || (cdb[1] & 0x1F) != 0x10)) return Status::Make(Errc::ReadOnly);   // SERVICE ACTION IN: READ CAPACITY(16) のみ
-  }
+  // 最後の安全弁 (1): ATA PASS-THROUGH は、読み取り専用かどうかに関わらず、probe_media() の中で IDENTIFY DEVICE (0xEC) の正規形だけを通す。
+  if (!scsi_cdb_ata_passthrough_ok(cdb, cdb_len, allow_ata_identify_)) return Status::Make(Errc::InvalidArgument);
+  // 最後の安全弁 (2): 読み取り専用のときは、メディアの内容を変えうるコマンドを (呼び出し側の誤りがあっても) 絶対に送らない。
+  // 許可: TEST UNIT READY / REQUEST SENSE / INQUIRY / MODE SENSE(6) / READ CAPACITY(10,16) / READ(10,16)、START STOP UNIT (start_stop() の中だけ)、
+  // ATA PASS-THROUGH の IDENTIFY DEVICE (probe_media() の中だけ)。詳細は scsi_cdb_allowed_read_only。
+  if (read_only_ && !scsi_cdb_allowed_read_only(cdb, cdb_len, allow_start_stop_, allow_ata_identify_)) return Status::Make(Errc::ReadOnly);
   op_counts_[cdb[0]]++;
   uint8_t cbw[kCbwLen] = {0};
   uint32_t tag = tag_++;
@@ -255,6 +322,11 @@ Status MscDevice::initialize() {
   Status mst = exec(cdb_ms, 6, UsbDir::In, ms, sizeof ms, &n, opt_.io_timeout_ms, &cc);
   if (cc) { ScsiSense s; request_sense(&s); }
   write_protected_ = mst.ok() && n >= 3 && (ms[2] & 0x80);
+  // 回転ディスクか・フラッシュ/SSD かの判別 (読み取り専用のコマンドだけ。1 度だけ)。この時点では read_only_ はまだ true なので許可リストが効く。
+  // 判別の失敗は open の失敗にしない (Unknown のまま続ける)。デバイスが抜けた (Disconnected) ときだけ伝える。
+  if (opt_.probe_media) probe_media(inq);
+  else { media_ = MediaInfo{}; media_.removable = (inq[1] & 0x80) != 0; media_.inquiry_version = inq[2]; }
+  if (dead_) return Status::Make(Errc::Disconnected);
   read_only_ = opt_.read_only || write_protected_;
 
   if (opt_.max_transfer < block_size_) opt_.max_transfer = block_size_;
@@ -262,6 +334,139 @@ Status MscDevice::initialize() {
   if (opt_.max_read_transfer == 0) opt_.max_read_transfer = opt_.max_transfer;
   else { if (opt_.max_read_transfer < block_size_) opt_.max_read_transfer = block_size_; opt_.max_read_transfer -= opt_.max_read_transfer % block_size_; }
   return Status::Ok();
+}
+
+// ---- 種別判別 (docs/media-kind.md)。すべて読み取り専用のコマンド。1 コマンド 1 回 (再試行なし)・probe_timeout_ms の上限。
+// 想定外の応答 (転送エラー・タイムアウト・CSW 不整合・不正な長さ) が 1 つでもあれば、そこで判別を打ち切って Unknown にする。
+MscDevice::ProbeResult MscDevice::probe_cmd(const uint8_t* cdb, uint8_t cdb_len, void* data, size_t len, const char* what) {
+  ProbeResult r;
+  size_t n = 0;
+  bool cc = false;
+  Status st = exec(cdb, cdb_len, UsbDir::In, data, len, &n, opt_.probe_timeout_ms, &cc);
+  auto stop = [&](const std::string& why) { if (media_.stop_reason.empty()) media_.stop_reason = std::string(what) + ": " + why; };
+  if (dead_) { stop("disconnected"); return r; }
+  if (!cc) {
+    if (!st.ok()) { stop(errc_name(st.code)); return r; }     // 転送エラー・タイムアウト・CSW 不整合 (exec が BOT リセット回復済み)
+    r.kind = ProbeResult::Ok; r.n = n;
+    return r;
+  }
+  ScsiSense s;
+  if (!request_sense(&s).ok()) { stop("request sense failed"); return r; }
+  if (s.key == 0x05) { r.kind = ProbeResult::IllegalRequest; return r; }   // 未対応
+  char b[48]; snprintf(b, sizeof b, "sense %x/%02x/%02x", s.key, s.asc, s.ascq);
+  stop(b);                                                  // それ以外 (UNIT ATTENTION など) も、再試行せず打ち切る
+  return r;
+}
+
+// VPD ページを 1 回読む。true = 応答が妥当 (ページ番号・タイプ・長さ)。false のとき *res に未対応か打ち切りかが入る。
+bool MscDevice::probe_vpd(uint8_t page, uint8_t* buf, size_t len, size_t min_len, ProbeResult* res) {
+  std::memset(buf, 0, len);
+  uint8_t cdb[6] = {0x12, 0x01, page, static_cast<uint8_t>(len >> 8), static_cast<uint8_t>(len), 0};
+  char what[24]; snprintf(what, sizeof what, "vpd 0x%02x", page);
+  *res = probe_cmd(cdb, 6, buf, len, what);
+  if (res->kind != ProbeResult::Ok) return false;
+  // 妥当性: 長さ、ペリフェラルタイプ (標準 INQUIRY と同じ)、ページ番号
+  if (res->n < min_len || res->n > len || (buf[0] >> 5) != 0 || buf[1] != page || (buf[0] & 0x1F) != (media_.inquiry_ptype & 0x1F)) {
+    res->kind = ProbeResult::Abort;
+    char b[64]; snprintf(b, sizeof b, "%s: invalid response (len=%zu)", what, res->n);
+    if (media_.stop_reason.empty()) media_.stop_reason = b;
+    return false;
+  }
+  return true;
+}
+
+void MscDevice::probe_media(const uint8_t* inq) {
+  media_ = MediaInfo{};
+  media_.probed = true;
+  media_.removable = (inq[1] & 0x80) != 0;
+  media_.inquiry_version = inq[2];
+  media_.inquiry_ptype = inq[0] & 0x1F;
+
+  auto decide_rate = [&](uint32_t rate, MediaBasis basis) {   // 回転数フィールドの解釈 (VPD 0xB1 と IDENTIFY 語 217 で同じ)
+    if (rate == 0x0001) { media_.kind = MediaKind::NonRotational; media_.basis = basis; return true; }
+    if (rate >= 0x0401 && rate <= 0xFFFE) { media_.kind = MediaKind::Rotational; media_.rpm = rate; media_.basis = basis; return true; }
+    return false;   // 0 = 未報告、0x0002-0x0400 / 0xFFFF = 予約: 判定に使わない
+  };
+  auto finish = [&] {
+    if (media_.kind == MediaKind::Unknown) {   // 手掛かり (確定ではない)
+      if (media_.removable) media_.hint = MediaHint::RemovableNoVpd;
+      else if (media_.unmap_raw == 1 || (media_.ata_word169 >= 0 && (media_.ata_word169 & 1))) media_.hint = MediaHint::UnmapSupported;
+    }
+  };
+  auto has = [&](uint8_t pg) { return std::find(media_.vpd_pages.begin(), media_.vpd_pages.end(), pg) != media_.vpd_pages.end(); };
+
+  uint8_t buf[600];
+  ProbeResult r;
+
+  // a. 標準 INQUIRY は済み (RMB / VERSION)。b. VPD 0x00: 対応ページ。Linux と同じく VERSION が SPC-2 (4) 以上の機器にだけ問い合わせる
+  //    (古い USB メモリには EVPD を受け付けず固まるものがある)。
+  if ((inq[2] & 0x07) >= 4) {
+    media_.vpd_tried = true;
+    if (probe_vpd(0x00, buf, 64, 4, &r)) {
+      uint32_t plen = get16be(buf + 2);
+      if (plen <= 60 && r.n < 4 + plen) { media_.stop_reason = "vpd 0x00: invalid response (page length)"; finish(); return; }
+      size_t avail = std::min<size_t>(plen, r.n - 4);
+      media_.vpd_pages.assign(buf + 4, buf + 4 + avail);
+      media_.vpd_supported = true;
+    } else if (r.kind != ProbeResult::IllegalRequest) { finish(); return; }
+  }
+
+  // b. Block Device Characteristics (0xB1): MEDIUM ROTATION RATE
+  if (media_.vpd_supported && has(0xB1)) {
+    if (probe_vpd(0xB1, buf, 64, 8, &r)) {
+      media_.rotation_rate_raw = static_cast<int32_t>(get16be(buf + 4));
+      if (decide_rate(get16be(buf + 4), MediaBasis::VpdBlockDeviceChars)) { finish(); return; }
+    } else if (r.kind != ProbeResult::IllegalRequest) { finish(); return; }
+  }
+
+  // c. ATA の IDENTIFY DEVICE (語 217)。まず ATA Information VPD (0x89。読み取りだけで済む)、無ければ SAT の ATA PASS-THROUGH。
+  //    RMB=1 の機器は USB メモリの可能性が高く、未知のコマンドで固まる恐れがあるので、0x89 で SAT を名乗っていない限り PASS-THROUGH は送らない。
+  uint8_t ident[512];
+  bool have_ident = false;
+  MediaBasis ident_basis = MediaBasis::None;
+  if (media_.vpd_supported && has(0x89)) {
+    media_.sat_tried |= 1;
+    if (probe_vpd(0x89, buf, 572, 572, &r)) {
+      // 56: コマンドコード (0xEC = ATA ディスク / 0xA1 = ATAPI)、60..571: IDENTIFY の 512 バイト
+      if (buf[56] == 0xEC && get16be(buf + 2) >= 0x238) {
+        std::memcpy(ident, buf + 60, 512);
+        if (parse_ata_identify(ident, &media_)) { have_ident = true; ident_basis = MediaBasis::AtaInfoVpd; }
+        else { media_.stop_reason = "vpd 0x89: invalid IDENTIFY data"; finish(); return; }
+      } else if (buf[56] == 0xA1) { finish(); return; }   // ATAPI (光学ドライブなど): 回転数は分からない
+      else { media_.stop_reason = "vpd 0x89: invalid response (command code)"; finish(); return; }
+    } else if (r.kind != ProbeResult::IllegalRequest) { finish(); return; }
+  }
+  if (!have_ident) {
+    if (media_.removable && !(media_.vpd_supported && has(0x89))) {
+      media_.sat_skipped = true;
+    } else {
+      struct { uint8_t cdb[16]; uint8_t len; uint8_t bit; MediaBasis basis; const char* what; } tries[2] = {
+        {{0xA1, 0x08, 0x0E, 0, 1, 0, 0, 0, 0, 0xEC, 0, 0}, 12, 2, MediaBasis::AtaPassThrough12, "sat12 identify"},
+        {{0x85, 0x08, 0x0E, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0xEC, 0}, 16, 4, MediaBasis::AtaPassThrough16, "sat16 identify"},
+      };
+      for (auto& t : tries) {   // (12) が ILLEGAL REQUEST のときだけ (16) を 1 回。それぞれ再試行なし
+        media_.sat_tried |= t.bit;
+        std::memset(ident, 0, sizeof ident);
+        allow_ata_identify_ = true;
+        r = probe_cmd(t.cdb, t.len, ident, sizeof ident, t.what);
+        allow_ata_identify_ = false;
+        if (r.kind == ProbeResult::Ok) {
+          if (r.n == sizeof ident && parse_ata_identify(ident, &media_)) { have_ident = true; ident_basis = t.basis; }
+          else if (media_.stop_reason.empty()) media_.stop_reason = std::string(t.what) + ": invalid IDENTIFY data";
+          break;
+        }
+        if (r.kind != ProbeResult::IllegalRequest) break;
+      }
+      if (!have_ident && !media_.stop_reason.empty()) { finish(); return; }
+    }
+  }
+  if (have_ident && decide_rate(static_cast<uint32_t>(media_.ata_word217), ident_basis)) { finish(); return; }
+
+  // d. 決め手が無かった: Logical Block Provisioning (0xB2) の UNMAP 対応は SSD/フラッシュのヒント
+  if (media_.vpd_supported && has(0xB2)) {
+    if (probe_vpd(0xB2, buf, 64, 8, &r)) media_.unmap_raw = (buf[5] & 0x80) ? 1 : 0;
+  }
+  finish();
 }
 
 Status MscDevice::open(std::unique_ptr<BulkTransport> transport, const MscOptions& opt, BlockDevicePtr* out) {

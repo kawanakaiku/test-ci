@@ -2,6 +2,7 @@
 // テスト用: USB Mass Storage Bulk-Only デバイスのソフトウェア模擬 (SCSI 透過コマンドセットの最小実装)。
 // 疎なブロックストア (未書き込みブロックは LBA 由来の決定的パターン) なので、2TiB 超の容量でもメモリを使わない。
 #pragma once
+#include <algorithm>
 #include <cstring>
 #include <functional>
 #include <map>
@@ -29,6 +30,29 @@ struct Faults {
   bool no_sync_cache = false;        // SYNCHRONIZE CACHE を ILLEGAL REQUEST にする
   bool no_start_stop = false;        // START STOP UNIT を ILLEGAL REQUEST にする (対応しないブリッジ)
   bool short_cap16 = false;          // READ CAPACITY(16) を規格の最小 12 バイトだけ返す (実機の RAID ブリッジの挙動)
+  // ---- 種別判別 (docs/media-kind.md) の応答の再現。cdb を受け取る述語: true のコマンドで該当の故障を起こす
+  std::function<bool(const std::vector<uint8_t>&)> timeout_if;      // データ段 (IN) がタイムアウトする (Errc::Timeout)
+  std::function<bool(const std::vector<uint8_t>&)> phase_error_if;   // CSW が Phase Error (status=2)
+  std::function<bool(const std::vector<uint8_t>&)> bad_tag_if;       // CSW のタグが違う
+  std::function<bool(const std::vector<uint8_t>&)> short_data_if;    // データを半分だけ返す (不正な長さ)
+  std::function<bool(const std::vector<uint8_t>&)> check_cond_if;    // UNIT ATTENTION で失敗する (ILLEGAL REQUEST 以外の CHECK CONDITION)
+};
+
+// 偽デバイスの「種別」の設定。既定は VPD も SAT も持たない、ただの SCSI ディスク (version 0 / RMB=0)。
+struct MediaCfg {
+  uint8_t version = 0x00;            // INQUIRY のバイト 2。VPD 0x00 を試されるのは SPC-2 (4) 以上
+  bool rmb = false;                  // INQUIRY の RMB
+  std::vector<uint8_t> vpd_pages;    // 空 = EVPD 非対応 (ILLEGAL REQUEST)。それ以外は VPD 0x00 が返すページ一覧
+  int b1_rate = -1;                  // VPD 0xB1 の回転数フィールド (-1 = ページなし)。vpd_pages に 0xB1 も入れること
+  bool b2_lbpu = false;              // VPD 0xB2 の LBPU
+  int sat = 0;                       // 1 = PASS-THROUGH(12) に応答 / 2 = (16) に応答 / 3 = 両方 / 0 = 非対応
+  int ata_info_vpd = 0;              // 1 = VPD 0x89 に IDENTIFY を載せる (vpd_pages に 0x89 も入れること)
+  uint16_t w217 = 0;                 // IDENTIFY 語 217
+  bool trim = false;                 // IDENTIFY 語 169 bit0
+  bool ident_bad_checksum = false;   // IDENTIFY のチェックサムを壊す
+  bool ident_atapi = false;          // IDENTIFY 語 0 bit15 = 1 (ATAPI)
+  bool ident_zero = false;           // IDENTIFY が全部 0
+  uint8_t ptype = 0x00;
 };
 
 class BotDevice : public BulkTransport {
@@ -43,6 +67,10 @@ class BotDevice : public BulkTransport {
   int sync_count = 0;
   int start_stop_count = 0;
   bool spun_down = false;            // 直近の START STOP UNIT が停止 (start=0) だったか
+  MediaCfg media;
+  std::vector<std::vector<uint8_t>> cdb_log;   // 受け取った CDB (全体)
+  std::vector<uint8_t> ata_cmds;               // ATA PASS-THROUGH で受け取った ATA コマンドバイト
+  int vpd_requests = 0;                        // INQUIRY EVPD の回数
 
   // 設定すると、未書き込みブロックの内容をこの関数から得る (実イメージを USB デバイスとして見せる統合テスト用)
   std::function<void(uint64_t lba, uint8_t* out)> backing;
@@ -83,8 +111,10 @@ class BotDevice : public BulkTransport {
     if (dead()) return Status::Make(Errc::Disconnected);
     auto* p = static_cast<uint8_t*>(buf);
     if (state_ == St::DataIn) {
+      if (f.timeout_if && f.timeout_if(cdb_)) return Status::Make(Errc::Timeout);
       if (f.stall_data_in_once > 0 && cdb_[0] != 0x03) { f.stall_data_in_once--; state_ = St::Csw; csw_status_ = 1; stalled_in_ = true; return Status::Make(Errc::Io, EPIPE); }
       size_t n = std::min(len, inbuf_.size());
+      if (f.short_data_if && f.short_data_if(cdb_)) n /= 2;
       std::memcpy(p, inbuf_.data(), n);
       *done = n;
       state_ = St::Csw;
@@ -96,9 +126,9 @@ class BotDevice : public BulkTransport {
       if (f.stall_csw_once > 0) { f.stall_csw_once--; stalled_in_ = true; return Status::Make(Errc::Io, EPIPE); }
       uint8_t csw[13] = {0};
       wr32(csw, f.bad_csw_sig ? 0xDEADBEEF : 0x53425355);
-      wr32(csw + 4, f.bad_csw_tag ? tag_ + 1 : tag_);
+      wr32(csw + 4, (f.bad_csw_tag || (f.bad_tag_if && f.bad_tag_if(cdb_))) ? tag_ + 1 : tag_);
       wr32(csw + 8, f.lie_residue ? dlen_ + 10 : residue_);
-      csw[12] = f.phase_error ? 2 : csw_status_;
+      csw[12] = (f.phase_error || (f.phase_error_if && f.phase_error_if(cdb_))) ? 2 : csw_status_;
       std::memcpy(p, csw, std::min<size_t>(len, 13));
       *done = std::min<size_t>(len, 13);
       state_ = St::Idle;
@@ -142,20 +172,80 @@ class BotDevice : public BulkTransport {
   }
   void data_in(std::vector<uint8_t> d) { inbuf_ = std::move(d); if (inbuf_.size() > dlen_) inbuf_.resize(dlen_); csw_status_ = 0; state_ = dlen_ ? St::DataIn : St::Csw; }
 
+
+  std::vector<uint8_t> identify_data() const {
+    std::vector<uint8_t> w(512, 0);
+    if (media.ident_zero) return w;
+    auto put = [&](int word, uint16_t v) { w[word * 2] = static_cast<uint8_t>(v); w[word * 2 + 1] = static_cast<uint8_t>(v >> 8); };
+    put(0, media.ident_atapi ? 0x8580 : 0x0040);
+    std::memcpy(&w[27 * 2], "FAKE ATA DISK                           ", 40);
+    put(169, media.trim ? 1 : 0);
+    put(217, media.w217);
+    put(255, 0x00A5);
+    unsigned sum = 0;
+    for (int i = 0; i < 511; i++) sum += w[i];
+    w[511] = static_cast<uint8_t>(0x100 - (sum & 0xFF));
+    if (media.ident_bad_checksum) w[511] ^= 0x5A;
+    return w;
+  }
+
+  void vpd_inquiry() {
+    vpd_requests++;
+    uint8_t page = cdb_[2];
+    if (media.vpd_pages.empty()) { fail(0x05, 0x24, 0x00); return; }   // INVALID FIELD IN CDB
+    bool listed = page == 0x00 || std::find(media.vpd_pages.begin(), media.vpd_pages.end(), page) != media.vpd_pages.end();
+    if (!listed) { fail(0x05, 0x24, 0x00); return; }
+    std::vector<uint8_t> d;
+    d.assign(4, 0);
+    d[0] = media.ptype; d[1] = page;
+    auto setlen = [&] { size_t n = d.size() - 4; d[2] = static_cast<uint8_t>(n >> 8); d[3] = static_cast<uint8_t>(n); };
+    if (page == 0x00) { d.insert(d.end(), media.vpd_pages.begin(), media.vpd_pages.end()); }
+    else if (page == 0xB1) {
+      d.resize(64, 0);
+      d[4] = static_cast<uint8_t>(media.b1_rate >> 8); d[5] = static_cast<uint8_t>(media.b1_rate);
+    } else if (page == 0xB2) {
+      d.resize(8, 0);
+      d[5] = media.b2_lbpu ? 0x80 : 0x00;
+    } else if (page == 0x89) {
+      d.resize(572, 0);
+      std::memcpy(&d[8], "linux   ", 8); std::memcpy(&d[16], "libata          ", 16);
+      d[56] = media.ident_atapi ? 0xA1 : 0xEC;
+      auto id = identify_data();
+      std::memcpy(&d[60], id.data(), 512);
+    } else { d.resize(8, 0); }
+    setlen();
+    data_in(d);
+  }
+
+  // SAT ATA PASS-THROUGH(12)/(16)。受け取った ATA コマンドバイトを記録し、IDENTIFY DEVICE (0xEC) のときだけ応答する。
+  void ata_passthrough() {
+    uint8_t cmd = cdb_[0] == 0xA1 ? cdb_[9] : cdb_[14];
+    ata_cmds.push_back(cmd);
+    bool supported = (cdb_[0] == 0xA1 && (media.sat & 1)) || (cdb_[0] == 0x85 && (media.sat & 2));
+    if (!supported) { fail(0x05, 0x20, 0x00); return; }
+    if (cmd != 0xEC) { fail(0x05, 0x24, 0x00); return; }
+    data_in(identify_data());
+  }
+
   void start_command() {
     uint8_t op = cdb_[0];
     log_ops.push_back(op);
+    cdb_log.push_back(cdb_);
     max_data_len = std::max<int>(max_data_len, static_cast<int>(dlen_));
     stalled_in_ = false; csw_status_ = 0; residue_ = 0; outbuf_.clear();
     if (op != 0x03 && f.unit_attention_first > 0) { f.unit_attention_first--; fail(0x06, 0x29, 0x00); return; }
     if (f.medium_not_present && op != 0x03 && op != 0x12) { fail(0x02, 0x3A, 0x00); return; }
+    if (f.check_cond_if && f.check_cond_if(cdb_)) { fail(0x06, 0x29, 0x00); return; }
     switch (op) {
       case 0x12: {  // INQUIRY
+        if (cdb_[1] & 0x01) { vpd_inquiry(); break; }
         std::vector<uint8_t> d(36, 0);
+        d[0] = media.ptype; d[1] = media.rmb ? 0x80 : 0x00; d[2] = media.version;
         d[4] = 31;
         std::memcpy(&d[8], "FAKEVEND", 8); std::memcpy(&d[16], "FAKE-BOT-DISK   ", 16); std::memcpy(&d[32], "0001", 4);
         data_in(d); break;
       }
+      case 0xA1: case 0x85: ata_passthrough(); break;
       case 0x00:  // TEST UNIT READY
         if (f.not_ready_first > 0) { f.not_ready_first--; fail(0x02, 0x04, 0x01); } else { csw_status_ = 0; state_ = St::Csw; }
         break;

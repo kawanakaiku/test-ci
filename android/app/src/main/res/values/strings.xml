@@ -124,7 +124,7 @@
     <string name="diag_scsi_title">送信した SCSI 命令</string>
     <string name="diag_scsi_subtitle">読み取り専用で、書き込み系が出ていないことの確認用</string>
     <string name="diag_scsi_empty">(USB を開くと表示されます)</string>
-    <string name="diag_scsi_desc">16 進のオペコード x 回数。読み取り系: 12 INQUIRY / 00 TUR / 03 SENSE / 1a MODE SENSE / 25, 9e CAPACITY / 28, 88 READ。書き込み系は 2a, 8a, 35 (キャッシュ同期)。これらが無ければ、ディスクへの書き込みはありません。</string>
+    <string name="diag_scsi_desc">16 進のオペコード x 回数。読み取り系: 12 INQUIRY / 00 TUR / 03 SENSE / 1a MODE SENSE / 25, 9e CAPACITY / 28, 88 READ。書き込み系は 2a, 8a, 35 (キャッシュ同期)。これらが無ければ、ディスクへの書き込みはありません。a1, 85 は種別判別の ATA IDENTIFY (識別情報の読み取りだけ) です。</string>
     <string name="diag_scsi_refresh">集計を更新</string>
 
     <!-- 転送サイズの設定 (表示) -->
@@ -194,6 +194,31 @@
     <string name="usb_idle_off">しない</string>
     <string name="usb_idle_minutes">%1$d 分</string>
     <string name="usb_idle_stopped_chip">アイドル停止中</string>
+    <string name="usb_media_title">ディスクの種別</string>
+    <string name="usb_media_hdd">HDD</string>
+    <string name="usb_media_hdd_rpm">HDD %1$drpm</string>
+    <string name="usb_media_ssd">SSD/フラッシュ</string>
+    <string name="usb_media_unknown">種別不明</string>
+    <string name="usb_media_unknown_usbmem">種別不明 (USB メモリの可能性)</string>
+    <string name="usb_media_unknown_unmap">種別不明 (SSD/フラッシュの可能性)</string>
+    <string name="usb_media_basis_vpd">根拠: 回転数の応答 (VPD 0xB1)</string>
+    <string name="usb_media_basis_ata_info">根拠: ATA の識別情報 (VPD 0x89)</string>
+    <string name="usb_media_basis_sat">根拠: ATA IDENTIFY (SAT)</string>
+    <string name="usb_media_basis_none">機器から種別を読み取れませんでした</string>
+    <string name="usb_power_flash_warning_title">フラッシュ/SSD では、停止の効果がほとんどありません</string>
+    <string name="usb_power_flash_warning">フラッシュ/SSD では停止しても効果がほとんどありません。一部の機器は切断されることがあります。</string>
+    <string name="usb_power_unknown_warning_title">ディスクの種別を確認できませんでした</string>
+    <string name="usb_power_unknown_warning">種別が確認できないため、スピンダウンは既定で閉じています。フラッシュ/SSD では停止しても効果がほとんどなく、一部の機器は切断されることがあります。</string>
+    <string name="usb_power_unknown_hint_usbmem">リムーバブルとして報告され、回転数の情報もないため、USB メモリの可能性が高い機器です。</string>
+    <string name="usb_power_unknown_hint_unmap">TRIM/UNMAP に対応しているため、SSD またはフラッシュの可能性があります。</string>
+    <string name="usb_power_unlock_button">それでもスピンダウンを使う…</string>
+    <string name="usb_power_unlock_dialog_title">スピンダウンを有効にしますか</string>
+    <string name="usb_power_unlock_dialog_text">回転ディスクではない (または確認できない) 機器に停止命令を送ると、効果がないだけでなく、機器によっては取り出し扱いになって切断されたり、応答しなくなることがあります。それでも使いますか。自動停止の既定は「しない」のままです。</string>
+    <string name="usb_power_unlock_dialog_confirm">有効にする</string>
+    <string name="usb_power_lock_button">スピンダウンの設定を閉じる (無効に戻す)</string>
+    <string name="diag_media_title">ディスクの種別</string>
+    <string name="diag_media_subtitle">回転ディスクか、フラッシュ/SSD かの判別結果 (USB を開くとき 1 度だけ、読み取り専用の命令で判別)</string>
+    <string name="diag_media_desc">応答の要約: rmb = リムーバブルか、ver = INQUIRY の版、vpd = 対応ページ、b1 = 回転数の値 (0x0001 = 非回転、0x0401 以上 = rpm)、b2.lbpu = UNMAP 対応、ata.w217 = ATA の回転数の語、sat = 試した ATA 経路 (RMB=1 で 0x89 が無い機器には送らない)。stop = 途中で諦めた理由。</string>
     <string name="mode_full">書き込み可 (変更・削除も可)</string>
     <string name="mode_full_short">すべて許可</string>
     <string name="usb_open_full">開く (変更・削除も許可)</string>

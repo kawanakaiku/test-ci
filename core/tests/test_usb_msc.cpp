@@ -85,9 +85,11 @@ TEST(msc_read_only_never_sends_anything_but_read_class_commands) {
   CHECK_EQ(r.dev->write_at(0, &x, 1).code, Errc::ReadOnly);
   CHECK(r.dev->close().ok());
   for (auto op : r.bot->log_ops) {
-    bool ok = op == 0x00 || op == 0x03 || op == 0x12 || op == 0x1A || op == 0x25 || op == 0x28 || op == 0x88 || op == 0x9E;
+    bool ok = op == 0x00 || op == 0x03 || op == 0x12 || op == 0x1A || op == 0x25 || op == 0x28 || op == 0x88 || op == 0x9E ||
+              op == 0xA1 || op == 0x85;   // 0xA1/0x85 = 種別判別の ATA PASS-THROUGH (IDENTIFY DEVICE のみ。下で確認)
     CHECK(ok);
   }
+  for (auto c : r.bot->ata_cmds) CHECK_EQ(c, 0xEC);
   auto* m = dynamic_cast<MscDevice*>(r.dev.get());
   CHECK(m != nullptr);
   CHECK_EQ(m->op_count(0x2A), 0u); CHECK_EQ(m->op_count(0x8A), 0u); CHECK_EQ(m->op_count(0x35), 0u);
@@ -365,4 +367,352 @@ TEST(msc_idle_stop_gives_up_when_unsupported) {
   CHECK_EQ(r.bot->start_stop_count, 1);
   std::vector<uint8_t> b(512);
   CHECK(r.dev->read_at(0, b.data(), b.size()).ok());      // 読み書きは普通に動く
+}
+
+// ======================================================================================================
+// 種別判別 (回転ディスクか、フラッシュ/SSD か)。docs/media-kind.md
+// ======================================================================================================
+namespace {
+const std::vector<uint8_t> kPages = {0x00, 0x80, 0x83, 0xB0, 0xB1, 0xB2};
+const MediaInfo& info_of(Rig& r) { return dynamic_cast<MscDevice*>(r.dev.get())->media_info(); }
+Rig make_media(const std::function<void(BotDevice&)>& setup, MscOptions o = {}) { return make(256, 512, setup, o); }
+size_t count_op(const BotDevice& b, uint8_t op) { return static_cast<size_t>(std::count(b.log_ops.begin(), b.log_ops.end(), op)); }
+size_t count_ata(const BotDevice& b) { return count_op(b, 0xA1) + count_op(b, 0x85); }
+// 読み取りが普通にできる (判別で壊れていない)
+void check_still_usable(Rig& r) {
+  std::vector<uint8_t> b(4096);
+  CHECK(r.dev->read_at(0, b.data(), b.size()).ok());
+  CHECK(b == expect(0, b.size(), 512));
+}
+using Pred = std::function<bool(const std::vector<uint8_t>&)>;
+Pred evpd(int page) { return [page](const std::vector<uint8_t>& c) { return c[0] == 0x12 && (c[1] & 1) && (page < 0 || c[2] == page); }; }
+Pred opcode(uint8_t op) { return [op](const std::vector<uint8_t>& c) { return c[0] == op; }; }
+}  // namespace
+
+TEST(media_default_fake_is_unknown_and_tries_sat_once_each) {
+  // VPD 非対応 (version 0) の RMB=0: SAT (12) → ILLEGAL REQUEST → (16) → ILLEGAL REQUEST で諦める
+  auto r = make_media({});
+  CHECK(r.st.ok());
+  auto& m = info_of(r);
+  CHECK(m.probed);
+  CHECK(m.kind == MediaKind::Unknown);
+  CHECK(m.basis == MediaBasis::None);
+  CHECK(m.hint == MediaHint::None);
+  CHECK(!m.vpd_tried);
+  CHECK_EQ(m.sat_tried, 6);                      // (12) と (16) を 1 回ずつ
+  CHECK_EQ(count_op(*r.bot, 0xA1), 1u);
+  CHECK_EQ(count_op(*r.bot, 0x85), 1u);
+  CHECK_EQ(r.bot->vpd_requests, 0);              // version 0 には EVPD を送らない
+  CHECK(m.stop_reason.empty());
+  check_still_usable(r);
+}
+
+TEST(media_vpd_b1_non_rotational) {
+  auto r = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = kPages; b.media.b1_rate = 0x0001; });
+  CHECK(r.st.ok());
+  auto& m = info_of(r);
+  CHECK(m.kind == MediaKind::NonRotational);
+  CHECK(m.basis == MediaBasis::VpdBlockDeviceChars);
+  CHECK_EQ(m.rpm, 0u);
+  CHECK_EQ(m.rotation_rate_raw, 1);
+  CHECK(m.vpd_supported && m.vpd_pages == kPages);
+  CHECK_EQ(count_ata(*r.bot), 0u);               // 決まったので ATA は送らない
+  CHECK_EQ(r.bot->vpd_requests, 2);              // 0x00 と 0xB1 だけ
+  CHECK(m.describe().find("non-rotational") != std::string::npos);
+  check_still_usable(r);
+}
+
+TEST(media_vpd_b1_rotational_7200_and_other_rates) {
+  auto r = make_media([](BotDevice& b) { b.media.version = 0x05; b.media.vpd_pages = kPages; b.media.b1_rate = 7200; });
+  CHECK(r.st.ok());
+  CHECK(info_of(r).kind == MediaKind::Rotational);
+  CHECK_EQ(info_of(r).rpm, 7200u);
+  CHECK(info_of(r).basis == MediaBasis::VpdBlockDeviceChars);
+  CHECK(info_of(r).describe().find("rotational 7200rpm") != std::string::npos);
+  for (int rate : {0x0401, 5400, 15000, 0xFFFE}) {
+    auto q = make_media([rate](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = kPages; b.media.b1_rate = rate; });
+    CHECK(info_of(q).kind == MediaKind::Rotational);
+    CHECK_EQ(info_of(q).rpm, static_cast<uint32_t>(rate));
+  }
+}
+
+TEST(media_vpd_b1_not_reported_or_reserved_falls_through_to_sat) {
+  for (int rate : {0x0000, 0x0002, 0x0400, 0xFFFF}) {
+    auto r = make_media([rate](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = kPages; b.media.b1_rate = rate; });
+    CHECK(r.st.ok());
+    CHECK(info_of(r).kind == MediaKind::Unknown);       // 未報告・予約値は判定に使わない
+    CHECK_EQ(info_of(r).rotation_rate_raw, rate);
+    CHECK_EQ(info_of(r).sat_tried, 6);                  // RMB=0 なので SAT を試した (非対応)
+    CHECK(info_of(r).stop_reason.empty());
+  }
+  // 未報告でも SAT が答えれば決まる
+  auto r = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = kPages; b.media.b1_rate = 0; b.media.sat = 1; b.media.w217 = 5400; });
+  CHECK(info_of(r).kind == MediaKind::Rotational);
+  CHECK_EQ(info_of(r).rpm, 5400u);
+  CHECK(info_of(r).basis == MediaBasis::AtaPassThrough12);
+  CHECK_EQ(count_op(*r.bot, 0x85), 0u);                 // (12) が通ったので (16) は送らない
+}
+
+TEST(media_vpd_unsupported_illegal_request_then_sat_identify) {
+  struct Case { uint16_t w217; MediaKind kind; uint32_t rpm; };
+  for (Case c : {Case{0x0001, MediaKind::NonRotational, 0}, Case{7200, MediaKind::Rotational, 7200}, Case{0x0000, MediaKind::Unknown, 0}}) {
+    auto r = make_media([c](BotDevice& b) { b.media.version = 0x06; b.media.sat = 3; b.media.w217 = c.w217; });   // VPD は ILLEGAL REQUEST
+    CHECK(r.st.ok());
+    auto& m = info_of(r);
+    CHECK(m.vpd_tried && !m.vpd_supported);
+    CHECK(m.kind == c.kind);
+    CHECK_EQ(m.rpm, c.rpm);
+    CHECK_EQ(m.ata_word217, static_cast<int32_t>(c.w217));
+    if (c.kind != MediaKind::Unknown) CHECK(m.basis == MediaBasis::AtaPassThrough12);
+    CHECK_EQ(r.bot->ata_cmds.size(), 1u);
+    CHECK_EQ(r.bot->ata_cmds[0], 0xEC);
+    check_still_usable(r);
+  }
+}
+
+TEST(media_sat16_only_bridge) {
+  auto r = make_media([](BotDevice& b) { b.media.sat = 2; b.media.w217 = 1; });
+  CHECK(info_of(r).kind == MediaKind::NonRotational);
+  CHECK(info_of(r).basis == MediaBasis::AtaPassThrough16);
+  CHECK_EQ(count_op(*r.bot, 0xA1), 1u);
+  CHECK_EQ(count_op(*r.bot, 0x85), 1u);
+  CHECK_EQ(info_of(r).sat_tried, 6);
+}
+
+TEST(media_ata_information_vpd_0x89_is_preferred_and_needs_no_passthrough) {
+  auto r = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = {0x00, 0x80, 0x83, 0x89}; b.media.ata_info_vpd = 1; b.media.w217 = 7200; b.media.sat = 3; });
+  CHECK(r.st.ok());
+  auto& m = info_of(r);
+  CHECK(m.kind == MediaKind::Rotational);
+  CHECK_EQ(m.rpm, 7200u);
+  CHECK(m.basis == MediaBasis::AtaInfoVpd);
+  CHECK_EQ(m.sat_tried, 1);
+  CHECK_EQ(count_ata(*r.bot), 0u);
+  // 0x89 を名乗る機器は RMB=1 でも読める (INQUIRY だけなので安全)
+  auto q = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.rmb = true; b.media.vpd_pages = {0x00, 0x89}; b.media.w217 = 1; });
+  CHECK(info_of(q).kind == MediaKind::NonRotational);
+  CHECK(info_of(q).basis == MediaBasis::AtaInfoVpd);
+}
+
+TEST(media_ata_information_vpd_atapi_or_garbage_is_not_trusted) {
+  auto a = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = {0x00, 0x89}; b.media.ident_atapi = true; b.media.w217 = 7200; b.media.sat = 3; });
+  CHECK(a.st.ok());
+  CHECK(info_of(a).kind == MediaKind::Unknown);                  // ATAPI は回転数を持たない
+  CHECK_EQ(count_ata(*a.bot), 0u);
+  auto c = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = {0x00, 0x89}; b.media.ident_bad_checksum = true; b.media.w217 = 7200; b.media.sat = 3; });
+  CHECK(c.st.ok());
+  CHECK(info_of(c).kind == MediaKind::Unknown);                  // チェックサム不一致は信用しない
+  CHECK(info_of(c).stop_reason.find("invalid") != std::string::npos);
+  CHECK_EQ(count_ata(*c.bot), 0u);                               // 不正応答は 1 回であきらめる (別経路を試さない)
+}
+
+TEST(media_rmb_hint_and_sat_is_skipped_for_removable_without_vpd) {
+  // RMB=1・VPD 非対応: USB メモリの可能性が高い。未知の ATA PASS-THROUGH は送らない
+  auto r = make_media([](BotDevice& b) { b.media.version = 0x04; b.media.rmb = true; b.media.sat = 3; b.media.w217 = 7200; });
+  CHECK(r.st.ok());
+  auto& m = info_of(r);
+  CHECK(m.removable);
+  CHECK(m.kind == MediaKind::Unknown);
+  CHECK(m.hint == MediaHint::RemovableNoVpd);
+  CHECK(m.sat_skipped);
+  CHECK_EQ(m.sat_tried, 0);
+  CHECK_EQ(count_ata(*r.bot), 0u);
+  CHECK(m.describe().find("hint=removable") != std::string::npos);
+  // RMB=0 ならヒントは付かない
+  auto q = make_media([](BotDevice& b) { b.media.version = 0x04; b.media.rmb = false; });
+  CHECK(info_of(q).hint == MediaHint::None);
+  // 決まったときはヒントを付けない (RMB=1 でも B1 が非回転なら NonRotational)
+  auto n = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.rmb = true; b.media.vpd_pages = kPages; b.media.b1_rate = 1; });
+  CHECK(info_of(n).kind == MediaKind::NonRotational);
+  CHECK(info_of(n).hint == MediaHint::None);
+  CHECK(info_of(n).removable);
+}
+
+TEST(media_unmap_hint_from_vpd_b2_and_ata_trim) {
+  auto r = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = kPages; b.media.b1_rate = 0; b.media.b2_lbpu = true; });
+  CHECK(info_of(r).kind == MediaKind::Unknown);                  // UNMAP 対応だけでは確定しない (シン・プロビジョニングの RAID もある)
+  CHECK(info_of(r).hint == MediaHint::UnmapSupported);
+  CHECK_EQ(info_of(r).unmap_raw, 1);
+  auto t = make_media([](BotDevice& b) { b.media.sat = 1; b.media.trim = true; b.media.w217 = 0; });
+  CHECK(info_of(t).kind == MediaKind::Unknown);
+  CHECK(info_of(t).hint == MediaHint::UnmapSupported);
+  auto n = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = kPages; b.media.b1_rate = 0; b.media.b2_lbpu = false; });
+  CHECK(info_of(n).hint == MediaHint::None);
+}
+
+TEST(media_invalid_lengths_and_page_codes_abort_the_probe) {
+  // VPD 0x00 が半分の長さ (32 バイト中の 16 バイト = ヘッダの宣言より短い) で返る
+  auto a = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = kPages; b.media.b1_rate = 1; b.f.short_data_if = evpd(0x00); });
+  CHECK(a.st.ok());
+  CHECK(info_of(a).kind == MediaKind::Unknown);
+  CHECK(!info_of(a).stop_reason.empty());
+  CHECK_EQ(count_ata(*a.bot), 0u);   // 不正応答の機器には ATA を送らない
+  check_still_usable(a);
+  // VPD 0xB1 が半分 (64 → 32 バイト): 回転数のフィールドまで届いていれば妥当な短い応答として受け入れる
+  auto b1 = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = kPages; b.media.b1_rate = 7200; b.f.short_data_if = evpd(0xB1); });
+  CHECK(info_of(b1).kind == MediaKind::Rotational);
+  // IDENTIFY が半分 (256 バイト): 不正な長さ
+  auto c = make_media([](BotDevice& b) { b.media.sat = 1; b.media.w217 = 7200; b.f.short_data_if = opcode(0xA1); });
+  CHECK(c.st.ok());
+  CHECK(info_of(c).kind == MediaKind::Unknown);
+  CHECK(info_of(c).stop_reason.find("invalid") != std::string::npos);
+  CHECK_EQ(count_op(*c.bot, 0x85), 0u);   // 1 回であきらめる
+  check_still_usable(c);
+  // IDENTIFY が全部 0 / ATAPI の語 0
+  auto z = make_media([](BotDevice& b) { b.media.sat = 1; b.media.ident_zero = true; });
+  CHECK(info_of(z).kind == MediaKind::Unknown);
+  auto at = make_media([](BotDevice& b) { b.media.sat = 1; b.media.ident_atapi = true; b.media.w217 = 1; });
+  CHECK(info_of(at).kind == MediaKind::Unknown);
+}
+
+TEST(media_timeouts_give_up_after_one_attempt_and_do_not_fail_open) {
+  // VPD がタイムアウト: 1 回で諦める。以降の ATA も送らない。open は成功し、読める
+  auto a = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = kPages; b.media.b1_rate = 1; b.f.timeout_if = evpd(-1); });
+  CHECK(a.st.ok());
+  CHECK(info_of(a).kind == MediaKind::Unknown);
+  CHECK(info_of(a).stop_reason.find("timeout") != std::string::npos);
+  CHECK_EQ(a.bot->vpd_requests, 1);
+  CHECK_EQ(count_ata(*a.bot), 0u);
+  CHECK(a.bot->resets >= 1);   // BOT リセット回復が走った
+  check_still_usable(a);
+  // SAT (12) がタイムアウト: (16) は試さない
+  auto s = make_media([](BotDevice& b) { b.media.sat = 3; b.media.w217 = 7200; b.f.timeout_if = opcode(0xA1); });
+  CHECK(s.st.ok());
+  CHECK(info_of(s).kind == MediaKind::Unknown);
+  CHECK_EQ(count_op(*s.bot, 0xA1), 1u);
+  CHECK_EQ(count_op(*s.bot, 0x85), 0u);
+  check_still_usable(s);
+}
+
+TEST(media_bot_status_anomalies_abort_the_probe) {
+  // CSW が Phase Error: 以降のコマンドを送らず Unknown
+  auto p = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = kPages; b.media.b1_rate = 1; b.f.phase_error_if = evpd(0xB1); });
+  CHECK(p.st.ok());
+  CHECK(info_of(p).kind == MediaKind::Unknown);
+  CHECK_EQ(p.bot->vpd_requests, 2);
+  CHECK_EQ(count_ata(*p.bot), 0u);
+  check_still_usable(p);
+  // SAT の CSW のタグが違う
+  auto t = make_media([](BotDevice& b) { b.media.sat = 3; b.media.w217 = 7200; b.f.bad_tag_if = opcode(0xA1); });
+  CHECK(t.st.ok());
+  CHECK(info_of(t).kind == MediaKind::Unknown);
+  CHECK_EQ(count_op(*t.bot, 0x85), 0u);
+  check_still_usable(t);
+  // UNIT ATTENTION など ILLEGAL REQUEST 以外の CHECK CONDITION: 再試行せず打ち切る
+  auto u = make_media([](BotDevice& b) { b.media.sat = 3; b.f.check_cond_if = opcode(0xA1); });
+  CHECK(u.st.ok());
+  CHECK(info_of(u).kind == MediaKind::Unknown);
+  CHECK(info_of(u).stop_reason.find("sense 6/29/00") != std::string::npos);
+  CHECK_EQ(count_op(*u.bot, 0xA1), 1u);
+  CHECK_EQ(count_op(*u.bot, 0x85), 0u);
+}
+
+TEST(media_disconnect_during_probe_fails_the_open) {
+  size_t first_probe_cmd = 0;
+  {
+    auto r = make_media({});
+    for (size_t i = 0; i < r.bot->log_ops.size(); i++) if (r.bot->log_ops[i] == 0xA1) { first_probe_cmd = i; break; }
+    CHECK(first_probe_cmd > 0);
+  }
+  auto r = make_media([first_probe_cmd](BotDevice& b) { b.f.disconnect_after_commands = static_cast<int>(first_probe_cmd); });
+  CHECK_EQ(r.st.code, Errc::Disconnected);
+}
+
+TEST(media_probe_runs_once_and_never_again) {
+  auto r = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = kPages; b.media.b1_rate = 7200; });
+  size_t after_open = r.bot->log_ops.size();
+  std::vector<uint8_t> b(70000);
+  CHECK(r.dev->read_at(100, b.data(), b.size()).ok());
+  auto* m = dynamic_cast<MscDevice*>(r.dev.get());
+  CHECK(m->start_stop(false).ok());
+  CHECK(m->start_stop(true).ok());
+  CHECK(r.dev->flush().ok());
+  CHECK_EQ(r.bot->vpd_requests, 2);   // open のときの 0x00 と 0xB1 だけ
+  for (size_t i = after_open; i < r.bot->log_ops.size(); i++) CHECK(r.bot->log_ops[i] != 0x12);
+  CHECK(m->media_info().kind == MediaKind::Rotational);   // 値は保持される
+}
+
+TEST(media_probe_can_be_disabled) {
+  MscOptions o; o.probe_media = false;
+  auto r = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = kPages; b.media.b1_rate = 7200; b.media.sat = 3; }, o);
+  CHECK(r.st.ok());
+  CHECK(!info_of(r).probed);
+  CHECK(info_of(r).kind == MediaKind::Unknown);
+  CHECK_EQ(r.bot->vpd_requests, 0);
+  CHECK_EQ(count_ata(*r.bot), 0u);
+}
+
+TEST(media_probe_works_in_write_mode_and_ata_is_still_restricted) {
+  MscOptions wo; wo.read_only = false;
+  auto r = make_media([](BotDevice& b) { b.media.sat = 1; b.media.w217 = 1; }, wo);
+  CHECK(r.st.ok());
+  CHECK(info_of(r).kind == MediaKind::NonRotational);
+  CHECK(!r.dev->is_read_only());
+  for (auto c : r.bot->ata_cmds) CHECK_EQ(c, 0xEC);
+  CHECK(r.bot->written.empty());
+}
+
+// ---- ATA PASS-THROUGH は IDENTIFY DEVICE (0xEC) の正規形だけを通す。0xEC 以外は読み取り専用でも書き込み可でも拒否する
+TEST(media_ata_passthrough_other_than_identify_is_rejected) {
+  using V = std::vector<uint8_t>;
+  auto pt12 = [](uint8_t cmd) { return V{0xA1, 0x08, 0x0E, 0, 1, 0, 0, 0, 0, cmd, 0, 0}; };
+  auto pt16 = [](uint8_t cmd) { return V{0x85, 0x08, 0x0E, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, cmd, 0}; };
+  auto ok = [](const V& c, bool allow) { return scsi_cdb_allowed_read_only(c.data(), c.size(), false, allow) && scsi_cdb_ata_passthrough_ok(c.data(), c.size(), allow); };
+  CHECK(ok(pt12(0xEC), true));
+  CHECK(ok(pt16(0xEC), true));
+  CHECK(!ok(pt12(0xEC), false));          // 許可フラグ (probe 中だけ) が無ければ IDENTIFY でも拒否
+  CHECK(!ok(pt16(0xEC), false));
+  // IDENTIFY 以外の ATA コマンドは、すべて拒否 (全 255 通り)
+  for (int cmd = 0; cmd < 256; cmd++) {
+    if (cmd == 0xEC) continue;
+    CHECK(!ok(pt12(static_cast<uint8_t>(cmd)), true));
+    CHECK(!ok(pt16(static_cast<uint8_t>(cmd)), true));
+  }
+  // 0xEC でも、正規形でないもの: 拡張 (EXTEND=1)・別プロトコル・方向・レジスタに値がある・セクタ数・CDB 長が違う
+  auto bad12 = [&](int idx, uint8_t v) { auto c = pt12(0xEC); c[idx] = v; return c; };
+  auto bad16 = [&](int idx, uint8_t v) { auto c = pt16(0xEC); c[idx] = v; return c; };
+  for (uint8_t v : {0x09, 0x06, 0x0A, 0x00, 0x0C, 0x10, 0x18}) { CHECK(!ok(bad12(1, v), true)); CHECK(!ok(bad16(1, v), true)); }   // PROTOCOL/EXTEND
+  for (uint8_t v : {0x00, 0x06, 0x1E, 0x2E, 0x4E, 0x8E, 0x0F, 0x0C}) { CHECK(!ok(bad12(2, v), true)); CHECK(!ok(bad16(2, v), true)); }   // T_DIR/ck_cond/length
+  for (int i : {3, 5, 6, 7, 8, 10, 11}) CHECK(!ok(bad12(i, 1), true));      // features/LBA/device/control
+  for (int i : {3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 15}) CHECK(!ok(bad16(i, 1), true));
+  CHECK(!ok(bad12(4, 2), true)); CHECK(!ok(bad16(6, 2), true));              // セクタ数 2
+  CHECK(!ok(bad12(4, 0), true)); CHECK(!ok(bad16(6, 0), true));              // セクタ数 0
+  { auto c = pt12(0xEC); c.push_back(0); CHECK(!ok(c, true)); c.pop_back(); c.pop_back(); CHECK(!ok(c, true)); }
+  { auto c = pt16(0xEC); c.pop_back(); CHECK(!ok(c, true)); c.push_back(0); c.push_back(0); CHECK(!ok(c, true)); }
+  CHECK(!ok(V{0xA1}, true));
+  // 書き込み可でも同じ検査 (scsi_cdb_ata_passthrough_ok は読み取り専用かどうかに依らず exec が呼ぶ)
+  CHECK(!scsi_cdb_ata_passthrough_ok(pt12(0xCA).data(), 12, true));   // WRITE DMA
+  CHECK(!scsi_cdb_ata_passthrough_ok(pt16(0xF4).data(), 16, true));   // SECURITY ERASE UNIT
+  CHECK(scsi_cdb_ata_passthrough_ok(V{0x28, 0, 0, 0, 0, 0, 0, 0, 1, 0}.data(), 10, false));   // ATA 以外のオペコードは対象外
+  // 読み取り専用の許可リスト全体: 書き込み系・他は拒否、INQUIRY は EVPD まで、CMDDT は不可
+  auto allowed = [](V c) { return scsi_cdb_allowed_read_only(c.data(), c.size(), false, false); };
+  CHECK(allowed({0x12, 0x00, 0, 0, 36, 0}));
+  CHECK(allowed({0x12, 0x01, 0xB1, 0, 64, 0}));
+  CHECK(!allowed({0x12, 0x02, 0x00, 0, 36, 0}));                  // CMDDT
+  CHECK(!allowed({0x1B, 0, 0, 0, 0, 0}));                          // START STOP UNIT は専用フラグが無ければ拒否
+  CHECK(scsi_cdb_allowed_read_only(V{0x1B, 0, 0, 0, 0, 0}.data(), 6, true, false));
+  for (int op : {0x2A, 0x8A, 0x35, 0x04, 0x42, 0x55, 0x2F, 0x3B, 0x1C, 0x1D, 0xA0, 0x9F, 0x91, 0x41, 0xB5, 0x93})
+    CHECK(!allowed({static_cast<uint8_t>(op), 0, 0, 0, 0, 0, 0, 0, 0, 0}));
+  CHECK(allowed({0x9E, 0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0}));
+  CHECK(!allowed({0x9E, 0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0}));
+}
+
+TEST(media_describe_is_ascii_and_parse_ata_identify_validates) {
+  uint8_t d[512] = {0};
+  MediaInfo mi;
+  CHECK(!parse_ata_identify(d, &mi));                              // 全部 0
+  d[0] = 0x40; d[217 * 2] = 0x01;
+  CHECK(parse_ata_identify(d, &mi));                               // シグネチャ無しはチェックサムを見ない
+  CHECK_EQ(mi.ata_word217, 1);
+  d[255 * 2] = 0xA5;                                               // シグネチャがあるのにチェックサム不一致
+  CHECK(!parse_ata_identify(d, &mi));
+  unsigned sum = 0; for (int i = 0; i < 511; i++) sum += d[i];
+  d[511] = static_cast<uint8_t>(0x100 - (sum & 0xFF));
+  CHECK(parse_ata_identify(d, &mi));
+  d[1] = 0x80;                                                     // 語 0 bit15 (ATAPI)
+  sum = 0; for (int i = 0; i < 511; i++) sum += d[i];
+  d[511] = static_cast<uint8_t>(0x100 - (sum & 0xFF));
+  CHECK(!parse_ata_identify(d, &mi));
+  auto r = make_media([](BotDevice& b) { b.media.version = 0x06; b.media.vpd_pages = kPages; b.media.b1_rate = 7200; });
+  for (char c : info_of(r).describe()) CHECK(c >= 0x20 && c < 0x7F);
 }

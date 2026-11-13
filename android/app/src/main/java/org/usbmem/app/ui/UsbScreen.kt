@@ -11,6 +11,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -23,6 +24,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.usbmem.app.BuildConfig
+import org.usbmem.app.MediaBasis
+import org.usbmem.app.MediaHint
+import org.usbmem.app.MediaKind
+import org.usbmem.app.MediaKindInfo
 import org.usbmem.app.PartitionTable
 import org.usbmem.app.R
 import org.usbmem.app.UsbDeviceNaming
@@ -42,6 +47,9 @@ interface UsbActions : LinkActions {
     fun stopDisk(key: String)
     fun resumeDisk(key: String)
     fun setIdleSpinDown(key: String, minutes: Int)
+    /** 回転ディスク以外 (フラッシュ/SSD・種別不明) でスピンダウンを使う確認が取れた。 */
+    fun unlockSpinDown(key: String)
+    fun lockSpinDown(key: String)
     fun setWriteMode(key: String, mode: WriteMode)
 }
 
@@ -131,6 +139,9 @@ private fun DeviceCard(d: UsbDeviceState, a: UsbActions) {
 
         val t = d.table
         if (d.open && t != null) {
+            // ---- ディスクの種別 (回転ディスクか、フラッシュ/SSD か。開くとき 1 度だけ判別)
+            MediaKindRow(d.mediaKind)
+
             // ---- パーティション一覧と公開中ボリューム
             PartitionList(d, t, a, onLink = { linkFor = it })
 
@@ -175,31 +186,95 @@ private fun DeviceCard(d: UsbDeviceState, a: UsbActions) {
     }
 }
 
+/** 種別の表示用の文言 (例: 「HDD 7200rpm」「SSD/フラッシュ」「種別不明 (USB メモリの可能性)」)。 */
+@Composable
+fun mediaKindLabel(k: MediaKindInfo): String = when (k.kind) {
+    MediaKind.Rotational -> if (k.rpm > 0) stringResource(R.string.usb_media_hdd_rpm, k.rpm) else stringResource(R.string.usb_media_hdd)
+    MediaKind.NonRotational -> stringResource(R.string.usb_media_ssd)
+    MediaKind.Unknown -> when (k.hint) {
+        MediaHint.RemovableNoVpd -> stringResource(R.string.usb_media_unknown_usbmem)
+        MediaHint.UnmapSupported -> stringResource(R.string.usb_media_unknown_unmap)
+        MediaHint.None -> stringResource(R.string.usb_media_unknown)
+    }
+}
+
+@Composable
+fun mediaBasisLabel(k: MediaKindInfo): String = when (k.basis) {
+    MediaBasis.VpdBlockDeviceChars -> stringResource(R.string.usb_media_basis_vpd)
+    MediaBasis.AtaInfoVpd -> stringResource(R.string.usb_media_basis_ata_info)
+    MediaBasis.AtaPassThrough12, MediaBasis.AtaPassThrough16 -> stringResource(R.string.usb_media_basis_sat)
+    MediaBasis.None -> stringResource(R.string.usb_media_basis_none)
+}
+
+@Composable
+private fun MediaKindRow(k: MediaKindInfo) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.usb_media_title), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+            Chip(mediaKindLabel(k), severity = if (k.kind == MediaKind.Unknown) Severity.Warning else Severity.Info)
+        }
+        Text(mediaBasisLabel(k), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/**
+ * ディスクの電源。回転ディスクと判別できたときだけ、停止/再開とアイドル自動停止をそのまま出す。
+ * フラッシュ/SSD・種別不明は、既定で折りたたんで警告だけを出し、確認ダイアログの後にだけ使える (自動停止の既定は常に「しない」)。
+ */
 @Composable
 private fun PowerSection(d: UsbDeviceState, a: UsbActions) {
+    val rotational = d.mediaKind.isRotational
+    var confirmUnlock by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.usb_power_title), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
             if (d.diskStopped) Chip(stringResource(R.string.usb_power_stopped_chip), severity = Severity.Warning) else if (d.diskIdleStopped) Chip(stringResource(R.string.usb_idle_stopped_chip), severity = Severity.Warning)
         }
-        if (d.diskStopped) {
-            Text(stringResource(R.string.usb_power_stopped_desc), style = MaterialTheme.typography.bodyMedium)
-            FilledTonalButton(onClick = { a.resumeDisk(d.key) }, enabled = d.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_power_resume)) }
-        } else {
-            Text(stringResource(R.string.usb_power_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedButton(onClick = { a.stopDisk(d.key) }, enabled = d.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_power_stop)) }
-            Text(stringResource(R.string.usb_idle_title), style = MaterialTheme.typography.titleSmall)
-            Text(stringResource(R.string.usb_idle_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(0, 5, 10, 30).forEach { min ->
-                    FilterChip(
-                        selected = d.idleSpinDownMin == min,
-                        onClick = { a.setIdleSpinDown(d.key, min) },
-                        label = { Text(if (min == 0) stringResource(R.string.usb_idle_off) else stringResource(R.string.usb_idle_minutes, min)) },
-                    )
-                }
+        if (!rotational) {
+            val flash = d.mediaKind.kind == MediaKind.NonRotational
+            Banner(Notice(
+                Severity.Warning,
+                stringResource(if (flash) R.string.usb_power_flash_warning_title else R.string.usb_power_unknown_warning_title),
+                stringResource(if (flash) R.string.usb_power_flash_warning else R.string.usb_power_unknown_warning),
+            ))
+            when (d.mediaKind.hint) {
+                MediaHint.RemovableNoVpd -> Text(stringResource(R.string.usb_power_unknown_hint_usbmem), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                MediaHint.UnmapSupported -> Text(stringResource(R.string.usb_power_unknown_hint_unmap), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                MediaHint.None -> {}
             }
         }
+        if (!rotational && !d.spinDownUnlocked) {
+            OutlinedButton(onClick = { confirmUnlock = true }, enabled = d.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_power_unlock_button)) }
+        } else {
+            if (d.diskStopped) {
+                Text(stringResource(R.string.usb_power_stopped_desc), style = MaterialTheme.typography.bodyMedium)
+                FilledTonalButton(onClick = { a.resumeDisk(d.key) }, enabled = d.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_power_resume)) }
+            } else {
+                Text(stringResource(R.string.usb_power_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedButton(onClick = { a.stopDisk(d.key) }, enabled = d.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_power_stop)) }
+                Text(stringResource(R.string.usb_idle_title), style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.usb_idle_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(0, 5, 10, 30).forEach { min ->
+                        FilterChip(
+                            selected = d.idleSpinDownMin == min,
+                            onClick = { a.setIdleSpinDown(d.key, min) },
+                            label = { Text(if (min == 0) stringResource(R.string.usb_idle_off) else stringResource(R.string.usb_idle_minutes, min)) },
+                        )
+                    }
+                }
+                if (!rotational) TextButton(onClick = { a.lockSpinDown(d.key) }, enabled = d.busy == null) { Text(stringResource(R.string.usb_power_lock_button)) }
+            }
+        }
+    }
+    if (confirmUnlock) {
+        ConfirmDialog(
+            title = stringResource(R.string.usb_power_unlock_dialog_title),
+            text = stringResource(R.string.usb_power_unlock_dialog_text),
+            confirmLabel = stringResource(R.string.usb_power_unlock_dialog_confirm),
+            onConfirm = { confirmUnlock = false; a.unlockSpinDown(d.key) },
+            onDismiss = { confirmUnlock = false },
+        )
     }
 }
 

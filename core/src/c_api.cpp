@@ -111,6 +111,18 @@ int usbmem_usb_spun_down(usbmem_device* dev) {
   return m && m->spun_down() ? 1 : 0;
 }
 
+int usbmem_usb_media_info(usbmem_device* dev, int out[6], char* detail, size_t detail_len) {
+  if (detail && detail_len) detail[0] = 0;
+  if (!dev || !out) return static_cast<int>(Errc::InvalidArgument);
+  auto* m = dynamic_cast<MscDevice*>(dev->dev.get());
+  if (!m) return static_cast<int>(Errc::Unsupported);
+  const MediaInfo& mi = m->media_info();
+  out[0] = static_cast<int>(mi.kind); out[1] = static_cast<int>(mi.rpm); out[2] = static_cast<int>(mi.basis); out[3] = static_cast<int>(mi.hint);
+  out[4] = mi.removable ? 1 : 0; out[5] = mi.probed ? 1 : 0;
+  if (detail && detail_len) snprintf(detail, detail_len, "%s", mi.describe().c_str());
+  return 0;
+}
+
 int usbmem_usb_tune(usbmem_device* dev, size_t transport_chunk, size_t max_transfer) {
   if (!dev) return static_cast<int>(Errc::InvalidArgument);
   auto* m = dynamic_cast<MscDevice*>(dev->dev.get());

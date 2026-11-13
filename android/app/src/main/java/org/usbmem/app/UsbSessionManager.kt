@@ -31,6 +31,8 @@ interface UsbSession : AutoCloseable {
     val productId: Int
     /** 保存した転送設定を使っている場合の LADDER の添字 (-1 = 既定)。 */
     val tuningIndex: Int
+    /** 回転ディスク (HDD) か、フラッシュ/SSD か。開くときに 1 度だけ判別した結果 (以後コマンドは送らない)。判別できなければ [MediaKind.Unknown]。 */
+    val mediaKind: MediaKindInfo get() = MediaKindInfo.UNKNOWN
 
     fun partitionTable(): PartitionTable
     fun opStats(): String
@@ -109,6 +111,8 @@ class UsbSessionManager(
     private val slots = HashMap<String, Slot>()
     private val modes = HashMap<String, WriteMode>()
     private val idleMinutes = HashMap<String, Int>()
+    /** ユーザーが「この種別のディスクでも自動停止を使う」と明示的に確認した種別 (デバイスごと)。回転ディスク以外は、これと一致するときだけ自動停止する。 */
+    private val spinConfirmed = HashMap<String, MediaKind>()
     private val listeners = CopyOnWriteArrayList<UsbSessionListener>()
 
     fun addListener(l: UsbSessionListener) { listeners.addIfAbsent(l) }
@@ -146,15 +150,52 @@ class UsbSessionManager(
         true
     }
 
+    /** 設定された (希望の) 分数。実際に使われる値は [effectiveIdleSpinDownMinutes]。 */
     fun idleSpinDownMinutes(deviceName: String): Int = synchronized(lock) { idleMinutes[deviceName] ?: 0 }
 
-    /** アイドル自動スピンダウンの分数 (0 = オフ)。そのデバイスだけに効く。開いていれば直ちに反映し、次に開くときにも使う。 */
+    /**
+     * アイドル自動スピンダウンの分数 (0 = オフ)。そのデバイスだけに効く。開いていれば直ちに反映し、次に開くときにも使う。
+     * ただし **回転ディスク (HDD) と判別できたデバイス以外では、[setSpinDownConfirmed] で明示的に有効にしない限り止めない**
+     * (フラッシュ/SSD に START STOP UNIT を送っても効果が無く、一部の機器は固まる/切断されるため)。設定の保存値は機種 (VID:PID) 単位で、
+     * 同じ VID:PID でも中身 (HDD ⇔ SSD) が変わりうるので、種別が確認と違うときも止めない。
+     */
     fun setIdleSpinDownMinutes(deviceName: String, minutes: Int) {
         val s = synchronized(lock) { idleMinutes[deviceName] = minutes; slots[deviceName]?.takeIf { it.phase == Phase.Open }?.session }
-        s?.let { applyIdle(deviceName, it, minutes) }
+        s?.let { applyIdle(deviceName, it) }
     }
 
-    private fun applyIdle(deviceName: String, s: UsbSession, minutes: Int) {
+    /**
+     * ユーザーが、このデバイスの種別 [kind] でもスピンダウンを使うと確認した (null = 確認なし)。回転ディスク以外のアイドル停止は、
+     * 開いたセッションの種別がこの [kind] と一致するときだけ有効になる。開いていれば直ちに反映する。
+     */
+    fun setSpinDownConfirmed(deviceName: String, kind: MediaKind?) {
+        val s = synchronized(lock) {
+            if (kind == null) spinConfirmed.remove(deviceName) else spinConfirmed[deviceName] = kind
+            slots[deviceName]?.takeIf { it.phase == Phase.Open }?.session
+        }
+        s?.let { applyIdle(deviceName, it) }
+    }
+
+    /** 確認済みの種別 (なければ null)。 */
+    fun spinDownConfirmed(deviceName: String): MediaKind? = synchronized(lock) { spinConfirmed[deviceName] }
+
+    /** このデバイスでスピンダウンを使ってよいか: 開いていて、回転ディスクと判別できた、または確認済みの種別と一致する。 */
+    fun spinDownAllowed(deviceName: String): Boolean = synchronized(lock) {
+        val s = slots[deviceName]?.takeIf { it.phase == Phase.Open }?.session ?: return false
+        allowedFor(s.mediaKind.kind, spinConfirmed[deviceName])
+    }
+
+    /** 実際に使われるアイドル停止の分数 (開いていなければ希望の分数をそのまま返す。画面の表示用)。 */
+    fun effectiveIdleSpinDownMinutes(deviceName: String): Int = synchronized(lock) {
+        val m = idleMinutes[deviceName] ?: 0
+        val s = slots[deviceName]?.takeIf { it.phase == Phase.Open }?.session ?: return m
+        if (allowedFor(s.mediaKind.kind, spinConfirmed[deviceName])) m else 0
+    }
+
+    private fun allowedFor(kind: MediaKind, confirmed: MediaKind?) = kind == MediaKind.Rotational || (confirmed != null && confirmed == kind)
+
+    private fun applyIdle(deviceName: String, s: UsbSession) {
+        val minutes = effectiveIdleSpinDownMinutes(deviceName)
         s.setIdleSpinDown(minutes) { stopped -> listeners.forEach { it.onIdleChanged(deviceName, stopped) } }
     }
 
@@ -181,17 +222,17 @@ class UsbSessionManager(
             synchronized(lock) { if (slots[name] === slot) slots.remove(name) }
             throw t
         }
-        val (pending, idle) = synchronized(lock) {
+        val pending = synchronized(lock) {
             slot.session = session
             // 開く最中に閉じろと言われていたら、Open にせず同じロックの中で Closing にする (他のスレッドが割り込んで二重に閉じないように)
             slot.phase = if (slot.pendingClose != null) Phase.Closing else Phase.Open
-            slot.pendingClose to (idleMinutes[name] ?: 0)
+            slot.pendingClose
         }
         if (pending != null) {   // 開いている最中に抜かれた/閉じろと言われた
             finishClose(name, slot, pending)
             throw UsbSessionException(UsbSessionException.Kind.ClosedWhileOpening, "closed while opening: $name")
         }
-        if (idle > 0) applyIdle(name, session, idle)
+        if (effectiveIdleSpinDownMinutes(name) > 0) applyIdle(name, session)   // 回転ディスク (または確認済み) だけ
         listeners.forEach { it.onOpened(name) }
         return session
     }
@@ -222,7 +263,7 @@ class UsbSessionManager(
         } finally {
             synchronized(lock) {
                 if (slots[name] === slot) slots.remove(name)
-                if (reason == CloseReason.Detached) { modes.remove(name); idleMinutes.remove(name) }   // 抜かれた機器の設定は引き継がない
+                if (reason == CloseReason.Detached) { modes.remove(name); idleMinutes.remove(name); spinConfirmed.remove(name) }   // 抜かれた機器の設定は引き継がない
             }
         }
         listeners.forEach { it.onClosed(name, reason) }
@@ -234,7 +275,7 @@ class UsbSessionManager(
      */
     fun onDetached(deviceName: String): Boolean {
         val closed = close(deviceName, CloseReason.Detached)
-        if (!closed) synchronized(lock) { if (!slots.containsKey(deviceName)) { modes.remove(deviceName); idleMinutes.remove(deviceName) } }   // 開いていなかった機器の設定
+        if (!closed) synchronized(lock) { if (!slots.containsKey(deviceName)) { modes.remove(deviceName); idleMinutes.remove(deviceName); spinConfirmed.remove(deviceName) } }   // 開いていなかった機器の設定
         return closed
     }
 

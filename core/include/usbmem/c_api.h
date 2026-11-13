@@ -31,6 +31,11 @@ int usbmem_usb_start_stop(usbmem_device* dev, int start);
 int usbmem_usb_idle_stop(usbmem_device* dev, unsigned long long idle_ms);
 /* 回転を止めている (START STOP UNIT で止めた) なら 1 */
 int usbmem_usb_spun_down(usbmem_device* dev);
+/* 回転ディスクか、フラッシュ/SSD か (open 時に 1 度だけ判別した結果。docs/media-kind.md)。
+ * out[0]=kind (0 不明 / 1 回転 / 2 非回転)、out[1]=回転数 rpm (0 = 不明)、out[2]=根拠 (0 なし / 1 VPD 0xB1 / 2 VPD 0x89 / 3 SAT(12) / 4 SAT(16))、
+ * out[3]=ヒント (0 なし / 1 RMB=1 で情報なし / 2 UNMAP・TRIM 対応)、out[4]=RMB、out[5]=判別を実行したか。detail に診断の 1 行 (ASCII, NUL 終端)。
+ * USB マスストレージでなければ Unsupported。 */
+int usbmem_usb_media_info(usbmem_device* dev, int out[6], char* detail, size_t detail_len);
 int usbmem_usb_tune(usbmem_device* dev, size_t transport_chunk, size_t max_transfer);
 /* 読み取り専用の速度計測: offset から total バイトを buf_len ごとに順に読み、経過マイクロ秒を *out_us に返す。 */
 /* out_hash (NULL 可): 読んだデータ全体の 64 ビットハッシュ。転送サイズを変えても同じ内容が読めること (化けていないこと) の確認用 */

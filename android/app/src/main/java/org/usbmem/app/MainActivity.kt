@@ -96,6 +96,9 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     }
 
     private fun idleKey(vidPid: String) = "idle_spindown_min:$vidPid"
+    /** 回転ディスク以外でスピンダウンを使うと確認した種別 (MediaKind の名前)。機種 (VID:PID) ごと。種別が変わったら無効に倒す (UsbSessionManager が照合) */
+    private fun spinAckKey(vidPid: String) = "spindown_ack:$vidPid"
+    private fun loadSpinAck(vidPid: String): MediaKind? = runCatching { settingsPrefs().getString(spinAckKey(vidPid), null) }.getOrNull()?.let { n -> MediaKind.entries.firstOrNull { it.name == n } }?.takeIf { it != MediaKind.Rotational }
 
     /** 画面の一覧を、接続中の USB とセッションの実際の状態に合わせる (メインスレッド)。抜かれたのにまだ開いているセッションがあれば閉じる。 */
     private fun refreshUsb() {
@@ -109,6 +112,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 val vp = String.format("%04x:%04x", dev.vendorId, dev.productId)
                 // アイドル停止の設定は機種 (VID:PID) ごとに覚えておく (無ければ従来の全体設定を初期値に)
                 it.idleSpinDownMin = runCatching { settingsPrefs().getInt(idleKey(vp), settingsPrefs().getInt("idle_spindown_min", 0)) }.getOrDefault(0)
+                sessions.setSpinDownConfirmed(dev.deviceName, loadSpinAck(vp))   // 先に確認済みの種別を渡す (開いたときに照合される)
                 sessions.setIdleSpinDownMinutes(dev.deviceName, it.idleSpinDownMin)
             }
             st.productName = info.productName
@@ -188,6 +192,10 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                         st.published = emptyList()
                         st.table = tbl
                         st.tuningSaved = describeTuning(opened)
+                        // 回転ディスクか。回転ディスク以外は、ユーザーが確認済みの種別と一致しない限りスピンダウンの操作を隠し、自動停止も働かない
+                        st.mediaKind = opened.mediaKind
+                        st.spinDownUnlocked = sessions.spinDownAllowed(key)
+                        if (!st.spinDownUnlocked) st.idleSpinDownMin = 0   // 保存値は無視して「しない」と表示 (保存値そのものは消さない)
                     }
                 }
                 refreshUsb()
@@ -275,10 +283,35 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     /** アイドル自動スピンダウンの設定 (分、0 = オフ)。**このデバイスだけ**の設定で、機種 (VID:PID) ごとに保存する。開いていれば直ちに反映する。 */
     override fun setIdleSpinDown(key: String, minutes: Int) {
         val d = state(key) ?: return
+        if (d.open && !d.spinDownUnlocked) return   // 回転ディスク以外では、確認するまで設定できない
         d.idleSpinDownMin = minutes
         runCatching { settingsPrefs().edit().putInt(idleKey(d.vidPid), minutes).apply() }
         sessions.setIdleSpinDownMinutes(key, minutes)
         if (minutes == 0) d.diskIdleStopped = false
+    }
+
+    /** 回転ディスク以外 (フラッシュ/SSD・種別不明) でスピンダウンを使うと、ユーザーが確認した。種別ごと・機種ごとに覚える。自動停止は「しない」から始める。 */
+    override fun unlockSpinDown(key: String) {
+        val d = state(key) ?: return
+        val kind = d.mediaKind.kind
+        if (!d.open || kind == MediaKind.Rotational) return
+        runCatching { settingsPrefs().edit().putString(spinAckKey(d.vidPid), kind.name).putInt(idleKey(d.vidPid), 0).apply() }
+        sessions.setSpinDownConfirmed(key, kind)
+        sessions.setIdleSpinDownMinutes(key, 0)
+        d.idleSpinDownMin = 0
+        d.spinDownUnlocked = true
+    }
+
+    /** 確認を取り消して、スピンダウンの操作を閉じる (自動停止も止める)。停止中は閉じない (再開の操作を残すため)。 */
+    override fun lockSpinDown(key: String) {
+        val d = state(key) ?: return
+        if (d.mediaKind.kind == MediaKind.Rotational || d.diskStopped) return
+        runCatching { settingsPrefs().edit().remove(spinAckKey(d.vidPid)).putInt(idleKey(d.vidPid), 0).apply() }
+        sessions.setSpinDownConfirmed(key, null)
+        sessions.setIdleSpinDownMinutes(key, 0)
+        d.idleSpinDownMin = 0
+        d.diskIdleStopped = false
+        d.spinDownUnlocked = false
     }
 
     /**
@@ -288,6 +321,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     override fun stopDisk(key: String) {
         val s = sessions.session(key) ?: return
         val d = state(key) ?: return
+        if (!d.spinDownUnlocked) return   // 回転ディスク以外は、確認してからだけ
         d.busy = getString(R.string.busy_stopping_disk)
         d.notice = null
         Thread {

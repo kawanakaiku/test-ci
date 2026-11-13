@@ -15,6 +15,8 @@ object NativeBridge {
     @JvmStatic external fun nativeUsbIdleStop(handle: Long, idleMs: Long): Int
     @JvmStatic external fun nativeUsbSpunDown(handle: Long): Boolean
     @JvmStatic external fun nativeUsbStartStop(handle: Long, start: Boolean): Int
+    /** 回転ディスクか、フラッシュ/SSD か。out = [kind, rpm, basis, hint, removable, probed]、detail[0] = 診断の 1 行。0 / <0 = -Errc。 */
+    @JvmStatic external fun nativeUsbMediaInfo(handle: Long, out: IntArray, detail: Array<String?>): Int
     @JvmStatic external fun nativeUsbTune(handle: Long, chunkKiB: Int, maxTransferKiB: Int): Int
     @JvmStatic external fun nativeBenchRead(handle: Long, offset: Long, totalBytes: Long, bufKiB: Int): Long
     @JvmStatic external fun nativeBenchReadHash(handle: Long, offset: Long, totalBytes: Long, bufKiB: Int, outHash: LongArray): Long

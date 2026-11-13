@@ -15,12 +15,20 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
+/** テスト用の種別。既定の偽セッションは回転ディスク (従来のテストが想定していた、アイドル停止が効くデバイス)。 */
+object FakeKinds {
+    val HDD = MediaKindInfo(MediaKind.Rotational, 7200, MediaBasis.VpdBlockDeviceChars, probed = true)
+    val SSD = MediaKindInfo(MediaKind.NonRotational, 0, MediaBasis.VpdBlockDeviceChars, probed = true)
+    val UNKNOWN_STICK = MediaKindInfo(MediaKind.Unknown, 0, MediaBasis.None, MediaHint.RemovableNoVpd, removable = true, probed = true)
+}
+
 /** 実機の USB の代わりに使う偽のセッション。close 後に触ると IllegalStateException (本物の UsbStorageSession と同じ)。 */
 class FakeUsbSession(
     override val deviceName: String,
     override val writable: Boolean,
     override val vendorId: Int = 0x1234,
     override val productId: Int = 0x5678,
+    override val mediaKind: MediaKindInfo = FakeKinds.HDD,
 ) : UsbSession {
     @Volatile var closed = false
     val closeCalls = AtomicInteger()
@@ -53,12 +61,14 @@ class FakeFactory : UsbSessionFactory {
     val requests = CopyOnWriteArrayList<Pair<String, Boolean>>()
     val failFor: MutableSet<String> = Collections.synchronizedSet(HashSet())
     @Volatile var gate: ((UsbDeviceInfo) -> Unit)? = null
+    /** デバイスごとの種別 (既定は回転ディスク) */
+    val kinds: MutableMap<String, MediaKindInfo> = java.util.concurrent.ConcurrentHashMap()
 
     override fun open(device: UsbDeviceInfo, writable: Boolean): UsbSession {
         requests += device.deviceName to writable
         gate?.invoke(device)
         if (device.deviceName in failFor) throw NativeException(2, "fake open failure")
-        return FakeUsbSession(device.deviceName, writable, device.vendorId, device.productId).also { opened += it }
+        return FakeUsbSession(device.deviceName, writable, device.vendorId, device.productId, kinds[device.deviceName] ?: FakeKinds.HDD).also { opened += it }
     }
 
     fun sessionsOf(name: String) = opened.filter { it.deviceName == name }
@@ -317,6 +327,102 @@ class UsbSessionManagerTest {
     }
 
     // ---- 同時 I/O・開閉・抜去の競合
+
+    // ---- 回転ディスク以外 (フラッシュ/SSD・種別不明) では、ユーザーが明示的に有効にしない限り自動停止しない
+
+    @Test fun idleSpinDownIsIgnoredForNonRotationalAndUnknownDevicesUnlessConfirmed() {
+        val f = FakeFactory(); val m = mgr(f)
+        f.kinds[A.deviceName] = FakeKinds.HDD; f.kinds[B.deviceName] = FakeKinds.SSD; f.kinds[C.deviceName] = FakeKinds.UNKNOWN_STICK
+        for (d in listOf(A, B, C)) m.setIdleSpinDownMinutes(d.deviceName, 10)   // 保存値 (VID:PID 単位) が 10 分だったとする
+        val sa = m.open(A) as FakeUsbSession; val sb = m.open(B) as FakeUsbSession; val sc = m.open(C) as FakeUsbSession
+        assertEquals(10, sa.idleMinutes)              // 回転ディスクは従来どおり
+        assertEquals(-1, sb.idleMinutes)              // SSD/フラッシュ: 監視を始めない (setIdleSpinDown を呼ばない)
+        assertEquals(-1, sc.idleMinutes)              // 種別不明: 同じ
+        assertTrue(m.spinDownAllowed(A.deviceName)); assertFalse(m.spinDownAllowed(B.deviceName)); assertFalse(m.spinDownAllowed(C.deviceName))
+        assertEquals(10, m.effectiveIdleSpinDownMinutes(A.deviceName)); assertEquals(0, m.effectiveIdleSpinDownMinutes(B.deviceName)); assertEquals(0, m.effectiveIdleSpinDownMinutes(C.deviceName))
+        assertEquals(10, m.idleSpinDownMinutes(B.deviceName))   // 希望値そのものは残る (表示は effective を使う)
+    }
+
+    @Test fun explicitConfirmationEnablesIdleSpinDownOnlyForTheConfirmedKind() {
+        val f = FakeFactory(); val m = mgr(f)
+        f.kinds[B.deviceName] = FakeKinds.SSD; f.kinds[C.deviceName] = FakeKinds.UNKNOWN_STICK
+        m.setSpinDownConfirmed(B.deviceName, MediaKind.NonRotational)
+        m.setSpinDownConfirmed(C.deviceName, MediaKind.NonRotational)    // C は種別不明なのに「SSD として」確認されていた (中身が変わった)
+        m.setIdleSpinDownMinutes(B.deviceName, 5); m.setIdleSpinDownMinutes(C.deviceName, 5)
+        val sb = m.open(B) as FakeUsbSession; val sc = m.open(C) as FakeUsbSession
+        assertEquals(5, sb.idleMinutes)               // 確認した種別と一致 -> 有効
+        assertEquals(-1, sc.idleMinutes)              // 種別が違う -> 無効に倒す
+        assertTrue(m.spinDownAllowed(B.deviceName)); assertFalse(m.spinDownAllowed(C.deviceName))
+        // 開いたまま確認すると、直ちに反映される
+        m.setSpinDownConfirmed(C.deviceName, MediaKind.Unknown)
+        assertEquals(5, sc.idleMinutes); assertTrue(m.spinDownAllowed(C.deviceName))
+        // 確認を取り消すと止まる (0 = 監視しない)
+        m.setSpinDownConfirmed(B.deviceName, null)
+        assertEquals(0, sb.idleMinutes); assertFalse(m.spinDownAllowed(B.deviceName)); assertEquals(0, m.effectiveIdleSpinDownMinutes(B.deviceName))
+    }
+
+    @Test fun unlockingNeverTurnsOnAutoStopByItself() {
+        // 確認 (unlock) しても、分数を選ぶまでは「しない」のまま
+        val f = FakeFactory(); val m = mgr(f)
+        f.kinds[B.deviceName] = FakeKinds.SSD
+        val sb = m.open(B) as FakeUsbSession
+        assertEquals(-1, sb.idleMinutes)
+        m.setSpinDownConfirmed(B.deviceName, MediaKind.NonRotational)
+        assertEquals(0, sb.idleMinutes)               // 監視は始まらない (0 分)
+        assertEquals(0, m.effectiveIdleSpinDownMinutes(B.deviceName))
+        m.setIdleSpinDownMinutes(B.deviceName, 30)    // 明示的に選んで初めて有効
+        assertEquals(30, sb.idleMinutes)
+    }
+
+    @Test fun confirmationAndMinutesAreForgottenOnDetachAndDoNotLeakAcrossDevices() {
+        val f = FakeFactory(); val m = mgr(f)
+        f.kinds[B.deviceName] = FakeKinds.SSD
+        m.setSpinDownConfirmed(B.deviceName, MediaKind.NonRotational); m.setIdleSpinDownMinutes(B.deviceName, 10)
+        m.open(B)
+        assertEquals(MediaKind.NonRotational, m.spinDownConfirmed(B.deviceName)); assertNull(m.spinDownConfirmed(A.deviceName))
+        m.onDetached(B.deviceName)
+        assertNull(m.spinDownConfirmed(B.deviceName)); assertEquals(0, m.idleSpinDownMinutes(B.deviceName))
+        val again = m.open(B) as FakeUsbSession       // 挿し直すと、確認も分数も引き継がない
+        assertEquals(-1, again.idleMinutes)
+    }
+
+    @Test fun mediaKindInfoParsesNativeValuesAndFallsBackSafely() {
+        val hdd = MediaKindInfo.fromNative(intArrayOf(1, 7200, 1, 0, 0, 1), "rmb=0 ...")
+        assertEquals(MediaKind.Rotational, hdd.kind); assertEquals(7200, hdd.rpm); assertEquals(MediaBasis.VpdBlockDeviceChars, hdd.basis); assertTrue(hdd.isRotational); assertTrue(hdd.probed)
+        val ssd = MediaKindInfo.fromNative(intArrayOf(2, 123, 3, 0, 0, 1), null)
+        assertEquals(MediaKind.NonRotational, ssd.kind); assertEquals(0, ssd.rpm)   // 回転数は回転ディスクだけ
+        assertEquals(MediaBasis.AtaPassThrough12, ssd.basis); assertEquals("", ssd.detail); assertFalse(ssd.isRotational)
+        val stick = MediaKindInfo.fromNative(intArrayOf(0, 0, 0, 1, 1, 1), "x")
+        assertEquals(MediaKind.Unknown, stick.kind); assertEquals(MediaHint.RemovableNoVpd, stick.hint); assertTrue(stick.removable)
+        // 範囲外・短い配列は Unknown に倒す (スピンダウンを隠す側)
+        val bad = MediaKindInfo.fromNative(intArrayOf(9, 5, 99, 77, 0, 0), "")
+        assertEquals(MediaKind.Unknown, bad.kind); assertEquals(MediaBasis.None, bad.basis); assertEquals(MediaHint.None, bad.hint)
+        assertEquals(MediaKindInfo.UNKNOWN, MediaKindInfo.fromNative(intArrayOf(1, 7200), "x"))
+        assertFalse(MediaKindInfo.UNKNOWN.isRotational)
+    }
+
+    @Test fun sessionWithoutMediaKindDefaultsToUnknownSoSpinDownStaysClosed() {
+        // mediaKind を実装していないセッション (既定の Unknown) は、確認なしでは自動停止しない
+        val m = UsbSessionManager({ d, _ -> object : UsbSession {
+            override val deviceName = d.deviceName; override val writable = false; override val vendorId = 1; override val productId = 2; override val tuningIndex = -1
+            val inner = FakeUsbSession(d.deviceName, false)
+            override fun partitionTable() = inner.partitionTable(); override fun opStats() = ""
+            override fun mountNtfs(offsetBytes: Long, sizeBytes: Long, writable: Boolean, createOnly: Boolean, allowNoload: Boolean): NtfsVolume = throw UnsupportedOperationException()
+            override fun startStop(start: Boolean) {}; override fun isSpunDown() = false
+            override fun setIdleSpinDown(idleMinutes: Int, onStopped: (Boolean) -> Unit) { lastIdle = idleMinutes }
+            override fun tune(chunkKiB: Int, maxTransferKiB: Int) {}
+            override fun benchReadHash(offset: Long, totalBytes: Long, bufKiB: Int, hash: LongArray) = 1L
+            override fun benchRead(offset: Long, totalBytes: Long, bufKiB: Int) = 1L
+            override fun <T> withHandle(block: (Long) -> T): T = block(0)
+            override fun close() {}
+            var lastIdle = -1
+        } })
+        m.setIdleSpinDownMinutes(A.deviceName, 10)
+        val s = m.open(A)
+        assertEquals(MediaKind.Unknown, s.mediaKind.kind)             // インタフェースの既定
+        assertFalse(m.spinDownAllowed(A.deviceName))
+        assertEquals(0, m.effectiveIdleSpinDownMinutes(A.deviceName))
+    }
 
     @Test fun concurrentIoOpenCloseAndDetachAcrossDevicesStaysConsistent() {
         val f = FakeFactory(); val closing = CopyOnWriteArrayList<String>()

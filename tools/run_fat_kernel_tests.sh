@@ -19,8 +19,9 @@ trap cleanup EXIT
 export LC_ALL=C.UTF-8 TZ=UTC
 rc=0
 fail() { echo "FAIL: $*"; rc=1; }
+# utf8=1 が要る: iocharset=utf8 だけだとカーネルは BMP 外 (絵文字などのサロゲートペア) を '?' にする (CI で確認)。
 kmount() {  # kmount <img> <ro|rw>
-  $SU mount -t vfat -o "loop,$2,iocharset=utf8" "$1" "$W/mnt"
+  $SU mount -t vfat -o "loop,$2,utf8=1" "$1" "$W/mnt"
 }
 tree7z() {  # tree7z <img> <out>
   rm -rf "$W/x7"; mkdir "$W/x7"; 7z x -y -o"$W/x7" "$1" >/dev/null 2>&1 || return 1

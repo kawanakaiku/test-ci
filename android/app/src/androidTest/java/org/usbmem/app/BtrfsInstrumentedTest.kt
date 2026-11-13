@@ -29,6 +29,13 @@ class BtrfsInstrumentedTest {
         return dst.length() > 0
     }
 
+    /** イメージ全体を一度に読まずに (200 MB で既定のヒープ上限 192 MB を超える AVD がある) ストリームで SHA-256 を取る。 */
+    private fun fileHash(f: File): List<Byte> {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        f.inputStream().use { ins -> val buf = ByteArray(1 shl 20); while (true) { val n = ins.read(buf); if (n < 0) break; md.update(buf, 0, n) } }
+        return md.digest().toList()
+    }
+
     private fun want(seed: Int, i: Long): Int = ((i * 31 + seed * 7 + (i shr 8)) and 0xFF).toInt()
 
     private fun checkRange(vol: NtfsVolume, path: String, off: Long, len: Long, seed: Int) {
@@ -216,7 +223,7 @@ class BtrfsInstrumentedTest {
                 for (i in 0 until 4) sb[i] = (c ushr (8 * i)).toByte()
                 f.seek(0x10000); f.write(sb)
             }
-            val before = img.readBytes().contentHashCode()
+            val before = fileHash(img)
             try { NtfsVolume.mountReadOnly(ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_ONLY).detachFd()).close(); fail("must be refused by default") }
             catch (e: NativeException) { assertEquals(117, e.code) }
             NtfsVolume.mountReadOnly(ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_ONLY).detachFd(), allowNoload = true).use { vol ->
@@ -226,7 +233,7 @@ class BtrfsInstrumentedTest {
                 assertTrue(vol.list("/").isNotEmpty())
                 try { vol.create("/", "x", false); fail("write must be refused") } catch (_: NativeException) {}
             }
-            assertEquals("image must be unchanged", before, img.readBytes().contentHashCode())
+            assertEquals("image must be unchanged", before, fileHash(img))
         } finally { fx.values.forEach { it.delete() } }
     }
 

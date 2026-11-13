@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // XFS の読み取り専用リーダ。ディスク形式 (スーパーブロック / AG / inode / extent / bmbt / ディレクトリ各形式 / シンボリックリンク / ログ) を
 // Linux の fs/xfs の形式定義 (xfs_format.h, xfs_da_format.h, xfs_log_format.h, xfs_log_recover.c) を仕様として読み、独立に実装したもの。
-// ログの再生・書き込み・トランザクションの経路は持たない。docs/xfs-port.md
+// ログの再生は持たない。書き込み (USBMEM_NTFS_WRITE のビルドだけ) は xfs_write*.inc: ログ (カーネルが再生できる形式) 経由のコミット。docs/xfs-port.md / docs/xfs-write.md
 #include "usbmem/xfs_volume.h"
 
 #include <algorithm>
@@ -11,7 +11,10 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <string>
 #include <unordered_map>
+#include <ctime>
+#include <vector>
 
 namespace usbmem {
 namespace {
@@ -131,6 +134,9 @@ struct XfsVolume::Impl {
   uint64_t dblocks = 0, rootino = 0, logstart = 0;
   uint32_t dirblksize = 0, incompat = 0, ro_compat = 0, versionnum = 0;
   bool journal_ignored = false;
+#ifndef USBMEM_NTFS_WRITE
+  bool lg_ok = false; uint64_t lg_head = 0, lg_rhead = 0, lg_prev = 0; uint32_t lg_cycle = 0;   // log_state が埋める (書き込みビルドだけが使う)
+#endif
 
   // メタデータのページキャッシュ
   static constexpr size_t kPage = 16384, kMaxPages = 128;
@@ -158,6 +164,7 @@ struct XfsVolume::Impl {
   int read_meta(uint64_t off, void* out, size_t len) {
     uint8_t* o = static_cast<uint8_t*>(out);
     if (!range_ok(dev_size, off, len)) return -EIO;
+    const uint64_t off0 = off; const size_t len0 = len; (void)off0; (void)len0;
     while (len) {
       uint64_t base = off & ~uint64_t(kPage - 1);
       auto it = pages.find(base);
@@ -180,6 +187,9 @@ struct XfsVolume::Impl {
       std::memcpy(o, it->second.d.data() + in, n);
       o += n; off += n; len -= n;
     }
+#ifdef USBMEM_NTFS_WRITE
+    overlay(off0, static_cast<uint8_t*>(out), len0);   // まだコミットしていない書き込みを重ねる
+#endif
     return 0;
   }
 
@@ -681,8 +691,17 @@ struct XfsVolume::Impl {
       rc = dev_read(base + d * 512, op, 12); if (rc) return rc;
       if (op[9] & 0x20) tail_blk = head;   // XLOG_UNMOUNT_TRANS: 正常にアンマウントされた
     }
+    lg_head = head; lg_rhead = rhead; lg_prev = rhead;
+    lg_cycle = be32(h.data() + 4) + (head <= rhead ? 1 : 0);
+    lg_ok = true;
     return tail_blk == head ? 0 : 1;
   }
+
+#ifdef USBMEM_NTFS_WRITE
+#include "xfs_write.inc"
+#include "xfs_write_alloc.inc"
+#include "xfs_write_ops.inc"
+#endif
 };
 
 // ---- マウント ----
@@ -764,7 +783,16 @@ std::unique_ptr<XfsVolume> XfsVolume::mount(BlockDevicePtr dev, int* err, const 
   return vol;
 }
 
-XfsVolume::~XfsVolume() = default;
+XfsVolume::~XfsVolume() {
+#ifdef USBMEM_NTFS_WRITE
+  if (impl_) {
+    try {
+      std::lock_guard<std::mutex> g(impl_->mu);
+      if (impl_->rw) impl_->do_sync();
+    } catch (...) {}
+  }
+#endif
+}
 uint64_t XfsVolume::root() const { return impl_->rootino; }
 bool XfsVolume::journal_ignored() const { return impl_->journal_ignored; }
 
@@ -877,5 +905,71 @@ int XfsVolume::readlink(uint64_t ino, std::string* target) {
   if ((in->mode & S_FMT) != S_LNK) return -EINVAL;
   return I.read_symlink(in.get(), target);
 }
+
+// ---- 書き込み系の公開 API (USBMEM_NTFS_WRITE のビルドだけ実体。そうでなければ全て EROFS)
+#ifdef USBMEM_NTFS_WRITE
+std::unique_ptr<XfsVolume> XfsVolume::mount_rw(BlockDevicePtr dev, int* err) {
+  auto v = mount(std::move(dev), err, XfsMountOptions{});
+  if (!v) return nullptr;
+  try {
+    std::lock_guard<std::mutex> g(v->impl_->mu);
+    std::string why = v->impl_->prepare_rw();
+    if (why.empty()) v->impl_->rw = true; else v->impl_->ro_reason = why;
+  } catch (...) {
+    v->impl_->ro_reason = "書き込み可の検査中に例外";
+  }
+  return v;
+}
+bool XfsVolume::writable() const { return impl_->rw; }
+std::string XfsVolume::read_only_reason() const { return impl_->ro_reason; }
+#define XFS_GUARD(body) try { std::lock_guard<std::mutex> g(impl_->mu); body } catch (const std::bad_alloc&) { return -ENOMEM; } catch (...) { return -EIO; }
+int XfsVolume::sync() { XFS_GUARD(return impl_->do_sync();) }
+int XfsVolume::create(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) {
+  XFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.new_node(dir, name, mode, 1, nullptr, ino); });)
+}
+int XfsVolume::mkdir(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) {
+  XFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.new_node(dir, name, mode, 2, nullptr, ino); });)
+}
+int XfsVolume::symlink(uint64_t dir, const std::string& name, const std::string& target, uint64_t* ino) {
+  XFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.new_node(dir, name, 0777, 7, &target, ino); });)
+}
+int64_t XfsVolume::write(uint64_t ino, uint64_t off, const void* buf, size_t len) {
+  XFS_GUARD(
+    Impl& m = *impl_;
+    int64_t wr = 0;
+    int rc = m.run_op([&] { return m.write_file(ino, off, static_cast<const uint8_t*>(buf), len, false, &wr); });
+    return rc < 0 ? rc : wr;)
+}
+int64_t XfsVolume::write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len) {
+  XFS_GUARD(
+    Impl& m = *impl_;
+    int64_t wr = 0;
+    int rc = m.run_op([&] { return m.write_file(ino, off, static_cast<const uint8_t*>(buf), len, true, &wr); });
+    return rc < 0 ? rc : wr;)
+}
+int XfsVolume::unlink(uint64_t, const std::string&) { return impl_->rw ? -EOPNOTSUPP : -EROFS; }
+int XfsVolume::rmdir(uint64_t, const std::string&) { return impl_->rw ? -EOPNOTSUPP : -EROFS; }
+int XfsVolume::rename(uint64_t, const std::string&, uint64_t, const std::string&) { return impl_->rw ? -EOPNOTSUPP : -EROFS; }
+int XfsVolume::truncate(uint64_t, uint64_t) { return impl_->rw ? -EOPNOTSUPP : -EROFS; }
+int XfsVolume::link(uint64_t, const std::string&, uint64_t) { return impl_->rw ? -EOPNOTSUPP : -EROFS; }
+#else
+std::unique_ptr<XfsVolume> XfsVolume::mount_rw(BlockDevicePtr, int* err) {
+  if (err) *err = EROFS;
+  return nullptr;
+}
+bool XfsVolume::writable() const { return false; }
+std::string XfsVolume::read_only_reason() const { return "このビルドは書き込み非対応 (USBMEM_NTFS_WRITE=OFF)"; }
+int XfsVolume::sync() { return -EROFS; }
+int XfsVolume::create(uint64_t, const std::string&, uint32_t, uint64_t*) { return -EROFS; }
+int XfsVolume::mkdir(uint64_t, const std::string&, uint32_t, uint64_t*) { return -EROFS; }
+int XfsVolume::unlink(uint64_t, const std::string&) { return -EROFS; }
+int XfsVolume::rmdir(uint64_t, const std::string&) { return -EROFS; }
+int XfsVolume::rename(uint64_t, const std::string&, uint64_t, const std::string&) { return -EROFS; }
+int XfsVolume::symlink(uint64_t, const std::string&, const std::string&, uint64_t*) { return -EROFS; }
+int XfsVolume::link(uint64_t, const std::string&, uint64_t) { return -EROFS; }
+int XfsVolume::truncate(uint64_t, uint64_t) { return -EROFS; }
+int64_t XfsVolume::write(uint64_t, uint64_t, const void*, size_t) { return -EROFS; }
+int64_t XfsVolume::write_inplace(uint64_t, uint64_t, const void*, size_t) { return -EROFS; }
+#endif
 
 }  // namespace usbmem

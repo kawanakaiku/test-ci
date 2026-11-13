@@ -35,7 +35,7 @@ class RealUsbWriteTest {
 
     companion object {
         /** 書き込みを許す FS (パーティション表の fs 名)。FAT32 は書き込み未対応、XFS/squashfs/erofs/UDF/ISO は読み取り専用 FS。 */
-        val WRITABLE_FS = setOf("ntfs", "exfat", "fat12", "fat16", "fat32", "ext2", "ext3", "ext4", "btrfs", "f2fs")
+        val WRITABLE_FS = setOf("ntfs", "exfat", "fat12", "fat16", "fat32", "ext2", "ext3", "ext4", "btrfs", "f2fs", "xfs")
         const val BIG_SKIP = "02_big/big_4p5GiB.bin"
     }
 

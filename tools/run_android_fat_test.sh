@@ -20,7 +20,8 @@ for n in $NAMES; do
   $ADB push "$D/$n.img" /data/local/tmp/fat_$n.img >/dev/null
   $ADB push "$D/$n.manifest" /data/local/tmp/fat_$n.manifest >/dev/null
 done
-(cd "$HERE/../android" && "$SDKX" ./gradlew --no-daemon --offline :app:assembleDebug :app:assembleDebugAndroidTest -q)
+# USBMEM_SKIP_BUILD=1: ビルド済みの APK を使う (CI: tools/ci_android_tests.sh)
+[ "${USBMEM_SKIP_BUILD:-0}" = 1 ] || (cd "$HERE/../android" && "$SDKX" ./gradlew --no-daemon --offline :app:assembleDebug :app:assembleDebugAndroidTest -q)
 APKD="$HERE/../android/app/build/outputs/apk"
 $ADB install -r -t "$APKD/debug/app-debug.apk" >/dev/null
 $ADB install -r -t "$APKD/androidTest/debug/app-debug-androidTest.apk" >/dev/null

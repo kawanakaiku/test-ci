@@ -10,7 +10,7 @@ case "$ANDROID_SERIAL" in emulator-*) ;; *) echo "refusing: ANDROID_SERIAL must 
 HERE=$(cd "$(dirname "$0")" && pwd); D=${1:-/dev/shm/usbmem_ext2_${USER:-u}}
 for c in e2fsck debugfs fuse2fs fusermount3 python3 adb; do command -v $c >/dev/null || { echo "skip: $c missing" >&2; exit 77; }; done
 [ -f "$D/b1k.img" ] || { echo "skip: no fixture $D/b1k.img" >&2; exit 77; }
-W=$(mktemp -d "${USBMEM_WORK_DIR:-/dev/shm}"/usbmem_ae2.XXXXXX)
+W=$(mktemp -d "${USBMEM_TMP:-${USBMEM_WORK_DIR:-/dev/shm}}"/usbmem_ae2.XXXXXX)
 cleanup() {
   fusermount3 -u "$W/mnt" 2>/dev/null || true; rm -rf "$W"
   adb shell rm -f /data/local/tmp/ext2_wr.img /data/local/tmp/ext2_wr_ops.txt /data/local/tmp/ext2_dirty.img /data/local/tmp/ext4_empty.img 2>/dev/null || true
@@ -24,7 +24,8 @@ adb push "$W/wr.img" /data/local/tmp/ext2_wr.img >/dev/null
 adb push "$W/ops.txt" /data/local/tmp/ext2_wr_ops.txt >/dev/null
 adb push "$W/dirty.img" /data/local/tmp/ext2_dirty.img >/dev/null
 [ -f "$D/ext4_empty.img" ] && adb push "$D/ext4_empty.img" /data/local/tmp/ext4_empty.img >/dev/null
-(cd "$HERE/../android" && ./gradlew --offline :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true -q)
+# USBMEM_SKIP_BUILD=1: ビルド済みの APK を使う (CI: tools/ci_android_tests.sh)
+[ "${USBMEM_SKIP_BUILD:-0}" = 1 ] || (cd "$HERE/../android" && ./gradlew --offline :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true -q)
 # gradle の connected タスクはテスト後にアンインストールして結果イメージを消すため、install + am instrument を直接使う
 APKD="$HERE/../android/app/build/outputs/apk"
 adb install -r -t "$APKD/debug/app-debug.apk" >/dev/null
@@ -41,7 +42,7 @@ st=$(python3 -I -c "import struct,sys; f=open(sys.argv[1],'rb'); f.seek(1024+58)
 [ "$st" = 1 ] || { echo "FAIL: s_state=$st (not VALID_FS)"; exit 1; }
 # 独立実装で同じ操作列を実行して比較
 cp "$D/b1k.img" "$W/ref.img"; mkdir -p "$W/mnt"
-fuse2fs -o rw,fakeroot "$W/ref.img" "$W/mnt" 2>/dev/null
+fuse2fs -o rw,fakeroot "$W/ref.img" "$W/mnt" || { echo "FAIL: fuse2fs mount"; exit 1; }
 python3 -I "$HERE/ops_ref.py" "$W/mnt" "$W/ops.txt"; fusermount3 -u "$W/mnt"
 tree_of() { fuse2fs -o ro,fakeroot "$1" "$W/mnt" 2>/dev/null; python3 -I "$HERE/ops_ref.py" --tree "$W/mnt" > "$2"; fusermount3 -u "$W/mnt"; }
 tree_of "$W/r.img" "$W/ta"; tree_of "$W/ref.img" "$W/tr"

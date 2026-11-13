@@ -1,0 +1,149 @@
+# Android 計装テスト (AVD 試験) を GitHub Actions のエミュレータ (ReactiveCircus/android-emulator-runner) で実行する。docs/ci.md
+# FS グループごとに matrix で分け、最大 4 並列で動かす。各ジョブが独立にビルド・フィクスチャ生成・エミュレータ起動を行う。
+name: Android emulator tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [usbmem-ci]
+
+concurrency:
+  group: android-emulator-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  API_LEVEL: 34
+  # android/app/build.gradle.kts の ndkVersion / externalNativeBuild.cmake.version と合わせる
+  NDK_VERSION: 30.0.16248370
+  CMAKE_VERSION: 4.1.2
+  SDK_ROOT: /usr/local/lib/android/sdk
+
+jobs:
+  android:
+    name: android (${{ matrix.group }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        # グループの中身は tools/ci_android_tests.sh の group_fs() を参照
+        group: [ext-fat, btrfs-xfs, squash-erofs, nested-ntfs, ro-misc]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Gradle (依存ライブラリとラッパー) と SDK の追加分 (NDK / CMake) は全ジョブ共通のキーでキャッシュする
+      - name: Gradle cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: SDK cache (NDK / CMake / platform)
+        id: sdk-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ env.SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+            ${{ env.SDK_ROOT }}/cmake/${{ env.CMAKE_VERSION }}
+            ${{ env.SDK_ROOT }}/platforms/android-36
+            ${{ env.SDK_ROOT }}/build-tools/36.0.0
+          key: sdk-${{ runner.os }}-ndk${{ env.NDK_VERSION }}-cmake${{ env.CMAKE_VERSION }}-p36
+
+      - name: Install SDK components
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: |
+          SM="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SM" --licenses >/dev/null || true
+          "$SM" "platforms;android-36" "build-tools;36.0.0" "ndk;$NDK_VERSION" "cmake;$CMAKE_VERSION"
+
+      # ホスト側ツール: フィクスチャの生成と、書き込み結果の独立検証に使う (docs/ci.md の一覧)
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            e2fsprogs fuse2fs fuse3 mtools p7zip-full dosfstools exfatprogs exfat-fuse ntfs-3g \
+            btrfs-progs xfsprogs f2fs-tools erofs-utils squashfs-tools zstd lzop lz4 xz-utils \
+            gdisk fdisk gcc python3 bc genisoimage xorriso
+          # 非 root の FUSE マウント (fuse2fs / exfat-fuse / ntfs-3g) が allow_other を付けるので、fusermount3 に許可する
+          echo user_allow_other | sudo tee -a /etc/fuse.conf
+          for t in mke2fs e2fsck fuse2fs mformat 7z mkfs.fat mkfs.exfat fsck.exfat mount.exfat-fuse mkntfs ntfs-3g \
+                   mkfs.btrfs btrfs mkfs.xfs xfs_repair mkfs.f2fs sload.f2fs fsck.f2fs mkfs.erofs fsck.erofs mksquashfs unsquashfs sgdisk sfdisk genisoimage xorriso isoinfo; do
+            command -v "$t" >/dev/null || [ -x "/sbin/$t" ] || [ -x "/usr/sbin/$t" ] || echo "::warning::host tool missing: $t"
+          done
+
+      # NTFS / ext2 / exFAT の書き込みテストに -PusbmemNtfsWrite=true が要る (ABI は arm64-v8a と x86_64 の両方がビルドされる)
+      - name: Build APKs
+        working-directory: android
+        run: |
+          ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true
+          find app/build/outputs/apk -name '*.apk' -exec ls -l {} +
+
+      - name: Generate fixtures
+        run: tools/ci_android_tests.sh gen ${{ matrix.group }}
+
+      - name: AVD cache
+        id: avd-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-${{ runner.os }}-api${{ env.API_LEVEL }}-google_apis-x86_64-v5
+
+      - name: Create AVD and snapshot (cache miss only)
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ env.API_LEVEL }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 3
+          ram-size: 3072M
+          disk-size: 8192M
+          force-avd-creation: false
+          emulator-options: -no-window -no-audio -gpu swiftshader_indirect -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "Generated AVD snapshot for caching."
+
+      - name: Run instrumented tests on the emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ env.API_LEVEL }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 3
+          ram-size: 3072M
+          disk-size: 8192M
+          force-avd-creation: false
+          emulator-options: -no-window -no-audio -no-snapshot-save -gpu swiftshader_indirect -no-boot-anim -camera-back none
+          disable-animations: true
+          script: tools/ci_android_tests.sh run ${{ matrix.group }}
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-${{ matrix.group }}
+          path: ci-logs/
+          if-no-files-found: ignore
+          retention-days: 14

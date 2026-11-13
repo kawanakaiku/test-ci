@@ -12,3 +12,4 @@ android/.kotlin/
 captures/
 *.jks
 *.keystore
+ci-logs/

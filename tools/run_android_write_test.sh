@@ -3,11 +3,13 @@
 # 前提: JAVA_HOME / ANDROID_HOME、エミュレータ起動済み (ANDROID_SERIAL)、フィクスチャ /dev/shm/usbmem_ntfs_$USER/ntfs_basic.img
 set -eu
 : "${ANDROID_SERIAL:?set ANDROID_SERIAL to the emulator (e.g. emulator-5556)}"
+case "$ANDROID_SERIAL" in emulator-*) ;; *) echo "refusing: ANDROID_SERIAL must be an emulator" >&2; exit 2;; esac
 HERE=$(cd "$(dirname "$0")" && pwd); D=${1:-/dev/shm/usbmem_ntfs_${USER:-u}}
-W=$(mktemp -d /dev/shm/usbmem_aw.XXXXXX); trap 'fusermount3 -u "$W/m" 2>/dev/null || true; rm -rf "$W"' EXIT
+W=$(mktemp -d "${USBMEM_TMP:-/dev/shm}"/usbmem_aw.XXXXXX); trap 'fusermount3 -u "$W/m" || true; rm -rf "$W"' EXIT
 adb push "$D/ntfs_basic.img" /data/local/tmp/ntfs_basic.img >/dev/null
 adb shell run-as org.usbmem.app rm -f cache/rw_result.img 2>/dev/null || true
-(cd "$HERE/../android" && ./gradlew --offline :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true -q)
+# USBMEM_SKIP_BUILD=1: ビルド済みの APK を使う (CI: tools/ci_android_tests.sh)
+[ "${USBMEM_SKIP_BUILD:-0}" = 1 ] || (cd "$HERE/../android" && ./gradlew --offline :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true -q)
 # gradle の connected タスクはテスト後にアンインストールして結果イメージを消すため、install + am instrument を直接使う
 APKD="$HERE/../android/app/build/outputs/apk"
 adb install -r -t "$APKD/debug/app-debug.apk" >/dev/null

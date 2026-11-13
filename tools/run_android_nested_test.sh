@@ -17,7 +17,8 @@ cleanup() {
   (cd "$HERE/../android" && ./gradlew --stop >/dev/null 2>&1) || true
 }
 trap cleanup EXIT
-(cd "$HERE/../android" && nice -n 10 ./gradlew --no-daemon --offline :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true -q)
+# USBMEM_SKIP_BUILD=1: ビルド済みの APK を使う (CI: tools/ci_android_tests.sh)
+[ "${USBMEM_SKIP_BUILD:-0}" = 1 ] || (cd "$HERE/../android" && nice -n 10 ./gradlew --no-daemon --offline :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true -q)
 APKD="$HERE/../android/app/build/outputs/apk"
 exec 9>/tmp/usbmem_avd.lock
 flock -w 7200 9

@@ -256,7 +256,7 @@ NTFS のボリュームを ntfs-3g で作って中身を書き、アンマウン
 
 ### BitLocker 風パーティションについて
 
-`tools/bitlocker_synth.py` は合成ライター。`docs/crypto-volumes.md` 6.1 にあるとおり、**独立実装 (libbde) がこの合成方式を「ボリュームヘッダ検証」で拒否する原因を切り分けきれておらず、検証には使っていない**。そのため、この実機テストでアプリが開けるかどうかは未確認。開けなければ合成ライターの問題か、アプリ側かを切り分けること。使ったパスワード等の情報は `--manifest-dir/<プロファイル>/p5_bitlocker.bitlocker-meta.txt` に保存される。
+`tools/bitlocker_synth.py` は合成ライター。以前は libbde に拒否されて解錠できなかったが、2026-11-13 に原因 (暗号化済みサイズに退避領域を含めていなかった) を直し、libbde・アプリ (実機を含む) とも開けることを確認した。詳細は `docs/crypto-volumes.md` 6.1。
 
 **Windows で作る場合** (実物。こちらを推奨): `--bitlocker skip` で作ると 1 GiB のパーティション (タイプ `0700`、中身は空) が残る。それを Windows の「ディスクの管理」で NTFS にフォーマット (ボリュームラベル `TS_BITLOCKER`) し、いくつかのファイルを置いてから「BitLocker を有効にする」(パスワード保護) を実行する。Windows 側で `Get-FileHash -Algorithm SHA256` した一覧を manifest 代わりにする (`tools/winvhd/make_bitlocker_matrix.sh` の手順が参考になる)。
 
@@ -378,7 +378,7 @@ tools/run_android_real_usb_verify.sh --serial <adb serial> [--devices 0930:6544[
 | C | 2 | Btrfs | OK | 3030 / 43 / 4 / 1 (4.5 GiB 含む) | 4677 MiB | **9.0 MB/s** | 550 s | 0 |
 | C | 3 | F2FS | OK | 3030 / 43 / 4 / 1 | 1093 MiB | 26.8 MB/s | 50 s | 0 |
 | C | 4 | LUKS2 (中は ext4) | OK (解錠 20.6 s) | 3030 / 43 / 4 / 1 | 1093 MiB | **4.5 MB/s** | 281 s | 0 |
-| C | 5 | BitLocker 風 | **解錠できない** (原因はライターの誤りと判明・修正済み。C への再書き込み待ち。docs/crypto-volumes.md 6.1) | - | - | - | - | - |
+| C | 5 | BitLocker 風 | **解錠できた** (2026-11-13、ライター修正後に作り直した p5。マウント OK、ファイル 3025・ディレクトリ 40 全件一致、0.5 MB/s) | - | - | - | - | - |
 | C | 6 | squashfs | OK | 329 / 32 / 4 / 1 | 11 MiB | 59.9 MB/s | 1 s | 0 |
 | C | 7 | erofs | OK | 328 / 31 / 4 / 1 | 3 MiB | 29.5 MB/s | 1 s | 0 |
 | C | 8 | UDF | OK | 328 / 31 / 4 / 1 | 3 MiB | 26.2 MB/s | 1 s | 0 |
@@ -388,7 +388,7 @@ tools/run_android_real_usb_verify.sh --serial <adb serial> [--devices 0930:6544[
 
 - 3 本の合計で、**失敗した FS は無い** (BitLocker 風を除く)。XFS / Btrfs / F2FS / squashfs / erofs / UDF / ISO の symlink 4 つ (相対・ディレクトリ・ぶら下がり・日本語名) のリンク先も一致した (`readlink` 未対応で確認できなかったものは 0)。BMP 外の文字 `𠮷`、NFC / NFD の濁点、半角カナ、255 バイト近い名前、20 階層、疎ファイル、大文字小文字違いの同名も全て一致 (FS が持つもの)。
 - A / B の FAT32 の「余分」6 つは、USB を挿したとき OS (vold) が FAT32 だけ自動マウントして作ったもの (**テスト実行前にあったもの**)。アプリは OS のマウント中は USB を開かないので、テスト中に増えたものではない。なお、アプリが USB を閉じるたびに OS が FAT32 を再マウントすることがあり (実機の端末の挙動)、次の実行の前に `sm unmount public:X,Y` が必要だった。
-- **BitLocker 風 (C の p5)**: `bitlocker` と判定され `XTS-AES-128` まで読めるが、解錠は `corrupt: ボリュームヘッダの退避位置が不正です` で失敗する (パスワードは `synth-Password-1`)。6 の「BitLocker 風パーティションについて」の既知の問題 (合成ライターの不具合か、アプリ側の解釈か) のまま。LUKS2 は argon2id の鍵導出込みで 20.6 s、解錠してから中の ext4 を全ファイル照合できた。
+- **BitLocker 風 (C の p5)**: 当初は `corrupt: ボリュームヘッダの退避位置が不正です` で解錠できなかった。原因は合成ライターが「暗号化済みボリュームのサイズ」に退避領域を含めていなかったこと (docs/crypto-volumes.md 6.1)。修正して p5 だけ作り直して書き込み (PC 側では libbde の `bdemount` で復号 → NTFS を全ツリー照合して一致)、J9260 の実機で `synth-Password-1` により解錠・全件一致を確認した (J9260、読み取り専用)。LUKS2 は argon2id の鍵導出込みで 20.6 s、解錠してから中の ext4 を全ファイル照合できた。
 - **遅い読み取り**: Btrfs は 9 MB/s (同じ USB の XFS は 28.8 MB/s、4.5 GiB のファイルを 1 本読むのに 9 分)、LUKS2 は 4.5 MB/s (AES-XTS を ARM でソフトウェア計算、ARMv8 Crypto Extensions の高速パスは未実装。`docs/crypto-volumes.md` 6.3 の見積もり 25〜60 MB/s を大きく下回る)。正しさには影響しないが、実用上の改善候補。
 
 3 本を**同時に開いて並列に読んだ**結果 (3 回試みた。うち 1 回は電池残量の都合で途中で止めた):

@@ -82,7 +82,7 @@
 | `run_f2fs_crash_tests.sh` | 満杯寄りの 128M ボリューム (元ファイル + 6 MB 削除 + 7 MB / 3 MB 書き込みを含む 93 操作)。カットポイントは先頭 6 + 均等 + CP パック書き込みの前後 (flush も数える)。N=14 点 (カーネルも 15 回読む) 248 試行、N=80 点 1272 試行、`extra_attr` のみの構成 N=30 点 484 試行: 合計 2004 試行で (F) fsck.f2fs clean / (N) 回復なしで 1 バイトも変わらない / (S) 原子性 / (A) 元ファイル保全 / (K) カーネルの読みの一致 がすべて 0 失敗。fsck.f2fs 検査 2010 回 |
 | 突然変異 7 種 (各 N=14 点) | 7 / 7 検出 (上の表) |
 | ホストの既存 `f2fs_*` 読み取りテスト 7 件 | plain (書き込み無効) と wrel (書き込み有効) の両方で通過 (読み取りは回帰なし) |
-| CI (usbmem-ci-f2fs) | CI_RESULTS |
+| CI ホスト 4 構成 (usbmem-ci-f2fs ブランチ、コミット 6f80a07) | `f2fs_write` と `f2fs_crash` は wrel (76 秒 / 56 秒) と wsan (ASan+UBSan 書き込み有効: 708 秒 / 254 秒) で通過。plain / san は書き込み無効なので既存の `f2fs_*` 読み取り 5 件 (+ カーネル製フィクスチャの生成はスキップ) が通過。`f2fs_write` は sudo のループマウントが使えれば本物のカーネルとも照合する (ctest の通過ログには出ないが、同じランナーの AVD 側では `kernel (loop)` での一致を確認した)。`f2fs_crash` は CI に VM が無いのでカーネルの照合を省く (電源断のあとのカーネル読みはローカルの VM で実施済み)。CI 全体では f2fs 以外のテスト (partedit / disktools / ntfs の fixture 生成 / ext2・ext4・exFAT の write / erofs fixture / xfs_read 等 13〜20 件) が CI の環境 (Ubuntu resolute のツール) の都合で落ちているが、F2FS の変更とは無関係 |
 | AVD (CI の android-emulator、squash-erofs グループの `f2fs_write`) | `F2fsWriteTest` 3 件 OK。操作列の結果 1122 エントリが `fsck.f2fs` clean、カーネル (ループマウント) が同じ操作列を実行した結果とツリー一致。CreateOnly の拒否、圧縮ボリュームの読み取り専用フォールバック (イメージ不変) も通過 |
 
 この段階で見つけて直したもの (どれもテストが捕まえた):

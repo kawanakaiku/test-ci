@@ -800,25 +800,115 @@ def disk_of_source(tree, src):
     return None
 
 
-def system_disks(tree, mounts):
-    """システム/ホームなどのマウント元ディスクの集合 (path) と、特定できなかった理由のリストを返す。"""
+MEMORY_FS = ("tmpfs", "ramfs", "devtmpfs", "proc", "sysfs", "devpts", "cgroup2", "securityfs", "configfs", "debugfs", "tracefs", "mqueue", "hugetlbfs", "pstore", "bpf", "efivarfs", "fusectl", "autofs", "binfmt_misc")
+
+
+def parse_mountinfo(text):
+    """/proc/self/mountinfo -> [{mp, fstype, source, opts}] (super options は FS 固有オプション)。"""
+    out = []
+    for ln in text.splitlines():
+        if " - " not in ln:
+            continue
+        left, right = ln.split(" - ", 1)
+        lc, rc = left.split(), right.split()
+        if len(lc) < 5 or len(rc) < 2:
+            continue
+        out.append({"mp": _unescape_mount(lc[4]), "fstype": rc[0], "source": _unescape_mount(rc[1]),
+                    "opts": rc[2] if len(rc) > 2 else ""})
+    return out
+
+
+def _read_sys(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def _mount_entry_for(mi, path):
+    """path を含む最も深いマウント (同じマウント先なら後のもの) を返す。"""
+    path = os.path.normpath(path)
+    best = None
+    for e in mi:
+        mp = e["mp"]
+        if path == mp or mp == "/" or path.startswith(mp.rstrip("/") + "/"):
+            if best is None or len(mp) >= len(best["mp"]):
+                best = e
+    return best
+
+
+def resolve_path_disks(tree, mi, path, reader=_read_sys, depth=0):
+    """path が実際に載っているディスク (トップレベルの path) の集合と、特定できなかった理由を返す。
+    overlay (lowerdir/upperdir/workdir)、loop (backing_file)、dm (slaves) をたどる。tmpfs 等のメモリ上の FS はディスク無し。"""
+    if depth > 6:
+        return set(), ["マウントの連鎖が深すぎる (%s)" % path]
+    e = _mount_entry_for(mi, path)
+    if e is None:
+        return set(), ["%s を含むマウントが見つからない" % path]
+    fs, src = e["fstype"], e["source"]
+    if fs in MEMORY_FS:
+        return set(), []
+    if fs == "overlay":
+        opts = {}
+        for kv in e["opts"].split(","):
+            if "=" in kv:
+                k, v = kv.split("=", 1)
+                opts[k] = v
+        dirs = [d for d in opts.get("lowerdir", "").split(":") if d] + [opts[k] for k in ("upperdir", "workdir") if opts.get(k)]
+        if not dirs:
+            return set(), ["overlay のディレクトリが分からない (%s)" % e["opts"]]
+        disks, bad = set(), []
+        for d in dirs:
+            a, b = resolve_path_disks(tree, mi, d, reader, depth + 1)
+            disks |= a
+            bad += b
+        return disks, bad
+    if not src.startswith("/dev/"):
+        return set(), ["マウント元 '%s' (%s) がどのディスクか特定できない" % (src, fs)]
+    return _resolve_dev_disks(tree, mi, src, reader, depth)
+
+
+def _resolve_dev_disks(tree, mi, src, reader, depth):
+    top = disk_of_source(tree, src)
+    name = os.path.basename(os.path.realpath(src))
+    if name.startswith("loop"):
+        back = reader("/sys/block/%s/loop/backing_file" % name)
+        if back:
+            return resolve_path_disks(tree, mi, back, reader, depth + 1)
+        return set(), ["loop デバイス %s の元ファイルが分からない" % src]
+    if top is not None:
+        return {top.get("path") or top.get("name")}, []
+    return set(), ["マウント元 '%s' がどのディスクか特定できない" % src]
+
+
+def system_disks(tree, mounts, mountinfo=None, reader=_read_sys):
+    """システム/ホームなどのマウント元ディスクの集合 (path) と、特定できなかった理由のリストを返す。
+    マウント元が overlay や loop のとき (ライブ USB 等) は mountinfo をたどって実体のディスクを探す。"""
     disks, unresolved = set(), []
     last = {}
     for src, mp, _fs in mounts:
-        last[mp] = src
+        last[mp] = (src, _fs)
+    mi = None
     for mp in SYSTEM_MOUNTS:
         if mp not in last:
             continue
-        src = last[mp]
+        src, fs = last[mp]
         top = disk_of_source(tree, src)
         if top is not None:
             disks.add(top.get("path") or top.get("name"))
-        elif mp == "/":
-            unresolved.append("ルート (/) のマウント元 '%s' がどのディスクか特定できない" % src)
+            continue
+        if mi is None:
+            txt = mountinfo if mountinfo is not None else _read_sys("/proc/self/mountinfo")
+            mi = parse_mountinfo(txt or "")
+        found, bad = (set(), ["mountinfo を読めない"]) if not mi else resolve_path_disks(tree, mi, mp, reader)
+        disks |= found
+        if bad and mp == "/":
+            unresolved.append("ルート (/) のマウント元 '%s' がどのディスクか特定できない (%s)" % (src, "; ".join(bad)))
     return disks, unresolved
 
 
-def validate_device(dev, profile, tree, mounts, swaps=(), is_block=True):
+def validate_device(dev, profile, tree, mounts, swaps=(), is_block=True, mountinfo=None, reader=_read_sys):
     """実デバイスを検証し、拒否理由のリストを返す (空なら OK)。実際には何も書かない。"""
     why = []
     if not is_block:
@@ -871,7 +961,7 @@ def validate_device(dev, profile, tree, mounts, swaps=(), is_block=True):
         if sw in paths or os.path.realpath(sw) in paths:
             why.append("スワップとして使われている: " + sw)
     # システム/ホームのあるディスク
-    sdisks, unresolved = system_disks(tree, mounts)
+    sdisks, unresolved = system_disks(tree, mounts, mountinfo, reader)
     mine = {node.get("path"), (top or node).get("path")}
     if sdisks & mine:
         why.append("システム/ホーム/ブートのあるディスクである (%s)" % ", ".join(sorted(sdisks & mine)))

@@ -166,9 +166,38 @@ class DeviceValidationTests(unittest.TestCase):
     def setUp(self):
         self.tree = make_tree()
 
-    def v(self, dev, prof, tree=None, mounts=None, swaps=(), is_block=True):
-        # realpath が /dev/ 配下の実在しないパスをそのまま返すので差し替え不要
-        return M.validate_device(dev, M.PROFILES[prof], tree or self.tree, MOUNTS if mounts is None else mounts, swaps, is_block)
+    def v(self, dev, prof, tree=None, mounts=None, swaps=(), is_block=True, mountinfo="", reader=lambda p: None):
+        # realpath が /dev/ 配下の実在しないパスをそのまま返すので差し替え不要。mountinfo は既定で空 (実機の /proc に依存させない)
+        return M.validate_device(dev, M.PROFILES[prof], tree or self.tree, MOUNTS if mounts is None else mounts, swaps, is_block, mountinfo, reader)
+
+    # ライブ USB (ルートが overlay + squashfs ループ + tmpfs) の再現
+    LIVE_MI = (
+        "33 31 253:0 / /run/live/medium ro,noatime shared:6 - iso9660 {medium} ro\n"
+        "34 31 7:0 / /run/live/rootfs/filesystem.squashfs ro,noatime shared:7 - squashfs /dev/loop0 ro\n"
+        "35 31 0:31 / /run/live/overlay rw,noatime shared:8 - tmpfs tmpfs rw,size=1k\n"
+        "38 2 0:32 / / rw,noatime shared:1 - overlay overlay rw,lowerdir=/run/live/rootfs/filesystem.squashfs/,upperdir=/run/live/overlay/rw,workdir=/run/live/overlay/work,uuid=on\n")
+    LIVE_MOUNTS = M.parse_mounts("overlay / overlay rw 0 0\n")
+
+    @staticmethod
+    def loop_reader(p):
+        return "/run/live/medium/live/filesystem.squashfs" if p == "/sys/block/loop0/loop/backing_file" else None
+
+    def test_live_overlay_root_on_nvme_allows_usb(self):
+        mi = self.LIVE_MI.format(medium="/dev/nvme0n1p2")
+        self.assertEqual(self.v("/dev/sdc", "B", mounts=self.LIVE_MOUNTS, mountinfo=mi, reader=self.loop_reader), [])
+
+    def test_live_overlay_root_on_target_usb_refused(self):
+        # ライブ媒体そのものが sdd (USB) に載っているなら、ルートの実体なので拒否
+        tree = make_tree()
+        tree[4]["children"] = [part("sdd2", 30 * GiB)]
+        mi = self.LIVE_MI.format(medium="/dev/sdd2")
+        r = self.v("/dev/sdd", "C", tree, self.LIVE_MOUNTS, mountinfo=mi, reader=self.loop_reader)
+        self.assertTrue(any("システム" in w for w in r), r)
+
+    def test_live_overlay_unknown_loop_backing_fails_closed(self):
+        mi = self.LIVE_MI.format(medium="/dev/nvme0n1p2")
+        r = self.v("/dev/sdc", "B", mounts=self.LIVE_MOUNTS, mountinfo=mi, reader=lambda p: None)
+        self.assertTrue(any("安全側" in w for w in r), r)
 
     def test_good_devices(self):
         self.assertEqual(self.v("/dev/sdb", "A"), [])

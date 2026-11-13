@@ -322,12 +322,34 @@ class MainSafetyTests(unittest.TestCase):
 
     DESTRUCTIVE = ("sgdisk", "sfdisk", "wipefs", "dd", "mkfs", "mke2fs", "mkntfs", "partprobe", "cryptsetup", "mount")
 
-    def run_main(self, argv, input_text=None, euid=0, tree=None, mounts=None, is_blk=True):
+    def run_main(self, argv, input_text=None, euid=0, tree=None, mounts=None, is_blk=True, events=None, build=None):
+        """イメージ作成 (build_images)・流し込み (flash_all)・読み戻し (verify_flashed) は差し替え、順序を events に記録する。"""
         calls = []
+        events = events if events is not None else []
 
         def fake_run(argv_, *a, **k):
             calls.append(list(argv_))
+            events.append(("RUN", list(argv_)))
             return subprocess.CompletedProcess(argv_, 0, stdout=b"" if not k.get("text") else "", stderr=b"" if not k.get("text") else "")
+
+        def fake_build(ctx, layout, imgdir, only=None):
+            events.append(("BUILD", imgdir))
+            if build is not None:
+                return build(ctx, layout, imgdir)
+            parts = {pp.name: dict(index=pp.index, name=pp.name, fs=pp.fs, start=pp.start, size=pp.size, file=pp.name + ".img", sha256="ab" * 32,
+                                   populated=True, notes=[], checks=[["fsck", True]]) for pp in layout.parts}
+            return [], M.make_meta(layout, ctx.opts, parts, {}, True)
+
+        def fake_flash(runner, layout, items, target, is_device, writer, sparse_write=False, progress=False):
+            events.append(("FLASH", target, is_device, writer, sparse_write, [it.name for it in items]))
+
+        def fake_verify(runner, items, target, is_device):
+            events.append(("VERIFY", target))
+            return []
+
+        def fake_input(prompt=""):
+            events.append(("CONFIRM", prompt))
+            return input_text if input_text is not None else ""
 
         out = io.StringIO()
         with tempfile.TemporaryDirectory() as td:
@@ -337,10 +359,13 @@ class MainSafetyTests(unittest.TestCase):
                     mock.patch.object(M, "lsblk_tree", return_value=tree or make_tree()), \
                     mock.patch.object(M, "current_mounts", return_value=(mounts if mounts is not None else MOUNTS, [])), \
                     mock.patch.object(M, "find_missing", return_value=[]), \
+                    mock.patch.object(M, "build_images", side_effect=fake_build), \
+                    mock.patch.object(M, "flash_all", side_effect=fake_flash), \
+                    mock.patch.object(M, "verify_flashed", side_effect=fake_verify), \
                     mock.patch.object(M.os, "geteuid", return_value=euid), \
                     mock.patch.object(M, "is_block_device", return_value=is_blk), \
                     mock.patch.object(M.os.path, "exists", side_effect=lambda p, _e=os.path.exists: True if p.startswith("/dev/sd") else _e(p)), \
-                    mock.patch("builtins.input", return_value=input_text if input_text is not None else ""), \
+                    mock.patch("builtins.input", side_effect=fake_input), \
                     contextlib.redirect_stdout(out):
                 try:
                     rc = M.main(full)
@@ -411,9 +436,9 @@ class MainSafetyTests(unittest.TestCase):
                     ap.parse_args(["--profile", "A", "--device", "/dev/sdb", opt])
 
     def test_correct_typed_path_proceeds_to_backup(self):
-        rc, out, calls = self.run_main(["--execute", "--profile", "A", "--device", "/dev/sdb"], input_text="/dev/sdb")
+        ev = []
+        rc, out, calls = self.run_main(["--execute", "--profile", "A", "--device", "/dev/sdb"], input_text="/dev/sdb", events=ev)
         flat = [" ".join(c) for c in calls]
-        # バックアップ (sgdisk --backup / sfdisk -d / dd) が破壊的操作 (wipefs / sgdisk --zap-all) より先
         idx = lambda pat: next((i for i, f in enumerate(flat) if pat in f), None)
         self.assertIsNotNone(idx("sgdisk --backup="), flat)
         self.assertIsNotNone(idx("sfdisk -d /dev/sdb"))
@@ -421,16 +446,121 @@ class MainSafetyTests(unittest.TestCase):
         self.assertLess(idx("sgdisk --backup="), idx("wipefs -a -f /dev/sdb"))
         self.assertLess(idx("head_4MiB.bin"), idx("wipefs -a -f /dev/sdb"))
         self.assertLess(idx("tail_1MiB.bin"), idx("wipefs -a -f /dev/sdb"))
-        self.assertLess(idx("wipefs -a -f /dev/sdb"), idx("sgdisk --zap-all /dev/sdb"))
-        # 触るのは /dev/sdb (とそのパーティション) だけ
+        # 触るのは /dev/sdb (とそのパーティション) だけ。全デバイス対象の sync は使わない
         for f in flat:
             for tok in f.split():
                 if tok.startswith("/dev/") and tok not in ("/dev/zero", "/dev/null"):
                     self.assertTrue(tok.startswith("/dev/sdb"), f)
-        # パーティションが現れないので失敗扱いで中止される (その旨と完了手順が表示される)
+            self.assertNotEqual(f.split()[0], "sync", f)
+        self.assertEqual(rc, 0, out)
+
+    def test_execution_order_build_confirm_backup_flash_verify(self):
+        """(a) イメージ作成 -> (b) 確認 -> (c) バックアップ -> 消去 -> (d) 流し込み -> (e) 読み戻し。デバイスに触るのは確認より後だけ。"""
+        ev = []
+        rc, out, calls = self.run_main(["--execute", "--profile", "A", "--device", "/dev/sdb"], input_text="/dev/sdb", events=ev)
+        self.assertEqual(rc, 0, out)
+        kinds = [e[0] for e in ev]
+        pos = lambda k: kinds.index(k)
+        self.assertLess(pos("BUILD"), pos("CONFIRM"))
+        self.assertLess(pos("CONFIRM"), pos("FLASH"))
+        self.assertLess(pos("FLASH"), pos("VERIFY"))
+        flat = [" ".join(e[1]) if e[0] == "RUN" else e[0] for e in ev]
+        first_backup = next(i for i, f in enumerate(flat) if "sgdisk --backup=" in f)
+        wipe = next(i for i, f in enumerate(flat) if f.startswith("wipefs -a -f /dev/sdb"))
+        self.assertGreater(first_backup, pos("CONFIRM"))
+        self.assertLess(first_backup, wipe)
+        self.assertLess(wipe, pos("FLASH"))
+        for e in ev[:pos("BUILD")]:                      # BUILD より前に /dev/sdb を触るコマンドは無い
+            if e[0] == "RUN":
+                self.assertNotIn("/dev/sdb", " ".join(e[1]), e)
+        fl = ev[pos("FLASH")]
+        self.assertEqual((fl[1], fl[2], fl[4]), ("/dev/sdb", True, False))       # 既定ではゼロも含めて全部書く (--sparse-write なし)
+        self.assertEqual(fl[5][-1], "table@0B")                                    # 表は最後
+
+    def test_build_failure_never_touches_device(self):
+        ev = []
+
+        def boom(ctx, layout, imgdir):
+            raise M.StepError("mke2fs が失敗")
+
+        rc, out, calls = self.run_main(["--execute", "--profile", "A", "--device", "/dev/sdb"], input_text="/dev/sdb", events=ev, build=boom)
         self.assertEqual(rc, 1)
-        self.assertIn("失敗", out)
-        self.assertIn("完了した手順", out)
+        self.assertIn("デバイスには一切書き込んでいません", out)
+        self.assertEqual(self.destructive(calls), [])
+        self.assertNotIn("CONFIRM", [e[0] for e in ev])
+
+    def test_image_check_ng_stops_before_confirm(self):
+        """イメージの検査 (fsck 相当) が NG なら、デバイスの確認にも進まない。--ignore-image-checks で進める。"""
+        def ng(ctx, layout, imgdir):
+            parts = {pp.name: dict(index=pp.index, name=pp.name, fs=pp.fs, start=pp.start, size=pp.size, file=pp.name + ".img", sha256="ab" * 32,
+                                   populated=True, notes=[], checks=[["fsck", False]]) for pp in layout.parts}
+            st = dict(ds=None, notes=[], checks=[("fsck", False)])
+            return [(layout.parts[0], st)], M.make_meta(layout, ctx.opts, parts, {}, True)
+
+        ev = []
+        rc, out, calls = self.run_main(["--execute", "--profile", "A", "--device", "/dev/sdb"], input_text="/dev/sdb", events=ev, build=ng)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("検査", out)
+        self.assertNotIn("CONFIRM", [e[0] for e in ev])
+        self.assertEqual(self.destructive(calls), [])
+        ev = []
+        rc, out, calls = self.run_main(["--execute", "--profile", "A", "--device", "/dev/sdb", "--ignore-image-checks"], input_text="/dev/sdb", events=ev, build=ng)
+        self.assertIn("FLASH", [e[0] for e in ev])
+
+    def test_sparse_write_flag_reaches_flasher(self):
+        ev = []
+        rc, out, calls = self.run_main(["--execute", "--profile", "A", "--device", "/dev/sdb", "--sparse-write"], input_text="/dev/sdb", events=ev)
+        self.assertEqual(rc, 0, out)
+        fl = next(e for e in ev if e[0] == "FLASH")
+        self.assertTrue(fl[4])
+
+    def _meta_dir(self, td, **over):
+        lay = M.compute_layout(M.PROFILES["A"], M.PROFILES["A"].expected)
+        parts = {pp.name: dict(index=pp.index, name=pp.name, fs=pp.fs, start=pp.start, size=pp.size, file=pp.name + ".img", sha256="", populated=True, notes=[], checks=[])
+                 for pp in lay.parts}
+        meta = M.make_meta(lay, M.Opts(), parts, {}, True)
+        meta.update(over)
+        M.write_meta(td, meta)
+        for pp in lay.parts:
+            with open(os.path.join(td, pp.name + ".img"), "wb") as f:
+                f.truncate(pp.size)
+        with open(os.path.join(td, M.TABLE_IMG), "wb") as f:
+            f.truncate(lay.dev_size)
+
+    def test_flash_only_rejects_other_capacity_without_touching(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._meta_dir(td, dev_size=M.PROFILES["A"].expected + 4096)         # 別の容量用のイメージ一式
+            ev = []
+            rc, out, calls = self.run_main(["--execute", "--flash-only", td, "--device", "/dev/sdb"], input_text="/dev/sdb", events=ev)
+            self.assertEqual(rc, 2, out)
+            self.assertIn("流せません", out)
+            self.assertNotIn("CONFIRM", [e[0] for e in ev])
+            self.assertEqual(self.destructive(calls), [])
+
+    def test_flash_only_rejects_incomplete_set(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._meta_dir(td, complete=False)
+            ev = []
+            rc, out, calls = self.run_main(["--execute", "--flash-only", td, "--device", "/dev/sdb"], input_text="/dev/sdb", events=ev)
+            self.assertEqual(rc, 2, out)
+            self.assertEqual(self.destructive(calls), [])
+
+    def test_flash_only_rejects_other_profile(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._meta_dir(td)
+            rc, out, calls = self.run_main(["--execute", "--flash-only", td, "--profile", "C", "--device", "/dev/sdb"], input_text="/dev/sdb")
+            self.assertEqual(rc, 2, out)
+            self.assertIn("プロファイル", out)
+
+    def test_flash_only_skips_build(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._meta_dir(td)
+            ev = []
+            rc, out, calls = self.run_main(["--execute", "--flash-only", td, "--device", "/dev/sdb", "--skip-image-check"], input_text="/dev/sdb", events=ev)
+            self.assertEqual(rc, 0, out)
+            kinds = [e[0] for e in ev]
+            self.assertNotIn("BUILD", kinds)
+            self.assertLess(kinds.index("CONFIRM"), kinds.index("FLASH"))
 
 
 class PlanTests(unittest.TestCase):
@@ -547,6 +677,332 @@ class PlanTests(unittest.TestCase):
         self.assertNotIn("sgdisk", req)
         with mock.patch.object(M.shutil, "which", return_value=None):
             self.assertEqual(len(M.find_missing({"a": "x", "b": "y"})), 2)
+
+
+class FlashRangeTests(unittest.TestCase):
+    """流し込み範囲の計算 (パーティションの範囲・パーティション表の領域・GPT のバックアップ位置・未割り当て)。"""
+
+    def lay(self, p):
+        return M.compute_layout(M.PROFILES[p], M.PROFILES[p].expected)
+
+    def test_gpt_table_regions_head_and_tail(self):
+        lay = self.lay("A")
+        self.assertEqual(M.table_regions(lay), [(0, M.LEAD), (lay.dev_size - M.TAIL_RESERVE, M.TAIL_RESERVE)])
+        # GPT のバックアップ (エントリ表 32 セクタ + ヘッダ 1 セクタ) は末尾 1 MiB に収まる
+        self.assertGreaterEqual(M.TAIL_RESERVE, 33 * 512)
+
+    def test_mbr_table_regions_include_ebr_gaps(self):
+        lay = self.lay("B")
+        regs = M.table_regions(lay)
+        logical = [pp for pp in lay.parts if pp.spec.kind == "logical"]
+        self.assertEqual(len(logical), 3)
+        for pp in logical:
+            self.assertIn((pp.start - M.ALIGN, M.ALIGN), regs)          # 各論理パーティションの直前 1 MiB (EBR)
+        self.assertEqual(regs[0], (0, M.LEAD))
+
+    def test_flash_items_partitions_then_table_last(self):
+        for p in "ABC":
+            lay = self.lay(p)
+            items = M.flash_items(lay, "/img")
+            parts = [it for it in items if it.kind == "part"]
+            self.assertEqual([it.name for it in parts], [pp.name for pp in lay.parts])
+            for it, pp in zip(parts, lay.parts):
+                self.assertEqual((it.dst_off, it.length, it.src_off), (pp.start, pp.size, 0))
+            self.assertEqual(items[-1].name, "table@0B")                  # 先頭 (表本体) が最後
+            self.assertTrue(all(it.kind == "table" for it in items[len(parts):]))
+            self.assertTrue(all(it.src == "/img/" + M.TABLE_IMG and it.src_off == it.dst_off for it in items if it.kind == "table"))
+
+    def test_flash_items_never_overlap_and_stay_in_device(self):
+        for p in "ABC":
+            lay = self.lay(p)
+            items = sorted(M.flash_items(lay, "/img"), key=lambda it: it.dst_off)
+            for a, b in zip(items, items[1:]):
+                self.assertLessEqual(a.dst_end, b.dst_off, (p, a.name, b.name))
+            self.assertLessEqual(items[-1].dst_end, lay.dev_size)
+
+    def test_unallocated_ranges_are_the_complement(self):
+        for p in "ABC":
+            lay = self.lay(p)
+            items = M.flash_items(lay, "/img")
+            un = M.unallocated_ranges(lay)
+            self.assertEqual(sum(it.length for it in items) + sum(n for _, n in un), lay.dev_size, p)
+            for off, n in un:
+                for it in items:
+                    self.assertTrue(off + n <= it.dst_off or it.dst_end <= off, (p, off, n, it.name))
+        self.assertGreater(sum(n for _, n in M.unallocated_ranges(self.lay("C"))), 10 * GiB)
+
+    def test_erase_covers_first_4mib_and_last_1mib_only(self):
+        flat = [" ".join(c.argv) for c in M.erase_cmds("/dev/sdb", 8 * GiB)]
+        self.assertTrue(any(f.startswith("wipefs -a -f /dev/sdb") for f in flat))
+        self.assertTrue(any("count=4" in f and "of=/dev/sdb" in f for f in flat))
+        self.assertTrue(any("seek=%d" % (8 * GiB - MiB) in f and "oflag=seek_bytes" in f for f in flat))
+        self.assertFalse(any(f.split()[0] == "sync" for f in flat))
+
+    def test_nbd_range_spec_tokens_are_separate_argv(self):
+        a = M.nbd_range_spec("/dev/sdb", 1048576, 4096, direct=True)
+        self.assertEqual((a[0], a[-1]), ("[", "]"))
+        for tok in ("--filter=offset", "cache=none", "offset=1048576", "range=4096"):
+            self.assertIn(tok, a)
+        self.assertNotIn("-s", a)
+        self.assertTrue(all(" " not in x for x in a))
+
+    def test_flash_cmd_writes_zeros_by_default(self):
+        it = M.FlashItem("p1", "/img/p1.img", 0, 1048576, 4096)
+        c = M.flash_cmd(it, "/dev/sdb", "nbdcopy", direct=True).argv
+        self.assertIn("--sparse=0", c)
+        self.assertIn("--no-extents", c)
+        self.assertNotIn("--destination-is-zero", c)
+        self.assertIn("cache=none", c)                                  # O_DIRECT
+        self.assertIn("--flush", c)
+        c = M.flash_cmd(it, "/dev/sdb", "nbdcopy", direct=True, dest_zero=True).argv
+        self.assertIn("--destination-is-zero", c)
+        self.assertNotIn("--sparse=0", c)
+        d = M.flash_cmd(it, "/dev/sdb", "dd", direct=True).argv
+        self.assertIn("oflag=seek_bytes,direct", d)
+        self.assertIn("conv=notrunc,fsync", d)                          # 疎書き込み (conv=sparse) なし
+        self.assertIn("bs=4M", d)
+        d = M.flash_cmd(it, "/dev/sdb", "dd", direct=True, dest_zero=True).argv
+        self.assertIn("conv=notrunc,fsync,sparse", d)
+
+    def test_table_item_reads_from_table_image_range(self):
+        it = M.FlashItem("table@0B", "/img/disk_table.img", 0, 0, M.LEAD, kind="table")
+        c = M.flash_cmd(it, "/dev/sdb", "nbdcopy").argv
+        self.assertEqual(c[c.index("--") + 1], "[")                    # 送り元も範囲指定 (表のイメージはデバイスと同じ大きさ)
+        self.assertIn("range=%d" % M.LEAD, c)
+
+    def test_prezero_for_sparse_write(self):
+        it = M.FlashItem("p1", "/img/p1.img", 0, 1048576, 4096)
+        z = M.prezero_cmds(it, "/dev/sdb")
+        self.assertEqual(z[0].argv[:2], ["blkdiscard", "-z"])
+        self.assertIn("-o", z[0].argv)
+        self.assertIn("seek=1048576", z[1].argv)
+
+    def test_flash_all_sparse_write_prezeroes_then_dest_zero(self):
+        runner = mock.Mock()
+        runner.run.return_value = (0, "")
+        lay = self.lay("A")
+        items = M.flash_items(lay, "/img")
+        M.flash_all(runner, lay, items, "/dev/sdb", True, "nbdcopy", sparse_write=True)
+        cmds = [c.args[0].argv for c in runner.run.call_args_list]
+        self.assertTrue(any(c[0] == "blkdiscard" for c in cmds))
+        self.assertTrue(all("--destination-is-zero" in c for c in cmds if c[0] == "nbdcopy"))
+        self.assertEqual(cmds[-1], ["blockdev", "--flushbufs", "/dev/sdb"])
+        self.assertFalse(any(c[0] == "sync" for c in cmds))
+        runner.reset_mock()
+        runner.run.return_value = (0, "")
+        M.flash_all(runner, lay, items, "/dev/sdb", True, "nbdcopy")             # 既定 (--sparse-write なし) はゼロも書く
+        cmds = [c.args[0].argv for c in runner.run.call_args_list]
+        self.assertFalse(any(c[0] == "blkdiscard" for c in cmds))
+        self.assertTrue(all("--sparse=0" in c for c in cmds if c[0] == "nbdcopy"))
+
+    def test_flash_to_file_and_verify_roundtrip(self):
+        """dd 方式で通常ファイルへ流し込み、読み戻しが一致する。壊すと不一致を検出する。範囲外は触らない。"""
+        with tempfile.TemporaryDirectory() as td:
+            dev_size = 16 * MiB
+            tbl = os.path.join(td, "t.img")
+            with open(tbl, "wb") as f:
+                f.truncate(dev_size)
+                f.write(b"TABLE" * 1000)
+            a = os.path.join(td, "a.img")
+            with open(a, "wb") as f:
+                f.write(os.urandom(2 * MiB))
+                f.truncate(4 * MiB)                       # 後半は穴
+            items = [M.FlashItem("a", a, 0, 2 * MiB, 4 * MiB, M.hash_sparse_file(a)),
+                     M.FlashItem("table@0B", tbl, 0, 0, MiB, M.read_range_hash(tbl, 0, MiB), "table")]
+            dev = os.path.join(td, "dev.img")
+            with open(dev, "wb") as f:
+                f.write(os.urandom(dev_size))             # 古いデータ
+            old_tail = M.read_range_hash(dev, 8 * MiB, 8 * MiB)
+            runner = M.Runner(os.devnull)
+            real_run = runner.run
+            runner.run = lambda cmd, check=True, timeout=None, live=False: (0, "") if cmd.argv[0] == "blockdev" else real_run(cmd, check=check, timeout=timeout, live=live)
+            with contextlib.redirect_stdout(io.StringIO()):
+                M.flash_all(runner, mock.Mock(dev_size=dev_size), items, dev, True, "dd")
+                self.assertEqual(M.verify_flashed(runner, items, dev, True), [])
+            self.assertEqual(M.read_range_hash(dev, 4 * MiB, 2 * MiB), M.hashlib.sha256(bytes(2 * MiB)).hexdigest())     # 穴もゼロとして書かれている
+            self.assertEqual(M.read_range_hash(dev, 8 * MiB, 8 * MiB), old_tail)                                          # 範囲外は無傷
+            with open(dev, "r+b") as f:
+                f.seek(3 * MiB)
+                f.write(b"X")
+            with contextlib.redirect_stdout(io.StringIO()):
+                bad = M.verify_flashed(runner, items, dev, True)
+            self.assertEqual(len(bad), 1)
+
+
+class ImageSetMetaTests(unittest.TestCase):
+    def setUp(self):
+        self.lay = M.compute_layout(M.PROFILES["A"], M.PROFILES["A"].expected)
+
+    def meta(self, complete=True):
+        parts = {pp.name: dict(index=pp.index, name=pp.name, fs=pp.fs, start=pp.start, size=pp.size, file=pp.name + ".img", sha256="", populated=True, notes=[], checks=[])
+                 for pp in self.lay.parts}
+        return M.make_meta(self.lay, M.Opts(), parts, {}, complete)
+
+    def test_meta_has_profile_size_and_script_version(self):
+        m = self.meta()
+        self.assertEqual((m["profile"], m["dev_size"], m["ss"]), ("A", self.lay.dev_size, 512))
+        self.assertEqual(len(m["script_sha256"]), 64)
+        self.assertEqual(M.meta_problems(m, self.lay), [])
+
+    def test_rejects_other_capacity(self):
+        other = M.compute_layout(M.PROFILES["A"], M.PROFILES["A"].expected - 100 * MiB)
+        why = M.meta_problems(self.meta(), other)
+        self.assertTrue(any("容量が違う" in w for w in why), why)
+
+    def test_rejects_other_profile_and_sector_size(self):
+        why = M.meta_problems(self.meta(), M.compute_layout(M.PROFILES["B"], M.PROFILES["B"].expected))
+        self.assertTrue(any("プロファイル" in w for w in why), why)
+        m = self.meta()
+        m["ss"] = 4096
+        self.assertTrue(any("セクタ" in w for w in M.meta_problems(m, self.lay)))
+
+    def test_rejects_incomplete_and_wrong_format(self):
+        self.assertTrue(any("不完全" in w for w in M.meta_problems(self.meta(complete=False), self.lay)))
+        m = self.meta()
+        m["format"] = 999
+        self.assertTrue(any("形式" in w for w in M.meta_problems(m, self.lay)))
+
+    def test_rejects_changed_layout(self):
+        m = self.meta()
+        m["layout"]["parts"][0]["size"] += 1048576
+        self.assertTrue(any("配置が" in w for w in M.meta_problems(m, self.lay)))
+
+    def test_checks_files_in_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            m = self.meta()
+            self.assertTrue(any("が無い" in w for w in M.meta_problems(m, self.lay, td)))
+            for pp in self.lay.parts:
+                with open(os.path.join(td, pp.name + ".img"), "wb") as f:
+                    f.truncate(pp.size - 4096)
+            with open(os.path.join(td, M.TABLE_IMG), "wb") as f:
+                f.truncate(self.lay.dev_size)
+            self.assertTrue(any("サイズが違う" in w for w in M.meta_problems(m, self.lay, td)))
+
+    def test_write_and_load_roundtrip_and_errors(self):
+        with tempfile.TemporaryDirectory() as td:
+            m = self.meta()
+            M.write_meta(td, m)
+            self.assertEqual(M.load_meta(td)["dev_size"], m["dev_size"])
+            self.assertEqual([f for f in os.listdir(td) if f.endswith(".tmp")], [])
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(M.StepError):
+                M.load_meta(td)
+            with open(os.path.join(td, M.META_NAME), "w") as f:
+                f.write("{broken")
+            with self.assertRaises(M.StepError):
+                M.load_meta(td)
+
+    def test_image_hash_check_detects_modification(self):
+        with tempfile.TemporaryDirectory() as td:
+            img = os.path.join(td, "p.img")
+            with open(img, "wb") as f:
+                f.write(b"abc" * 1000)
+                f.truncate(MiB)
+            meta = {"parts": [dict(name="p", file="p.img", sha256=M.hash_sparse_file(img))], "table_image": {"regions": []}}
+            runner = mock.Mock()
+            self.assertEqual(M.check_image_hashes(runner, td, meta), [])
+            with open(img, "r+b") as f:
+                f.seek(500000)
+                f.write(b"!")
+            self.assertEqual(len(M.check_image_hashes(runner, td, meta)), 1)
+
+
+class RootFreePlanTests(unittest.TestCase):
+    def plans(self, profile, **kw):
+        lay = M.compute_layout(M.PROFILES[profile], M.PROFILES[profile].expected)
+        return {pp.name: M.fs_plan(pp, "/img/PART", "/stage", "/work/out.img", M.Opts(**kw)) for pp in lay.parts}
+
+    def names(self, plan):
+        return [c.argv[0] for c in plan]
+
+    def test_exfat_fuse_is_root_free(self):
+        p = self.plans("B", exfat_method="fuse")["p3_exfat"]
+        self.assertEqual([c.argv[1] for c in p if c.argv[0] == "@mount"], ["exfat-fuse"])
+        self.assertIn("tune.exfat", self.names(p))          # GUID は投入のあとに付ける (exfat-fuse は GUID エントリ付きを拒否する)
+        mk = [c.argv for c in p if c.argv[0] == "mkfs.exfat"][0]
+        self.assertNotIn("-U", mk)
+        self.assertFalse(M.root_needed("exfat", M.Opts(exfat_method="fuse")))
+        self.assertTrue(M.root_needed("exfat", M.Opts(exfat_method="mount")))
+
+    def test_exfat_mount_keeps_guid_in_mkfs(self):
+        p = self.plans("B", exfat_method="mount")["p3_exfat"]
+        mk = [c.argv for c in p if c.argv[0] == "mkfs.exfat"][0]
+        self.assertIn("-U", mk)
+        self.assertNotIn("tune.exfat", self.names(p))
+
+    def test_luks_xts_has_no_cryptsetup_open(self):
+        p = self.plans("C", luks_method="xts")["p4_luks"]
+        n = self.names(p)
+        self.assertLess(n.index("@luks-inner"), n.index("@luks-encrypt"))
+        self.assertFalse(any(c.argv[:2] == ["cryptsetup", "open"] for c in p))
+        self.assertFalse(M.root_needed("luks", M.Opts(luks_method="xts")))
+        self.assertTrue(M.root_needed("luks", M.Opts(luks_method="open")))
+
+    def test_root_needed_parts(self):
+        prof = M.PROFILES["C"]
+        free = M.root_needed_parts(prof, M.Opts(exfat_method="fuse", luks_method="xts", udf_method="genisoimage", f2fs_method="sload"))
+        self.assertEqual(free, [])
+        rn = M.root_needed_parts(prof, M.Opts(luks_method="open", udf_method="mkudffs", f2fs_method="mount"))
+        for name in ("udf", "f2fs", "luks"):
+            self.assertIn(name, rn)
+
+    def test_no_plan_runs_global_sync_or_partprobe(self):
+        for prof in "ABC":
+            for kw in (dict(), dict(exfat_method="fuse", luks_method="xts", udf_method="genisoimage")):
+                for name, plan in self.plans(prof, **kw).items():
+                    for c in plan:
+                        self.assertNotEqual(c.argv[0], "sync", (name, c.argv))      # sync -f <ファイルシステム> だけ (@populate 内) を使う
+                        self.assertNotIn("partprobe", c.argv[0])
+
+    def test_table_cmds_run_on_image_only(self):
+        for prof in "ABC":
+            lay = M.compute_layout(M.PROFILES[prof], M.PROFILES[prof].expected)
+            for c in M.table_cmds(lay, "/img/disk_table.img"):
+                self.assertIn("/img/disk_table.img", c.argv)
+                self.assertNotIn("partprobe", c.argv[0])
+
+    def test_resolve_methods(self):
+        ap = M.build_parser()
+        args = ap.parse_args([])
+        with mock.patch.object(M.shutil, "which", return_value="/usr/bin/x"):
+            self.assertEqual(M.resolve_methods(args, 0), ("mount", "open"))                 # root は従来どおり
+            self.assertEqual(M.resolve_methods(args, 1000)[0], "fuse")
+        with mock.patch.object(M.shutil, "which", return_value=None):
+            self.assertEqual(M.resolve_methods(args, 1000)[0], "mount")                     # exfat-fuse が無ければ mount のまま
+        args = ap.parse_args(["--exfat-method", "mount", "--luks-method", "open"])
+        self.assertEqual(M.resolve_methods(args, 1000), ("mount", "open"))
+
+    def test_estimate_images_need(self):
+        lay = M.compute_layout(M.PROFILES["C"], M.PROFILES["C"].expected)
+        full = M.estimate_images_need(lay, M.Opts())
+        small = M.estimate_images_need(lay, M.Opts(no_big=True))
+        self.assertGreater(full, small)
+        self.assertLess(full, lay.dev_size)
+        # LUKS / BitLocker 風は全面が非ゼロになるので、そのサイズ分は必ず見込む
+        self.assertGreaterEqual(small, sum(pp.size for pp in lay.parts if pp.fs in ("luks", "bitlocker")))
+
+
+class LuksXtsTests(unittest.TestCase):
+    def setUp(self):
+        try:
+            import cryptography  # noqa: F401
+        except ImportError:
+            self.skipTest("cryptography が無い")
+
+    def test_xts_matches_independent_implementation(self):
+        key = bytes(range(64))
+        data = bytes((i * 7) & 0xFF for i in range(512 * 4))
+        for first in (0, 1, 12345, 2 ** 33 + 5):
+            enc = M.xts_crypt_buffer(key, data, first)
+            for i in range(4):
+                sec = data[i * 512:(i + 1) * 512]
+                self.assertEqual(enc[i * 512:(i + 1) * 512], M.reference_xts_sector(key, first + i, sec))
+                self.assertEqual(M.reference_xts_sector(key, first + i, enc[i * 512:(i + 1) * 512], decrypt=True), sec)
+            self.assertNotEqual(enc, data)
+
+    def test_xts_tweak_is_plain64_little_endian(self):
+        self.assertEqual(M.xts_tweak(1), (1).to_bytes(16, "little"))
+        self.assertEqual(M.xts_tweak(0x0102030405060708), (0x0102030405060708).to_bytes(16, "little"))
 
 
 class DatasetTests(unittest.TestCase):

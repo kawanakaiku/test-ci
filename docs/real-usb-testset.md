@@ -339,6 +339,79 @@ python3 tools/make_real_usb_testset.py --profile B --image /var/tmp/B.img --exec
 9. **パーティション編集** (C の末尾 12.5 GiB の未割り当て): 新規パーティションの作成、サイズ変更、削除、バックアップと復元。**C の USB は使い捨てなので壊してよい**が、編集前に `--backup-dir` のバックアップがあることを確認する。
 10. 取り外すときは必ずアプリでアンマウントしてから抜く。
 
+### 10.1 自動検証: 計装テスト `RealUsbVerifyTest` / `RealUsbWriteTest`
+
+10 の「読み取り」の確認項目 (全ファイルの照合) を、人手を介さず**アプリのプロセス内**で行う計装テスト。DocumentsProvider は adb シェルから読めないので、`UsbSessionManager` で USB を開き、ネイティブの `NtfsVolume` API で直接読む。通常の AVD の試験では `assumeTrue` で skip される (`-e usbmem.real true` が無いと動かない)。
+
+```sh
+# 読み取り専用の照合 (書き込みは一切しない)。adb のシリアルは必須で、既定は無い (明示した端末にしか触れない)
+tools/run_android_real_usb_verify.sh --serial <adb serial> [--devices 0930:6544[,VID:PID..]] [--mode sequential|parallel] \
+    [--only 1,2] [--skip-hash 02_big/big_4p5GiB.bin] [--perm 120] [--tag NAME] [--no-build] [--no-install]
+```
+
+- 対象: 接続中の USB マスストレージ (`--devices` で VID:PID を絞る)。USB の許可が無ければ `--perm 秒` でダイアログを出して待つ (OK は手でタップ)。OS が自動マウントした USB は先に `adb shell sm unmount public:X,Y` で外す (アプリは OS のマウント中は開くのを拒否する)。
+- 動作: `UsbSessionManager.open` (読み取り専用) → `partitionTable()` → 各パーティションを FS 自動判定で読み取り専用マウント (`mountNtfs(.., writable=false)`。ジャーナル未再生の ext は EUCLEAN(117) の後に `allowNoload=true` で再試行 = UI の許可フロー相当) → ルートの `MANIFEST.sha256` を読み、全エントリのサイズ・SHA-256・symlink のリンク先・ハードリンクの同一 inode を照合し、余分なファイルを列挙 (失敗にはしない。`lost+found` など `verify_tree` の `IGNORED_EXTRA` はルート直下だけ無視)。LUKS2 / BitLocker は `CryptoVolume` でテスト用の固定パスワード (`usbmem-test-pass` / `synth-Password-1`) を試す (`nativeDeviceSubRange` でパーティションを切り出して渡す。`-e usbmem.luksPass` で変更可)。マウントに失敗したら errno と理由を記録して続行する。
+- `--mode sequential` は 1 本ずつ開いて読んで閉じる。`parallel` は全部開いてから、USB ごとのスレッドで同時に読む。
+- 結果: logcat のタグ `RealUsbVerify` (失敗と要約のみ詳しく、4.5 GiB のファイルは 512 MiB ごとに進捗) と、アプリの `files/real_usb_report_<tag>.json` (スクリプトが `run-as` で `real_usb_reports/<tag>.json` に回収し、要約表を表示する)。
+
+書き込み試験 `RealUsbWriteTest` (`--write --devices <VID:PID 1 つ> --part <番号> [--stage createonly|full|both]`):
+書ける FS は NTFS / exFAT / ext2 / ext3 / ext4 だけ (FAT32・読み取り専用 FS・MBR の ext4 = `needs_recovery` の固定イメージは、指定されても拒否)。1 回 1 パーティション。
+(1) 読み取り専用で全照合 + 自前の fsck (`DiskCheck`、読み取り専用) → (2) `CreateOnly` で専用フォルダ `usbmem_cotest_<時刻>` を作って書き、既存ファイルへの書き込み・縮小・名前変更・削除が拒否されることを確認 (CreateOnly は削除できないので、このフォルダは次の段階まで残る) → 閉じて読み取り専用で再オープン + 照合 + fsck → (3) `Full` で、そのフォルダを消し、`WriteSelfTest.run` (専用フォルダの中だけで作成・書き込み・上書き・縮小・名前変更・移動・削除 + 毎回読み戻し + 後片付け) と 32 MiB の速度計測 → 閉じて読み取り専用で再オープン + 全照合 + fsck + 残骸なしの確認。ダーティ / `needs_recovery` が立っていれば不合格。失敗したらその場で止まる (残骸は読み取り専用で一覧するだけで、手では消さない)。**この節の実測では、書き込み試験は実行していない** (下の「実測」)。
+
+#### 実測 (A80 Pro, Android 9, USB ハブ経由、読み取り専用)
+
+3 本の対応: **A** = TransMemory `0930:6544` (GPT, 7391 MiB)、**B** = USB Storage `05e3:0751` (MBR, 14924 MiB)、**C** = USB DISK `090c:2000` (GPT, 30000 MiB)。USB 2.0 級の速度 (1 本ずつで 15〜29 MB/s)。1 本ずつ開いて読んだ結果 (全て照合 OK、問題 0):
+
+| USB | # | FS | マウント | 照合したファイル / ディレクトリ / symlink / ハードリンク | SHA-256 した量 | 読み取り速度 | 所要 | 余分 |
+|---|---|---|---|---|---|---|---|---|
+| A | 1 | NTFS | OK | 3027 / 42 / - / 1 | 1093 MiB | 18.0 MB/s | 74 s | 0 |
+| A | 2 | ext4 | OK | 3030 / 43 / 4 / 1 | 1093 MiB | 18.8 MB/s | 68 s | 0 |
+| A | 3 | FAT32 | OK | 3022 / 40 / - / - | 5 MiB | 3.0 MB/s | 10 s | 6 (OS が作った `LOST.DIR`・`Android/data/...`) |
+| A | 4 | exFAT | OK | 3023 / 40 / - / - | 5 MiB | 1.1 MB/s | 14 s | 0 |
+| B | 1 | FAT32 | OK | 3022 / 40 / - / - | 5 MiB | 2.0 MB/s | 12 s | 6 (同上) |
+| B | 2 | NTFS | OK | 3027 / 42 / - / 1 (4.5 GiB 含む) | 4677 MiB | 17.4 MB/s | 294 s | 0 |
+| B | 3 | exFAT | OK | 3024 / 41 / - / - | 1029 MiB | 15.6 MB/s | 80 s | 0 |
+| B | 5 | ext2 | OK | 3029 / 42 / 4 / 1 | 69 MiB | 63.5 MB/s | 7 s | 0 |
+| B | 6 | ext3 (ext4 ドライバ) | OK | 3029 / 42 / 4 / 1 | 69 MiB | 66.4 MB/s | 7 s | 0 |
+| B | 7 | ext4 (`needs_recovery`) | OK (`noload` の読み取り専用のみ) | 3029 / 42 / 4 / 1 | 69 MiB | 63.1 MB/s | 8 s | 0 |
+| C | 1 | XFS | OK | 3030 / 43 / 4 / 1 (4.5 GiB 含む) | 4677 MiB | 28.8 MB/s | 179 s | 0 |
+| C | 2 | Btrfs | OK | 3030 / 43 / 4 / 1 (4.5 GiB 含む) | 4677 MiB | **9.0 MB/s** | 550 s | 0 |
+| C | 3 | F2FS | OK | 3030 / 43 / 4 / 1 | 1093 MiB | 26.8 MB/s | 50 s | 0 |
+| C | 4 | LUKS2 (中は ext4) | OK (解錠 20.6 s) | 3030 / 43 / 4 / 1 | 1093 MiB | **4.5 MB/s** | 281 s | 0 |
+| C | 5 | BitLocker 風 | **解錠できない** (既知の未解決) | - | - | - | - | - |
+| C | 6 | squashfs | OK | 329 / 32 / 4 / 1 | 11 MiB | 59.9 MB/s | 1 s | 0 |
+| C | 7 | erofs | OK | 328 / 31 / 4 / 1 | 3 MiB | 29.5 MB/s | 1 s | 0 |
+| C | 8 | UDF | OK | 328 / 31 / 4 / 1 | 3 MiB | 26.2 MB/s | 1 s | 0 |
+| C | 9 | ISO9660 | OK | 322 / 30 / 4 / 0 | 3 MiB | 26.4 MB/s | 1 s | 1 (`rr_moved` = Rock Ridge の再配置用ディレクトリ。ISO 作成ツール由来) |
+
+1 本ごとの所要 (開く〜閉じる): A 167 s、B 410 s、C 1083 s。USB を開くのは 40〜130 ms、閉じるのは数 ms。
+
+- 3 本の合計で、**失敗した FS は無い** (BitLocker 風を除く)。XFS / Btrfs / F2FS / squashfs / erofs / UDF / ISO の symlink 4 つ (相対・ディレクトリ・ぶら下がり・日本語名) のリンク先も一致した (`readlink` 未対応で確認できなかったものは 0)。BMP 外の文字 `𠮷`、NFC / NFD の濁点、半角カナ、255 バイト近い名前、20 階層、疎ファイル、大文字小文字違いの同名も全て一致 (FS が持つもの)。
+- A / B の FAT32 の「余分」6 つは、USB を挿したとき OS (vold) が FAT32 だけ自動マウントして作ったもの (**テスト実行前にあったもの**)。アプリは OS のマウント中は USB を開かないので、テスト中に増えたものではない。なお、アプリが USB を閉じるたびに OS が FAT32 を再マウントすることがあり (実機の端末の挙動)、次の実行の前に `sm unmount public:X,Y` が必要だった。
+- **BitLocker 風 (C の p5)**: `bitlocker` と判定され `XTS-AES-128` まで読めるが、解錠は `corrupt: ボリュームヘッダの退避位置が不正です` で失敗する (パスワードは `synth-Password-1`)。6 の「BitLocker 風パーティションについて」の既知の問題 (合成ライターの不具合か、アプリ側の解釈か) のまま。LUKS2 は argon2id の鍵導出込みで 20.6 s、解錠してから中の ext4 を全ファイル照合できた。
+- **遅い読み取り**: Btrfs は 9 MB/s (同じ USB の XFS は 28.8 MB/s、4.5 GiB のファイルを 1 本読むのに 9 分)、LUKS2 は 4.5 MB/s (AES-XTS を ARM でソフトウェア計算、ARMv8 Crypto Extensions の高速パスは未実装。`docs/crypto-volumes.md` 6.3 の見積もり 25〜60 MB/s を大きく下回る)。正しさには影響しないが、実用上の改善候補。
+
+3 本を**同時に開いて並列に読んだ**結果 (3 回試みた。うち 1 回は電池残量の都合で途中で止めた):
+
+1. 1 回目 (4.5 GiB のファイルも含む、20 分): A と C は全部 OK (A 10 MB/s、C の XFS 17 MB/s: 3 本で帯域を分け合う)。**B は 2.5 GiB 読んだところで `bdev read failed errno=71 (EPROTO)` が出て USB が切れ** (端末の USB 一覧から消え、再列挙された。その後の B の読み取りは `errno 5` / `22` で失敗)。アプリは落ちず、他の 2 本は影響を受けずに完走した。B の USB メモリまたはハブ側の一過性の通信障害 (EPROTO は従来から実機の USB で起きることがある) で、単独で読んだときは同じ B が最後まで OK だった。
+2. 2 回目 (4.5 GiB のファイルは SHA-256 を省略、7 分): A と B は全部 OK。**C の最後の p9 (ISO9660) だけ、マウントが `errno 19 (ENODEV)` で失敗** (直前の UDF は OK、読み取りは通常の件数)。1 本ずつ読んだときの ISO は OK だったので、同時読み取り時に一度だけ起きた一過性の失敗 (原因は未調査。マウント時の最初の読み取りが期待と違うデータを返した可能性もあるので、再現するなら調べる価値がある)。その後、マウント失敗時に 1 度だけ再試行して `retriedAfterErrno` を記録するよう計装を足した。
+3. 3 回目: 電池の都合で開始直後に止めた (結果なし)。
+
+つまり、同時読み取りは「正しいデータが読めたものは全て SHA-256 一致」だが、3 本同時だとハブ・給電の都合で一過性の USB エラーが出ることがある。
+
+#### 書き込み試験の状況
+
+`RealUsbWriteTest` は実装・ビルド済みだが、**実機 USB では未実行**。実行する場合は、`tools/run_android_real_usb_verify.sh --serial <serial> --write --devices 0930:6544 --part 1` のように 1 パーティションずつ。終わったら USB を PC に戻し、書き込み前後で壊れていないことを 11 の手順で確認する:
+
+```sh
+sudo ntfsfix -n /dev/sdX1        # NTFS (-n は修復しない)
+sudo e2fsck -fn /dev/sdX2        # ext2/3/4 (B の p7_ext4 は needs_recovery のため「リカバリが必要」が正常)
+sudo fsck.exfat -n /dev/sdX4     # exFAT
+python3 tools/make_real_usb_testset.py verify usbmem_testset_manifests/A/p1_ntfs.sha256 /mnt/t --allow-extra   # 中身 (ro マウント)
+```
+
+`usbmem_cotest_*` / `usbmem_selftest_*` / `usbmem_speed_*` のフォルダが残っていないこと (残っていたら、このテストが作ったものなので消してよい)、`verify` が元のファイルの不一致 0 を返すことが合格条件。
+
 ## 11. PC に戻した後 (fsck とマニフェスト照合)
 
 USB を PC に戻す (自動マウントさせず、`lsblk` で `/dev/sdX` を確認)。

@@ -122,6 +122,17 @@ JNIEXPORT jstring JNICALL Java_org_usbmem_app_NativeBridge_nativeUsbOpStats(JNIE
   return env->NewStringUTF(buf);   // 16 進オペコードと回数のみの ASCII
 }
 
+// 開いているデバイスの [offset, offset+length) を読み取り専用の別デバイスとして切り出す (暗号ボリュームの解錠 CryptoVolume.open に渡すパーティションの切り出し用)。
+// 親のハンドルは消費しない。戻り値: >0 ハンドル (nativeClose で閉じる。親より先に) / <=0 = -(usbmem::Errc)
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeDeviceSubRange(JNIEnv*, jclass, jlong handle, jlong offset, jlong length) {
+  if (!handle || offset < 0 || length <= 0) return -22;
+  usbmem_device* out = nullptr;
+  int rc = usbmem_device_sub_range(reinterpret_cast<usbmem_device*>(handle), static_cast<unsigned long long>(offset),
+                                   static_cast<unsigned long long>(length), /*read_only=*/1, &out);
+  if (rc != 0) return -static_cast<jlong>(rc);
+  return reinterpret_cast<jlong>(out);
+}
+
 JNIEXPORT void JNICALL Java_org_usbmem_app_NativeBridge_nativeClose(JNIEnv*, jclass, jlong handle) {
   usbmem_close(reinterpret_cast<usbmem_device*>(handle));
 }

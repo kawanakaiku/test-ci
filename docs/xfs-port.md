@@ -8,7 +8,8 @@
     ディスク形式の読み取り (superblock・inode・extent・ディレクトリ 5 形式・シンボリックリンク) だけなら小さく書けて、境界検査と破損耐性を自前で徹底できる。
   - カーネルのソースは参照 (`fs/xfs/libxfs/xfs_format.h` などの形式定義) のみで、コードは取り込んでいない。**ライセンス**は将来取り込み版に差し替える可能性と形式の出典を考え GPL-2.0-or-later として扱う (`docs/licenses.md`)。
   - 検証は実際の `mkfs.xfs` / `xfs_repair -n` / `xfs_db` (xfsprogs 7.2.0) で作ったイメージで行う。したがって「実カーネルと同じ挙動」の保証はなく、実イメージとの突き合わせ (下記) が根拠になる。
-- 読み取り専用。`fs_name()` は `"xfs"`、書き込み系はすべて `-EROFS`。rw を要求されても読み取り専用でマウントする (`mount_auto`)。
+- 既定のビルドでは読み取り専用。`fs_name()` は `"xfs"`、書き込み系はすべて `-EROFS`。rw を要求されても読み取り専用でマウントする (`mount_auto`)。
+  `USBMEM_NTFS_WRITE` のビルドだけ、V5 の新規作成・追記 (CreateOnly の範囲) を実験的に書ける: 設計・拒否条件・実測は `docs/xfs-write.md`。
 - 判定は既存の `fs_probe` (マジック `XFSB`)。`FsType::Xfs`。
 
 ## 対応範囲
@@ -71,4 +72,4 @@ v5_default / v5_bs1k / v5_bs2k / v5_bs64k / v5_dir8k / v5_dir64k / v5_isize1k / 
 - ログの再生はしない。再生が要るボリュームは `allow_noload` で開くと古い内容 (または一部欠けた内容) になりうる。
 - リアルタイム領域・外部ログ・ZONED・v1 は未対応。xattr / ACL は読まない。ci は名前のバイト一致のみ。
 - reflink 共有 extent と実機 USB は未検証。
-- 書き込みは対応しない (`-EROFS`)。
+- 書き込みは既定では対応しない (`-EROFS`)。実験的な書き込み (CreateOnly の範囲) は `docs/xfs-write.md`。

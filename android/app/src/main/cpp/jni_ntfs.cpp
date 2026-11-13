@@ -99,8 +99,10 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     return usbmem::F2fsVolume::mount(dev, err, of);
   }
   if (t == usbmem::FsType::Xfs) {
-    // XFS は読み取り専用 (独立実装のリーダ。ログは再生しない)。rw を要求されても読み取り専用でマウントする。ログが未再生 (要リカバリ) のボリュームは EUCLEAN(117) で拒否、
-    // リアルタイム領域・外部ログ・未知の incompat 機能は EOPNOTSUPP(95)。allow_noload は、ユーザーが確認したうえで読み取り専用で開く場合だけ true (docs/xfs-port.md)
+    // XFS は自前のリーダー (docs/xfs-port.md) と、実験的な書き込み (CreateOnly の範囲だけ: docs/xfs-write.md)。ログが未再生 (要リカバリ) のボリュームは EUCLEAN(117) で拒否、
+    // リアルタイム領域・外部ログ・未知の incompat 機能は EOPNOTSUPP(95)。allow_noload は、ユーザーが確認したうえで読み取り専用で開く場合だけ true
+    // rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。V5 以外・rmapbt・ストライプなどは mount_rw の中で読み取り専用に落ちる (writable() == false で分かる)
+    if (rw && !allow_noload) return usbmem::XfsVolume::mount_rw(dev, err);
     usbmem::XfsMountOptions ox; ox.allow_noload = allow_noload;
     return usbmem::XfsVolume::mount(dev, err, ox);
   }

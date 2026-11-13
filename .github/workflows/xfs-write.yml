@@ -1,0 +1,64 @@
+# XFS 書き込みの追加検証 (docs/xfs-write.md)。host-tests.yml の ctest (xfs_write / xfs_crash の軽量版) に加えて、
+#   - 実カーネルとの相互確認 (sudo + loop マウント): 自前エンジンが書いたイメージ (ログに未再生のトランザクションが残る場合を含む) をカーネルが再生・マウントでき、
+#     そのあと xfs_repair -n が clean であること / カーネルが書いたイメージを自前エンジンが読み書きできること
+#   - 電源断の模擬のフル版 (全カットポイント。prefix / cache の 2 方式、torn 書き込みあり、sync 粒度 2 通り) と 突然変異テスト (安全機構を外したビルドが検出されること)
+#   - 乱数操作 + モデルの試行数を増やした版、ファジング
+# トリガ: workflow_dispatch、または usbmem-ci-xfs ブランチへの push。
+name: XFS write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['usbmem-ci-xfs']
+
+concurrency:
+  group: xfs-write-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  xfs-write:
+    name: xfs write (kernel replay, crash, mutation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ python3 xfsprogs zlib1g-dev
+          uname -r
+          mkfs.xfs -V
+          xfs_repair -V
+          sudo modprobe xfs || true
+          grep -w xfs /proc/filesystems || true
+
+      - name: Build (write enabled, release)
+        run: |
+          cmake -S core -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSBMEM_NTFS_WRITE=ON -DUSBMEM_BUILD_TESTS=ON
+          cmake --build build --target usbmem_xfs_write_tests -j"$(nproc)"
+
+      - name: Kernel backend probe
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          python3 -I tools/xfs_vm/kreplay.py --probe
+
+      - name: Scripted + model + refuse + fuzz + kernel cross-check
+        env:
+          USBMEM_XFS_FUZZ_N: "400"
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          tools/run_xfs_write_tests.sh build/compat/usbmem_xfs_write_tests 4
+
+      - name: Crash simulation (full, all cut points)
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          tools/run_xfs_crash_tests.sh build/compat/usbmem_xfs_write_tests 1
+
+      - name: Mutation tests
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          tools/run_xfs_mutation_tests.sh build/mut 2

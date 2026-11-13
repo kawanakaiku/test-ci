@@ -118,7 +118,7 @@ data class NtfsEntry(val name: String, val ino: Long, val isDir: Boolean, val si
  */
 class NtfsVolume private constructor(private var handle: Long, val writable: Boolean = false, val createOnly: Boolean = false) : AutoCloseable {
     private val createdHere = HashSet<String>()
-    /** マウントしたファイルシステム ("ntfs" / "exfat" / "ext2" / "ext4" / "btrfs" / "fat" / "iso9660" / "udf"。ext3 も ext4 ドライバなので "ext4"。FAT12/16/32 は "fat")。 */
+    /** マウントしたファイルシステム ("ntfs" / "exfat" / "ext2" / "ext4" / "btrfs" / "xfs" / "fat" / "iso9660" / "udf"。ext3 も ext4 ドライバなので "ext4"。FAT12/16/32 は "fat")。 */
     val fsName: String = String(NativeBridge.nativeFsName(handle), Charsets.UTF_8)
     /** ext3/ext4 のジャーナルが未再生のまま (再生せず) 読み取り専用で開いている。内容が古い/欠けている可能性がある。 */
     @Volatile var journalIgnored: Boolean = false
@@ -202,7 +202,7 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
         val b = NativeBridge.nativeFsReadlink(handle, bytes(path), err) ?: throw NativeException(err[0], "readlink '$path' failed: errno ${err[0]}")
         return String(b, Charsets.UTF_8)
     }
-    /** parent の下に name のシンボリックリンクを作る (新規作成なので createOnly でも可)。inode 番号を返す。ext2 / ext4 (ext3 を含む) / btrfs。 */
+    /** parent の下に name のシンボリックリンクを作る (新規作成なので createOnly でも可)。inode 番号を返す。ext2 / ext4 (ext3 を含む) / btrfs / xfs。 */
     @Synchronized
     fun symlink(parent: String, name: String, target: String): Long {
         checkWritable()
@@ -271,14 +271,17 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
         fun mountDeviceRangeReadWrite(deviceHandle: Long, offset: Long, length: Long, createOnly: Boolean = true): NtfsVolume {
             val h = NativeBridge.nativeNtfsMountDeviceRw(deviceHandle, offset, length)
             if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs rw mount failed: errno ${-h}")
-            return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly)
+            return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly || xfsCreateOnlyOnly(h))
         }
+
+        /** XFS の書き込みは CreateOnly の範囲 (新規作成・追記・上書き・mkdir・symlink) だけ実装している (docs/xfs-write.md)。Full を要求されても createOnly で開く。 */
+        private fun xfsCreateOnlyOnly(h: Long): Boolean = String(NativeBridge.nativeFsName(h), Charsets.UTF_8) == "xfs"
 
         /** 書き込み可能で試みる (実験的)。ビルドで無効、またはボリュームがダーティ等で上流が読み取り専用に落とした場合は [writable] = false で返す。 */
         fun mountReadWrite(detachedFd: Int, createOnly: Boolean = false): NtfsVolume {
             val h = NativeBridge.nativeNtfsMountRw(detachedFd)
             if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs rw mount failed: errno ${-h}")
-            return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly)
+            return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly || xfsCreateOnlyOnly(h))
         }
 
         fun mountReadOnly(detachedFd: Int, allowNoload: Boolean = false): NtfsVolume {

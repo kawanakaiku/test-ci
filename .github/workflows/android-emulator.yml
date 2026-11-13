@@ -82,6 +82,8 @@ jobs:
             e2fsprogs fuse2fs fuse3 mtools p7zip-full dosfstools exfatprogs exfat-fuse ntfs-3g \
             btrfs-progs xfsprogs f2fs-tools erofs-utils squashfs-tools zstd lzop lz4 xz-utils \
             gdisk fdisk gcc python3 bc
+          # 非 root の FUSE マウント (fuse2fs / exfat-fuse / ntfs-3g) が allow_other を付けるので、fusermount3 に許可する
+          echo user_allow_other | sudo tee -a /etc/fuse.conf
           for t in mke2fs e2fsck fuse2fs mformat 7z mkfs.fat mkfs.exfat fsck.exfat mount.exfat-fuse mkntfs ntfs-3g \
                    mkfs.btrfs btrfs mkfs.xfs xfs_repair mkfs.f2fs sload.f2fs fsck.f2fs mkfs.erofs fsck.erofs mksquashfs unsquashfs sgdisk sfdisk; do
             command -v "$t" >/dev/null || [ -x "/sbin/$t" ] || [ -x "/usr/sbin/$t" ] || echo "::warning::host tool missing: $t"
@@ -104,7 +106,7 @@ jobs:
           path: |
             ~/.android/avd/*
             ~/.android/adb*
-          key: avd-${{ runner.os }}-api${{ env.API_LEVEL }}-google_apis-x86_64-v3
+          key: avd-${{ runner.os }}-api${{ env.API_LEVEL }}-google_apis-x86_64-v4
 
       - name: Create AVD and snapshot (cache miss only)
         if: steps.avd-cache.outputs.cache-hit != 'true'
@@ -113,6 +115,7 @@ jobs:
           api-level: ${{ env.API_LEVEL }}
           target: google_apis
           arch: x86_64
+          profile: pixel_6
           cores: 3
           ram-size: 3072M
           disk-size: 8192M
@@ -129,6 +132,7 @@ jobs:
           api-level: ${{ env.API_LEVEL }}
           target: google_apis
           arch: x86_64
+          profile: pixel_6
           cores: 3
           ram-size: 3072M
           disk-size: 8192M

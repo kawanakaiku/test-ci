@@ -48,20 +48,28 @@ object UsbMscSelector {
  * close() は NTFS ボリュームを先に閉じてから、ネイティブデバイス → インタフェース解放 → 接続 の順で後始末する。
  */
 class UsbStorageSession private constructor(
-    val deviceName: String,
+    override val deviceName: String,
     private val conn: UsbDeviceConnection,
     private val intf: UsbInterface,
     private var handle: Long,
     /** true = 書き込み可能で開いている (MSC が WRITE を送れる)。既定は読み取り専用。 */
-    val writable: Boolean = false,
+    override val writable: Boolean = false,
     /** 保存した転送サイズの設定を使っている場合の LADDER の添字 (-1 = 既定)。マウント失敗時に、保存を捨てるかの判断に使う。 */
-    val tuningIndex: Int = -1,
-    val vendorId: Int = 0,
-    val productId: Int = 0,
-) : AutoCloseable {
+    override val tuningIndex: Int = -1,
+    override val vendorId: Int = 0,
+    override val productId: Int = 0,
+) : UsbSession {
     private val volumes = mutableListOf<NtfsVolume>()
 
-    fun partitionTable(): PartitionTable {
+    /** セッション 1 本ごとのネイティブハンドル (usbmem_device*)。ネイティブ側にグローバルな状態は無く、すべてこのハンドルに閉じる。 */
+    @Synchronized
+    override fun <T> withHandle(block: (Long) -> T): T {
+        check(Handle.valid(handle)) { "closed" }
+        return block(handle)
+    }
+
+    @Synchronized
+    override fun partitionTable(): PartitionTable {
         check(Handle.valid(handle)) { "closed" }
         val err = IntArray(1)
         val bytes = NativeBridge.nativeListPartitions(handle, err)
@@ -70,14 +78,15 @@ class UsbStorageSession private constructor(
     }
 
     /** 診断用: これまでに送った SCSI オペコードの集計 (例: "12x1 1ax1 25x1 28x4237")。WRITE 系 (2a/8a) や 35 が出ないことの確認用。 */
-    fun opStats(): String = if (Handle.valid(handle)) NativeBridge.nativeUsbOpStats(handle) else ""
+    @Synchronized
+    override fun opStats(): String = if (Handle.valid(handle)) NativeBridge.nativeUsbOpStats(handle) else ""
 
     /** 診断用: 直近の SCSI センス [key, asc, ascq]。 */
     fun lastSense(): IntArray = IntArray(3).also { if (Handle.valid(handle)) NativeBridge.nativeUsbLastSense(handle, it) }
 
-    @Synchronized
     /** [createOnly] = true なら新規作成だけ許可 (既存の変更・削除・名前変更を拒否)。false なら NTFS の書き込み操作を全て許可。 */
-    fun mountNtfs(offsetBytes: Long, sizeBytes: Long, writable: Boolean = false, createOnly: Boolean = true, allowNoload: Boolean = false): NtfsVolume {
+    @Synchronized
+    override fun mountNtfs(offsetBytes: Long, sizeBytes: Long, writable: Boolean, createOnly: Boolean, allowNoload: Boolean): NtfsVolume {
         check(Handle.valid(handle)) { "closed" }
         if (writable && !this.writable) throw NativeException(30, "このセッションは読み取り専用で開かれています")
         val v = if (writable) NtfsVolume.mountDeviceRangeReadWrite(handle, offsetBytes, sizeBytes, createOnly) else NtfsVolume.mountDeviceRange(handle, offsetBytes, sizeBytes, allowNoload)
@@ -86,7 +95,7 @@ class UsbStorageSession private constructor(
 
     /** ディスクの回転を止める (false) / 再開する (true)。SCSI START STOP UNIT。公開中のボリュームは、呼び出し側が先に閉じておくこと。未対応は NativeException(9)。 */
     @Synchronized
-    fun startStop(start: Boolean) {
+    override fun startStop(start: Boolean) {
         check(Handle.valid(handle)) { "closed" }
         val r = NativeBridge.nativeUsbStartStop(handle, start)
         if (r != 0) throw NativeException(-r, "start/stop failed: ${NativeBridge.nativeErrcName(-r)}")
@@ -94,7 +103,7 @@ class UsbStorageSession private constructor(
 
     /** 回転を止めている状態か (手動・自動どちらでも)。次の I/O で自動的に再開する。 */
     @Synchronized
-    fun isSpunDown(): Boolean = Handle.valid(handle) && NativeBridge.nativeUsbSpunDown(handle)
+    override fun isSpunDown(): Boolean = Handle.valid(handle) && NativeBridge.nativeUsbSpunDown(handle)
 
     private var idleWatcher: Thread? = null
 
@@ -104,7 +113,7 @@ class UsbStorageSession private constructor(
      * 未対応のディスクは 1 度だけ試してあきらめる。onStopped は止めたとき (UI スレッドではない) に呼ぶ。
      */
     @Synchronized
-    fun setIdleSpinDown(idleMinutes: Int, onStopped: (Boolean) -> Unit = {}) {
+    override fun setIdleSpinDown(idleMinutes: Int, onStopped: (Boolean) -> Unit) {
         idleWatcher?.interrupt()
         idleWatcher = null
         if (idleMinutes <= 0) return
@@ -126,7 +135,7 @@ class UsbStorageSession private constructor(
 
     /** 転送サイズの調整 (速度計測用)。KiB。0 = 変更しない。 */
     @Synchronized
-    fun tune(chunkKiB: Int, maxTransferKiB: Int) {
+    override fun tune(chunkKiB: Int, maxTransferKiB: Int) {
         check(Handle.valid(handle)) { "closed" }
         val r = NativeBridge.nativeUsbTune(handle, chunkKiB, maxTransferKiB)
         if (r != 0) throw NativeException(-r, "tune failed")
@@ -134,7 +143,7 @@ class UsbStorageSession private constructor(
 
     /** 速度計測 + 読んだデータのハッシュ (転送サイズを変えても同じ内容が読めるかの確認用)。戻り値: 経過マイクロ秒、hash[0] = ハッシュ。 */
     @Synchronized
-    fun benchReadHash(offset: Long, totalBytes: Long, bufKiB: Int, hash: LongArray): Long {
+    override fun benchReadHash(offset: Long, totalBytes: Long, bufKiB: Int, hash: LongArray): Long {
         check(Handle.valid(handle)) { "closed" }
         val us = NativeBridge.nativeBenchReadHash(handle, offset, totalBytes, bufKiB, hash)
         if (us <= 0) throw NativeException((-us).toInt(), "bench failed: ${NativeBridge.nativeErrcName((-us).toInt())}")
@@ -143,7 +152,7 @@ class UsbStorageSession private constructor(
 
     /** 読み取り専用の速度計測: offset から totalBytes を bufKiB ごとに読み、経過マイクロ秒を返す。 */
     @Synchronized
-    fun benchRead(offset: Long, totalBytes: Long, bufKiB: Int): Long {
+    override fun benchRead(offset: Long, totalBytes: Long, bufKiB: Int): Long {
         check(Handle.valid(handle)) { "closed" }
         val us = NativeBridge.nativeBenchRead(handle, offset, totalBytes, bufKiB)
         if (us <= 0) throw NativeException((-us).toInt(), "bench failed: ${NativeBridge.nativeErrcName((-us).toInt())}")
@@ -182,6 +191,39 @@ class UsbStorageSession private constructor(
         fun osMountedUsbVolumes(mountsText: String): List<String> =
             mountsText.lineSequence().map { it.substringBefore(' ') }.filter { it.startsWith("/dev/block/vold/public:8,") }.distinct().toList()
 
+        /**
+         * [osMountedUsbVolumes] のうち、**このデバイスを開くのを妨げるもの**。複数の USB を同時に使うとき、別の USB (まだ開いていない他のメモリ) を OS が
+         * マウントしていても、それを理由にこのデバイスを拒否しない。ボリュームの持ち主を [ownerOf] (vold のノード名 -> 持ち主の deviceName) で調べ、
+         * **持ち主がこのデバイス、または分からない (null) もの**だけを返す。分からないものは従来どおり安全側 (妨げる) に倒す。
+         */
+        fun osMountedBlocking(mountsText: String, deviceName: String, ownerOf: (String) -> String?): List<String> =
+            osMountedUsbVolumes(mountsText).filter { v -> ownerOf(v).let { it == null || it == deviceName } }
+
+        /**
+         * sysfs の実パス ([blockPath]: /sys/dev/block/8:N の canonical path) から USB デバイスの deviceName ("/dev/bus/usb/BBB/DDD") を求める。
+         * 親ディレクトリをたどって、最初に busnum と devnum を持つもの (= USB デバイスのディレクトリ。インタフェースやハブより下にある) を使う。分からなければ null。
+         */
+        fun usbOwnerOfSysfsPath(blockPath: java.io.File): String? {
+            var f: java.io.File? = blockPath
+            while (f != null) {
+                val bus = java.io.File(f, "busnum"); val dev = java.io.File(f, "devnum")
+                if (bus.isFile && dev.isFile) {
+                    val b = bus.readText().trim().toIntOrNull() ?: return null
+                    val d = dev.readText().trim().toIntOrNull() ?: return null
+                    return "/dev/bus/usb/%03d/%03d".format(b, d)
+                }
+                f = f.parentFile
+            }
+            return null
+        }
+
+        /** vold のノード名 ("/dev/block/vold/public:8,17") の持ち主の deviceName。sysfs を読めない端末 (SELinux など) では null (= 分からない)。 */
+        fun sysfsOwnerOfVoldNode(node: String): String? = runCatching {
+            val mm = node.substringAfter("public:").split(',')
+            val real = java.io.File("/sys/dev/block/${mm[0].toInt()}:${mm[1].toInt()}").canonicalFile
+            if (!real.path.startsWith("/sys/")) null else usbOwnerOfSysfsPath(real)
+        }.getOrNull()
+
         /** USB パーミッション取得済みのデバイスを読み取り専用で開く。 */
         fun open(ctx: Context, usb: UsbManager, device: UsbDevice, writable: Boolean = false): UsbStorageSession {
             val pick = UsbMscSelector.pick(UsbMscSelector.describe(device)) ?: throw NativeException(9, "Mass Storage (Bulk-Only) インタフェースがありません")
@@ -189,7 +231,7 @@ class UsbStorageSession private constructor(
             // 安全策: OS がこのような USB ボリュームをマウント中は、ドライバの強制切り離しをしない (取り出してから再試行する)。
             // /proc/mounts を読めなかった場合は判断できないので、安全側 (拒否) に倒す。
             val mounts = try { java.io.File("/proc/mounts").readText() } catch (_: Exception) { throw NativeException(16, "/proc/mounts を読めないため、OS のマウント状態を確認できません") }
-            val busy = osMountedUsbVolumes(mounts)
+            val busy = osMountedBlocking(mounts, device.deviceName) { sysfsOwnerOfVoldNode(it) }
             if (busy.isNotEmpty()) throw NativeException(16, "OS が USB ボリュームをマウント中です(${busy.size} 個)。先に「取り出し」てから再試行してください")
             val intf = (0 until device.interfaceCount).map { device.getInterface(it) }.first { it.id == pick.interfaceNumber }
             val conn = usb.openDevice(device) ?: throw NativeException(2, "USB デバイスを開けません")
@@ -223,5 +265,13 @@ class UsbStorageSession private constructor(
             }
             return UsbStorageSession(device.deviceName, conn, intf, h, writable, tuningIndex, device.vendorId, device.productId)
         }
+    }
+}
+
+/** 実機の [UsbManager] でデバイスを開く [UsbSessionFactory]。パーミッション取得済みのデバイスだけを開ける。 */
+class UsbStorageSessionFactory(private val ctx: Context, private val usb: UsbManager) : UsbSessionFactory {
+    override fun open(device: UsbDeviceInfo, writable: Boolean): UsbSession {
+        val dev = usb.deviceList[device.deviceName] ?: throw NativeException(2, "USB デバイスが見つかりません (抜かれました)")
+        return UsbStorageSession.open(ctx, usb, dev, writable)
     }
 }

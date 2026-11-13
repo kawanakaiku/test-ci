@@ -5,6 +5,7 @@
     <!-- USB ホスト機能は必須にしない (非対応端末でも SAF でイメージを開ける) -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <application
+        android:name=".UsbApp"
         android:allowBackup="false"
         android:label="@string/app_name"
         android:supportsRtl="true"

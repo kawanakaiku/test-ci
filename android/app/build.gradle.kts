@@ -18,6 +18,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // 64bit ABI のみ (Google Play 要件)。x86_64 はエミュレータ用。
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        // 書き込み経路を有効にしたビルドか (下の cmake の USBMEM_NTFS_WRITE と同じ条件)。false なら、画面で書き込みモードを選べない (BuildConfig.WRITE_SUPPORTED)
+        buildConfigField("boolean", "WRITE_SUPPORTED", (providers.gradleProperty("usbmemNtfsWrite").orNull == "true").toString())
         externalNativeBuild {
             cmake {
                 arguments += listOf("-DANDROID_STL=c++_static")
@@ -66,7 +68,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     packaging { jniLibs { useLegacyPackaging = false } }  // 16KB ページ整列のため非圧縮で格納
     testOptions { unitTests.isReturnDefaultValues = true }
 }

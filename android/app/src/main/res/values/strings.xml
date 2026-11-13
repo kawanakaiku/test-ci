@@ -18,7 +18,7 @@
 
     <!-- USB 画面 -->
     <string name="usb_mode_title">書き込みモード</string>
-    <string name="usb_mode_subtitle">USB を開く前に決めます。開いている間は変えられません</string>
+    <string name="usb_mode_subtitle">この USB を開く前に決めます。開いている間は変えられません (USB ごとの設定)</string>
     <string name="usb_write_desc">新しいフォルダとファイルの作成だけができます。既存のファイルの変更・削除・名前変更はできません。</string>
     <string name="usb_os_mounted_title">OS が USB ボリュームをマウント中です (%1$d 個)</string>
     <string name="usb_os_mounted_detail">このまま開くと、OS のドライバを強制的に外すことになります。先に取り出してください。</string>
@@ -42,12 +42,12 @@
     <string name="usb_guide_1_body">多くの USB ディスクは、接続すると小さな FAT 領域 (EFI など) を OS がマウントします。ストレージ設定から取り出します。</string>
     <string name="usb_guide_2_title">書き込みモードを選ぶ</string>
     <string name="usb_guide_2_body">迷ったら読み取り専用のままにします。</string>
-    <string name="usb_guide_3_title">USB を開く</string>
-    <string name="usb_guide_3_body">初回は USB の許可ダイアログが出ます。</string>
+    <string name="usb_guide_3_title">USB を開く (複数本を同時に開けます)</string>
+    <string name="usb_guide_3_body">USB ごとのカードの「開く」を押します。初回は許可ダイアログが出ます。ほかの USB を開いたままでも、続けて開けます。</string>
     <string name="usb_guide_4_title">NTFS / exFAT パーティションをマウントする</string>
     <string name="usb_guide_4_body">マウントすると、ファイルアプリから見られます (この端末の中だけで、ネットには出ません)。</string>
-    <string name="usb_guide_5_title">終わったら「USB を安全に閉じる」</string>
-    <string name="usb_guide_5_body">書き込みの確定とアンマウントをします。その後で取り外せます。</string>
+    <string name="usb_guide_5_title">終わったら、その USB の「USB を安全に閉じる」</string>
+    <string name="usb_guide_5_body">書き込みの確定とアンマウントをします。その USB だけが閉じ、ほかの USB はそのままです。</string>
     <string name="usb_close_dialog_title">USB を閉じますか？</string>
     <string name="usb_close_dialog_text">書き込みを確定してアンマウントします。終わるまで数秒かかることがあります。閉じた後は、USB を取り外せます。</string>
     <string name="usb_close_dialog_confirm">閉じる</string>
@@ -203,4 +203,22 @@
     <string name="usb_full_dialog_title">変更・削除も許可しますか？</string>
     <string name="usb_full_dialog_text">既存のファイルの上書き・削除・名前変更ができるようになります。電源断や取り外しの失敗、ソフトウェアの不具合で、データが失われる恐れがあります。大事なデータはバックアップしてから使ってください。作業が終わったら、必ず「USB を安全に閉じる」を押してください。</string>
     <string name="usb_full_dialog_confirm">許可する</string>
+
+    <!-- 複数の USB (docs/multi-usb.md) -->
+    <string name="usb_not_connected">未接続</string>
+    <string name="usb_hub_hint">複数の USB を同時に開くと、USB の帯域と給電を分け合います。給電付きのハブを使ってください。遅い・切れるときは 1 本ずつ開いてください。</string>
+    <string name="usb_card_open_title">パーティションとマウント</string>
+    <string name="usb_partition_mounted">マウント中</string>
+    <string name="usb_unmount">マウントを解除</string>
+    <string name="usb_close_card_open">この USB を閉じる</string>
+    <string name="usb_write_unavailable">このビルドは書き込みが無効です (読み取り専用のみ)</string>
+    <string name="notice_usb_detached_named">「%1$s」が取り外されたため、閉じました</string>
+    <string name="notice_usb_detached_named_detail">この USB のボリュームと、ファイルアプリの項目を片付けました。ほかの USB はそのままです。</string>
+    <string name="notice_usb_permission_denied_named">「%1$s」の USB の許可が得られませんでした</string>
+    <string name="notice_usb_already_open">この USB は既に開いています</string>
+    <string name="notice_usb_closing">この USB は閉じている最中です。終わってから開き直してください</string>
+    <string name="notice_usb_write_disabled">このビルドは書き込みが無効です</string>
+    <string name="notice_usb_closed_while_opening">開いている最中に取り外されました</string>
+    <string name="diag_no_open_device">開いている USB がありません。USB 画面で USB を開くと、ここに USB ごとの診断が出ます。</string>
+    <string name="diag_device_header">%1$s の診断</string>
 </resources>

@@ -58,13 +58,13 @@
 - [ ] exFAT の書き込み: 実機 USB での確認 (flush の効き方)、UI の書き込み許可スイッチ (親側)、ビットマップ走査の差分化、確保系/解放系が混在する rename の電源断検証。
 - [ ] ピン表 (ino → inode) の上限 / LRU (巨大ディレクトリでメモリが増える)。
 - [x] ext2 (読み取り専用、docs/ext2-port.md。ホスト4構成+AVD通過、実機未確認) / [x] ext3・ext4 (読み取り専用・ジャーナル非再生、needs_recovery は既定で拒否。docs/ext4-port.md。ホスト4構成+AVD通過、実機未確認)
-- [ ] ext4: 実機 USB での確認、書き込み(ジャーナル実装が必要)、ACL/xattr の公開、ブロックサイズ 8K 以上。
+- [ ] ext4: 実機 USB での確認、ACL/xattr の公開、ブロックサイズ 8K 以上。書き込みは実装済み (下の 5 番、docs/ext4-write.md)。
 - [x] ext2 の書き込み (実験的、`USBMEM_NTFS_WRITE` ビルドのみ。docs/ext2-write.md): bh の dirty/writeback 基盤、作成・書き込み・truncate・削除・rename・symlink・hardlink。ホスト (e2fsck + fuse2fs 参照との全ツリー比較、モデル、3000 ファイル、電源断 320 試行/構成) と AVD で検証。ダーティ印を先に確定し、汚れた/エラー/未知機能のボリュームは読み取り専用。
 - [ ] ext2 の書き込み: 実機 USB での確認 (flush の効き方)、ディレクトリ再帰削除の性能 (解放のたびに同期)、予約ブロックの扱い (uid 0 扱いで 100% まで使える)、inode キャッシュの上限。
 - [x] リンク: DocumentsProvider はボリューム内でシンボリックリンクを辿って見せる (`LinkResolver.kt`: 絶対パスはボリュームのルート基準、".." はルートで止める、辿りは 40 回まで、祖先/自分を指すディレクトリリンク・壊れたリンク・循環はリンク先の文字列を中身とする小さなファイルとして見せる、削除/名前変更はリンク自身、再帰削除はリンクを辿らない)。アプリ内の「リンクを作る…」ダイアログ (ext2 のシンボリック/ハード。ハードは「すべて許可」のみ)。AVD の `LinkProviderTest` で検証。実機未確認。
 - [x] 書き込み自己診断 (診断タブ。「すべて許可」でマウント中のみ。専用の一時フォルダだけを使い、全部消す)。AVD で検証。**実機の RAID ではまだ実行していない (ユーザーが任意のタイミングで実行する)**。
 - [ ] NTFS のリパースポイント (シンボリックリンク/ジャンクション) の表示は未対応。
-- [ ] ext4 の書き込みは ext2 の書き込み基盤の上に載せる (jbd2 の移植が必要。exFAT は完了: docs/exfat-write.md)。
+- [x] ext4 の書き込み: jbd2 (fs/jbd2 無改変) を互換層に載せた (docs/ext4-write.md)。ext2 の bh 基盤ではなく、カーネルと同じ意味の bh (`rt_kbh.c`) を ext4/jbd2 専用に足した。
 - [x] FAT12/16/32 + vfat (fs/fat 無改変) 読み取り専用: ホスト 4 構成のテスト (8 イメージ x 約 331 ファイル、4Kn セクタ・フロッピー・断片化・日本語/サロゲートペア名・属性・2 秒時刻)、AVD (x86_64) の計装テスト 6 イメージ。docs/fat-port.md 参照。
 - [ ] FAT の実機 USB ディスクでの確認 (手順は docs/fat-port.md の末尾)。FAT の書き込み、短い名前の codepage=932 (cp932 の表は登録済み。マウントオプションを渡す口が未実装)、隠し/システム属性の表示。
 - [x] F2FS 読み取り専用 (docs/f2fs-port.md。**カーネルの fs/f2fs は取り込まず、オンディスク形式からの自前実装**。圧縮の展開のみ usbmem_kdecomp): インライン / 圧縮 (lz4・lzo・lzo-rle・zstd) / 二重間接 / roll-forward 検出 (EUCLEAN、確認のうえ無視して開ける)。検証は mkfs/sload/fsck.f2fs と、QEMU 上の本物のカーネルが書いたイメージ。実機 USB は未確認。
@@ -83,7 +83,12 @@
 3. [x] (core 実装済み・UI 未接続) **暗号化ボリューム** (5 章): BlockTransform として BitLocker (読み取り専用: パスワード / 48 桁回復キー。実 Windows で作ったフィクスチャあり: tools/winvhd) → LUKS1 / LUKS2。ライセンス (libbde LGPL-3 / dislocker GPL-2 / cryptsetup) を比較して docs/licenses.md に記録。認証情報はログに出さない。
 
 4. [~] **ネスト (ループバック) マウント** (2 章 P2): **読み取り専用は実装・検証済み** (docs/nested-mount.md)。ネイティブ層で親ボリュームのファイルを直接ブロックデバイスにする (SAF の fd は経由しない)。ボリューム単位のネイティブ mutex、閉じる順は 内 → 外 (VolumeRegistry が親子関係を持つ)、段数の上限 3、循環の拒否、パーティション表 (MBR / GPT / 論理) 付きイメージ、マウント中のイメージの書き換え禁止 (EBUSY)、自分のプロバイダ経由の URI はネストに振り替え。ホストテスト (5 種類の親 × 子) と AVD で検証。**残り**: 書き込みのネスト (外側が「フル」書き込みのとき。内側→外側の順に同期・アンマウント、外側の書き込みを内側の同期後にだけ許す)、実機での確認、ネストしたマウントの再起動後の復元 (今は保存しない)、親が書き込み可のときの別名 (ハードリンク) 経由の書き換え検出の強化 (今はネイティブ側のサイズ・更新時刻の照合で検出)。
-5. [ ] **ext4 の書き込み (jbd2)** (3 章): jbd2 を無改変で互換層に載せる、電源断の模擬。ext4 の symlink (`Ext4Volume::readlink`) も未実装 (LinkResolver は ext4 を対象にしているが読めない)。
+5. [x] (ホスト・AVD で検証済み・実機未確認・`USBMEM_NTFS_WRITE` ビルドのみ。docs/ext4-write.md) **ext4 の書き込み (jbd2)** (3 章): fs/jbd2 を無改変で互換層に載せた
+   (kjournald2 は作らず「待ち」で同期実行。カーネルと同じ意味の buffer_head `rt_kbh.c`)。① `Ext4Volume::readlink` ② 書き込み可のマウントだけでジャーナルを再生
+   (debugfs が書いたトランザクションの再生が e2fsck とブロック一致、再生の途中の電源断も再実行で収束) ③ CreateOnly ④ Full (上書き・truncate・削除・rename・symlink・hardlink)。
+   ホワイトリスト (extent / 64bit / flex_bg / metadata_csum / csum_seed / orphan_file / huge_file / dir_nlink / extra_isize / gdt_csum、ext3) 以外は読み取り専用。
+   電源断の模擬 (R/E/S/A/B の 5 検査。満杯 + 解放ブロック再利用シナリオで 640 試行・80 カットポイント失敗 0) と突然変異 4 種 (flush・ダーティ印・ordered・解放ブロックの再利用) を検出。
+   - [ ] 残り: 実機 USB、meta_bg / inline_data / bigalloc / quota / largedir / ea_inode の書き込み、delalloc、大きなファイルの書き込み性能、ACL/xattr の書き込み。
    - 続き: 自前実装リーダー (F2FS / Btrfs / XFS) の**書き込み**も対象 (ユーザー希望)。順は ext4 (カーネルの jbd2) → F2FS → Btrfs → XFS の見込み。各 FS とも「新規作成のみ (CreateOnly)」→ 完全書き込みの順に段階化し、書き込み前の必須条件は ext2/exFAT と同じ: ダーティフラグ先行、解放ブロックの再利用禁止、順序付き書き戻し、クラッシュ模擬 (接頭辞/キャッシュ × 途切れ書き込み)、独立ツール (fsck.f2fs / btrfs check / xfs_repair) と実カーネルで作ったイメージによる検証、ミューテーションテスト、AVD での自己テスト。
 6. [ ] **ディスク管理 DiskTools** (6 章): 読み取り専用の整合性検査 (fsck 相当: ext / exFAT / FAT)、フォーマット (mkfs: FAT / exFAT / ext2-4 / NTFS)。NTFS の ntfsfix による自動修復は使わない (要件)。修復は明示承認 + バックアップ推奨。
 7. [ ] **データ復旧 RecoveryEngine** (7 章): ddrescue 相当のレスキューコピーは core 実装済み (mapfile 互換・再開・読み取り専用ソース・安全弁。UI 未接続・実機/AVD 未検証。docs/recovery-backup.md)。**未着手**: TestDisk 相当のパーティション探索・ブートセクタ検査・ファイル救出、PhotoRec 相当のシグネチャ復元。

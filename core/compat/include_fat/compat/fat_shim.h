@@ -88,7 +88,7 @@ int cont_write_begin(const void *iocb, struct address_space *mapping, loff_t pos
 /* fs/fat は get_bh で bh の参照を増やし、brelse を複数回呼ぶ (fat_free_clusters など)。rt_bh.c の b_count で数える */
 #undef get_bh
 #undef put_bh
-#define get_bh(bh) do { (bh)->b_count++; } while (0)
+#define get_bh(bh) do { (bh)->b_count.counter++; } while (0)
 #define put_bh(bh) brelse(bh)
 #define fsparam_bool(n, o) { n, 0, o }
 #define fs_param_is_enum 0

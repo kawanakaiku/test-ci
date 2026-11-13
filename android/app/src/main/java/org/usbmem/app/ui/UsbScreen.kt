@@ -199,8 +199,8 @@ private fun PartitionList(t: PartitionTable, label: String, canPublish: Boolean,
                     }
                     Text(stringResource(if (p.extendedContainer) R.string.common_partition_detail_extended else R.string.common_partition_detail, formatBytes(p.sizeBytes), p.typeName, p.startLba), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (p.fs == "ntfs" || p.fs == "exfat" || p.fs == "ext2" || p.fs == "ext3" || p.fs == "ext4" || p.fs == "fat12" || p.fs == "fat16" || p.fs == "fat32" || p.fs == "iso9660" || p.fs == "udf" || p.fs == "squashfs" || p.fs == "erofs" || p.fs == "btrfs" || p.fs == "f2fs" || p.fs == "xfs") {
-                        // FAT / ext3 / ext4 / ISO 9660 / UDF / squashfs / erofs / btrfs / f2fs / xfs は読み取り専用 (書き込みは未対応)。NTFS・exFAT・ext2 は、書き込み許可のスイッチに従う
-                        val mode = if (p.fs == "ntfs" || p.fs == "exfat" || p.fs == "ext2") writeMode else WriteMode.ReadOnly
+                        // FAT / ISO 9660 / UDF / squashfs / erofs / btrfs / f2fs / xfs は読み取り専用 (書き込みは未対応)。NTFS・exFAT・ext2・ext3・ext4 は、書き込み許可のスイッチに従う (ext3/ext4 は jbd2: docs/ext4-write.md)
+                        val mode = if (p.fs == "ntfs" || p.fs == "exfat" || p.fs == "ext2" || p.fs == "ext3" || p.fs == "ext4") writeMode else WriteMode.ReadOnly
                         Button(onClick = { onPublish(p) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) { Text(stringResource(when (mode) { WriteMode.ReadOnly -> R.string.usb_publish_read_only; WriteMode.CreateOnly -> R.string.usb_publish_write; WriteMode.Full -> R.string.usb_publish_full })) }
                     }
                 }

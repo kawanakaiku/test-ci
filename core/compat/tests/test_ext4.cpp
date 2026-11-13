@@ -270,8 +270,16 @@ static void verify_image(const std::string& dir, const std::string& name, const 
     if (n != (int64_t)l.target.size()) std::fprintf(stderr, "symlink %s: size %llu read %lld want %zu\n", l.path.c_str(), (unsigned long long)st.size, (long long)n, l.target.size());
     CHECK(n == (int64_t)l.target.size());
     if (n == (int64_t)l.target.size()) CHECK(std::memcmp(b.data(), l.target.data(), l.target.size()) == 0);
+    // readlink (LinkResolver が使う API): 同じリンク先。短いバッファでは切り詰め
+    std::vector<char> r(4096, 'y');
+    int rn = usbmem_ext4_readlink(v, ino, r.data(), r.size());
+    CHECK(rn == (int)l.target.size());
+    if (rn == (int)l.target.size()) CHECK(std::memcmp(r.data(), l.target.data(), l.target.size()) == 0);
+    if (l.target.size() > 3) CHECK(usbmem_ext4_readlink(v, ino, r.data(), 3) == 3);
   }
   CHECK(!man.links.empty());
+  { uint64_t fi = 0; CHECK(resolve(v, "small.txt", &fi) == 0); char t[16]; CHECK(usbmem_ext4_readlink(v, fi, t, sizeof t) == -EINVAL);
+    CHECK(usbmem_ext4_readlink(v, 2, t, sizeof t) == -EINVAL); }   // 通常ファイル・ディレクトリはリンクではない
   // 名前の扱い
   uint64_t a = 0, b = 0, c = 0;
   CHECK(resolve(v, "small.txt", &a) == 0);
@@ -296,7 +304,11 @@ static void verify_image(const std::string& dir, const std::string& name, const 
   CHECK(usbmem_ext4_lookup(v, 999999999, "x", 1, &c) < 0);
   // 読み取り専用: 書き込み・マウント要求
   BlockDevicePtr p2 = spy; usbmem_bdev* bd2 = usbmem_bdev_wrap(&p2); usbmem_ext4* v2 = nullptr;
-  CHECK(usbmem_ext4_mount(bd2, 0, 0, &v2) == -EROFS);
+  // 書き込みを要求: 書き込みを無効にしたビルドは -EROFS。USBMEM_NTFS_WRITE=ON のビルドでは成功しうる (ここのデバイスは読み取り専用なので
+  // writable()==0 の読み取り専用マウントになる)。どちらでもメディアには何も書かない (下の writes / flushes == 0)
+  int rw_rc = usbmem_ext4_mount(bd2, 0, 0, &v2);
+  CHECK(rw_rc == -EROFS || rw_rc == 0 || (allow_noload && rw_rc == -EUCLEAN));
+  if (rw_rc == 0) { CHECK(usbmem_ext4_writable(v2) == 0); usbmem_ext4_unmount(v2); }
   usbmem_bdev_free(bd2);
   CHECK(spy->writes == 0);
   CHECK(spy->flushes == 0);

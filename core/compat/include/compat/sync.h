@@ -147,9 +147,11 @@ static inline void *usbmem_alloc_array(size_t n, size_t sz, gfp_t f) {
 #define kmalloc(n, f) usbmem_alloc((n), (f))
 #define kzalloc(n, f) usbmem_alloc((n), (f) | __GFP_ZERO)
 #define kmalloc_array(n, s, f) usbmem_alloc_array((n), (s), (f))
-#define kfree(p) free(p)
-#define kvfree(p) free(p)
-#define vfree(p) free(p)
+/* 関数にしておく (上流には free という名前のローカル変数がある: ext4 orphan.c) */
+static inline void usbmem_kfree(const void *p) { free((void *)p); }
+#define kfree(p) usbmem_kfree(p)
+#define kvfree(p) usbmem_kfree(p)
+#define vfree(p) usbmem_kfree(p)
 #define kvmalloc(n, f) usbmem_alloc((n), (f))
 #define kvzalloc(n, f) usbmem_alloc((n), (f) | __GFP_ZERO)
 #define vmalloc(n) usbmem_alloc((n), 0)

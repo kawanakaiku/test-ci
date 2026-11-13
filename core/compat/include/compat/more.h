@@ -149,8 +149,10 @@ static inline loff_t readahead_pos(const struct readahead_control *r) { (void)r;
 static inline size_t readahead_length(const struct readahead_control *r) { (void)r; return 0; }
 int iomap_bmap(struct address_space *, sector_t, const void *ops);
 int __sync_dirty_buffer(struct buffer_head *bh, blk_opf_t op);
+#ifndef USBMEM_KBH   /* USBMEM_KBH (ext4/jbd2) は linux/buffer_head.h の実装を使う */
 static inline void write_dirty_buffer(struct buffer_head *bh, blk_opf_t op) { (void)bh; (void)op; }
 static inline void wait_on_buffer(struct buffer_head *bh) { (void)bh; }
+#endif
 static inline u64 mul_u64_u32_div(u64 a, u32 mul, u32 div) { return (u64)(((unsigned __int128)a * mul) / div); }
 static inline void balance_dirty_pages_ratelimited(struct address_space *m) { (void)m; }
 static inline bool folio_mkclean(struct folio *f) { (void)f; return false; }

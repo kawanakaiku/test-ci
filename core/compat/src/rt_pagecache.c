@@ -224,6 +224,8 @@ struct page *read_mapping_page(struct address_space *m, pgoff_t idx, struct file
   struct folio *f = read_mapping_folio(m, idx, file);
   return IS_ERR(f) ? (struct page *)f : &f->page;
 }
+/* USBMEM_KBH (ext4/jbd2 の rt_kbh.c) が folio に付けた bh の輪を外す。ext4 を含まないリンク (NTFS だけのテスト等) では未定義 = NULL */
+extern void usbmem_kbh_release_folio(struct folio *f) __attribute__((weak));
 void truncate_inode_pages(struct address_space *m, loff_t from) {
   struct pcache *p = m->pages; if (!p) return;
   pgoff_t first = (from + PAGE_SIZE - 1) >> PAGE_SHIFT;
@@ -232,10 +234,37 @@ void truncate_inode_pages(struct address_space *m, loff_t from) {
     struct folio **pp = &p->b[i];
     while (*pp) {
       struct folio *f = *pp;
-      if (f->index >= first) { *pp = f->hash_next_; p->count--; folio_put(f); /* キャッシュ参照を外す。使用中なら最後の put で解放 */ } else pp = &f->hash_next_;
+      if (f->index >= first) {
+        *pp = f->hash_next_; p->count--;
+        if (((f->flags >> FOLIO_KBH_RING) & 1) && usbmem_kbh_release_folio) {
+          usbmem_kbh_release_folio(f);   /* 輪の持つ参照も外す (カーネルの invalidate_folio 相当) */
+          /* カーネルは切り離した folio の mapping を NULL にする。ext4_write_begin は ENOSPC の失敗後 (ext4_truncate_failed_write が folio を捨てる) に
+           * 同じ folio を持ったまま再試行するので、`folio->mapping != mapping` を見て取り直せるようにする (しないと、捨てた folio に輪を付け直して漏れる)。
+           * KBH (ext4) の folio だけ: 他の FS は従来どおり。 */
+          f->mapping = NULL;
+        }
+        folio_put(f); /* キャッシュ参照を外す。使用中なら最後の put で解放 */
+      } else pp = &f->hash_next_;
     }
   }
   pthread_mutex_unlock(&p->mu);
+}
+static int cmp_folio_idx(const void *a, const void *b) { pgoff_t x = (*(struct folio *const *)a)->index, y = (*(struct folio *const *)b)->index; return x < y ? -1 : x > y; }
+/* キャッシュ中の folio を index 昇順で列挙する (dirty_only なら dirty なものだけ)。各 folio に参照を 1 つ付けて返す (呼び出し側が folio_put と free)。 */
+int usbmem_mapping_snapshot(struct address_space *m, int dirty_only, struct folio ***out, size_t *n) {
+  struct pcache *p = m->pages; *out = NULL; *n = 0;
+  if (!p) return 0;
+  pthread_mutex_lock(&p->mu);
+  size_t cap = 0;
+  for (int i = 0; i < NB; i++) for (struct folio *f = p->b[i]; f; f = f->hash_next_) if (!dirty_only || ((f->flags >> FOLIO_DIRTY) & 1)) cap++;
+  struct folio **v = cap ? malloc(cap * sizeof *v) : NULL;
+  if (cap && !v) { pthread_mutex_unlock(&p->mu); return -ENOMEM; }
+  size_t k = 0;
+  for (int i = 0; i < NB; i++) for (struct folio *f = p->b[i]; f; f = f->hash_next_) if (!dirty_only || ((f->flags >> FOLIO_DIRTY) & 1)) { atomic_inc(&f->refcount); v[k++] = f; }
+  pthread_mutex_unlock(&p->mu);
+  if (k > 1) qsort(v, k, sizeof *v, cmp_folio_idx);
+  *out = v; *n = k;
+  return 0;
 }
 void truncate_inode_pages_final(struct address_space *m) {
   truncate_inode_pages(m, 0);
@@ -272,7 +301,12 @@ int bdev_thaw(struct block_device *b) { (void)b; return 0; }
 int sync_blockdev(struct block_device *b) { return usbmem_bdev_flush(b->impl); }
 int sync_filesystem(struct super_block *s) { return s->s_bdev ? usbmem_bdev_flush(s->s_bdev->impl) : 0; }
 void sync_inodes_sb(struct super_block *s) { (void)s; }
-int blkdev_issue_flush(struct block_device *b) { return usbmem_bdev_flush(b->impl); }
+int blkdev_issue_flush(struct block_device *b) {
+#ifdef USBMEM_MUTATE_NO_FLUSH   /* 突然変異テスト (ext4 の書き込み): flush を全部外す */
+  (void)b; return 0;
+#endif
+  return usbmem_bdev_flush(b->impl);
+}
 int bdev_rw_virt(struct block_device *b, sector_t sec, void *buf, size_t len, blk_opf_t opf) {
   return (opf & REQ_OP_MASK) == REQ_OP_WRITE ? usbmem_bdev_write(b->impl, sec << SECTOR_SHIFT, buf, len)
                                               : usbmem_bdev_read(b->impl, sec << SECTOR_SHIFT, buf, len);

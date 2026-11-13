@@ -60,7 +60,7 @@ struct folio {
    * dirty_blocks_ = 次の書き戻し対象、wb_blocks_ = 書き戻し中に確定した対象 (失敗時は dirty_blocks_ へ戻す)。 */
   unsigned char dirty_blocks_, wb_blocks_;
 };
-enum { FOLIO_LOCKED, FOLIO_UPTODATE, FOLIO_DIRTY, FOLIO_WRITEBACK };
+enum { FOLIO_LOCKED, FOLIO_UPTODATE, FOLIO_DIRTY, FOLIO_WRITEBACK, FOLIO_KBH_RING = 8 /* USBMEM_KBH: folio->private が bh の輪 (src/rt_kbh.c) */ };
 
 /* ---- ブロックデバイス / bio */
 struct usbmem_bdev;  /* core の BlockDevice ブリッジ (src/bdev_bridge.cpp) */
@@ -98,7 +98,7 @@ struct address_space {
   pgoff_t writeback_index; errseq_t wb_err;
   unsigned long nrpages;
 };
-struct block_device { struct usbmem_bdev *impl; struct address_space *bd_mapping; struct address_space bd_data_; u32 bd_dev; };
+struct block_device { struct usbmem_bdev *impl; struct address_space *bd_mapping; struct address_space bd_data_; u32 bd_dev; int usbmem_ro_; /* 1 = 読み取り専用で使う (ext4: bdev_read_only。書き込み I/O を拒否) */ };
 struct inode {
   struct super_block *i_sb;
   struct address_space *i_mapping;
@@ -149,6 +149,7 @@ struct super_block {
   loff_t s_maxbytes;
   void *s_fs_info;
   struct dentry *s_root;
+  struct dentry *usbmem_root_made_;   /* d_make_root が作った根 dentry (fill_super 失敗時の解放用。ext4 は失敗時に dput(s_root) して s_root を NULL にする) */
   char s_id[32];
   errseq_t s_wb_err;
   u32 s_time_gran;

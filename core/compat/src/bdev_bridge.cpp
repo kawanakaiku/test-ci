@@ -42,5 +42,6 @@ int usbmem_bdev_read(struct usbmem_bdev *b, uint64_t off, void *buf, size_t len)
 int usbmem_bdev_write(struct usbmem_bdev *b, uint64_t off, const void *buf, size_t len) { auto st = b->dev->write_at(off, buf, len); if (!st.ok()) log_fail("write", off, len, st); return to_errno(st); }
 int usbmem_bdev_flush(struct usbmem_bdev *b) { return to_errno(b->dev->flush()); }
 uint64_t usbmem_bdev_size(struct usbmem_bdev *b) { return b->dev->size(); }
+int usbmem_bdev_is_ro(struct usbmem_bdev *b) { return b->dev->is_read_only() ? 1 : 0; }
 unsigned usbmem_bdev_lbs(struct usbmem_bdev *b) { return b->dev->logical_block_size(); }
 }

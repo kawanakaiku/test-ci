@@ -45,6 +45,7 @@ class CrashDevice : public usbmem::BlockDevice {
   bool is_read_only() const override { return false; }
   std::string describe() const override { return "crash(" + p_->describe() + ")"; }
   long count() const { return count_; }
+  bool dead() const { return dead_; }   // 電源断が起きた (以後の書き込みは消える)
  private:
   struct W { uint64_t off; std::vector<uint8_t> data; };
   void die(uint64_t off, const void* buf, size_t len) {

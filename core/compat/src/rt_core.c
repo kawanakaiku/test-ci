@@ -126,6 +126,7 @@ static void inode_init_always(struct super_block *sb, struct inode *inode) {
   pthread_rwlock_init(&inode->i_rwsem.l, NULL);
   pthread_rwlock_init(&inode->i_data.invalidate_lock.l, NULL);
   INIT_LIST_HEAD(&inode->i_data.private_list);
+  INIT_LIST_HEAD(&inode->i_io_list);   /* ext4 の evict が「空」であることを確かめる */
 }
 void inode_init_once(struct inode *inode) { memset(inode, 0, sizeof *inode); }
 
@@ -258,13 +259,14 @@ static int evict_inodes_sb(struct super_block *sb) {
 /* fill_super 失敗後の強制破棄: s_fs_info は既に解放済みなので evict_inode コールバックは呼べない。
  * sb アドレスが再利用されたとき古い inode と誤一致して UAF になるのを防ぐため、ハッシュから外して inode 本体だけ解放する
  * (inode 内部の確保物は失敗経路では解放しきれずリークしうるが、安全側を優先する)。 */
+extern void usbmem_drop_inode_extra(struct inode *) __attribute__((weak));   /* rt_vfs_ext4.c: ext4 の extent status 木 */
 static void drop_inodes_sb(struct super_block *sb) {
   pthread_mutex_lock(&g_inode_lock);
   for (int b = 0; b < 1024; b++) {
     struct inode **p = &g_inode_hash[b];
     while (*p) {
       struct inode *i = *p;
-      if (i->i_sb == sb) { *p = i->i_hash_next_; i->i_hashed_ = false; truncate_inode_pages_final(&i->i_data); destroy_inode(i); }
+      if (i->i_sb == sb) { *p = i->i_hash_next_; i->i_hashed_ = false; if (usbmem_drop_inode_extra) usbmem_drop_inode_extra(i); truncate_inode_pages_final(&i->i_data); destroy_inode(i); }
       else p = &i->i_hash_next_;
     }
   }
@@ -298,7 +300,13 @@ void usbmem_compat_umount(struct super_block *sb) {
   free(sb);
   usbmem_rcu_flush();
 }
-void __mark_inode_dirty(struct inode *i, int f) { i->i_state |= (unsigned long)(f & I_DIRTY_ALL); }
+/* カーネルと同じく、inode 自体が dirty になるときは ->dirty_inode を呼ぶ (ext4 だけが持つ: ジャーナルのハンドル内で inode を記録する。
+ * これが無いと mtime や所有者の変更がジャーナルに載らず失われる)。他の FS は dirty_inode を持たないので挙動は変わらない。 */
+void __mark_inode_dirty(struct inode *i, int f) {
+  if ((f & (I_DIRTY_SYNC | I_DIRTY_DATASYNC)) && i->i_sb && i->i_sb->s_op && i->i_sb->s_op->dirty_inode)
+    ((void (*)(struct inode *, int))i->i_sb->s_op->dirty_inode)(i, f & (I_DIRTY_SYNC | I_DIRTY_DATASYNC));
+  i->i_state |= (unsigned long)(f & I_DIRTY_ALL);
+}
 void mark_inode_dirty(struct inode *i) { __mark_inode_dirty(i, I_DIRTY_SYNC | I_DIRTY_DATASYNC); }
 void mark_inode_dirty_sync(struct inode *i) { __mark_inode_dirty(i, I_DIRTY_SYNC); }
 /* inode 1 個の書き出し: write_inode (メタデータ) → ページ。 */
@@ -337,6 +345,7 @@ static struct inode **snapshot_inodes(struct super_block *sb, size_t *np) {
   pthread_mutex_unlock(&g_inode_lock);
   *np = n; return list;
 }
+struct inode **usbmem_snapshot_inodes_(struct super_block *sb, size_t *np) { return snapshot_inodes(sb, np); }   /* 参照付き (呼び出し側が iput と free) */
 /* buffer_head 系 FS (ext2) の同期。書く順序を段階に分け、各段階の間でデバイスを flush する (順序を保証しない USB キャッシュでも成り立つように):
  *   1. 通常ファイル・シンボリックリンクのデータ   (新しく確保したブロックにしか書かないので、ここで途切れても既存の内容は壊れない)
  *   2. inode (write_inode: inode テーブルのバッファを更新) とメタデータ (ビットマップ・グループ記述子・間接ブロック) の bd 書き戻し
@@ -462,7 +471,7 @@ struct dentry *d_make_root(struct inode *i) {
   if (!i) return NULL;
   struct qstr q = { (const unsigned char *)"/", 1, 0 };
   struct dentry *d = dentry_alloc(i->i_sb, NULL, &q);
-  if (d) d->d_inode = i;
+  if (d) { d->d_inode = i; i->i_sb->usbmem_root_made_ = d; }
   return d;
 }
 struct dentry *d_obtain_alias(struct inode *i) {
@@ -538,15 +547,18 @@ bool queue_work(struct workqueue_struct *w, struct work_struct *work) {
   pthread_mutex_unlock(&g_work_mu);
   return true;
 }
+/* ext4 の jbd2 (src/rt_jbd2.c): 待ちに入ったとき、このスレッドのジャーナルのコミット要求を処理する。ext4 を含まないリンクでは NULL */
+extern void usbmem_jbd2_poll_current(void) __attribute__((weak));
 void usbmem_compat_run_deferred_work(void) {
   for (;;) {
     pthread_mutex_lock(&g_work_mu);
     struct work_struct *work = g_work_head;
     if (work) { g_work_head = work->dnext_; work->dnext_ = NULL; work->pending_ = 0; }
     pthread_mutex_unlock(&g_work_mu);
-    if (!work) return;
+    if (!work) break;
     if (work->func) work->func(work);
   }
+  if (usbmem_jbd2_poll_current) usbmem_jbd2_poll_current();
 }
 bool cancel_work_sync(struct work_struct *work) {
   bool was = false;
@@ -576,7 +588,9 @@ int get_tree_bdev(struct fs_context *fc, int (*fill_super)(struct super_block *,
   strcpy(sb->s_id, "usbmem");
   sb->s_fc_ = fc;
   int rc = fill_super(sb, fc);
-  if (rc) { fprintf(stderr, "usbmem-compat: fill_super failed: %d\n", rc); drop_inodes_sb(sb); if (sb->s_type && sb->s_type->kill_sb) sb->s_type->kill_sb(sb); free(sb); usbmem_rcu_flush(); return rc; }
+  if (rc) { fprintf(stderr, "usbmem-compat: fill_super failed: %d\n", rc);
+    if (sb->usbmem_root_made_) { struct dentry *rd = sb->usbmem_root_made_; sb->usbmem_root_made_ = NULL; sb->s_root = NULL; usbmem_d_free_root(rd); }   /* dput が何もしないので、失敗時に根 dentry (と inode 参照) が漏れる */
+    drop_inodes_sb(sb); if (sb->s_type && sb->s_type->kill_sb) sb->s_type->kill_sb(sb); free(sb); usbmem_rcu_flush(); return rc; }
   fc->root = sb->s_root;
   return 0;
 }

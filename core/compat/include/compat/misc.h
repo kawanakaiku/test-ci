@@ -51,7 +51,11 @@ struct folio *writeback_iter(struct address_space *, struct writeback_control *,
 #ifndef USBMEM_MODULE_INIT_NAME
 #define USBMEM_MODULE_INIT_NAME usbmem_module_init_ntfs   /* FS ごとに CMake が -D で指定する (exfat: usbmem_module_init_exfat) */
 #endif
+#ifdef USBMEM_JBD2_MODULE   /* fs/jbd2 (ext4 と同じライブラリ): 別名 */
+#define module_init(f) int usbmem_module_init_jbd2(void) { return f(); }
+#else
 #define module_init(f) int USBMEM_MODULE_INIT_NAME(void) { return f(); }
+#endif
 #define module_exit(f)
 #ifndef ENOPARAM
 #define ENOPARAM 519

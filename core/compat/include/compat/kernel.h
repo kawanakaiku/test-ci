@@ -143,5 +143,8 @@ extern void usbmem_build_bug_failed(void);
 #include <compat/more_blockfs.h>
 #include <compat/more_ext4.h>
 #include <compat/more_zfs.h>
+#ifdef USBMEM_KBH
+#include <compat/more_jbd2.h>   /* fs/ext4 + fs/jbd2 だけ: カーネルと同じ意味の buffer_head・待ち・ジャーナル用の定義 */
+#endif
 
 #endif

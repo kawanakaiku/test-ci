@@ -27,7 +27,8 @@ python3 -I -c "import struct,sys; f=open(sys.argv[1],'r+b'); f.seek(106); f.writ
 adb push "$W/wr.img" /data/local/tmp/exfat_wr.img >/dev/null
 adb push "$W/ops.txt" /data/local/tmp/exfat_wr_ops.txt >/dev/null
 adb push "$W/dirty.img" /data/local/tmp/exfat_dirty.img >/dev/null
-(cd "$HERE/../android" && ./gradlew --offline :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true -q)
+# USBMEM_SKIP_BUILD=1: ビルド済みの APK を使う (CI: tools/ci_android_tests.sh)
+[ "${USBMEM_SKIP_BUILD:-0}" = 1 ] || (cd "$HERE/../android" && ./gradlew --offline :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true -q)
 # gradle の connected タスクはテスト後にアンインストールして結果イメージを消すため、install + am instrument を直接使う
 APKD="$HERE/../android/app/build/outputs/apk"
 adb install -r -t "$APKD/debug/app-debug.apk" >/dev/null

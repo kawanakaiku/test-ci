@@ -24,7 +24,8 @@ adb push "$W/wr.img" /data/local/tmp/ext2_wr.img >/dev/null
 adb push "$W/ops.txt" /data/local/tmp/ext2_wr_ops.txt >/dev/null
 adb push "$W/dirty.img" /data/local/tmp/ext2_dirty.img >/dev/null
 [ -f "$D/ext4_empty.img" ] && adb push "$D/ext4_empty.img" /data/local/tmp/ext4_empty.img >/dev/null
-(cd "$HERE/../android" && ./gradlew --offline :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true -q)
+# USBMEM_SKIP_BUILD=1: ビルド済みの APK を使う (CI: tools/ci_android_tests.sh)
+[ "${USBMEM_SKIP_BUILD:-0}" = 1 ] || (cd "$HERE/../android" && ./gradlew --offline :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true -q)
 # gradle の connected タスクはテスト後にアンインストールして結果イメージを消すため、install + am instrument を直接使う
 APKD="$HERE/../android/app/build/outputs/apk"
 adb install -r -t "$APKD/debug/app-debug.apk" >/dev/null

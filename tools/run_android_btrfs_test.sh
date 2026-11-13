@@ -19,10 +19,10 @@ FAIL=0
 run() {
   local name=$1; shift
   local methods=("$@")
-  for e in manifest ref_1 ref_2; do [ -f "$FIX/$name.$e" ] && { adb push "$FIX/$name.$e" "/data/local/tmp/btrfs_$name.$e" >/dev/null || return 1; }; done
-  gzip -1 -c "$FIX/$name.img" > "$TMP/$name.img.gz" || return 1
-  adb push "$TMP/$name.img.gz" "/data/local/tmp/btrfs_$name.img.gz" >/dev/null || return 1
-  adb shell "gunzip -c /data/local/tmp/btrfs_$name.img.gz > /data/local/tmp/btrfs_$name.img && rm -f /data/local/tmp/btrfs_$name.img.gz" || return 1
+  for e in manifest ref_1 ref_2; do [ -f "$FIX/$name.$e" ] && { adb push "$FIX/$name.$e" "/data/local/tmp/btrfs_$name.$e" >/dev/null || { FAIL=1; return 1; }; }; done
+  gzip -1 -c "$FIX/$name.img" > "$TMP/$name.img.gz" || { FAIL=1; return 1; }
+  adb push "$TMP/$name.img.gz" "/data/local/tmp/btrfs_$name.img.gz" >/dev/null || { FAIL=1; return 1; }
+  adb shell "gunzip -c /data/local/tmp/btrfs_$name.img.gz > /data/local/tmp/btrfs_$name.img && rm -f /data/local/tmp/btrfs_$name.img.gz" || { FAIL=1; return 1; }
   rm -f "$TMP/$name.img.gz"
   local cls=""
   for m in "${methods[@]}"; do cls="${cls:+$cls,}org.usbmem.app.BtrfsInstrumentedTest#$m"; done

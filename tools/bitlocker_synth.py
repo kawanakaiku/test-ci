@@ -139,6 +139,9 @@ def main():
     meta_offs = [plen, plen + 0x20000, plen + 0x30000]
     vh_off = plen + 0x10000
     total = plen + 0x40000
+    # 「暗号化済みボリュームのサイズ」(メタデータのブロックヘッダ +16) は、完了時は total (メタデータとボリュームヘッダ退避領域を含む全長) にする。
+    # 実 Windows のイメージでは退避領域が暗号化済みサイズの内側にあり、libbde も自前のリーダーも「退避領域が範囲内」を検査する。plen だと範囲外になって解錠に失敗した
+    # (実機 C の p5_bitlocker で「ボリュームヘッダの退避位置が不正です」。docs/crypto-volumes.md 6.1)。
     enc_limit = (int(plen * a.enc_fraction) // SS) * SS  # 変換済み領域の終端 (暗号化途中の再現)
 
     # ---- データ領域の暗号化
@@ -209,7 +212,7 @@ def main():
     body_e = b"".join(entries)
     msize = 48 + len(body_e)
     meta_hdr = struct.pack("<IIII", msize, 1, 48, msize) + vol_guid + struct.pack("<I", 8) + struct.pack("<HH", method, method) + struct.pack("<Q", ts)
-    blk = b"-FVE-FS-" + struct.pack("<HHHH", (64 + msize + 15) // 16, 2, cur, nxt) + struct.pack("<QIIQQQQ", enc_limit if a.enc_fraction < 1.0 else plen, 0, NSEC, *meta_offs, vh_off)
+    blk = b"-FVE-FS-" + struct.pack("<HHHH", (64 + msize + 15) // 16, 2, cur, nxt) + struct.pack("<QIIQQQQ", enc_limit if a.enc_fraction < 1.0 else total, 0, NSEC, *meta_offs, vh_off)
     # ブロックヘッダは 64 バイト: sig8 + 4*u16 + u64 + u32 + u32 + 3*u64 + u64
     assert len(blk) == 64, len(blk)
     block = (blk + meta_hdr + body_e).ljust(0x10000, b"\0")

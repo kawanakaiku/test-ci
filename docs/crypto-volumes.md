@@ -70,7 +70,7 @@ libbde / cryptsetup / nbdkit / qemu-img は「正解を知っている別実装�
 |---|---|---|
 | **実 Windows 11 製 BitLocker** | `win_bitlocker` (XTS-128・パスワード・hello.txt のみ)、`bl_xts256full` (XTS-256・UsedSpaceOnly・パスワード+回復パスワード)、`bl_cbc128` (AES-CBC-128・同上)、`bl_cbc256` (AES-CBC-256・同上)、`bl_startkey` (XTS-128・スタートアップキー+パスワード、実 .BEK)、`bl_suspended` (XTS-128・保護一時停止=クリアキー)、`bl_partial` (全領域暗号化を途中で止めたもの) | Windows 11 の VM で `tools/winvhd/make_bitlocker_matrix.sh` (VM は 1 台・`VM_DISPLAY=none`・終了後に停止確認済み)。167 ファイル・9 ディレクトリ (1 B〜20 MiB の乱数ファイル、150 個の小ファイル、日本語名、深い階層、空ファイル) を作ってから暗号化し、**Windows 側で `Get-FileHash` した SHA-256 の一覧 (manifest)** を付ける |
 | **実イメージからの暗号方式差し替え (合成)** | AES-CBC + Elephant diffuser (0x8000/0x8001) と、XTS/CBC の別方式での確認 | `tools/bitlocker_retarget.py`: 実 Windows イメージのレイアウト (ブートセクタ・メタデータ・VMK) をそのままに、FVEK だけ新しい乱数にして全データを別方式で暗号化し直す。**Windows 7/8 実機の出力ではない**。正しさは独立実装 libbde が復号できることで確認 |
-| 完全合成 (参考) | `tools/bitlocker_synth.py` | libbde が「ボリュームヘッダ検証」で拒否する原因を切り分けきれなかったため、**この合成方式は検証に使っていない**(上の retarget に切り替えた)。ツールは未解決の参考として残す |
+| 完全合成 | `tools/bitlocker_synth.py` | 2026-11-13 に**原因を特定して修正**: 「暗号化済みボリュームのサイズ」(メタデータのブロックヘッダ +16) が、ボリュームヘッダ退避領域を含まない長さ(平文長)になっていた。実 Windows のイメージでは退避領域が暗号化済みサイズの内側にあり、libbde も自前のリーダーも「退避領域が範囲内」を検査するため、どちらも拒否していた(自前: `corrupt: ボリュームヘッダの退避位置が不正です`)。完了時は全長(`total`)を書くよう直し、`bdeinfo` が開け、自前のリーダーでも解錠・libbde `bdemount` の出力と全バイト一致、NTFS を全ツリー比較で一致を確認した。リーダー側の検査は実 Windows 製に合っており修正不要。実 Windows 製・retarget 方式の検証は従来どおり。 |
 | LUKS | 35 ケース | 実物の `cryptsetup luksFormat` (LUKS1/2、pbkdf2/argon2i/argon2id、各暗号、複数 keyslot、キーファイル) で作ったヘッダ。データ領域はヘッダのマスターキーで自前に暗号化し、`luksDump` / `--test-passphrase` でヘッダを検証。LUKS1 のペイロードは nbdkit luks フィルタ・qemu-img の luks ドライバ (essiv) でも独立に復号して一致を確認。破損/非対応ケースは実ヘッダを書き換えて作成 |
 
 ### 6.2 結果

@@ -378,7 +378,7 @@ tools/run_android_real_usb_verify.sh --serial <adb serial> [--devices 0930:6544[
 | C | 2 | Btrfs | OK | 3030 / 43 / 4 / 1 (4.5 GiB 含む) | 4677 MiB | **9.0 MB/s** | 550 s | 0 |
 | C | 3 | F2FS | OK | 3030 / 43 / 4 / 1 | 1093 MiB | 26.8 MB/s | 50 s | 0 |
 | C | 4 | LUKS2 (中は ext4) | OK (解錠 20.6 s) | 3030 / 43 / 4 / 1 | 1093 MiB | **4.5 MB/s** | 281 s | 0 |
-| C | 5 | BitLocker 風 | **解錠できない** (既知の未解決) | - | - | - | - | - |
+| C | 5 | BitLocker 風 | **解錠できない** (原因はライターの誤りと判明・修正済み。C への再書き込み待ち。docs/crypto-volumes.md 6.1) | - | - | - | - | - |
 | C | 6 | squashfs | OK | 329 / 32 / 4 / 1 | 11 MiB | 59.9 MB/s | 1 s | 0 |
 | C | 7 | erofs | OK | 328 / 31 / 4 / 1 | 3 MiB | 29.5 MB/s | 1 s | 0 |
 | C | 8 | UDF | OK | 328 / 31 / 4 / 1 | 3 MiB | 26.2 MB/s | 1 s | 0 |

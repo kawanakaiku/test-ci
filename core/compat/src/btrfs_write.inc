@@ -79,7 +79,7 @@
     u32 cnt = n.n, ds = leaf_data_start(n);
     u32 above = idx ? item_off(n, idx - 1) : leaf_body();
     if (idx < cnt) {
-      std::memmove(&n.d[kHdr + ds - sz], &n.d[kHdr + ds], above - ds);
+      std::memmove(n.d.data() + kHdr + ds - sz, n.d.data() + kHdr + ds, above - ds);   // data() 演算: ds == leaf_body (データ無し) のとき &d[末尾] を作らない
       for (u32 i = idx; i < cnt; i++) put32(&n.d[kHdr + static_cast<size_t>(i) * kItemSz + 17], item_off(n, i) - sz);
       std::memmove(&n.d[kHdr + static_cast<size_t>(idx + 1) * kItemSz], &n.d[kHdr + static_cast<size_t>(idx) * kItemSz], static_cast<size_t>(cnt - idx) * kItemSz);
     }
@@ -90,8 +90,8 @@
   }
   void leaf_delete(Node& n, u32 idx) {
     u32 cnt = n.n, ds = leaf_data_start(n), off = item_off(n, idx), sz = item_sz(n, idx);
-    std::memmove(&n.d[kHdr + ds + sz], &n.d[kHdr + ds], off - ds);
-    std::memset(&n.d[kHdr + ds], 0, sz);
+    std::memmove(n.d.data() + kHdr + ds + sz, n.d.data() + kHdr + ds, off - ds);   // data() 演算: 大きさ 0 の項目だけの葉で &d[末尾] を作らない
+    std::memset(n.d.data() + kHdr + ds, 0, sz);
     for (u32 i = idx + 1; i < cnt; i++) put32(&n.d[kHdr + static_cast<size_t>(i) * kItemSz + 17], item_off(n, i) + sz);
     std::memmove(&n.d[kHdr + static_cast<size_t>(idx) * kItemSz], &n.d[kHdr + static_cast<size_t>(idx + 1) * kItemSz], static_cast<size_t>(cnt - idx - 1) * kItemSz);
     std::memset(&n.d[kHdr + static_cast<size_t>(cnt - 1) * kItemSz], 0, kItemSz);

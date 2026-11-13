@@ -74,7 +74,7 @@
 - [x] FAT12/16/32 + vfat (fs/fat 無改変) 読み取り専用: ホスト 4 構成のテスト (8 イメージ x 約 331 ファイル、4Kn セクタ・フロッピー・断片化・日本語/サロゲートペア名・属性・2 秒時刻)、AVD (x86_64) の計装テスト 6 イメージ。docs/fat-port.md 参照。
 - [ ] FAT の実機 USB ディスクでの確認 (手順は docs/fat-port.md の末尾)。FAT の書き込み、短い名前の codepage=932 (cp932 の表は登録済み。マウントオプションを渡す口が未実装)、隠し/システム属性の表示。
 - [x] F2FS 読み取り専用 (docs/f2fs-port.md。**カーネルの fs/f2fs は取り込まず、オンディスク形式からの自前実装**。圧縮の展開のみ usbmem_kdecomp): インライン / 圧縮 (lz4・lzo・lzo-rle・zstd) / 二重間接 / roll-forward 検出 (EUCLEAN、確認のうえ無視して開ける)。検証は mkfs/sload/fsck.f2fs と、QEMU 上の本物のカーネルが書いたイメージ。実機 USB は未確認。
-- [ ] F2FS: 実機での確認、圧縮の chksum 検証、xattr/ACL の公開、暗号化・casefold・verity・4K 以外のブロックサイズ、書き込み。
+- [ ] F2FS: 実機での確認、圧縮の chksum 検証、xattr/ACL の公開、暗号化・casefold・verity・4K 以外のブロックサイズ。書き込みは実装済み (下、docs/f2fs-write.md): GC・roll-forward・quota・圧縮ファイルへの書き込みは未対応。
 - [ ] 次: squashfs/erofs (進行中)、ntfs3 (NTFS の第二のバックエンドとして選択可能に)。見積もり (tools/fs_compat_probe.py): ntfs3 は 33k 行で iomap/folio 前提 (gcc エラー 618 件)。
 - [x] ISO 9660 (fs/isofs: レベル 1〜3 / Joliet / Rock Ridge・relocation・シンボリックリンク。zisofs は EOPNOTSUPP で拒否) と UDF (fs/udf: 1.02〜2.01・Sparable・疎/断片化/ハードリンク/シンボリックリンク・ISO+UDF ブリッジは UDF 優先で開けなければ ISO) を読み取り専用で追加。docs/isofs-port.md / docs/udf-port.md。ホスト4構成 + AVD 通過、実機未確認。
 - [ ] UDF の VAT / Metadata パーティション: 上流は読むが、ファイルの入った盤のフィクスチャを作れず未検証 (空の UDF 2.50 VAT のみ)。ISO: zisofs の展開・4 GiB 超・マルチセッション・実機の光学ドライブ。
@@ -96,6 +96,7 @@
    電源断の模擬 (R/E/S/A/B の 5 検査。満杯 + 解放ブロック再利用シナリオで 640 試行・80 カットポイント失敗 0) と突然変異 4 種 (flush・ダーティ印・ordered・解放ブロックの再利用) を検出。
    - [ ] 残り: 実機 USB、meta_bg / inline_data / bigalloc / quota / largedir / ea_inode の書き込み、delalloc、大きなファイルの書き込み性能、ACL/xattr の書き込み。
    - 続き: 自前実装リーダー (F2FS / Btrfs / XFS) の**書き込み**も対象 (ユーザー希望)。順は ext4 (カーネルの jbd2) → F2FS → Btrfs → XFS の見込み。各 FS とも「新規作成のみ (CreateOnly)」→ 完全書き込みの順に段階化し、書き込み前の必須条件は ext2/exFAT と同じ: ダーティフラグ先行、解放ブロックの再利用禁止、順序付き書き戻し、クラッシュ模擬 (接頭辞/キャッシュ × 途切れ書き込み)、独立ツール (fsck.f2fs / btrfs check / xfs_repair) と実カーネルで作ったイメージによる検証、ミューテーションテスト、AVD での自己テスト。
+   - F2FS の書き込みは実装済み (ホスト・CI・AVD で検証、実機未確認、`USBMEM_NTFS_WRITE` ビルドのみ。docs/f2fs-write.md): チェックポイント方式 (新しいブロックへ書き、反対側の CP パックを 本体 → flush → フッタ の順に確定。roll-forward・orphan・fsync ログ・GC・discard なし)。CreateOnly と Full。`fsck.f2fs` と本物のカーネル (QEMU VM / CI のループマウント) で双方向に検証、電源断の全カットポイント、突然変異 7 種。
 6. [ ] **ディスク管理 DiskTools** (6 章): 読み取り専用の整合性検査 (fsck 相当: ext / exFAT / FAT)、フォーマット (mkfs: FAT / exFAT / ext2-4 / NTFS)。NTFS の ntfsfix による自動修復は使わない (要件)。修復は明示承認 + バックアップ推奨。
 7. [ ] **データ復旧 RecoveryEngine** (7 章): ddrescue 相当のレスキューコピーは core 実装済み (mapfile 互換・再開・読み取り専用ソース・安全弁。UI 未接続・実機/AVD 未検証。docs/recovery-backup.md)。**未着手**: TestDisk 相当のパーティション探索・ブートセクタ検査・ファイル救出、PhotoRec 相当のシグネチャ復元。
 8. [x] (core 実装済み・UI 未接続・実機/AVD 未検証。docs/recovery-backup.md) **バックアップ・クローン BackupEngine** (8 章): Partclone 形式 (ext2/3/4・FAT・exFAT・NTFS の使用ブロックのみ、LZ4、チェックサム検証、計画→確認トークン→適用の復元、コピー元/先の取り違え防止、進捗・取り消し)。ディスク丸ごとのクローン(ブロック単位コピー)は救出エンジンで代替できるが、専用 UI は未実装。

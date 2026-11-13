@@ -14,16 +14,19 @@ spec = importlib.util.spec_from_file_location("gen_k_fixtures", os.path.join(HER
 gk = importlib.util.module_from_spec(spec); spec.loader.exec_module(gk)
 
 BAD = re.compile(r"inconsistent|corrupt|invalid|error|fail|unsupported|mismatch|unusual|abnormal|stopped|readonly|read-only", re.I)
+# --torn-cp-ok (電源断のテスト): 書きかけの側のチェックポイント パックをカーネルが捨てて古い側で開くときの警告は異常ではない (開けたツリーの一致は呼び出し側が比べる)
+TORN_CP = re.compile(r"invalid crc_offset|invalid crc value|Wrong CRC|Invalid CP|invalid cp", re.I)
 BENIGN = re.compile(r"Mounted with checkpoint version|Mounting|mount.*quota|segment|lazytime|discard", re.I)
 
 def main():
     a = sys.argv[1:]
     probe = bool(a) and a[0] == "--probe"   # 使えるか (カーネル・qemu・gcc などが揃っているか) だけ調べる: 0 / 77
     if probe: a = a[1:]
-    ops = None; ro = False; mntopts = "-"
+    ops = None; ro = False; mntopts = "-"; torn_ok = False
     while a and a[0].startswith("--"):
         if a[0] == "--ops": ops = a[1]; a = a[2:]
         elif a[0] == "--ro": ro = True; a = a[1:]
+        elif a[0] == "--torn-cp-ok": torn_ok = True; a = a[1:]
         elif a[0] == "--mntopts": mntopts = a[1]; a = a[2:]
         else: print("bad option", a[0]); return 2
     if len(a) != 2 and not probe: print(__doc__); return 2
@@ -67,7 +70,7 @@ def main():
         lines = sorted(l[5:].rstrip("\r") for l in txt.splitlines() if l.startswith("TREE|"))
         with open(out, "w", encoding="utf-8", errors="surrogateescape") as f:
             f.write("\n".join(lines) + ("\n" if lines else ""))
-        bad = [l for l in txt.splitlines() if "F2FS-fs" in l and BAD.search(l) and not BENIGN.search(l)]
+        bad = [l for l in txt.splitlines() if "F2FS-fs" in l and BAD.search(l) and not BENIGN.search(l) and not (torn_ok and TORN_CP.search(l))]
         failed_ops = [l for l in txt.splitlines() if l.startswith("OPS-FAIL")]
         if bad or failed_ops:
             sys.stderr.write("\n".join(bad + failed_ops) + "\n"); print("kernel reported problems"); return 1

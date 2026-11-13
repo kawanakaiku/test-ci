@@ -109,7 +109,7 @@ for sync_variant in batch each; do
         # (K) 一部だけカーネルに読ませる
         if [ "$KMODE" != off ] && [ $((n % 17)) -eq 3 ]; then
           cp "$W/c.img" "$W/k.img"
-          if python3 -I "$HERE/f2fs_vm/kcheck.py" --ro "$W/k.img" "$W/k.tree" >"$W/k.log" 2>&1; then
+          if python3 -I "$HERE/f2fs_vm/kcheck.py" --ro --torn-cp-ok "$W/k.img" "$W/k.tree" >"$W/k.log" 2>&1; then
             kern=$((kern+1)); cmp -s "$W/c.tree" "$W/k.tree" || { k_fail=$((k_fail+1)); echo "K-FAIL: $tag: kernel tree differs"; diff "$W/c.tree" "$W/k.tree" | head -3; }
           else k_fail=$((k_fail+1)); echo "K-FAIL: $tag: kernel could not mount"; tail -3 "$W/k.log"; fi
         fi

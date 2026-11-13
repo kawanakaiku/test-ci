@@ -7,6 +7,9 @@ target_compile_options(usbmem_f2fs PRIVATE
   $<$<COMPILE_LANGUAGE:C>:-std=gnu11> $<$<COMPILE_LANGUAGE:C>:-w>
   "$<$<COMPILE_LANGUAGE:C>:SHELL:-include stdint.h>" "$<$<COMPILE_LANGUAGE:C>:SHELL:-include stddef.h>" "$<$<COMPILE_LANGUAGE:C>:SHELL:-include endian.h>")
 target_link_libraries(usbmem_f2fs PUBLIC usbmem_kdecomp usbmem_core)
+if(USBMEM_NTFS_WRITE)
+  target_compile_definitions(usbmem_f2fs PRIVATE USBMEM_NTFS_WRITE=1)   # 書き込み (f2fs_write*.inc)。実行時にも mount_rw が必要 (docs/f2fs-write.md)
+endif()
 
 # ---- F2FS のテスト: mkfs.f2fs + sload.f2fs (機能 × 圧縮 × 大きさ) と、本物のカーネルが書いたイメージ (tools/f2fs_vm) を、リーダーで全項目検証する。fsck.f2fs で検査済み。
 if(USBMEM_BUILD_TESTS)
@@ -28,5 +31,14 @@ if(USBMEM_BUILD_TESTS)
     set_tests_properties(f2fs_read f2fs_corrupt f2fs_ioerr f2fs_fuzz f2fs_noload PROPERTIES FIXTURES_REQUIRED f2fs_fixture TIMEOUT 1800)
     set_tests_properties(f2fs_corrupt f2fs_ioerr f2fs_fuzz f2fs_noload PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
     set_tests_properties(f2fs_read PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+    # F2FS 書き込み (チェックポイント)。USBMEM_NTFS_WRITE=ON のビルドだけ (docs/f2fs-write.md)。fsck.f2fs が無ければ SKIP (終了コード 77)
+    if(USBMEM_NTFS_WRITE)
+      add_executable(usbmem_f2fs_write_tests tests/test_f2fs_write.cpp)
+      target_link_libraries(usbmem_f2fs_write_tests PRIVATE usbmem_f2fs usbmem_core)
+      add_test(NAME f2fs_write COMMAND sh ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_f2fs_write_tests.sh $<TARGET_FILE:usbmem_f2fs_write_tests> ${F2FS_FIX_DIR} 1)
+      add_test(NAME f2fs_crash COMMAND sh ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_f2fs_crash_tests.sh $<TARGET_FILE:usbmem_f2fs_write_tests> 8)   # 軽量版。フル版は docs/f2fs-write.md
+      set_tests_properties(f2fs_write PROPERTIES FIXTURES_REQUIRED f2fs_fixture)
+      set_tests_properties(f2fs_write f2fs_crash PROPERTIES TIMEOUT 3600 SKIP_RETURN_CODE 77 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+    endif()
   endif()
 endif()

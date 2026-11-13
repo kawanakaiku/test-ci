@@ -1,15 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // F2FS の読み取り専用リーダー。オンディスク形式 (スーパーブロック / チェックポイント / NAT / ノード木 / ディレクトリエントリ / 圧縮クラスタ) から書いた独自実装で、
-// Linux の fs/f2fs のコードは含まない (docs/f2fs-port.md)。ブロックサイズ 4 KiB、1 セグメント 512 ブロックの標準形式のみ。常に読み取り専用。
+// Linux の fs/f2fs のコードは含まない (docs/f2fs-port.md)。ブロックサイズ 4 KiB、1 セグメント 512 ブロックの標準形式のみ。
+// 書き込み (USBMEM_NTFS_WRITE のビルドで mount_rw したときだけ。docs/f2fs-write.md): ログ構造 + チェックポイントの規則に従い、すべての更新を使用中でないブロックへ書き、
+// 毎回 2 世代のチェックポイント パックの旧い側へ完全なチェックポイントを書く (roll-forward 用の fsync ログ・orphan inode は書かない)。それ以外は常に読み取り専用。
 #include "usbmem/f2fs_volume.h"
 
 #include <algorithm>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <list>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <unordered_map>
+#include <unordered_set>
 
 extern "C" int usbmem_f2fs_decompress(int alg, const void* src, size_t clen, void* dst, size_t dstlen);
 
@@ -36,7 +43,7 @@ constexpr uint32_t kFeatKnownMask = 0x1FFFF;
 constexpr uint32_t kCpUmount = 0x1, kCpOrphan = 0x2, kCpCompactSum = 0x4, kCpError = 0x8, kCpFsck = 0x10, kCpCrcRecovery = 0x40,
                    kCpNocrcRecovery = 0x200, kCpLargeNat = 0x400, kCpQuotaNeedFsck = 0x800, kCpResizefs = 0x4000;
 // inode
-constexpr uint8_t kInlXattr = 0x01, kInlData = 0x02, kInlDentry = 0x04, kInlExtra = 0x20, kInlComprReleased = 0x80;
+constexpr uint8_t kInlXattr = 0x01, kInlData = 0x02, kInlDentry = 0x04, kInlDataExist = 0x08, kInlDots = 0x10, kInlExtra = 0x20, kInlComprReleased = 0x80;
 constexpr uint32_t kFlComprFl = 0x4, kFlEncryptFl = 0x800, kFlCasefoldFl = 0x40000000;
 
 inline uint16_t le16(const uint8_t* p) { return static_cast<uint16_t>(p[0] | (p[1] << 8)); }
@@ -85,7 +92,7 @@ struct Inode {
   uint32_t nid_at(int i) const { return le32(blk->data() + kBlk - 24 - 20 + 4 * i); }
 };
 
-struct NatEnt { uint32_t ino = 0, blkaddr = 0; };
+struct NatEnt { uint32_t ino = 0, blkaddr = 0; uint8_t version = 0; };
 
 struct DirCache {
   std::vector<FsDirEntry> ents;
@@ -104,6 +111,112 @@ unsigned dtype_of(uint8_t ft) {
     default: return 0;
   }
 }
+
+
+#ifdef USBMEM_NTFS_WRITE
+constexpr uint32_t kSitPerBlock = 55, kSitEntSize = 74, kNr = 214;
+constexpr uint32_t kFtReg = 1, kFtDir = 2, kFtLnk = 7;
+inline void put16(uint8_t* p, uint32_t v) { p[0] = static_cast<uint8_t>(v); p[1] = static_cast<uint8_t>(v >> 8); }
+inline void put32(uint8_t* p, uint32_t v) { for (int i = 0; i < 4; i++) p[i] = static_cast<uint8_t>(v >> (8 * i)); }
+inline void put64(uint8_t* p, uint64_t v) { for (int i = 0; i < 8; i++) p[i] = static_cast<uint8_t>(v >> (8 * i)); }
+// SIT / NAT のビットマップは MSB 先頭 (f2fs_test_bit)、dentry のビットマップは LSB 先頭 (test_bit_le)
+inline bool bm_msb_get(const uint8_t* m, uint32_t i) { return (m[i >> 3] & (0x80u >> (i & 7))) != 0; }
+inline void bm_msb_set(uint8_t* m, uint32_t i) { m[i >> 3] |= static_cast<uint8_t>(0x80u >> (i & 7)); }
+inline void bm_msb_clr(uint8_t* m, uint32_t i) { m[i >> 3] &= static_cast<uint8_t>(~(0x80u >> (i & 7))); }
+inline bool bm_lsb_get(const uint8_t* m, uint32_t i) { return (m[i >> 3] & (1u << (i & 7))) != 0; }
+inline void bm_lsb_set(uint8_t* m, uint32_t i) { m[i >> 3] |= static_cast<uint8_t>(1u << (i & 7)); }
+inline void bm_lsb_clr(uint8_t* m, uint32_t i) { m[i >> 3] &= static_cast<uint8_t>(~(1u << (i & 7))); }
+
+// f2fs_dentry_hash (TEA、非 casefold)
+void tea_transform(uint32_t buf[4], const uint32_t in[4]) {
+  uint32_t sum = 0, b0 = buf[0], b1 = buf[1], a = in[0], b = in[1], c = in[2], d = in[3];
+  for (int n = 0; n < 16; n++) {
+    sum += 0x9E3779B9u;
+    b0 += ((b1 << 4) + a) ^ (b1 + sum) ^ ((b1 >> 5) + b);
+    b1 += ((b0 << 4) + c) ^ (b0 + sum) ^ ((b0 >> 5) + d);
+  }
+  buf[0] += b0; buf[1] += b1;
+}
+void str2hashbuf(const uint8_t* msg, size_t len, uint32_t* buf, int num) {
+  uint32_t pad = static_cast<uint32_t>(len) | (static_cast<uint32_t>(len) << 8);
+  pad |= pad << 16;
+  uint32_t val = pad;
+  if (len > static_cast<size_t>(num) * 4) len = static_cast<size_t>(num) * 4;
+  for (size_t i = 0; i < len; i++) {
+    if ((i % 4) == 0) val = pad;
+    val = msg[i] + (val << 8);
+    if ((i % 4) == 3) { *buf++ = val; val = pad; num--; }
+  }
+  if (--num >= 0) *buf++ = val;
+  while (--num >= 0) *buf++ = pad;
+}
+uint32_t dentry_hash(const uint8_t* name, size_t len) {
+  if ((len == 1 && name[0] == '.') || (len == 2 && name[0] == '.' && name[1] == '.')) return 0;
+  uint32_t buf[4] = {0x67452301u, 0xefcdab89u, 0x98badcfeu, 0x10325476u}, in[4];
+  const uint8_t* p = name;
+  size_t n = len;
+  while (n > 0) {
+    str2hashbuf(p, n, in, 4);
+    tea_transform(buf, in);
+    p += 16;
+    if (n <= 16) break;
+    n -= 16;
+  }
+  return buf[0];   // カーネルの F2FS_HASH_COL_BIT は 1ULL<<63 で、32 ビットの hash には効かない (上位ビットも残す。fsck.f2fs も同じ)
+}
+inline uint32_t dir_buckets(uint32_t level, uint32_t dir_level) { return (level + dir_level < 31) ? (1u << (level + dir_level)) : (1u << 30); }
+inline uint32_t bucket_blocks(uint32_t level) { return level < 31 ? 2 : 4; }
+inline uint64_t dir_block_index(uint32_t level, uint32_t dir_level, uint32_t idx) {
+  uint64_t b = 0;
+  for (uint32_t i = 0; i < level; i++) b += static_cast<uint64_t>(dir_buckets(i, dir_level)) * bucket_blocks(i);
+  return b + static_cast<uint64_t>(idx) * bucket_blocks(level);
+}
+
+// 1 つのセグメントの状態 (SIT エントリそのもの)
+struct Seg { uint16_t vb = 0; uint8_t type = 0; uint8_t map[64] = {0}; uint64_t mtime = 0; };
+// dentry 領域 (通常ブロックまたはインライン) への窓
+struct DBuf {
+  uint8_t *bm, *de, *fn; uint32_t nr;
+  bool used(uint32_t i) const { return bm_lsb_get(bm, i); }
+  int room(uint32_t slots) const {   // 連続して空いている slots 個の先頭 (なければ -1)
+    uint32_t run = 0;
+    for (uint32_t i = 0; i < nr; i++) {
+      if (used(i)) { run = 0; continue; }
+      if (++run == slots) return static_cast<int>(i + 1 - slots);
+    }
+    return -1;
+  }
+  int find(uint32_t hash, const std::string& name, uint32_t* ino, uint8_t* ft) const {   // スロット番号 / -1 / 負の errno (破損)
+    for (uint32_t i = 0; i < nr;) {
+      if (!used(i)) { i++; continue; }
+      const uint8_t* e = de + 11 * i;
+      uint32_t nlen = le16(e + 8), slots = (nlen + 7) / 8;
+      if (nlen == 0 || nlen > 255 || i + slots > nr) return -kEUCLEAN;
+      if (le32(e) == hash && nlen == name.size() && memcmp(fn + 8 * i, name.data(), nlen) == 0) { if (ino) *ino = le32(e + 4); if (ft) *ft = e[10]; return static_cast<int>(i); }
+      i += slots;
+    }
+    return -1;
+  }
+  void put(uint32_t slot, uint32_t hash, const std::string& name, uint32_t ino, uint8_t ft) const {
+    uint8_t* e = de + 11 * slot;
+    put32(e, hash); put32(e + 4, ino); put16(e + 8, static_cast<uint32_t>(name.size())); e[10] = ft;
+    uint32_t slots = static_cast<uint32_t>((name.size() + 7) / 8);
+    memset(fn + 8 * slot, 0, 8 * slots);
+    memcpy(fn + 8 * slot, name.data(), name.size());
+    for (uint32_t k = 0; k < slots; k++) bm_lsb_set(bm, slot + k);
+  }
+  void del(uint32_t slot) const {
+    uint32_t nlen = le16(de + 11 * slot + 8), slots = (nlen + 7) / 8;
+    for (uint32_t k = 0; k < slots; k++) bm_lsb_clr(bm, slot + k);
+  }
+  bool only_dots() const {   // "." と ".." (スロット 0, 1) だけか
+    for (uint32_t i = 2; i < nr; i++) if (used(i)) return false;
+    return true;
+  }
+  bool empty() const { for (uint32_t i = 0; i < nr; i++) if (used(i)) return false; return true; }
+};
+inline DBuf dbuf_blk(uint8_t* p) { return {p, p + 30, p + 30 + 11 * kNr, kNr}; }
+#endif
 
 }  // namespace
 
@@ -133,6 +246,13 @@ struct F2fsVolume::Impl {
   uint32_t cl_nid = 0; uint64_t cl_idx = ~0ull; std::vector<uint8_t> cl_buf;
 
   bool valid_data_blk(uint32_t a) const { return a >= main_blkaddr && a < max_blkaddr; }
+  bool has_dirty_pages() const {
+#ifdef USBMEM_NTFS_WRITE
+    return !dpages.empty();
+#else
+    return false;
+#endif
+  }
 
   int read_raw(uint32_t blk, void* out) {
     if (blk >= dev_blocks) return -EIO;
@@ -159,6 +279,9 @@ struct F2fsVolume::Impl {
   // ---- NAT: nid → ブロック番号
   int nat_lookup(uint32_t nid, NatEnt* e) {
     if (nid < kReservedNodes || nid >= max_nid) return -ENOENT;
+#ifdef USBMEM_NTFS_WRITE
+    { auto d = nat_dirty.find(nid); if (d != nat_dirty.end()) { *e = d->second; return 0; } }
+#endif
     auto j = nat_journal.find(nid);
     if (j != nat_journal.end()) { *e = j->second; return 0; }
     uint32_t block_off = nid / kNatPerBlock;
@@ -170,12 +293,16 @@ struct F2fsVolume::Impl {
     int rc = get(addr, &b);
     if (rc) return rc;
     const uint8_t* p = b->data() + 9 * (nid % kNatPerBlock);
+    e->version = p[0];
     e->ino = le32(p + 1);
     e->blkaddr = le32(p + 5);
     return 0;
   }
   // nid のノードを読む。footer の nid / ino が一致しなければ破損。owner_ino = 0 なら inode ノード (ino == nid)
   int get_node(uint32_t nid, uint32_t owner_ino, Blk* out) {
+#ifdef USBMEM_NTFS_WRITE
+    { auto it = nodes.find(nid); if (it != nodes.end()) { *out = it->second; return 0; } }
+#endif
     NatEnt e;
     int rc = nat_lookup(nid, &e);
     if (rc) return rc;
@@ -265,6 +392,14 @@ struct F2fsVolume::Impl {
   }
 
   // ---- 読み取り
+  // ファイル ino の fblk 番目のブロックの未書き込み (ダーティ) ページ。書き込み可でマウントしていなければ常に nullptr
+  const std::vector<uint8_t>* dirty_page(uint32_t ino, uint64_t fblk) const {
+#ifdef USBMEM_NTFS_WRITE
+    if (!dpages.empty()) { auto it = dpages.find((static_cast<uint64_t>(ino) << 32) | fblk); if (it != dpages.end()) return &it->second; }
+#endif
+    (void)ino; (void)fblk;
+    return nullptr;
+  }
   int read_block_into(uint32_t addr, uint8_t* dst, size_t from, size_t n) {   // addr のブロックの [from, from+n) を dst へ (穴 / 未書き込みはゼロ)
     if (addr == kNullAddr || addr == kNewAddr) { memset(dst, 0, n); return 0; }
     if (!valid_data_blk(addr)) return -kEUCLEAN;
@@ -335,10 +470,16 @@ struct F2fsVolume::Impl {
         done += n;
         continue;
       }
+      if (const std::vector<uint8_t>* dp = dirty_page(in.nid, fblk)) {
+        size_t n = std::min<size_t>(len - done, kBlk - boff);
+        memcpy(buf + done, dp->data() + boff, n);
+        done += n;
+        continue;
+      }
       uint32_t addr;
       int rc = bmap(in, fblk, &addr);
       if (rc) return rc;
-      if (boff == 0 && len - done >= kBlk && addr != kNullAddr && addr != kNewAddr) {
+      if (boff == 0 && len - done >= kBlk && addr != kNullAddr && addr != kNewAddr && !has_dirty_pages()) {
         // ブロック整列の部分は、連続するブロック番号をまとめて 1 回で読む
         size_t maxblk = (len - done) / kBlk;
         size_t run = 1;
@@ -401,6 +542,11 @@ struct F2fsVolume::Impl {
     if (nblk > block_count) return -kEUCLEAN;
     constexpr uint32_t kNr = 214;
     for (uint64_t b = 0; b < nblk; b++) {
+      if (const std::vector<uint8_t>* dp = dirty_page(in.nid, b)) {
+        int rc = scan_dentries(dp->data(), dp->data() + 30, dp->data() + 30 + 11 * kNr, kNr, out);
+        if (rc) return rc;
+        continue;
+      }
       uint32_t addr;
       int rc = bmap(in, b, &addr);
       if (rc) return rc;
@@ -478,9 +624,111 @@ struct F2fsVolume::Impl {
     max_nid = mn > 0xFFFFFFF0ull ? 0xFFFFFFF0u : static_cast<uint32_t>(mn);
     if (root_ino < kReservedNodes || root_ino >= max_nid || node_ino == 0 || meta_ino == 0) return -kEUCLEAN;
     sb_cp_payload = cp_payload;
+    sit_blkaddr = sit; ssa_blkaddr = ssa; sb_seg_main = seg_main; sb_seg_sit = seg_sit; sb_segs_per_sec = segs_per_sec; sb_secs_per_zone = secs_per_zone;
+    memcpy(sb_uuid, s + 108, 16);
     return 0;
   }
-  uint32_t sb_cp_payload = 0;
+  int rw_refusal = 0;   // mount_rw で書き込み可にできなかった理由 (errno)。0 = 書き込み可 / 読み取り専用で開いただけ
+  uint32_t sb_cp_payload = 0, sit_blkaddr = 0, ssa_blkaddr = 0, sb_seg_main = 0, sb_seg_sit = 0, sb_segs_per_sec = 0, sb_secs_per_zone = 0;
+  uint8_t sb_uuid[16] = {0};
+
+#ifdef USBMEM_NTFS_WRITE
+  // ======== 書き込み (f2fs_write.inc。docs/f2fs-write.md) ========
+  // 設計: 変更はすべてメモリ上 (ダーティ ノード nodes / ダーティ ページ dpages / NAT・SIT・SSA の差分) に溜め、sync() で 1 回の完全なチェックポイントとしてコミットする。
+  // コミット前に書くのは「前回のチェックポイントから見て使われていないブロック」だけ。解放したブロック / セグメントはコミットまで再利用しない (cvb)。
+  using NodeVec = std::shared_ptr<std::vector<uint8_t>>;
+  static constexpr int kLogHotData = 0, kLogWarmData = 1, kLogColdData = 2, kLogHotNode = 3, kLogWarmNode = 4, kLogColdNode = 5;
+  struct Cur { uint32_t segno = 0, blkoff = 0; };
+  bool rw = false;                  // 書き込み可でマウントした
+  bool broken = false;              // 操作の途中で失敗した: これ以上チェックポイントしない (コミット済みの状態は無傷のまま)
+  bool dirty = false;               // 未コミットの変更がある
+  uint32_t main_segs = 0, free_segs = 0, seg_hint = 0, nid_hint = kReservedNodes;
+  uint64_t valid_blocks = 0, user_blocks = 0, pend_blocks = 0;   // pend_blocks = 予約済みで未配置 (NEW_ADDR) のデータブロック数
+  uint32_t valid_nodes = 0, valid_inodes = 0, new_extra = 0;
+  uint64_t mount_time = 0, cp_elapsed = 0;
+  std::vector<Seg> segs;            // 現在 (未コミットを含む) のセグメント表
+  std::vector<uint16_t> cvb;        // コミット済みの有効ブロック数 (空きセグメントの判定にだけ使う)
+  std::set<uint32_t> committed_cur; // 最後にコミットしたチェックポイントのカレントセグメント (コミットまで再利用しない)
+  std::set<uint32_t> sit_dirty;     // 変更した SIT ブロック番号
+  Cur cur[6];
+  std::unordered_map<uint32_t, std::vector<uint8_t>> ssa;   // サマリ ブロック (セグメント番号 → 4 KiB)。カレントの 6 つは常に持つ
+  std::set<uint32_t> ssa_dirty;
+  std::map<uint32_t, NodeVec> nodes;            // ダーティ ノード (nid → ブロック)。コミット時に新しい場所へ書く
+  std::map<uint32_t, NatEnt> nat_dirty;         // 変更した NAT エントリ (ジャーナルの内容を含む)
+  std::set<uint32_t> freed_nids;                // このエポックで解放した nid (コミットまで再割り当てしない)
+  std::map<uint64_t, std::vector<uint8_t>> dpages;   // ダーティなデータ / ディレクトリ ページ ((ino << 32) | ブロック番号)
+  long acc_iblocks = 0;                         // truncate 中に解放したブロック数 (i_blocks から引く)
+  uint32_t gen_state = 1;
+  static constexpr size_t kMaxDirtyPages = 1024;
+  static constexpr uint32_t kReserveSegs = 8;
+
+  uint8_t* nat_bm_w() { return const_cast<uint8_t*>(nat_bitmap); }
+  uint8_t* sit_bm_w();
+  const uint8_t* sit_bm() { return sit_bm_w(); }
+  uint64_t seg_time() const;
+  void drop_cache(uint32_t a);
+  int write_blocks(uint32_t a, const void* d, uint32_t n);
+  bool in_main(uint32_t a) const { return a >= main_blkaddr && a < main_blkaddr + main_segs * kSegBlks; }
+  int invalidate(uint32_t a);
+  bool is_cur(uint32_t s) const;
+  bool seg_is_free(uint32_t s) const;
+  int alloc_seg(uint32_t* out);
+  void init_ssa(uint32_t segno, int type);
+  int alloc_blk(int type, uint32_t owner_nid, uint8_t ver, uint16_t ofs, uint32_t* addr);
+  int nat_get(uint32_t nid, NatEnt* e);
+  int alloc_nid(uint32_t* out);
+  bool space_ok(uint64_t blocks) const;
+  int mut_node(uint32_t nid, uint32_t owner, NodeVec* out);
+  int new_node(uint32_t ino, uint32_t ofs, bool cold, uint32_t* out);
+  void free_node(uint32_t nid);
+  int iblocks(uint32_t ino, long delta);
+  int slot_ptr(uint32_t ino, uint64_t fblk, bool create, uint8_t** slot, uint32_t* dn_nid, uint32_t* ofs_in_node);
+  int reserve_block(uint32_t ino, uint64_t fblk);
+  int dpage_mut(uint32_t ino, uint64_t fblk, bool full_overwrite, std::vector<uint8_t>** out);
+  int writeback_pages();
+  int maybe_writeback() { return dpages.size() > kMaxDirtyPages ? writeback_pages() : 0; }
+  void free_data_addr(uint32_t a);
+  int trunc_node(uint32_t nid, int level, uint32_t ino, uint64_t base, uint64_t from);
+  int truncate_blocks(uint32_t ino, uint64_t from_blk);
+  int free_inode(uint32_t ino);
+  void drop_dpages(uint32_t ino, uint64_t from_blk);
+  int make_inode(uint16_t mode, uint32_t pino, const std::string& name, uint32_t uid, uint32_t gid, uint32_t* out);
+  void set_footer(uint8_t* p, uint32_t nid, uint32_t ino, uint32_t flag);
+  void finalize_inode(uint8_t* p, uint32_t nid);
+  int touch(uint32_t nid, bool mtime);
+  // ディレクトリ
+  int inline_dbuf(const Inode& in, uint8_t* inode_base, DBuf* d);
+  int dir_find(uint32_t dnid, const std::string& name, uint32_t* ino, uint8_t* ft, bool* found);
+  int dir_add(uint32_t dnid, const std::string& name, uint32_t ino, uint8_t ft);
+  int dir_del(uint32_t dnid, const std::string& name);
+  int dir_set_ino(uint32_t dnid, const std::string& name, uint32_t ino);   // 既存エントリの ino を差し替える (".." の付け替え)
+  int dir_convert_inline(uint32_t dnid);
+  int dir_is_empty(uint32_t dnid, bool* empty);
+  int dir_blk_read(const Inode& d, uint64_t b, Blk* out, bool* hole);
+  void dir_cache_add(uint32_t dnid, const std::string& name, uint32_t ino, uint8_t ft);
+  int check_name(const std::string& name);
+  int check_mutable_dir(uint32_t dnid, Inode* d);
+  // 公開操作の本体
+  int op_create(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino, uint16_t type, const std::string* target);
+  int op_unlink(uint64_t dir, const std::string& name, bool want_dir);
+  int op_rename(uint64_t od, const std::string& on, uint64_t nd, const std::string& nn);
+  int op_link(uint64_t dir, const std::string& name, uint64_t existing);
+  int64_t op_write(uint64_t ino, uint64_t off, const void* buf, size_t len, bool inplace);
+  int op_truncate(uint64_t ino, uint64_t size);
+  int convert_inline_file(uint32_t ino);
+  // チェックポイント
+  int flush_nodes();
+  int roll_full_cursegs();
+  int write_ssa_blocks();
+  int flush_nat();
+  int flush_sit();
+  int write_cp_pack();
+  int checkpoint();
+  int load_write_state();
+  int load_sit();
+  int load_cursegs();
+  void reset_write_state();
+#endif
 
   // チェックポイントパックの検証。version を返す
   int validate_cp(uint32_t addr, Blk* first, uint64_t* ver) {
@@ -566,7 +814,7 @@ struct F2fsVolume::Impl {
     if (n > maxn) return -kEUCLEAN;
     for (uint32_t i = 0; i < n; i++) {
       const uint8_t* e = j + 2 + 13 * i;
-      NatEnt ne; ne.ino = le32(e + 5); ne.blkaddr = le32(e + 9);
+      NatEnt ne; ne.version = e[4]; ne.ino = le32(e + 5); ne.blkaddr = le32(e + 9);
       nat_journal[le32(e)] = ne;
     }
     return 0;
@@ -637,6 +885,12 @@ struct F2fsVolume::Impl {
   }
 };
 
+#ifdef USBMEM_NTFS_WRITE
+#include "f2fs_write.inc"
+#include "f2fs_write_ops.inc"
+#include "f2fs_write_cp.inc"
+#endif
+
 std::unique_ptr<F2fsVolume> F2fsVolume::mount(BlockDevicePtr dev, int* err, const F2fsMountOptions& opts) {
   std::unique_ptr<F2fsVolume> vol(new F2fsVolume());
   vol->impl_.reset(new Impl());
@@ -649,7 +903,34 @@ std::unique_ptr<F2fsVolume> F2fsVolume::mount(BlockDevicePtr dev, int* err, cons
   return vol;
 }
 
-F2fsVolume::~F2fsVolume() = default;
+std::unique_ptr<F2fsVolume> F2fsVolume::mount_rw(BlockDevicePtr dev, int* err) {
+  bool ro_dev = dev && dev->is_read_only();
+  // 読み取りのマウント条件 (チェックポイント / roll-forward の検査) をそのまま通す。要回復のボリュームは書き込み可どころかここで EUCLEAN。
+  std::unique_ptr<F2fsVolume> vol = mount(std::move(dev), err, F2fsMountOptions());
+  if (!vol) return nullptr;
+#ifdef USBMEM_NTFS_WRITE
+  if (ro_dev) { vol->impl_->rw_refusal = EROFS; return vol; }
+  int rc = vol->impl_->load_write_state();
+  if (rc) { vol->impl_->reset_write_state(); vol->impl_->rw_refusal = -rc; }   // 書き込みのホワイトリスト外 / 不整合: 読み取り専用のまま開く
+#else
+  (void)ro_dev;
+  vol->impl_->rw_refusal = EROFS;
+#endif
+  return vol;
+}
+int F2fsVolume::write_refusal() const { return impl_->rw_refusal; }
+bool F2fsVolume::writable() const {
+#ifdef USBMEM_NTFS_WRITE
+  return impl_->rw && !impl_->broken;
+#else
+  return false;
+#endif
+}
+F2fsVolume::~F2fsVolume() {
+#ifdef USBMEM_NTFS_WRITE
+  if (impl_ && impl_->rw && impl_->dirty && !impl_->broken) impl_->checkpoint();   // 最後の安全網 (アプリは先に sync() する)
+#endif
+}
 bool F2fsVolume::recovery_ignored() const { return impl_->recovery_ignored; }
 uint64_t F2fsVolume::root() const { return impl_->root_ino; }
 
@@ -728,5 +1009,40 @@ int F2fsVolume::readlink(uint64_t ino, std::string* target) {
   *target = std::move(s);
   return 0;
 }
+
+#ifdef USBMEM_NTFS_WRITE
+int F2fsVolume::sync() { std::lock_guard<std::mutex> g(impl_->mu); if (!impl_->rw) return -30; return impl_->checkpoint(); }
+int F2fsVolume::create(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) {
+  std::lock_guard<std::mutex> g(impl_->mu);
+  return impl_->op_create(dir, name, mode, ino, 0100000, nullptr);
+}
+int F2fsVolume::mkdir(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) {
+  std::lock_guard<std::mutex> g(impl_->mu);
+  return impl_->op_create(dir, name, mode, ino, 0040000, nullptr);
+}
+int F2fsVolume::symlink(uint64_t dir, const std::string& name, const std::string& target, uint64_t* ino) {
+  std::lock_guard<std::mutex> g(impl_->mu);
+  return impl_->op_create(dir, name, 0777, ino, 0120000, &target);
+}
+int F2fsVolume::unlink(uint64_t dir, const std::string& name) { std::lock_guard<std::mutex> g(impl_->mu); return impl_->op_unlink(dir, name, false); }
+int F2fsVolume::rmdir(uint64_t dir, const std::string& name) { std::lock_guard<std::mutex> g(impl_->mu); return impl_->op_unlink(dir, name, true); }
+int F2fsVolume::rename(uint64_t od, const std::string& on, uint64_t nd, const std::string& nn) { std::lock_guard<std::mutex> g(impl_->mu); return impl_->op_rename(od, on, nd, nn); }
+int F2fsVolume::link(uint64_t dir, const std::string& name, uint64_t existing) { std::lock_guard<std::mutex> g(impl_->mu); return impl_->op_link(dir, name, existing); }
+int64_t F2fsVolume::write(uint64_t ino, uint64_t off, const void* buf, size_t len) { std::lock_guard<std::mutex> g(impl_->mu); return impl_->op_write(ino, off, buf, len, false); }
+int64_t F2fsVolume::write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len) { std::lock_guard<std::mutex> g(impl_->mu); return impl_->op_write(ino, off, buf, len, true); }
+int F2fsVolume::truncate(uint64_t ino, uint64_t size) { std::lock_guard<std::mutex> g(impl_->mu); return impl_->op_truncate(ino, size); }
+#else
+int F2fsVolume::sync() { return -30; }
+int F2fsVolume::create(uint64_t, const std::string&, uint32_t, uint64_t*) { return -30; }
+int F2fsVolume::mkdir(uint64_t, const std::string&, uint32_t, uint64_t*) { return -30; }
+int F2fsVolume::symlink(uint64_t, const std::string&, const std::string&, uint64_t*) { return -30; }
+int F2fsVolume::unlink(uint64_t, const std::string&) { return -30; }
+int F2fsVolume::rmdir(uint64_t, const std::string&) { return -30; }
+int F2fsVolume::rename(uint64_t, const std::string&, uint64_t, const std::string&) { return -30; }
+int F2fsVolume::link(uint64_t, const std::string&, uint64_t) { return -30; }
+int64_t F2fsVolume::write(uint64_t, uint64_t, const void*, size_t) { return -30; }
+int64_t F2fsVolume::write_inplace(uint64_t, uint64_t, const void*, size_t) { return -30; }
+int F2fsVolume::truncate(uint64_t, uint64_t) { return -30; }
+#endif
 
 }  // namespace usbmem

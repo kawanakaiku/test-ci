@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// F2FS の読み取り専用リーダー (オンディスク形式からの独自実装。Linux の fs/f2fs は取り込まない: docs/f2fs-port.md)。
+// F2FS のリーダー + 書き込み (書き込みは USBMEM_NTFS_WRITE ビルドの mount_rw だけ。オンディスク形式からの独自実装。Linux の fs/f2fs は取り込まない: docs/f2fs-port.md)。
 // 圧縮ファイルの展開だけ、カーネルの展開ライブラリ (usbmem_kdecomp。GPL 系) を使う。
 #pragma once
 #include "usbmem/fs_volume.h"
@@ -19,7 +19,24 @@ class F2fsVolume final : public FsVolume {
   // 読み取り専用でマウント。失敗時 nullptr と errno (正の値) を *err に返す。
   // EINVAL = F2FS ではない、EUCLEAN = 破損 / 要回復、EOPNOTSUPP = 未対応の機能 (暗号化 / casefold / verity / 複数デバイス / ブロックサイズ 4 KiB 以外 など)。
   static std::unique_ptr<F2fsVolume> mount(BlockDevicePtr dev, int* err = nullptr, const F2fsMountOptions& opts = {});
+  // 書き込み可でマウント (docs/f2fs-write.md)。ビルドの USBMEM_NTFS_WRITE=ON が必要。読み取りのマウント条件 (要回復は EUCLEAN) はそのまま。
+  // 書き込みのホワイトリスト外 (暗号化 / 圧縮 / casefold / quota / 複数デバイス / 未知の機能 / orphan・エラー印のあるチェックポイントなど) や不整合のときは
+  // 失敗させず読み取り専用で開く: writable() == false、write_refusal() にその理由 (errno)。
+  static std::unique_ptr<F2fsVolume> mount_rw(BlockDevicePtr dev, int* err = nullptr);
   ~F2fsVolume() override;
+  bool writable() const override;
+  int write_refusal() const;   // mount_rw で書き込み可にならなかった理由 (EROFS = 書き込み未対応のビルド / 読み取り専用デバイス、EOPNOTSUPP = 未対応の機能、EUCLEAN = 不整合)。0 = 書き込み可
+  int sync() override;
+  int create(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) override;
+  int mkdir(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) override;
+  int unlink(uint64_t dir, const std::string& name) override;
+  int rmdir(uint64_t dir, const std::string& name) override;
+  int rename(uint64_t od, const std::string& on, uint64_t nd, const std::string& nn) override;
+  int64_t write(uint64_t ino, uint64_t off, const void* buf, size_t len) override;
+  int truncate(uint64_t ino, uint64_t size) override;
+  int64_t write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len) override;
+  int symlink(uint64_t dir, const std::string& name, const std::string& target, uint64_t* ino) override;
+  int link(uint64_t dir, const std::string& name, uint64_t existing) override;
   const char* fs_name() const override { return "f2fs"; }
   uint64_t root() const override;
   int lookup(uint64_t dir, const std::string& name, uint64_t* ino) override;

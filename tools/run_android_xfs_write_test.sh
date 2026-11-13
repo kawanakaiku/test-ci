@@ -22,10 +22,7 @@ trap cleanup EXIT
 python3 -I "$HERE/gen_xfs_ops.py" seed "$W/seed"
 python3 -I "$HERE/gen_xfs_ops.py" ops "$W/ops.txt" createonly
 mk_xfs "$W/wr.img" 320M "$W/seed" || { echo "mkfs.xfs failed"; exit 1; }
-cp --sparse=always "$W/wr.img" "$W/wr0.img"
-HAVE_RSV=1; mk_xfs "$W/rsv.img" 320M "" -m rmapbt=1 >/dev/null 2>&1 || HAVE_RSV=0
-# rmapbt=1 を作れない mkfs.xfs では mk_xfs が rmapbt=0 に落とすので、拒否の試験が成り立つかを確かめる
-xfs_db -r -c "sb 0" -c "p rmapbt" "$W/rsv.img" 2>/dev/null | grep -q "1" || xfs_db -r -c "sb 0" -c "p features_ro_compat" "$W/rsv.img" 2>/dev/null | grep -qi "0x[0-9a-f]*[1-9a-f]" || true
+HAVE_RSV=1; mk_xfs_plain "$W/rsv.img" 320M "" -m rmapbt=1 >/dev/null 2>&1 || HAVE_RSV=0   # 既定の rmapbt=0 を付けずに作る (書き込み拒否のイメージ)
 adb push "$W/wr.img" /data/local/tmp/xfs_wr.img >/dev/null
 adb push "$W/ops.txt" /data/local/tmp/xfs_wr_ops.txt >/dev/null
 [ $HAVE_RSV = 1 ] && adb push "$W/rsv.img" /data/local/tmp/xfs_rsv.img >/dev/null

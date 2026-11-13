@@ -106,6 +106,8 @@
 11. [ ] **P2 以降**: SMB (9 章、libsmbclient / SMBJ)、ntfs3 (第二の NTFS バックエンド)、Btrfs / XFS / F2FS、UASP、QEMU 仮想 USB の AVD 接続実測 (14 章)。
 
 - [x] XFS 読み取り専用 (v4/v5、独立実装のリーダ — カーネル fs/xfs は取り込まず形式を実装。docs/xfs-port.md): 18 イメージ + special_proto、ホスト検証、AVD 通過。ログ未再生は EUCLEAN + allow_noload。[ ] 実機確認、reflink 共有 extent の実イメージ、リアルタイム領域・外部ログ・xattr は未対応。
+- [x] XFS 書き込み (実験的・`USBMEM_NTFS_WRITE` ビルドのみ・docs/xfs-write.md): V5 の**新規作成・追記・mkdir・symlink (CreateOnly の範囲)** を、カーネルが再生できる形で XFS のログに書く方式で実装 (ログが dirty なら読み取り専用)。xfs_repair -n・xfs_logprint・実カーネルのログ再生 (loop / QEMU)・電源断の模擬・突然変異・ファジング・AVD で検証。
+  - [ ] 未実装 (既定で無効): Full の操作 (unlink / rmdir / rename / truncate / link)、ノード形式ディレクトリ (約 500 エントリ/ディレクトリが上限)、dirty log の再生、4Kn、dirblklog>0、ストライプ、クォータ、rmapbt (新しい mkfs.xfs の既定。7.x で確認)、外部ログ、リアルタイム、V4、reflink 共有ブロックの上書き (CoW)、実機 USB での確認。
 
 進行中のファイルシステム移植 (別の worktree): FAT/vfat・isofs・udf (統合済み)、squashfs・erofs (検証中)。
 

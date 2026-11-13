@@ -48,9 +48,15 @@ modes=${USBMEM_CRASH_MODES:-"prefix cache"}
 for sync_variant in batch each; do
   if [ $sync_variant = each ]; then export USBMEM_SYNC_EVERY=1; else unset USBMEM_SYNC_EVERY || true; fi
   cp --sparse=always "$W/base.img" "$W/c.img"
-  total=$(USBMEM_CRASH_AT=-1 "$T" --ops "$W/c.img" "$W/ops" 2>&1 | grep -a "^writes:" | sed 's/writes: //')
-  echo "操作列の総書き込み数: $total (sync=$sync_variant, $nops ops, stride=$STRIDE)"
+  total_w=$(USBMEM_CRASH_AT=-1 "$T" --ops "$W/c.img" "$W/ops" 2>&1 | grep -a "^writes:" | sed 's/writes: //')
+  echo "操作列の総書き込み数: $total_w (sync=$sync_variant, $nops ops, stride=$STRIDE)"
   for mode in $modes; do
+    # cache 方式では flush の呼び出しもカットポイントに数える (flush の直前に切れる)。総数も cache 方式で数え直す
+    if [ "$mode" = cache ]; then
+      export USBMEM_CRASH_FLUSH_CUTS=1; cp --sparse=always "$W/base.img" "$W/c.img"
+      total=$(USBMEM_CRASH_AT=-1 USBMEM_CRASH_MODE=cache "$T" --ops "$W/c.img" "$W/ops" 2>&1 | grep -a "^writes:" | sed 's/writes: //')
+      echo "  (cache 方式の総カットポイント数: $total = 書き込み + flush)"
+    else unset USBMEM_CRASH_FLUSH_CUTS || true; total=$total_w; fi
     at=${USBMEM_CRASH_FROM:-0}; [ -z "${USBMEM_CRASH_TO:-}" ] || total=$USBMEM_CRASH_TO
     while [ $at -le "$total" ]; do
       # チャンク: at から CH 個のカットポイント (× torn 0/1)
@@ -59,7 +65,7 @@ for sync_variant in batch each; do
         for torn in 0 1; do
           img="$W/cut/c_${at}_${torn}.img"
           cp --sparse=always "$W/base.img" "$img"
-          acked=$(USBMEM_CRASH_AT=$at USBMEM_CRASH_MODE=$mode USBMEM_CRASH_TORN=$torn USBMEM_CRASH_SEED=$((at*7+3)) "$T" --ops "$img" "$W/ops" 2>&1 | grep -a '^acked:' | sed 's/acked: //' || true)
+          acked=$(USBMEM_CRASH_AT=$at USBMEM_CRASH_MODE=$mode USBMEM_CRASH_TORN=$torn USBMEM_CRASH_SEED=$((at*7+3+${USBMEM_CRASH_SEED_SALT:-0})) "$T" --ops "$img" "$W/ops" 2>&1 | grep -a '^acked:' | sed 's/acked: //' || true)
           [ -n "$acked" ] || acked=0
           echo "$acked" > "$img.acked"
           list="$list $img"

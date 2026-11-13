@@ -40,6 +40,13 @@ class XfsWriteTest {
         }
     }
 
+    /** 320 MiB のイメージをまるごと読むとヒープが足りないので、ストリームでハッシュする。 */
+    private fun sha256(f: File): List<Byte> {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        f.inputStream().use { ins -> val b = ByteArray(1 shl 20); while (true) { val n = ins.read(b); if (n < 0) break; md.update(b, 0, n) } }
+        return md.digest().toList()
+    }
+
     private fun split(p: String): Pair<String, String> {
         val i = p.lastIndexOf('/')
         return Pair(if (i <= 0) "/" else p.substring(0, i), p.substring(i + 1))
@@ -113,7 +120,7 @@ class XfsWriteTest {
     fun rmapbtVolumeFallsBackToReadOnly() {
         val img = File(ctx.cacheDir, "xfs_rsv.img")
         assumeTrue("fixture not pushed", shellCopy("/data/local/tmp/xfs_rsv.img", img))
-        val before = img.readBytes().let { java.security.MessageDigest.getInstance("SHA-256").digest(it).toList() }
+        val before = sha256(img)
         val vol = mountRw(img)
         try {
             assertEquals("xfs", vol.fsName)
@@ -121,7 +128,7 @@ class XfsWriteTest {
             try { vol.create("/", "x", false); throw AssertionError("create must fail on a read-only volume") } catch (ex: NativeException) { assertEquals(30, ex.code) }
             vol.list("/")   // 読み取りはできる
         } finally { vol.close() }
-        assertEquals(before, img.readBytes().let { java.security.MessageDigest.getInstance("SHA-256").digest(it).toList() })
+        assertEquals(before, sha256(img))
         img.delete()
     }
 
@@ -130,14 +137,14 @@ class XfsWriteTest {
     fun rwMountWithoutWritesLeavesImageUnchanged() {
         val img = File(ctx.cacheDir, "xfs_noop.img")
         assumeTrue("fixture not pushed", shellCopy("/data/local/tmp/xfs_wr.img", img))
-        val before = img.readBytes().let { java.security.MessageDigest.getInstance("SHA-256").digest(it).toList() }
+        val before = sha256(img)
         val vol = mountRw(img)
         try {
             assertEquals("xfs", vol.fsName)
             assertTrue(vol.writable)
             vol.list("/")
         } finally { vol.close() }
-        assertEquals(before, img.readBytes().let { java.security.MessageDigest.getInstance("SHA-256").digest(it).toList() })
+        assertEquals(before, sha256(img))
         img.delete()
     }
 }

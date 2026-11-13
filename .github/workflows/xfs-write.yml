@@ -58,7 +58,26 @@ jobs:
           export PATH="$PATH:/sbin:/usr/sbin"
           tools/run_xfs_crash_tests.sh build/compat/usbmem_xfs_write_tests 1
 
+  xfs-mutation:
+    name: xfs mutation (power-loss simulation must detect each)
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ python3 xfsprogs zlib1g-dev
+          sudo modprobe xfs || true
+
+      - name: Configure and kernel backend probe
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          cmake -S core -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSBMEM_NTFS_WRITE=ON -DUSBMEM_BUILD_TESTS=ON
+          python3 -I tools/xfs_vm/kreplay.py --probe
+
       - name: Mutation tests
         run: |
           export PATH="$PATH:/sbin:/usr/sbin"
-          tools/run_xfs_mutation_tests.sh build/mut 2
+          USBMEM_JOBS="$(nproc)" tools/run_xfs_mutation_tests.sh build/mut 2

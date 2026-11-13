@@ -36,6 +36,13 @@ class CrashDevice : public usbmem::BlockDevice {
   }
   usbmem::Status flush() override {
     if (dead_) return usbmem::Status::Ok();
+    // USBMEM_CRASH_FLUSH_CUTS=1 (cache 方式のみ): flush の呼び出しも電源断のカットポイントに数える。flush の直前 (未 flush の書き込みがまだ全部バッファにある瞬間) に切れる。
+    // 既定では書き込みの前でしか切れないので、「最後の書き込みと flush の間」や「flush を省いた順序」の電源断が試せない (XFS の突然変異テストが使う。他の FS のテストは変わらない)。
+    if (cache_ && flush_cuts_) {
+      if (limit_ >= 0 && count_ >= limit_) { die(0, nullptr, 0); return usbmem::Status::Ok(); }
+      count_++;
+    }
+    if (std::getenv("USBMEM_WRITE_LOG")) std::fprintf(stderr, "F (after %ld writes)\n", count_);
     for (auto& w : pend_) p_->write_at(w.off, w.data.data(), w.data.size());
     pend_.clear(); return p_->flush();
   }
@@ -50,8 +57,15 @@ class CrashDevice : public usbmem::BlockDevice {
   struct W { uint64_t off; std::vector<uint8_t> data; };
   void die(uint64_t off, const void* buf, size_t len) {
     dead_ = true;
-    if (cache_) { for (auto& w : pend_) if (rng_() & 1) p_->write_at(w.off, w.data.data(), w.data.size()); pend_.clear(); }
+    if (cache_) {
+      for (auto& w : pend_) {
+        bool keep = (rng_() & 1) != 0;
+        if (std::getenv("USBMEM_WRITE_LOG")) std::fprintf(stderr, "  crash: pending off=0x%llx len=%zu -> %s\n", (unsigned long long)w.off, w.data.size(), keep ? "persisted" : "lost");
+        if (keep) p_->write_at(w.off, w.data.data(), w.data.size());
+      }
+      pend_.clear();
+    }
     if (torn_ && len > 512) { size_t keep = (rng_() % (len / 512)) * 512; if (keep) p_->write_at(off, buf, keep); }
   }
-  usbmem::BlockDevicePtr p_; long limit_, count_ = 0; bool cache_, torn_, dead_ = false; std::mt19937 rng_; std::vector<W> pend_;
+  usbmem::BlockDevicePtr p_; long limit_, count_ = 0; bool cache_, torn_, dead_ = false; std::mt19937 rng_; std::vector<W> pend_; bool flush_cuts_ = std::getenv("USBMEM_CRASH_FLUSH_CUTS") != nullptr;
 };

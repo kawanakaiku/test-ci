@@ -71,7 +71,7 @@
 | 外部ログ・リアルタイム (`rextents` / `rblocks` ≠ 0) | `mount` 自体が拒否 |
 | `imax_pct` > 100 | |
 
-mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・bigtime・inobtcount・ftype) は書き込み可。**xfsprogs 6.12 以降の既定の `rmapbt=1` / `parent=1` は拒否**する (読み取りは従来どおり)。そのため CI のテストイメージは `-m rmapbt=0 -n parent=0` で作る (古い mkfs.xfs は該当オプションを外す)。
+mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・bigtime・inobtcount・ftype) は書き込み可。**新しい mkfs.xfs (手元の 7.2 で確認) の既定の `rmapbt=1` は拒否**する (読み取りは従来どおり。`parent=1` も未知の incompat として拒否)。そのため CI のテストイメージは `-m rmapbt=0 -n parent=0` で作る (古い mkfs.xfs は該当オプションを外す)。
 
 ### 書き込みの境界
 - `fs_write` / `write_inplace`: ファイルの末尾までの追記・穴あきの拡張・既存ブロックの上書き。extent は inode 内 (extents 形式) と B+ツリー形式 (bmbt) の両方を扱う。シンボリックリンクはインライン (local) と extent 形式。
@@ -94,6 +94,7 @@ mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・
 
 ### 電源断の模擬
 `crash_device.h` でデバイスを包み、書き込み操作列の N 回目の書き込みで「電源を落とし」残ったイメージを検査する。方式は `prefix` (発行順に反映) と `cache` (flush までは未確定: 電源断の瞬間に、未 flush の書き込みのランダムな部分集合だけが反映)。`torn` は電源断の瞬間の 1 回の書き込みをセクタ途中で切る。同期は `batch` (最後に 1 回) と `each` (操作ごと)。
+`cache` 方式では **flush の呼び出しもカットポイントに数える** (`USBMEM_CRASH_FLUSH_CUTS=1`。flush の直前、未 flush の書き込みがまだ全部バッファにある瞬間に電源が落ちる)。これがないと「最後の書き込みと flush の間」で切れず、flush を省いたビルド (後述の `NO_FLUSH_LOG` / `NO_FLUSH_INPLACE`) の壊れ方を観測できなかった (書き込みの前でしか切れないため、省いた flush と同じ窓がカットポイントに現れない)。カットポイント数は `batch` 543 / `each` 1030 (書き込みのみ)、`cache` + `each` は 1230 (書き込み + flush)。
 各カットポイントで:
 - (K) 実カーネルで rw マウント (再生) できて、そのあと `xfs_repair -n` が完全に clean。
 - (S) カーネルが見るツリーが「いずれかの操作の境界の状態」(電源断なしの実行が各操作のあとに書いたダンプ) と完全に一致 (原子性)。
@@ -105,13 +106,15 @@ mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・
 各変異は通常ビルドには入らない (`-DUSBMEM_MUTATE_<名>`)。
 | 変異 | 内容 |
 |---|---|
-| `NO_FLUSH_LOG` | 項目レコードのあと、コミットレコードの前の flush を省く |
+| `NO_FLUSH_LOG` | 項目レコードのあと、コミットレコードの前の flush を省く (cache 方式 + flush カットで S が検出。局所実測 S=6) |
 | `NO_FLUSH_COMMIT` | コミットレコードのあと、本来の場所への書き込みの前の flush を省く |
-| `NO_FLUSH_INPLACE` | 本来の場所への書き込みのあと、アンマウントレコードの前の flush を省く |
+| `NO_FLUSH_INPLACE` | 本来の場所への書き込みのあと、アンマウントレコードの前の flush を省く (cache 方式 + flush カットで K が検出。局所実測 K=48) |
 | `INPLACE_FIRST` | 本来の場所への書き込みをログより先にする (WAL 違反) |
 | `TAIL_OWN` | 各レコードの `tail_lsn` を自分の LSN にする |
 | `DATA_AFTER` | データをコミットのあとに書く |
 | `NO_CRC` | メタデータの CRC を付けない |
+
+`tools/run_xfs_mutation_tests.sh` は 7 種すべてを検出できなければ失敗する。flush を省く 2 種 (`NO_FLUSH_LOG` / `NO_FLUSH_INPLACE`) は cache 方式の全カットポイント (stride 1、乱数の種を変えて最大 3 回) で試す。flush カットを入れる前は、この 2 種は検出できなかった (3150 試行で 0 件。順序の入れ替えが起きる窓がカットポイントに存在しなかったため。省いた flush は同値変異ではなく、テスト側の観測の穴だった)。
 
 ## 既知の限界・未実装
 - **Full の操作 (`unlink` / `rmdir` / `rename` / `truncate` / `link`) は未実装** (呼ぶと `EOPNOTSUPP`)。アプリは CreateOnly に固定。ブロックの解放自体 (`fs_free`) は失敗時の巻き戻しとバッファの再利用のために実装済みだが、削除系の操作には接続していない。

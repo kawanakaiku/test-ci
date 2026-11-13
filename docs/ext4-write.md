@@ -93,12 +93,15 @@ LinuxCompat の上で**ジャーナル付きの書き込み**を動かした。e
 | 突然変異 4 種 (各 12 点 = 96 試行) | NO_FLUSH: S 12・A 18・B 16 / NO_SB_WRITE: E 36・S 24・A 36・B 88 / NO_ORDERED: S 20 / WRITEBACK: A 42 — すべて検出 |
 | AVD (emulator-5556) `Ext4WriteTest` 4 件 | OK。操作列の結果は 6109 エントリが fuse2fs の参照と一致、e2fsck clean、needs_recovery 消去。Android 上のジャーナル再生は e2fsck の再生とブロック一致。CreateOnly の拒否・汚れたボリュームの読み取り専用も通過 |
 | AVD `Ext2WriteTest` 3 件 (ext4 を書かずに閉じればイメージ不変を含む) | OK (1092 エントリが fuse2fs の参照と一致) |
+| ホスト全 ctest (4 構成) | 他ファイルシステムの回帰確認 (共有の互換層を触ったため)。san (読み取りのみ・ASan+UBSan): 137 件、wsan (書き込み有効・ASan+UBSan)・wrel (書き込み有効・Release): 146 件 (うち `ext4_write` と `ext4_crash` を含む)、plain: 137 件。`ntfs_windows_images` は Windows 製イメージが無いためスキップ。結果の詳細は最終報告を参照 |
 
 この段階で見つけて直したもの (どれもテストが捕まえた):
 - **ENOSPC 後の folio 漏れ**: `ext4_write_begin` は ENOSPC で `ext4_truncate_failed_write` が folio をキャッシュから捨てたあと、同じ folio を持ったまま再試行する。
   カーネルは切り離した folio の `mapping` を NULL にするので再試行側が `folio->mapping != mapping` で取り直せるが、互換層は NULL にしていなかった (KBH の folio だけ NULL にするよう修正、`rt_pagecache.c`)。
 - **マウント失敗時の漏れ**: `fill_super` 失敗で根 dentry (と inode 参照) が漏れる (ext4 は `dput(s_root)` してから `s_root = NULL` にし、互換層の `dput` は何もしない)。`d_make_root` が作った dentry を `sb->usbmem_root_made_` に覚えて失敗経路で解放。
   失敗した inode の extent status 木も漏れていた (`drop_inodes_sb` から `usbmem_drop_inode_extra` で解放)。
+- **ext2 マウント失敗時の誤適用**: 上の解放フックを ext2 の inode にも適用し ASan の heap-buffer-overflow (`nested_ioerr_*_ext2`)。ext4/ext3 の inode にだけ適用するよう修正。
+- テスト `xfs_features` は uuid を固定値 0xAB に書き換えていて、乱数 uuid がたまたま 0xAB だと変化せず 1/256 で落ちる。元の値と必ず違う値にした。
 - テストスクリプト: `run_ext4_write_tests.sh` の再生カットポイントの節に `set -e` で途中終了する行があった (削除)。作業ディレクトリは `USBMEM_WORK_DIR` で /dev/shm 以外にできる。
 
 ## 既知の限界・未実装

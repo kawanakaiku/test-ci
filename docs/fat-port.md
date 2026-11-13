@@ -2,7 +2,7 @@
 
 2026-11-12。Linux mainline `fs/fat` (コミット 067c5c24…、NTFS Resurrection / exFAT / ext2 / ext4 と同じ) を**無改変**で LinuxCompat に載せ、
 ホスト (4 構成の ctest) と Android (AVD emulator-5556 の instrumented test、NDK arm64-v8a / x86_64) で「読み取り専用マウント → 一覧 → stat → 読み取り」まで動かした。
-実機 (USB ディスク) では未確認 (手順は末尾)。**書き込みは未対応** (`read_only=0` は -EROFS、JNI は rw を要求されても読み取り専用でマウントする)。
+実機 (USB ディスク) では未確認 (手順は末尾)。**書き込みは別ドキュメント (docs/fat-write.md。2026-11-13 に追加、`USBMEM_NTFS_WRITE` ビルドのみ)**。書き込み無効のビルドでは `read_only=0` は -EROFS で、JNI は rw を要求されても読み取り専用でマウントする。
 
 ## 構成
 - `third_party/fat/` : `fs-fat/{cache,dir,fatent,file,inode,misc,namei_vfat}.c` と `fat.h`、`include/{linux,uapi/linux}/msdos_fs.h`、`nls/nls_cp437.c nls_cp932.c`、`COPYING`、`UPSTREAM.md`。**全て無改変**。
@@ -74,7 +74,7 @@
 - Android: `FatInstrumentedTest` (6 イメージ x 約 331 ファイルをマニフェストと全バイト比較、mtime はマウント時の端末タイムゾーン補正込み、日本語名・サロゲートペア名・大文字小文字)。`tools/run_android_fat_test.sh`。
 
 ## 制限 / 未解決
-- **書き込み未対応**。
+- **書き込みは docs/fat-write.md** (`USBMEM_NTFS_WRITE` ビルドだけ。実験的)。既定のビルドは読み取り専用。
 - **短い名前の codepage は 437 固定**: 長い名前 (LFN) を持たない 8.3 名が cp932 (日本語 DOS / 旧 Windows) で保存されている媒体は、短い名前が文字化けする (LFN があるファイルは正しい)。
   cp932 の表は登録済みなので、マウントオプション (`codepage=932`) を渡せるようにすれば切り替えられる。互換層の `usbmem_compat_mount_fs_opts` が今は「名前だけのフラグ」しか渡せないため未実装。
 - 隠し / システム属性を UI に出す項目が無い。非 ASCII の大文字小文字同一視はしない。

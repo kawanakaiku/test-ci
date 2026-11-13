@@ -30,7 +30,7 @@
 
 namespace {
 
-// dev 全体のファイルシステムを判別してマウントする。exFAT / ext2 / ext3 / ext4 / FAT12・16・32 と判別できたときだけそれぞれ(FAT は読み取り専用で)マウントする。それ以外は従来どおり NTFS として試す
+// dev 全体のファイルシステムを判別してマウントする。exFAT / ext2 / ext3 / ext4 / FAT12・16・32 と判別できたときだけそれぞれマウントする。それ以外は従来どおり NTFS として試す
 // (壊れた NTFS のブート領域でも、NTFS ドライバ側の検査・復旧の挙動を変えないため)。失敗時 nullptr と正の errno。
 std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, bool rw, int* err, bool allow_noload = false) {
   if (dev->is_read_only()) rw = false;  // 下のデバイスが読み取り専用 (ネストの子など) なら、書き込み可を要求されても読み取り専用でマウントする
@@ -56,12 +56,14 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     return usbmem::Ext4Volume::mount(dev, err, o4);
   }
   if (t == usbmem::FsType::Fat12 || t == usbmem::FsType::Fat16 || t == usbmem::FsType::Fat32) {
-    // FAT12/16/32 (vfat の長い名前を含む) は fs/fat で読み取り専用。書き込みは未対応 (rw を要求されても読み取り専用)。NTFS として試さない。
+    // FAT12/16/32 (vfat の長い名前を含む) は fs/fat。NTFS として試さない。docs/fat-write.md
+    //  - rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。ダーティ印 (ブートセクタ / FAT[1]) が付いたボリュームなど
+    //    書き込みに適さないものは mount_rw の中で読み取り専用に落ちる (writable() == false)
     // FAT の更新時刻は書いた端末のローカル時刻 (タイムゾーン情報なし) なので、現在の端末のタイムゾーンで UTC に直す (UTC より何分西か)
     time_t now = time(nullptr);
     struct tm lt;
     if (localtime_r(&now, &lt)) usbmem_fat_set_timezone(static_cast<int>(-lt.tm_gmtoff / 60));
-    return usbmem::FatVolume::mount(dev, err);
+    return rw ? usbmem::FatVolume::mount_rw(dev, err) : usbmem::FatVolume::mount(dev, err);
   }
   if (t == usbmem::FsType::Udf || t == usbmem::FsType::Iso9660) {
     // 光学メディア (読み取り専用)。ISO 9660 + UDF のブリッジ盤は UDF を優先し、UDF として開けなければ (対応外のパーティションなど) ISO 9660 にフォールバックする。docs/isofs-port.md / docs/udf-port.md

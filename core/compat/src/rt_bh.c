@@ -36,6 +36,7 @@ void bforget(struct buffer_head *bh) {
 void mark_buffer_dirty(struct buffer_head *bh) {
   bh->b_state |= 1UL << BH_Dirty;
   usbmem_folio_dirty_range(bh->b_folio, (size_t)(bh->b_data - (char *)bh->b_folio->data), bh->b_size);
+  if (bh->b_bdev && bh->b_bdev->usbmem_dirty_hook_) bh->b_bdev->usbmem_dirty_hook_(bh->b_bdev->usbmem_dirty_ctx_, (u64)bh->b_blocknr * bh->b_size, bh->b_size);
 }
 void mark_buffer_dirty_inode(struct buffer_head *bh, struct inode *inode) { (void)inode; mark_buffer_dirty(bh); }
 /* bh を今すぐデバイスへ書く。USB のキャッシュが他の書き込みを先に反映することがあるので、書いたら必ず flush する
@@ -61,7 +62,9 @@ u32 get_random_u32(void) { static u32 x = 2463534242u; x ^= x << 13; x ^= x >> 1
 unsigned int iunique(struct super_block *sb, unsigned int max_reserved) {
   static unsigned int counter;
   (void)sb;
-  do { counter++; } while (counter <= max_reserved);
+  /* 2 は FAT の FSInfo 用の予約番号 (MSDOS_FSINFO_INO)。fat_write_inode は ino == 2 を FSInfo の書き出しとみなすので、普通の inode に割り当てない
+   * (カーネルは起動後のカウンタが大きいので当たらないが、ここでは最初の割り当てが 2 になりうる) */
+  do { counter++; } while (counter <= max_reserved || counter == 2);
   return counter;
 }
 struct usbmem_timezone sys_tz;

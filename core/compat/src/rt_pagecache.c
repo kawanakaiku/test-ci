@@ -612,6 +612,43 @@ int usbmem_bdev_writeback_ranges(struct block_device *bd, const struct usbmem_ra
   return bdev_writeback_sel(bd, rs, nr, inside);
 }
 int usbmem_bdev_writeback(struct block_device *bd) { return bdev_writeback_sel(bd, NULL, 0, 0); }
+int usbmem_bdev_dirty_ranges(struct block_device *bd, struct usbmem_range **out, size_t *np) {
+  struct address_space *m = bd ? bd->bd_mapping : NULL;
+  struct pcache *p = m ? m->pages : NULL;
+  *out = NULL; *np = 0;
+  if (!p) return 0;
+  size_t cap = 0, n = 0; pgoff_t *snap = NULL;
+  pthread_mutex_lock(&p->mu);
+  for (int i = 0; i < NB; i++) for (struct folio *f = p->b[i]; f; f = f->hash_next_) if ((f->flags >> FOLIO_DIRTY) & 1) cap++;
+  if (!cap) { pthread_mutex_unlock(&p->mu); return 0; }
+  snap = malloc(cap * sizeof *snap);
+  if (!snap) { pthread_mutex_unlock(&p->mu); return -ENOMEM; }
+  for (int i = 0; i < NB; i++) for (struct folio *f = p->b[i]; f; f = f->hash_next_) if (((f->flags >> FOLIO_DIRTY) & 1) && n < cap) snap[n++] = f->index;
+  pthread_mutex_unlock(&p->mu);
+  qsort(snap, n, sizeof *snap, cmp_idx);
+  struct usbmem_range *r = malloc((n * 8 + 1) * sizeof *r);
+  if (!r) { free(snap); return -ENOMEM; }
+  size_t cnt = 0;
+  for (size_t k = 0; k < n; k++) {
+    pthread_mutex_lock(&p->mu); struct folio *f = pc_find_locked(p, snap[k]); pthread_mutex_unlock(&p->mu);
+    if (!f) continue;
+    folio_lock(f);
+    if ((f->flags >> FOLIO_DIRTY) & 1) {
+      unsigned char bits = f->dirty_blocks_ ? f->dirty_blocks_ : 0xFF;
+      u64 base = (u64)f->index << PAGE_SHIFT;
+      for (int b = 0; b < 8; b++) if ((bits >> b) & 1) {
+        u64 a = base + (u64)b * 512;
+        if (cnt && r[cnt - 1].off + r[cnt - 1].len == a) r[cnt - 1].len += 512;
+        else { r[cnt].off = a; r[cnt].len = 512; cnt++; }
+      }
+    }
+    folio_unlock(f); folio_put(f);
+  }
+  free(snap);
+  if (!cnt) { free(r); return 0; }
+  *out = r; *np = cnt;
+  return 0;
+}
 static int range_hit(const struct usbmem_range *rs, int nr, u64 a, u64 z) {   /* [a,z) が rs のどれかと重なるか */
   for (int i = 0; i < nr; i++) if (a < rs[i].off + rs[i].len && rs[i].off < z) return 1;
   return 0;

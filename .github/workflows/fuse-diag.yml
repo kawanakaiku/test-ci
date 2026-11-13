@@ -16,25 +16,25 @@ jobs:
         run: |
           fusermount3 -V; ls -l /dev/fuse /usr/bin/fusermount3 /usr/bin/ntfs-3g /usr/bin/fuse2fs /sbin/mount.exfat-fuse /usr/sbin/mount.exfat-fuse 2>&1 || true
           cat /etc/fuse.conf; id; fuse2fs --version 2>&1 | head -3
-      - name: ext2 fuse2fs
+      - name: allow_other
+        run: echo user_allow_other | sudo tee -a /etc/fuse.conf
+      - name: ext2 fuse2fs with the real fixture
         run: |
           set +e
-          D=$(mktemp -d); truncate -s 16M $D/a.img; mke2fs -q -t ext2 $D/a.img; mkdir $D/m
-          fuse2fs -o rw,fakeroot $D/a.img $D/m; echo "rc=$?"
-          mount | grep fuse; ls -la $D/m; touch $D/m/x; echo "touch rc=$?"
-          fusermount3 -u $D/m; echo "umount rc=$?"
-          echo "--- without fakeroot"
-          fuse2fs -o rw $D/a.img $D/m; echo "rc=$?"; fusermount3 -u $D/m
-          echo "--- -f debug"; (timeout 5 fuse2fs -f -o rw,fakeroot $D/a.img $D/m 2>&1 | head -20)
+          D=$(mktemp -d); python3 -I tools/gen_ext2_fixture.py $D/fx | tail -3
+          cp $D/fx/b1k.img $D/ref.img; mkdir -p $D/mnt
+          fuse2fs -o rw,fakeroot $D/ref.img $D/mnt; echo "fuse2fs rc=$?"
+          mount | grep fuse; ls -la $D/mnt | head; ls $D/mnt | wc -l
+          python3 -I tools/gen_ext2_ops.py 1024 $D/ops.txt 60 >/dev/null
+          python3 -I tools/ops_ref.py $D/mnt $D/ops.txt; echo "ops rc=$?"
+          fusermount3 -u $D/mnt
       - name: exfat fuse
         run: |
           set +e
           D=$(mktemp -d); truncate -s 24M $D/a.img; mkfs.exfat -q $D/a.img; mkdir $D/m
           gcc -shared -fPIC -O1 -o $D/shim.so tools/exfat_fuse_shim.c -ldl; echo "gcc rc=$?"
           LD_PRELOAD=$D/shim.so mount.exfat-fuse -o rw $D/a.img $D/m; echo "shim rc=$?"
-          mount | grep fuse; fusermount3 -u $D/m
-          mount.exfat-fuse -o rw $D/a.img $D/m; echo "noshim rc=$?"
-          mount | grep fuse; fusermount3 -u $D/m
+          mount | grep fuse; touch $D/m/x; echo "touch rc=$?"; fusermount3 -u $D/m
       - name: ntfs-3g
         run: |
           set +e

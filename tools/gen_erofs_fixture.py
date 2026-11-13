@@ -71,7 +71,9 @@ def make(outdir, name, args, sqb, compressed):
             return "mkfs.erofs failed: " + (r.stderr or r.stdout).strip()[:160]
         chk = subprocess.run(["fsck.erofs", img], capture_output=True, text=True)
         if chk.returncode != 0 and os.environ.get("USBMEM_FIXTURE_LENIENT") == "1":
-            print("WARNING: %s: fsck.erofs NOT clean (CI の erofs-utils の fsck が対応しない可能性。ドライバのテストで確かめる): %s" % (name, (chk.stdout + chk.stderr).strip()[:200]))
+            # CI (Ubuntu 26.04 の mkfs.erofs 1.9.1): -Ededupe のイメージを fsck.erofs もこのドライバも拒否する (EUCLEAN)。作り手側の不具合とみなして、その変種を作らない
+            os.remove(img)
+            return "fsck.erofs NOT clean (lenient mode: variant skipped): " + (chk.stdout + chk.stderr).strip()[:120]
         elif chk.returncode != 0:
             sys.exit("fsck.erofs NOT clean for %s:\n%s%s" % (name, chk.stdout, chk.stderr))
         ex = os.path.join(td, "ex")

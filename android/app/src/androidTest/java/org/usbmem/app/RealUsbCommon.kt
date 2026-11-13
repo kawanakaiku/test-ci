@@ -249,6 +249,17 @@ object RealUsb {
                 val info = try { CryptoVolume.probe(sub) } catch (x: CryptoException) { j.put("cryptoProbeError", "${x.code} ${errName(x.code)}"); null }
                 if (info == null) {
                     NativeBridge.nativeClose(sub)
+                    // 一過性の失敗か確かめるため、読み取り専用なら 1 度だけ待って再試行する (結果は retry* に記録)。再試行で開けたら成功として返す
+                    if (!writable) {
+                        Thread.sleep(300)
+                        try {
+                            val v = sess.mountNtfs(p.startBytes, p.sizeBytes, false, true, false)
+                            warn("mount of partition #${p.index} failed once (errno ${e.code}) but succeeded on retry")
+                            j.put("ok", true).put("fsName", v.fsName).put("noload", false).put("writable", false).put("mountMs", ms())
+                                .put("retriedAfterErrno", e.code).put("retriedAfterErrName", errName(e.code))
+                            return MountedVolume(v, emptyList(), j) to j
+                        } catch (e3: NativeException) { j.put("retryErrno", e3.code) }
+                    }
                     j.put("ok", false).put("errno", e.code).put("errName", errName(e.code)).put("message", e.message).put("mountMs", ms())
                     return null to j
                 }

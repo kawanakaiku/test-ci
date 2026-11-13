@@ -31,6 +31,8 @@ class RealUsbWriteTest {
     private val ctx: Context = inst.targetContext
     private val args = RealUsb.Args(InstrumentationRegistry.getArguments())
 
+    private var lun = 0
+
     companion object {
         /** 書き込みを許す FS (パーティション表の fs 名)。FAT32 は書き込み未対応、XFS/squashfs/erofs/UDF/ISO は読み取り専用 FS。 */
         val WRITABLE_FS = setOf("ntfs", "exfat", "fat12", "fat16", "fat32", "ext2", "ext3", "ext4", "btrfs", "f2fs")
@@ -52,6 +54,7 @@ class RealUsbWriteTest {
         val devs = RealUsb.massStorageDevices(usb, args.list("devices"))
         assertTrue("-e usbmem.devices には VID:PID を 1 つだけ指定してください (対象 ${devs.size} 本)", args.list("devices").size == 1 && devs.size == 1)
         val partNo = args.str("part").toIntOrNull()
+        lun = args.str("lun", "0").toIntOrNull() ?: 0   // カードリーダーなど複数 LUN の機器で、開く LUN (既定 0)
         assertTrue("-e usbmem.part にパーティション番号を 1 つ指定してください", partNo != null)
         assumeTrue("BuildConfig.WRITE_SUPPORTED=false のビルド (-PusbmemNtfsWrite=true が必要)", BuildConfig.WRITE_SUPPORTED)
         val dev = devs[0]
@@ -68,7 +71,7 @@ class RealUsbWriteTest {
         var pass = false
         try {
             // ---- パーティションの特定と許可判定 (読み取りだけ)
-            val p0 = mgr.open(info).let { s ->
+            val p0 = mgr.open(info, lun).let { s ->
                 try {
                     val pt = s.partitionTable()
                     root.put("tableKind", pt.kind)
@@ -76,7 +79,7 @@ class RealUsbWriteTest {
                     if (pt.kind == "mbr" && p.fs == "ext4") error("MBR の ext4 は復旧検証用の固定イメージ (needs_recovery) なので書き込みません")
                     if (p.fs !in WRITABLE_FS) error("fs=${p.fs} は書き込み対象外です (対象: $WRITABLE_FS)")
                     p
-                } finally { mgr.close(dev.deviceName) }
+                } finally { mgr.close(UsbSlotKey.of(dev.deviceName, lun)) }
             }
             root.put("target", RealUsb.partitionJson(p0))
             RealUsb.log("[write ${RealUsb.vidPid(dev)}#$partNo] target ${p0.name} fs=${p0.fs} size=${p0.sizeBytes shr 20} MiB stage=$stage")
@@ -128,8 +131,8 @@ class RealUsbWriteTest {
         val j = JSONObject().put("name", name).put("mode", "ReadOnly")
         val problems = JSONArray()
         val t0 = System.nanoTime()
-        mgr.setWriteMode(info.deviceName, WriteMode.ReadOnly)
-        val s = mgr.open(info)
+        mgr.setWriteMode(UsbSlotKey.of(info.deviceName, lun), WriteMode.ReadOnly)
+        val s = mgr.open(info, lun)
         try {
             val chk = fsck(s, p)
             j.put("fsck", chk)
@@ -173,7 +176,7 @@ class RealUsbWriteTest {
             problems.put("例外: ${e.javaClass.simpleName}: ${e.message}")
         } finally {
             val c0 = System.nanoTime()
-            runCatching { mgr.close(info.deviceName) }
+            runCatching { mgr.close(UsbSlotKey.of(info.deviceName, lun)) }
             j.put("closeMs", (System.nanoTime() - c0) / 1_000_000)
         }
         j.put("problems", problems).put("pass", problems.length() == 0).put("ms", (System.nanoTime() - t0) / 1_000_000)
@@ -199,8 +202,8 @@ class RealUsbWriteTest {
         val j = JSONObject().put("name", name).put("mode", mode.name)
         val steps = JSONArray(); j.put("steps", steps)
         val t0 = System.nanoTime()
-        assertTrue("setWriteMode", mgr.setWriteMode(info.deviceName, mode))
-        val s = mgr.open(info)
+        assertTrue("setWriteMode", mgr.setWriteMode(UsbSlotKey.of(info.deviceName, lun), mode))
+        val s = mgr.open(info, lun)
         var allOk = true
         val coFolder = "usbmem_cotest_$stamp"
         val speedFolder = "usbmem_speed_$stamp"
@@ -239,7 +242,7 @@ class RealUsbWriteTest {
             RealUsb.warn("$tag aborted: ${e.message}")
         } finally {
             val c0 = System.nanoTime()
-            runCatching { mgr.close(info.deviceName) }
+            runCatching { mgr.close(UsbSlotKey.of(info.deviceName, lun)) }
             j.put("sessionCloseMs", (System.nanoTime() - c0) / 1_000_000)
             runCatching { j.put("opStats", s.opStats()) }
         }

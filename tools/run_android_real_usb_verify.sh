@@ -10,11 +10,11 @@
 # 使い方:
 #   tools/run_android_real_usb_verify.sh --serial localhost:5565 [--devices 0930:6544[,VID:PID...]] [--mode sequential|parallel]
 #        [--only 1,2] [--skip-hash 02_big/big_4p5GiB.bin] [--tag NAME] [--perm 秒] [--no-build] [--no-install] [--out DIR]
-#   tools/run_android_real_usb_verify.sh --serial ... --write --devices 0930:6544 --part 1 [--stage createonly|full|both]
+#   tools/run_android_real_usb_verify.sh --serial ... --write --devices 0930:6544 --part 1 [--lun N] [--stage createonly|full|both]
 set -eu
 export PATH="$PATH:/sbin:/usr/sbin"
 SERIAL=${ANDROID_SERIAL:-}
-DEVICES=""; MODE=sequential; ONLY=""; SKIP=""; TAG=""; PERM=0; BUILD=1; INSTALL=1; OUT=""; WRITE=0; PART=""; STAGE=both; EXTRA=""
+DEVICES=""; MODE=sequential; ONLY=""; SKIP=""; TAG=""; PERM=0; BUILD=1; INSTALL=1; OUT=""; WRITE=0; PART=""; LUN=0; STAGE=both; EXTRA=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --serial) SERIAL=$2; shift 2;;
@@ -29,6 +29,7 @@ while [ $# -gt 0 ]; do
     --out) OUT=$2; shift 2;;
     --write) WRITE=1; shift;;
     --part) PART=$2; shift 2;;
+    --lun) LUN=$2; shift 2;;
     --stage) STAGE=$2; shift 2;;
     --extra) EXTRA="$EXTRA -e $2 $3"; shift 3;;   # 例: --extra usbmem.luksPass xxx
     -h|--help) sed -n '2,16p' "$0"; exit 0;;
@@ -64,7 +65,7 @@ set -- -e class $CLASS -e usbmem.real true -e usbmem.tag "$TAG" -e usbmem.perm "
 [ -z "$DEVICES" ] || set -- "$@" -e usbmem.devices "$DEVICES"
 [ -z "$ONLY" ] || set -- "$@" -e usbmem.only "$ONLY"
 [ -z "$SKIP" ] || set -- "$@" -e usbmem.skipHash "$SKIP"
-[ "$WRITE" = 0 ] || set -- "$@" -e usbmem.write true -e usbmem.part "$PART" -e usbmem.stage "$STAGE"
+[ "$WRITE" = 0 ] || set -- "$@" -e usbmem.write true -e usbmem.part "$PART" -e usbmem.lun "$LUN" -e usbmem.stage "$STAGE"
 echo "== instrument: $CLASS tag=$TAG serial=$SERIAL"
 START=$(date +%s)
 set +e

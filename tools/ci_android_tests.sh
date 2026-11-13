@@ -29,6 +29,7 @@ export ANDROID_SDK_EXEC=/usr/bin/env      # run_android_fat_test.sh の android-
 
 # ---- フィクスチャ生成 -------------------------------------------------------------
 py() { python3 -I "$@"; }
+export USBMEM_FIXTURE_LENIENT=1   # gen_erofs_fixture.py: Ubuntu の古い erofs-utils が展開できないイメージの独立検証を省く (警告を出す)
 gen_fs() {
   case $1 in
     fat)         py "$HERE/gen_fat_fixture.py" "$FIX/fat" ;;

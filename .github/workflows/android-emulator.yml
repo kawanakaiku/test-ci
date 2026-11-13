@@ -87,10 +87,12 @@ jobs:
             command -v "$t" >/dev/null || [ -x "/sbin/$t" ] || [ -x "/usr/sbin/$t" ] || echo "::warning::host tool missing: $t"
           done
 
-      # APK は x86_64 だけビルドする (エミュレータ用)。NTFS/ext2/exFAT の書き込みテストに -PusbmemNtfsWrite=true が要る
+      # NTFS / ext2 / exFAT の書き込みテストに -PusbmemNtfsWrite=true が要る (ABI は arm64-v8a と x86_64 の両方がビルドされる)
       - name: Build APKs
         working-directory: android
-        run: ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true -Pandroid.injected.build.abi=x86_64
+        run: |
+          ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true
+          find app/build/outputs/apk -name '*.apk' -exec ls -l {} +
 
       - name: Generate fixtures
         run: tools/ci_android_tests.sh gen ${{ matrix.group }}

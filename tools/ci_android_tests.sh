@@ -5,7 +5,7 @@
 # グループ (workflow の matrix と同じ名前):
 #   ext-fat        FAT (6 種) / ext2 書き込み / exFAT 書き込み
 #   btrfs-xfs      Btrfs (16 イメージ) / Btrfs 書き込み (btrfs check と btrfs restore で検証) / XFS (5 イメージ)
-#   squash-erofs   squashfs / erofs / F2FS (mkfs.f2fs + sload.f2fs で作る 1 イメージだけ。カーネル製 k_* は VM が要るので CI では扱わない)
+#   squash-erofs   squashfs / erofs / F2FS (mkfs.f2fs + sload.f2fs で作る 1 イメージだけ。カーネル製 k_* は VM が要るので CI では扱わない) / F2FS 書き込み (f2fs_write: 結果を fsck.f2fs とカーネルのループマウントで検証)
 #   nested-ntfs    ネスト (ループバック) マウント / NTFS 書き込み (SAF)
 #   ro-misc        読み取りテスト (ext2 / ext4 / exFAT / ISO 9660 / NTFS) と アプリ側テスト (DocumentsProvider / リンク / raw イメージ / 転送チューニング)。専用スクリプトが無いので ci_android_tests.sh が直接 push して実行する
 # 環境変数: ANDROID_SERIAL (既定 emulator-5554。emulator-* 以外は拒否)、CI_FIX (フィクスチャ置き場。既定 ${RUNNER_TEMP:-/tmp}/usbmem_fix)、
@@ -43,6 +43,7 @@ gen_fs() {
     squashfs)    py "$HERE/gen_squashfs_fixture.py" "$FIX/squashfs" ;;
     erofs)       py "$HERE/gen_erofs_fixture.py" "$FIX/erofs" ;;
     f2fs)        py "$HERE/gen_f2fs_fixture.py" "$FIX/f2fs" ext ;;
+    f2fs_write)  py "$HERE/gen_f2fs_fixture.py" "$FIX/f2fs" ext ;;
     nested)      py "$HERE/gen_nested_fixture.py" "$FIX/nested" ;;
     ext2_read)   py "$HERE/gen_ext2_fixture.py" "$FIX/ext2" ;;
     ext4_read)   py "$HERE/gen_ext4_fixture.py" "$FIX/ext4" ;;
@@ -120,6 +121,7 @@ run_fs() {
     squashfs)    bash "$HERE/run_android_squashfs_test.sh" "$FIX/squashfs" "$ADB" ;;
     erofs)       bash "$HERE/run_android_erofs_test.sh" "$FIX/erofs" "$ADB" ;;
     f2fs)        run_f2fs ;;
+    f2fs_write)  bash "$HERE/run_android_f2fs_write_test.sh" "$FIX/f2fs" ;;
     nested) bash "$HERE/run_android_nested_test.sh" "$FIX/nested" ;;
     write) bash "$HERE/run_android_write_test.sh" "$FIX/ntfs" ;;
     ext2_read)   run_generic $APP.Ext2InstrumentedTest "$FIX/ext2:ext2_" ;;
@@ -138,7 +140,7 @@ group_fs() {
   case $1 in
     ext-fat)       echo "fat ext2_write exfat_write" ;;
     btrfs-xfs)     echo "btrfs btrfs_write xfs" ;;
-    squash-erofs)  echo "squashfs erofs f2fs" ;;
+    squash-erofs)  echo "squashfs erofs f2fs f2fs_write" ;;
     nested-ntfs)   echo "nested write" ;;
     ro-misc)       echo "ext2_read ext4_read exfat_read iso_read ntfs_read app_misc" ;;
     *) echo "unknown group $1" >&2; return 2 ;;

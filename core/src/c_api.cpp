@@ -17,7 +17,18 @@
 
 using namespace usbmem;
 
+struct usbmem_usb_bus { std::shared_ptr<MscBus> bus; };
+
 namespace {
+void json_str(std::string& o, const std::string& v) {
+  o += '"';
+  for (char c : v) {
+    if (c == '"' || c == '\\') { o += '\\'; o += c; }
+    else if (static_cast<unsigned char>(c) < 0x20 || static_cast<unsigned char>(c) > 0x7E) o += ' ';
+    else o += c;
+  }
+  o += '"';
+}
 int code(Status s) { return static_cast<int>(s.code); }
 int wrap(usbmem::BlockDevicePtr d, usbmem_device** out) {
   auto* h = new (std::nothrow) usbmem_device{std::move(d)};
@@ -90,6 +101,74 @@ int usbmem_open_usb_msc(int fd, int ep_in, int ep_out, int interface_number, int
   if (!st.ok()) return code(st);
   return wrap(std::move(d), out);
 }
+
+int usbmem_usb_bus_open(int fd, int ep_in, int ep_out, int interface_number, int query_max_lun, usbmem_usb_bus** out) {
+  if (!out) return static_cast<int>(Errc::InvalidArgument);
+  *out = nullptr;
+  if (fd < 0 || ep_in < 0 || ep_in > 255 || ep_out < 0 || ep_out > 255 || !(ep_in & 0x80) || (ep_out & 0x80) || interface_number < 0 || interface_number > 255)
+    return static_cast<int>(Errc::InvalidArgument);
+  UsbEndpoints eps;
+  eps.ep_in = static_cast<uint8_t>(ep_in); eps.ep_out = static_cast<uint8_t>(ep_out); eps.interface = static_cast<uint8_t>(interface_number);
+  auto t = make_usbdevfs_transport(fd, eps);
+  if (!t) return static_cast<int>(Errc::NoMemory);
+  std::shared_ptr<MscBus> bus;
+  Status st = MscBus::create(std::move(t), query_max_lun != 0, &bus);
+  if (!st.ok()) return code(st);
+  auto* h = new (std::nothrow) usbmem_usb_bus{std::move(bus)};
+  if (!h) return static_cast<int>(Errc::NoMemory);
+  *out = h;
+  return 0;
+}
+
+int usbmem_usb_bus_lun_count(usbmem_usb_bus* b) { return b && b->bus ? static_cast<int>(b->bus->lun_count()) : 0; }
+
+void usbmem_usb_bus_max_lun_note(usbmem_usb_bus* b, char* buf, size_t len) {
+  if (!buf || !len) return;
+  snprintf(buf, len, "%s", b && b->bus ? b->bus->max_lun_note().c_str() : "");
+}
+
+int usbmem_usb_bus_scan_luns(usbmem_usb_bus* b, unsigned int skip_mask, int ready_wait_ms, char** out_json) {
+  if (!b || !b->bus || !out_json) return static_cast<int>(Errc::InvalidArgument);
+  *out_json = nullptr;
+  try {
+    MscOptions o;
+    o.ready_wait_ms = ready_wait_ms < 0 ? 0 : static_cast<uint32_t>(std::min(ready_wait_ms, 5000));
+    std::vector<LunInfo> v;
+    Status st = b->bus->scan_luns(o, skip_mask, &v);
+    if (!st.ok()) return code(st);
+    std::string j = "[";
+    for (size_t i = 0; i < v.size(); i++) {
+      const LunInfo& l = v[i];
+      if (i) j += ',';
+      j += "{\"lun\":" + std::to_string(l.lun) + ",\"state\":\"" + lun_state_name(l.state) + "\",\"ptype\":" + std::to_string(l.ptype) +
+           ",\"removable\":" + (l.removable ? "true" : "false") + ",\"vendor\":";
+      json_str(j, l.vendor); j += ",\"product\":"; json_str(j, l.product);
+      j += ",\"blocks\":\"" + std::to_string(l.blocks) + "\",\"blockSize\":" + std::to_string(l.block_size) + ",\"note\":"; json_str(j, l.note);
+      j += '}';
+    }
+    j += ']';
+    char* p = static_cast<char*>(std::malloc(j.size() + 1));
+    if (!p) return static_cast<int>(Errc::NoMemory);
+    std::memcpy(p, j.c_str(), j.size() + 1);
+    *out_json = p;
+    return 0;
+  } catch (...) { return static_cast<int>(Errc::NoMemory); }
+}
+
+int usbmem_open_usb_msc_lun(usbmem_usb_bus* b, int lun, int read_only, usbmem_device** out) {
+  if (!out) return static_cast<int>(Errc::InvalidArgument);
+  *out = nullptr;
+  if (!b || !b->bus || lun < 0 || lun > 15) return static_cast<int>(Errc::InvalidArgument);
+  MscOptions o;
+  o.lun = static_cast<uint8_t>(lun);
+  o.read_only = read_only != 0;
+  BlockDevicePtr d;
+  Status st = b->bus->open_lun(o, &d);
+  if (!st.ok()) return code(st);
+  return wrap(std::move(d), out);
+}
+
+void usbmem_usb_bus_close(usbmem_usb_bus* b) { delete b; }
 
 int usbmem_usb_start_stop(usbmem_device* dev, int start) {
   if (!dev) return static_cast<int>(Errc::InvalidArgument);

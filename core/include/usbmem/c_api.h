@@ -18,6 +18,28 @@ int usbmem_device_sub_range(usbmem_device* parent, unsigned long long offset, un
  * (usbmem_close の後も fd は閉じない。device より長く生かすこと)。claimInterface は呼び出し側で済ませておく。
  * read_only は常に 1 を推奨 (書き込みは検証済みになるまで有効化しない)。 */
 int usbmem_open_usb_msc(int fd, int ep_in, int ep_out, int interface_number, int lun, int read_only, usbmem_device** out);
+
+/* ---- 複数 LUN (カードリーダーなど)。docs/multi-usb.md。
+ * 1 つの Mass Storage インタフェース (= 1 本の USB 接続) を表す usbmem_usb_bus を作り、そこから LUN ごとに usbmem_device を開く。
+ * 同じ bus の LUN は 1 組の bulk エンドポイントを共有するので、BOT のコマンドは bus の中で 1 つずつ直列化される (別の LUN の同時 I/O は安全)。
+ * fd / claimInterface の扱いは usbmem_open_usb_msc と同じ。fd は bus と、そこから開いた全デバイスより長く生かすこと。
+ * usbmem_usb_bus_close の後も、開いたデバイスは使える (bus は参照カウントで、最後のデバイスを閉じたときに解放される)。 */
+typedef struct usbmem_usb_bus usbmem_usb_bus;
+/* bus を作る。query_max_lun != 0 なら GET MAX LUN (クラス要求 0xFE) を 1 回だけ送って LUN 数を調べる。STALL・エラー・不正な値 (最大 LUN >= 16) でも失敗にせず、LUN 1 つとみなす。 */
+int usbmem_usb_bus_open(int fd, int ep_in, int ep_out, int interface_number, int query_max_lun, usbmem_usb_bus** out);
+/* LUN の数 (1..16)。query_max_lun = 0 で作った bus は 1。 */
+int usbmem_usb_bus_lun_count(usbmem_usb_bus* bus);
+/* GET MAX LUN の結果の診断用 1 行 (ASCII)。 */
+void usbmem_usb_bus_max_lun_note(usbmem_usb_bus* bus, char* buf, size_t len);
+/* 全 LUN の一覧を JSON で返す (読み取り専用のコマンド INQUIRY / TEST UNIT READY / READ CAPACITY だけを使う)。
+ * skip_mask の bit n が 1 の LUN は調べず "skipped" にする (すでに開いている LUN に余計なコマンドを送らないため)。ready_wait_ms: 準備中の LUN を待つ上限 (最大 5000)。
+ * *out_json は usbmem_free で解放する。形式: [{"lun":0,"state":"ready|no-media|not-ready|unsupported|error|skipped","ptype":0,"removable":true,
+ *   "vendor":"..","product":"..","blocks":"123","blockSize":512,"note":".."}, ...]  (blocks は 64 ビット精度のため文字列) */
+int usbmem_usb_bus_scan_luns(usbmem_usb_bus* bus, unsigned int skip_mask, int ready_wait_ms, char** out_json);
+/* bus の LUN を開く (INQUIRY → TEST UNIT READY → READ CAPACITY)。メディアなしの LUN は Disconnected。lun が LUN 数以上なら InvalidArgument。 */
+int usbmem_open_usb_msc_lun(usbmem_usb_bus* bus, int lun, int read_only, usbmem_device** out);
+void usbmem_usb_bus_close(usbmem_usb_bus* bus);
+
 /* 直近の SCSI センス (診断用)。key/asc/ascq。USB デバイスでなければ 0。 */
 void usbmem_usb_last_sense(usbmem_device* dev, int* key, int* asc, int* ascq);
 /* 送った SCSI オペコードの集計文字列を buf (NUL 終端) へ。USB マスストレージでなければ空。 */

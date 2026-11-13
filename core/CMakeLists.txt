@@ -46,7 +46,7 @@ include(blockdev.cmake)  # 画像形式 / オーバーレイ / NBD (zlib 依存)
 if(USBMEM_BUILD_TESTS)
   enable_testing()
   add_executable(usbmem_tests tests/test_main.cpp tests/test_devices.cpp tests/test_partition.cpp
-                 tests/test_fixtures.cpp tests/test_usb_msc.cpp
+                 tests/test_fixtures.cpp tests/test_usb_msc.cpp tests/test_usb_lun.cpp
                  tests/test_partedit.cpp tests/test_partedit_fault.cpp tests/test_fslabel.cpp tests/test_partedit_capi.cpp)
   target_link_libraries(usbmem_tests PRIVATE usbmem_core)
   add_test(NAME unit COMMAND usbmem_tests)

@@ -31,7 +31,7 @@ jobs:
       max-parallel: 4
       matrix:
         # グループの中身は tools/ci_android_tests.sh の group_fs() を参照
-        group: [ext-fat, btrfs-xfs, squash-erofs, nested-ntfs]
+        group: [ext-fat, btrfs-xfs, squash-erofs, nested-ntfs, ro-misc]
     steps:
       - uses: actions/checkout@v7
 
@@ -81,11 +81,11 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             e2fsprogs fuse2fs fuse3 mtools p7zip-full dosfstools exfatprogs exfat-fuse ntfs-3g \
             btrfs-progs xfsprogs f2fs-tools erofs-utils squashfs-tools zstd lzop lz4 xz-utils \
-            gdisk fdisk gcc python3 bc
+            gdisk fdisk gcc python3 bc genisoimage xorriso
           # 非 root の FUSE マウント (fuse2fs / exfat-fuse / ntfs-3g) が allow_other を付けるので、fusermount3 に許可する
           echo user_allow_other | sudo tee -a /etc/fuse.conf
           for t in mke2fs e2fsck fuse2fs mformat 7z mkfs.fat mkfs.exfat fsck.exfat mount.exfat-fuse mkntfs ntfs-3g \
-                   mkfs.btrfs btrfs mkfs.xfs xfs_repair mkfs.f2fs sload.f2fs fsck.f2fs mkfs.erofs fsck.erofs mksquashfs unsquashfs sgdisk sfdisk; do
+                   mkfs.btrfs btrfs mkfs.xfs xfs_repair mkfs.f2fs sload.f2fs fsck.f2fs mkfs.erofs fsck.erofs mksquashfs unsquashfs sgdisk sfdisk genisoimage xorriso isoinfo; do
             command -v "$t" >/dev/null || [ -x "/sbin/$t" ] || [ -x "/usr/sbin/$t" ] || echo "::warning::host tool missing: $t"
           done
 

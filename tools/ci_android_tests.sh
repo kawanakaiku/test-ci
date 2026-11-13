@@ -7,6 +7,7 @@
 #   btrfs-xfs      Btrfs (16 イメージ) / XFS (5 イメージ)
 #   squash-erofs   squashfs / erofs / F2FS (mkfs.f2fs + sload.f2fs で作る 1 イメージだけ。カーネル製 k_* は VM が要るので CI では扱わない)
 #   nested-ntfs    ネスト (ループバック) マウント / NTFS 書き込み (SAF)
+#   ro-misc        読み取りテスト (ext2 / ext4 / exFAT / ISO 9660 / NTFS) と アプリ側テスト (DocumentsProvider / リンク / raw イメージ / 転送チューニング)。専用スクリプトが無いので ci_android_tests.sh が直接 push して実行する
 # 環境変数: ANDROID_SERIAL (既定 emulator-5554。emulator-* 以外は拒否)、CI_FIX (フィクスチャ置き場。既定 ${RUNNER_TEMP:-/tmp}/usbmem_fix)、
 #          CI_LOG_DIR (ログ。既定 <リポジトリ>/ci-logs)。run は ビルド済みの APK (-PusbmemNtfsWrite=true のビルド) が android/app/build/outputs/apk にあること。
 # 既存の tools/run_android_*_test.sh をそのまま呼ぶ (USBMEM_SKIP_BUILD=1 でスクリプト内のビルドを省く)。
@@ -42,6 +43,12 @@ gen_fs() {
     erofs)       py "$HERE/gen_erofs_fixture.py" "$FIX/erofs" ;;
     f2fs)        py "$HERE/gen_f2fs_fixture.py" "$FIX/f2fs" ext ;;
     nested)      py "$HERE/gen_nested_fixture.py" "$FIX/nested" ;;
+    ext2_read)   py "$HERE/gen_ext2_fixture.py" "$FIX/ext2" ;;
+    ext4_read)   py "$HERE/gen_ext4_fixture.py" "$FIX/ext4" ;;
+    exfat_read)  py "$HERE/gen_exfat_fixture.py" "$FIX/exfat" ;;
+    iso_read)    py "$HERE/gen_iso_fixture.py" "$FIX/iso" ;;
+    ntfs_read)   bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
+    app_misc)    py "$HERE/gen_ext2_fixture.py" "$FIX/ext2" && bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
     write) bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
     *) echo "unknown fs $1" >&2; return 2 ;;
   esac
@@ -68,6 +75,39 @@ run_f2fs() {
   echo "$out" | grep -q "^OK (" || return 1
 }
 
+# 専用スクリプトの無いテスト: <ディレクトリ> の *.img / *.manifest / *.ref_* を /data/local/tmp/<接頭辞><名前> として送り、計装テストのクラスを実行する。
+# am instrument -r の結果から、成功 / 失敗 / スキップ (assumption 失敗 = フィクスチャ未送信など) を数える。スキップがあれば失敗扱い (黙って通さない)
+push_dir() {   # push_dir <dir> <prefix>
+  local f
+  for f in "$1"/*.img "$1"/*.manifest "$1"/*.ref_*; do
+    [ -f "$f" ] || continue
+    adbs push "$f" "/data/local/tmp/$2$(basename "$f")" >/dev/null || return 1
+  done
+}
+instr_classes() {   # instr_classes <クラス,クラス,...>
+  adbs install -r -t "$APKD/debug/app-debug.apk" >/dev/null || return 1
+  adbs install -r -t "$APKD/androidTest/debug/app-debug-androidTest.apk" >/dev/null || return 1
+  local out; out=$(adbs shell am instrument -r -w -e class "$1" "$RUNNER")
+  local pass fail skip
+  pass=$(echo "$out" | grep -c '^INSTRUMENTATION_STATUS_CODE: 0')
+  fail=$(echo "$out" | grep -cE '^INSTRUMENTATION_STATUS_CODE: -[12]')
+  skip=$(echo "$out" | grep -cE '^INSTRUMENTATION_STATUS_CODE: -[34]')
+  echo "$out" | grep -E '^INSTRUMENTATION_STATUS: (class|test|stack)=' | paste -sd' ' | fold -w 200 | head -40
+  echo "$out" | grep -A12 '^INSTRUMENTATION_STATUS: stack=' | head -60
+  echo "passed: $pass failed: $fail skipped: $skip"
+  [ "$fail" -eq 0 ] && [ "$skip" -eq 0 ] && [ "$pass" -gt 0 ] && echo "OK ($pass tests)"
+  [ "$fail" -eq 0 ] && [ "$skip" -eq 0 ] && [ "$pass" -gt 0 ]
+}
+run_generic() {   # run_generic <クラス,...> <dir>:<prefix> ...
+  local cls=$1; shift
+  local dp
+  for dp in "$@"; do push_dir "${dp%%:*}" "${dp#*:}" || return 1; done
+  instr_classes "$cls"; local r=$?
+  adbs shell 'rm -f /data/local/tmp/ext2_* /data/local/tmp/ext4_* /data/local/tmp/exfat_* /data/local/tmp/iso_* /data/local/tmp/ntfs_basic.*' >/dev/null
+  return $r
+}
+APP=org.usbmem.app
+
 run_fs() {
   case $1 in
     fat) bash "$HERE/run_android_fat_test.sh" "$FIX/fat" ;;
@@ -90,6 +130,7 @@ group_fs() {
     btrfs-xfs)     echo "btrfs xfs" ;;
     squash-erofs)  echo "squashfs erofs f2fs" ;;
     nested-ntfs)   echo "nested write" ;;
+    ro-misc)       echo "ext2_read ext4_read exfat_read iso_read ntfs_read app_misc" ;;
     *) echo "unknown group $1" >&2; return 2 ;;
   esac
 }

@@ -674,7 +674,7 @@ def parse_manifest(text):
     return out
 
 
-IGNORED_EXTRA = {"MANIFEST.sha256", "lost+found", "System Volume Information", "$RECYCLE.BIN", ".Trash-0", ".Trash-1000", "found.000", ".fseventsd", ".Spotlight-V100"}
+IGNORED_EXTRA = {"MANIFEST.sha256", "lost+found", "System Volume Information", "$RECYCLE.BIN", ".Trash-0", ".Trash-1000", "found.000", ".fseventsd", ".Spotlight-V100", "rr_moved"}
 
 
 def sha256_file(path):

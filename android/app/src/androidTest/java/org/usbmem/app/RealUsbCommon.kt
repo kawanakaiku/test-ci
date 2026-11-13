@@ -87,8 +87,8 @@ object RealUsb {
         return out
     }
 
-    /** verify_tree の IGNORED_EXTRA と同じ (ルート直下だけ)。 */
-    val IGNORED_EXTRA = setOf("MANIFEST.sha256", "lost+found", "System Volume Information", "\$RECYCLE.BIN", ".Trash-0", ".Trash-1000", "found.000", ".fseventsd", ".Spotlight-V100")
+    /** verify_tree の IGNORED_EXTRA と同じ (ルート直下だけ)。rr_moved は ISO9660 の Rock Ridge で 8 階層超を退避する作成ツールのディレクトリ (カーネルの isofs もそのまま見せる)。 */
+    val IGNORED_EXTRA = setOf("MANIFEST.sha256", "lost+found", "System Volume Information", "\$RECYCLE.BIN", ".Trash-0", ".Trash-1000", "found.000", ".fseventsd", ".Spotlight-V100", "rr_moved")
 
     fun readWhole(v: NtfsVolume, path: String, limit: Int = 8 shl 20): ByteArray {
         val size = v.stat(path).size

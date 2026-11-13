@@ -5,7 +5,7 @@ set -eu
 : "${ANDROID_SERIAL:?set ANDROID_SERIAL to the emulator (e.g. emulator-5556)}"
 case "$ANDROID_SERIAL" in emulator-*) ;; *) echo "refusing: ANDROID_SERIAL must be an emulator" >&2; exit 2;; esac
 HERE=$(cd "$(dirname "$0")" && pwd); D=${1:-/dev/shm/usbmem_ntfs_${USER:-u}}
-W=$(mktemp -d /dev/shm/usbmem_aw.XXXXXX); trap 'fusermount3 -u "$W/m" 2>/dev/null || true; rm -rf "$W"' EXIT
+W=$(mktemp -d "${USBMEM_TMP:-/dev/shm}"/usbmem_aw.XXXXXX); trap 'fusermount3 -u "$W/m" || true; rm -rf "$W"' EXIT
 adb push "$D/ntfs_basic.img" /data/local/tmp/ntfs_basic.img >/dev/null
 adb shell run-as org.usbmem.app rm -f cache/rw_result.img 2>/dev/null || true
 # USBMEM_SKIP_BUILD=1: ビルド済みの APK を使う (CI: tools/ci_android_tests.sh)

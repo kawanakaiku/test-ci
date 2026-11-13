@@ -11,7 +11,7 @@ case "$ANDROID_SERIAL" in emulator-*) ;; *) echo "refusing: ANDROID_SERIAL must 
 HERE=$(cd "$(dirname "$0")" && pwd); D=${1:-/dev/shm/usbmem_exfat_${USER:-u}}
 for c in fsck.exfat mount.exfat-fuse fusermount3 python3 adb gcc; do command -v $c >/dev/null || { echo "skip: $c missing" >&2; exit 77; }; done
 [ -f "$D/c4k.img" ] || { echo "skip: no fixture $D/c4k.img" >&2; exit 77; }
-W=$(mktemp -d /dev/shm/usbmem_axw.XXXXXX)
+W=$(mktemp -d "${USBMEM_TMP:-/dev/shm}"/usbmem_axw.XXXXXX)
 cleanup() {
   fusermount3 -u "$W/mnt" 2>/dev/null || true; rm -rf "$W"
   adb shell rm -f /data/local/tmp/exfat_wr.img /data/local/tmp/exfat_wr_ops.txt /data/local/tmp/exfat_dirty.img 2>/dev/null || true
@@ -19,7 +19,7 @@ cleanup() {
 }
 trap cleanup EXIT
 gcc -shared -fPIC -O1 -o "$W/shim.so" "$HERE/exfat_fuse_shim.c" -ldl || { echo "skip: cannot build the fusermount3 shim" >&2; exit 77; }
-fmount() { mkdir -p "$2"; LD_PRELOAD="$W/shim.so" mount.exfat-fuse -o "$3" "$1" "$2" 2>/dev/null; }
+fmount() { mkdir -p "$2"; LD_PRELOAD="$W/shim.so" mount.exfat-fuse -o "$3" "$1" "$2"; }
 python3 -I "$HERE/gen_exfat_ops.py" 4096 "$W/ops.txt" 60
 cp "$D/c4k.img" "$W/wr.img"
 cp "$D/c4k.img" "$W/dirty.img"

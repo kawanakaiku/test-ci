@@ -118,6 +118,22 @@ fi
 adbs wait-for-device
 echo "device: $(adbs shell getprop ro.product.model | tr -d '\r') API $(adbs shell getprop ro.build.version.sdk | tr -d '\r') ($ANDROID_SERIAL)"
 adbs shell df -h /data | tee "$LOG/df_start.txt"
+# アプリのヒープ上限 (dalvik.vm.heapgrowthlimit) を引き上げる。既定の AVD は 192 MB で、Btrfs テストが 200 MB のイメージを読み込む (readBytes) と OOM になる。
+# google_apis の AVD は adb root できるので、プロパティを書いて zygote を再起動する (失敗しても続ける)
+echo "heap before: growthlimit=$(adbs shell getprop dalvik.vm.heapgrowthlimit | tr -d '\r') heapsize=$(adbs shell getprop dalvik.vm.heapsize | tr -d '\r')"
+if adbs root >/dev/null 2>&1; then
+  adbs wait-for-device
+  adbs shell setprop dalvik.vm.heapgrowthlimit 512m
+  adbs shell setprop dalvik.vm.heapsize 768m
+  adbs shell stop; adbs shell start
+  for _ in $(seq 1 60); do
+    sleep 2
+    [ "$(adbs shell getprop sys.boot_completed | tr -d '\r')" = 1 ] && adbs shell pm path android >/dev/null 2>&1 && break
+  done
+  echo "heap after: growthlimit=$(adbs shell getprop dalvik.vm.heapgrowthlimit | tr -d '\r') heapsize=$(adbs shell getprop dalvik.vm.heapsize | tr -d '\r')"
+else
+  echo "adb root not available; heap limit unchanged"
+fi
 adbs logcat -c
 adbs logcat -v threadtime > "$LOG/logcat.txt" 2>&1 &
 LOGCAT_PID=$!

@@ -189,7 +189,7 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
         val b = NativeBridge.nativeFsReadlink(handle, bytes(path), err) ?: throw NativeException(err[0], "readlink '$path' failed: errno ${err[0]}")
         return String(b, Charsets.UTF_8)
     }
-    /** parent の下に name のシンボリックリンクを作る (新規作成なので createOnly でも可)。inode 番号を返す。ext2 / ext4 (ext3 を含む)。 */
+    /** parent の下に name のシンボリックリンクを作る (新規作成なので createOnly でも可)。inode 番号を返す。ext2 / ext4 (ext3 を含む) / f2fs。 */
     @Synchronized
     fun symlink(parent: String, name: String, target: String): Long {
         checkWritable()
@@ -198,7 +198,7 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
         sync()
         return ino
     }
-    /** 既存の existing へのハードリンクを parent の下に name で作る (既存データに別名を付けるので createOnly では拒否)。ext2 / ext4 (ext3 を含む)。 */
+    /** 既存の existing へのハードリンクを parent の下に name で作る (既存データに別名を付けるので createOnly では拒否)。ext2 / ext4 (ext3 を含む) / f2fs。 */
     @Synchronized
     fun link(parent: String, name: String, existing: String) {
         checkWritable(); denyIfCreateOnly("link")

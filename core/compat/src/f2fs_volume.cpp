@@ -1011,7 +1011,7 @@ int F2fsVolume::readlink(uint64_t ino, std::string* target) {
 }
 
 #ifdef USBMEM_NTFS_WRITE
-int F2fsVolume::sync() { std::lock_guard<std::mutex> g(impl_->mu); if (!impl_->rw) return -30; return impl_->checkpoint(); }
+int F2fsVolume::sync() { std::lock_guard<std::mutex> g(impl_->mu); if (!impl_->rw) return 0; return impl_->checkpoint(); }
 int F2fsVolume::create(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) {
   std::lock_guard<std::mutex> g(impl_->mu);
   return impl_->op_create(dir, name, mode, ino, 0100000, nullptr);
@@ -1032,7 +1032,7 @@ int64_t F2fsVolume::write(uint64_t ino, uint64_t off, const void* buf, size_t le
 int64_t F2fsVolume::write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len) { std::lock_guard<std::mutex> g(impl_->mu); return impl_->op_write(ino, off, buf, len, true); }
 int F2fsVolume::truncate(uint64_t ino, uint64_t size) { std::lock_guard<std::mutex> g(impl_->mu); return impl_->op_truncate(ino, size); }
 #else
-int F2fsVolume::sync() { return -30; }
+int F2fsVolume::sync() { return 0; }
 int F2fsVolume::create(uint64_t, const std::string&, uint32_t, uint64_t*) { return -30; }
 int F2fsVolume::mkdir(uint64_t, const std::string&, uint32_t, uint64_t*) { return -30; }
 int F2fsVolume::symlink(uint64_t, const std::string&, const std::string&, uint64_t*) { return -30; }

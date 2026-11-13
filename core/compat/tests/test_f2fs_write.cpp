@@ -70,6 +70,7 @@ static int dump_tree(FsVolume& vol, std::vector<std::string>* lines) {
       uint32_t t = st.mode & 0170000;
       if (t == 0040000) { lines->push_back("d 0 - " + p); stack.push_back({p, e.ino}); }
       else if (t == 0120000) { std::string tg; rc = vol.readlink(e.ino, &tg); if (rc) return rc; lines->push_back("l 0 " + tg + " " + p); }
+      else if (t != 0100000) continue;   // 特殊ファイル (blk/chr/fifo/sock): 内容がなく、ops_ref.py --tree も出さない
       else {
         std::vector<uint8_t> d(st.size); size_t off = 0;
         while (off < st.size) { int64_t r = vol.read(e.ino, off, d.data() + off, st.size - off); if (r <= 0) return r < 0 ? (int)r : -EIO; off += (size_t)r; }
@@ -87,6 +88,24 @@ static int write_dump(FsVolume& vol, const std::string& out) {
   return 0;
 }
 
+
+// flush() も電源断の発生点に数える (CrashDevice は write_at しか数えない)。フッタを書いたあと・その flush が終わる前に電源が落ちる、という
+// 状況 (キャッシュ モードでは未 flush の書き込みのランダムな部分集合だけが残る) を作るため。長さ 0 の write_at を 1 回発行して数える。
+class FlushCutDevice : public usbmem::BlockDevice {
+ public:
+  explicit FlushCutDevice(std::shared_ptr<CrashDevice> c) : c_(std::move(c)) {}
+  usbmem::Status read_at(uint64_t off, void* buf, size_t len, const usbmem::IoOptions& o = {}) override { return c_->read_at(off, buf, len, o); }
+  usbmem::Status write_at(uint64_t off, const void* buf, size_t len, const usbmem::IoOptions& o = {}) override { return c_->write_at(off, buf, len, o); }
+  usbmem::Status flush() override { char z = 0; c_->write_at(0, &z, 0); return c_->flush(); }
+  usbmem::Status close() override { return c_->close(); }
+  uint64_t size() const override { return c_->size(); }
+  uint32_t logical_block_size() const override { return c_->logical_block_size(); }
+  bool is_read_only() const override { return false; }
+  std::string describe() const override { return "flushcut(" + c_->describe() + ")"; }
+ private:
+  std::shared_ptr<CrashDevice> c_;
+};
+
 // ---- --ops
 static int ops_run(const std::string& img, const std::string& script) {
   BlockDevicePtr dev = open_rw(img);
@@ -95,11 +114,11 @@ static int ops_run(const std::string& img, const std::string& script) {
   if (const char* cl = std::getenv("USBMEM_CRASH_AT")) {
     const char* md = std::getenv("USBMEM_CRASH_MODE"); const char* sd = std::getenv("USBMEM_CRASH_SEED"); const char* tn = std::getenv("USBMEM_CRASH_TORN");
     crash = std::make_shared<CrashDevice>(dev, std::atol(cl), md && std::string(md) == "cache", tn && *tn == '1', sd ? (unsigned)std::atoi(sd) : 1);
-    dev = crash;
+    dev = std::make_shared<FlushCutDevice>(crash);
   }
   int err = 0; auto vol = F2fsVolume::mount_rw(dev, &err);
   if (!vol) { std::fprintf(stderr, "mount_rw failed: errno %d\n", err); return 1; }
-  if (!vol->writable()) { std::fprintf(stderr, "not writable\n"); return 3; }
+  if (!vol->writable()) { std::fprintf(stderr, "not writable (refusal errno %d)\n", vol->write_refusal()); return 3; }
   auto dir_ino = [&](const std::string& d, uint64_t* ino) { if (d.empty()) { *ino = vol->root(); return 0; } return vol->resolve(d, ino); };
   std::ifstream in(script); std::string line; int n = 0, bad = 0;
   const bool sync_each = std::getenv("USBMEM_SYNC_EVERY") != nullptr;
@@ -390,7 +409,7 @@ static int replay_run(const std::string& img) {
   if (const char* cl = std::getenv("USBMEM_CRASH_AT")) {
     const char* md = std::getenv("USBMEM_CRASH_MODE"); const char* sd = std::getenv("USBMEM_CRASH_SEED"); const char* tn = std::getenv("USBMEM_CRASH_TORN");
     crash = std::make_shared<CrashDevice>(dev, std::atol(cl), md && std::string(md) == "cache", tn && *tn == '1', sd ? (unsigned)std::atoi(sd) : 1);
-    dev = crash;
+    dev = std::make_shared<FlushCutDevice>(crash);
   }
   int err = 0; auto vol = F2fsVolume::mount_rw(dev, &err);
   if (!vol) { std::fprintf(stderr, "replay: mount_rw failed: errno %d\n", err); return crash ? 0 : 1; }
@@ -489,7 +508,12 @@ static int refuse_run(const std::string& img) {
   std::string before = slurp_hash(img);
   {
     BlockDevicePtr dev = open_rw(img); int err = 0; auto vol = F2fsVolume::mount_rw(dev, &err);
-    if (!vol) { std::fprintf(stderr, "mount failed %d\n", err); return 1; }
+    if (!vol) {   // 読み取りのマウント条件で拒否されるボリューム (要回復 = EUCLEAN、暗号化・verity・casefold など読み取りも未対応の機能 = EOPNOTSUPP): 書き込み可どころか開かない。何も書かないこと
+      CHECK(err == EUCLEAN || err == EOPNOTSUPP);
+      std::fprintf(stderr, "refuse: mount refused (errno %d)%s\n", err, (err == EUCLEAN || err == EOPNOTSUPP) ? "" : " UNEXPECTED");
+      if (before != slurp_hash(img)) CHECK(false);
+      return g_fail ? 1 : 0;
+    }
     CHECK(!vol->writable());
     uint64_t ino = 0;
     CHECK(vol->create(vol->root(), "x", 0644, &ino) == -EROFS);

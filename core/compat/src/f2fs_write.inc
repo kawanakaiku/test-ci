@@ -227,6 +227,7 @@ int F2fsVolume::Impl::slot_ptr(uint32_t ino, uint64_t fblk, bool create, uint8_t
   NodeVec iv;
   rc = mut_node(ino, 0, &iv);
   if (rc) return rc;
+  memset(iv->data() + 348, 0, 12);   // i_ext (最大エクステントのキャッシュ) は、ブロックの配置を変えると古くなる。fsck.f2fs は不一致を壊れと見なすので消す
   bool is_dir_ino = in.is_dir();
   if (level == 0) {
     *slot = iv->data() + 360 + 4 * in.extra_words + 4 * idx[0];
@@ -376,6 +377,7 @@ int F2fsVolume::Impl::truncate_blocks(uint32_t ino, uint64_t from_blk) {
   NodeVec iv;
   rc = mut_node(ino, 0, &iv);
   if (rc) return rc;
+  memset(iv->data() + 348, 0, 12);
   acc_iblocks = 0;
   const uint64_t dpi = in.addrs_in_inode, D = kAddrsPerBlock, N = kNidsPerBlock;
   for (uint64_t i = from_blk; i < dpi; i++) {

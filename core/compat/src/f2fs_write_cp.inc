@@ -277,8 +277,13 @@ int F2fsVolume::Impl::load_cursegs() {
     cur[3 + t].segno = le32(c + 36 + 4 * t); cur[3 + t].blkoff = le16(c + 68 + 2 * t);
   }
   for (int i = 0; i < 6; i++) {
-    if (c[176 + i] != 0) return -kEOPNOTSUPP;   // SSR の割り当て中
+    if (c[176 + i] > 1) return -kEUCLEAN;
     if (cur[i].segno >= main_segs || cur[i].blkoff > kSegBlks) return -kEUCLEAN;
+    if (c[176 + i] == 1) {
+      // SSR (sload.f2fs などが付ける)。blkoff 以降がすべて空いていれば LFS と同じ追記として扱える (CP は LFS として書き直す)。穴を埋める割り当ては GC 無しでは扱わない
+      for (uint32_t j = cur[i].blkoff; j < kSegBlks; j++)
+        if (bm_msb_get(segs[cur[i].segno].map, j)) return -kEOPNOTSUPP;
+    }
     for (int j = 0; j < i; j++) if (cur[j].segno == cur[i].segno) return -kEUCLEAN;
   }
   std::vector<uint8_t> sums[6];

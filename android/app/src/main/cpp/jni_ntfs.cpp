@@ -90,8 +90,11 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     return usbmem::BtrfsVolume::mount(dev, err, ob);
   }
   if (t == usbmem::FsType::F2fs) {
-    // f2fs は読み取り専用 (自前実装、docs/f2fs-port.md)。rw を要求されても読み取り専用。暗号化 / casefold / fs-verity などは EOPNOTSUPP(95)、
-    // fsync 後のロールフォワードが必要な状態は EUCLEAN(117)。allow_noload は、確認のうえ「直近の fsync の分を無視して」開く場合だけ true
+    // f2fs は自前実装 (docs/f2fs-port.md)。暗号化 / casefold / fs-verity などは EOPNOTSUPP(95)、fsync 後のロールフォワードが必要な状態は EUCLEAN(117)。
+    // allow_noload は、確認のうえ「直近の fsync の分を無視して」開く場合だけ true。
+    // 書き込み (docs/f2fs-write.md): rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら読み取り専用)。変更はすべてメモリに溜め、sync で完全なチェックポイントを 1 回書く。
+    // 書き込みのホワイトリスト外 (圧縮・quota・未知の機能など) は mount_rw の中で読み取り専用に落ちる (writable() == false)
+    if (rw && !allow_noload) return usbmem::F2fsVolume::mount_rw(dev, err);
     usbmem::F2fsMountOptions of; of.allow_noload = allow_noload;
     return usbmem::F2fsVolume::mount(dev, err, of);
   }

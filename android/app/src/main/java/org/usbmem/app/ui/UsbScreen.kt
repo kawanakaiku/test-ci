@@ -300,8 +300,8 @@ private fun PartitionList(d: UsbDeviceState, t: PartitionTable, a: UsbActions, o
                 if (pub != null) {
                     PublishedActions(d, pub, a, onLink)
                 } else if (fsMountable(p.fs)) {
-                    // FAT / ISO 9660 / UDF / squashfs / erofs / btrfs / f2fs / xfs は読み取り専用 (書き込みは未対応)。NTFS・exFAT・ext2・ext3・ext4 は、このデバイスの書き込みモードに従う (ext3/ext4 は jbd2: docs/ext4-write.md)
-                    val mode = if (p.fs == "ntfs" || p.fs == "exfat" || p.fs == "ext2" || p.fs == "ext3" || p.fs == "ext4") writeMode else WriteMode.ReadOnly
+                    // FAT / ISO 9660 / UDF / squashfs / erofs / btrfs / xfs は読み取り専用 (書き込みは未対応)。NTFS・exFAT・ext2・ext3・ext4・f2fs は、このデバイスの書き込みモードに従う (ext3/ext4 は jbd2: docs/ext4-write.md、f2fs は docs/f2fs-write.md)
+                    val mode = if (p.fs == "ntfs" || p.fs == "exfat" || p.fs == "ext2" || p.fs == "ext3" || p.fs == "ext4" || p.fs == "f2fs") writeMode else WriteMode.ReadOnly
                     Button(onClick = { a.publishPartition(d.key, p.startBytes, p.sizeBytes, UsbDeviceNaming.volumeLabel(d.productName, d.shortId, p.index)) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) {
                         Text(stringResource(when (mode) { WriteMode.ReadOnly -> R.string.usb_publish_read_only; WriteMode.CreateOnly -> R.string.usb_publish_write; WriteMode.Full -> R.string.usb_publish_full }))
                     }

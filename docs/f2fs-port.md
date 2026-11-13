@@ -1,5 +1,7 @@
 # F2FS の読み取り専用リーダー
 
+> 書き込み (チェックポイント方式、実験的、`USBMEM_NTFS_WRITE` ビルドのみ) は docs/f2fs-write.md。このファイルは読み取りの設計。既定のビルドは今までどおり読み取り専用。
+
 ## 先に結論 (実用上の範囲)
 
 - F2FS (Flash-Friendly File System、Android のデータ領域や一部の USB メモリ / SD カードで使われる) を**読み取り専用**でマウントできる。書き込みは常に拒否 (`EROFS`)。
@@ -41,7 +43,7 @@
 
 安全のための方針:
 
-- 書き込みは一切しない (`write` 系はすべて `EROFS`)。デバイスへの書き込みを発行するコードを持たない。
+- 既定のビルドでは書き込みは一切しない (`write` 系はすべて `EROFS`)。デバイスへの書き込みを発行するコードを持たない。`USBMEM_NTFS_WRITE` のビルドだけ書き込み実装 (`f2fs_write*.inc`) が入り、明示の `mount_rw` でのみ有効 (docs/f2fs-write.md)。
 - すべてのブロック番号は、メイン領域 / 全体の範囲を検査してから読む。ループにはかならず上限を付けている (ノード木の深さ、ディレクトリのブロック数、roll-forward の歩数)。
 - 読み取りは LRU キャッシュ (2048 ブロック)、ディレクトリのキャッシュ (8 件)、展開済みクラスタ 1 つ。メモリは大きさに比例しない (ファジングの最大 RSS は約 10 MiB)。
 
@@ -75,7 +77,7 @@ ctest は `f2fs_gen_fixture` と `f2fs_gen_kfixture` (カーネルや qemu が�
 ## 限界・未解決
 
 - 実機 USB での確認なし。
-- 読み取り専用のみ。書き込み、回復 (roll-forward の適用)、`fsck` は未対応。
+- 既定は読み取り専用。書き込みは `USBMEM_NTFS_WRITE` ビルドのみ (docs/f2fs-write.md)。回復 (roll-forward の適用)、`fsck` は未対応 (roll-forward が必要なボリュームは書き込み可で開かない)。
 - ブロック サイズ 4 KiB / セグメント 512 ブロックのみ (Android の標準)。大きなページ サイズのカーネルで作ったイメージは拒否される。
 - 暗号化 (fscrypt)、casefold、fs-verity、zoned、multi-device は拒否。
 - 圧縮ファイルの `chksum` は検証しない。`compress_released` (`F2FS_IOC_RELEASE_COMPRESS_BLOCKS` で読み取り専用にして領域を解放したファイル) は `EOPNOTSUPP`。

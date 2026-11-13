@@ -4,6 +4,52 @@
 
 > このスクリプトは**デバイスの内容を全部消す**。実デバイスに対する書き込み部分は、開発側では実行していない (コマンド列の生成と安全機構は単体テスト、FS の作成と中身の照合はファイルのイメージで検証。「9. 検証したこと・できなかったこと」)。**最初に必ず dry-run** で内容を確認し、対象を取り違えないこと。
 
+## 0. 方式: イメージ経由 (build-then-flash)
+
+USB メモリの上で `mkfs` や `ntfs-3g` を直接走らせると、遅いデバイスへ小さなランダム書き込みと全デバイス対象の `sync` が大量に飛ぶ。3 本を同時に走らせたライブ環境の PC (RAM 15 GiB、スワップ満杯) が固まったのは、これと tmpfs 上の作業領域が重なったため。そこで、**デバイスには最後に一度だけ、順次書く**方式に変えた。
+
+```
+(a) デバイスに触らず、ローカルディスク上の疎イメージに全部作る   <- root 不要 (一部を除く)
+        disk_table.img      デバイスと同じ大きさの疎ファイル。パーティション表だけを入れる (sgdisk / sfdisk はこのファイルにだけ触る)
+        <名前>.img          パーティションごとの疎ファイル。mkfs・データ投入・検査・中身の照合は全部ここで行う
+        imageset.json       メタデータ (プロファイル・デバイス容量・配置・各イメージの SHA-256・スクリプトの版)
+(b) デバイスのパスを手で打って確認
+(c) バックアップ (元の表・先頭 4 MiB・末尾 1 MiB)  と  先頭 4 MiB・末尾 1 MiB の消去
+(d) 流し込み: パーティションのイメージ -> パーティション表の領域 (最後) の順に、nbdcopy (または dd) で一度だけ・順次書く     <- root 必須
+(e) 読み戻し (O_DIRECT) して SHA-256 をイメージのものと比べる                                                         <- root 必須
+```
+
+- (a) の間、USB には**一切触らない**。作業は `--work-dir` / `--keep-images` のローカルディスクだけ (メモリ上は警告/中止)。
+- (d) では、パーティション内の**ゼロの領域も含めて全部書く**(既定)。FS の未使用領域に古いデータが残らない。未割り当て領域には触らない。表は最後に書くので、途中で止まったデバイスは「有効なパーティション表が無い」状態になる。
+- 同期は**そのデバイスだけ** (`conv=fsync` / nbdcopy `--flush` / `blockdev --flushbufs`)。全デバイス対象の `sync` は使わない (`sync -f <作業中のファイルシステム>` はイメージ側のみ)。パーティション表の再読み込み (`partprobe` など) もしない: 流し込みの後は**取り外して挿し直す**。
+- 従来の「作成直後にデバイスから取り出してマニフェスト照合」は、イメージ上で済ませる (a)。デバイスについては (e) の SHA-256 読み戻しが「イメージと同一」を保証するので、その照合に代える。
+
+### nbdkit / nbdcopy / nbdfuse をどう使ったか
+
+| 道具 | 使いどころ | 結論 |
+|---|---|---|
+| `nbdcopy` + `nbdkit --filter=offset file` | (d) の流し込み。送り元はイメージ、書き先は `[ nbdkit --exit-with-parent --filter=offset file DEV cache=none offset=O range=L ]` で**デバイスの一部分だけ**を NBD として見せる。`--flush`・並列 1・要求 4 MiB・`cache=none` (O_DIRECT)。`--sparse=0 --no-extents` でゼロも書く | **採用**。`-s` を付けると nbdcopy と噛み合わず失敗する。`[` `]` は別々の argv 要素にしないと、nbdcopy がファイル名と解釈して黙ってファイルを作る |
+| `dd` | nbdcopy / nbdkit が無いときの代替 (`bs=4M iflag=skip_bytes,count_bytes oflag=seek_bytes,direct conv=notrunc,fsync`) | `--writer dd` で強制できる。通常は auto |
+| `nbdkit file` / `memory` プラグイン | イメージの置き場 | イメージは通常の疎ファイルなので不要 (メモリ上に置くのは固まる原因) |
+| `nbdkit cow` フィルタ | イメージを汚さずに書き込み試験 | 作成には不要。検証用に使える (下) |
+| `nbdkit partition` フィルタ | ディスクイメージの**1 つのパーティションだけ**を NBD として見せる | 作成には不要 (各ツールが通常ファイルを受け付ける)。`--image` で合成したディスクイメージから AVD/アプリへパーティション単位で見せるときに有用 |
+| `nbdkit luks` フィルタ | LUKS を root なしで開く | **LUKS1 専用**で LUKS2 には使えない。qemu-img も LUKS2 を扱えない。代わりに下の XTS 方式を使う |
+| `nbdfuse` | イメージを FUSE のファイルとして見せる | 作成には不要。root なしで NBD をブロックファイルとして使いたいときに使えるが、本スクリプトの経路には入れていない |
+
+### root が要る段階 (それ以外は root 不要)
+
+| 段階 | root | 理由・代替 |
+|---|---|---|
+| (d) 流し込み・(e) 読み戻し・(c) バックアップ・消去 | **必須** | 実デバイスの open |
+| UDF (`mkudffs` + `mount -t udf`) | 要 | `--udf-method genisoimage` なら root 不要 (ISO9660+UDF ブリッジ) |
+| `--f2fs-method mount` | 要 | 既定の `sload.f2fs` は不要 |
+| exFAT `--exfat-method mount` | 要 | **`--exfat-method fuse`** (`mount.exfat-fuse` + `tools/exfat_fuse_shim.c` を実行時に cc でコンパイルして `LD_PRELOAD`) で不要。非 root では auto でこちら |
+| LUKS2 `--luks-method open` | 要 | **`--luks-method xts`**: `cryptsetup luksFormat` を**ファイル**に対して実行し、`luksDump --dump-volume-key` でマスター鍵を取り、内側の ext4 を平文ファイルに `mke2fs -d` で作ってから、Python の `cryptography` で AES-256-XTS (plain64、512 バイトセクタ) で暗号化してペイロード位置へ書く。非 root では auto でこちら。暗号化後に数セクタを AES-ECB だけで手組みした独立実装と照合する |
+| NTFS | 不要 | `ntfs-3g` は FUSE (`fusermount3`) |
+| 上記以外の mkfs・投入 | 不要 | すべてイメージファイルに対して実行 |
+
+したがって `--exfat-method fuse --luks-method xts --udf-method genisoimage` (非 root の auto 既定 + UDF だけ指定) なら、(a) は**全部 root なし**で作れて、`--build-only --keep-images DIR` で終わる。root が要るのは (b) 以降 (流し込み) だけ。
+
 ## 1. 機材と流れ
 
 | プロファイル | 想定する USB | パーティション表 | 目的 |
@@ -20,14 +66,15 @@
 
 | 用途 | コマンド |
 |---|---|
-| パーティション表 | `sgdisk` (GPT)、`sfdisk` (MBR とバックアップ)、`partprobe`、`udevadm`、`wipefs`、`lsblk`、`dd` |
+| パーティション表 | `sgdisk` (GPT)、`sfdisk` (MBR とバックアップ)。実デバイスへ流すときは `wipefs` `lsblk` `blockdev` `dd` も |
+| 流し込み (d) | `nbdcopy` + `nbdkit` (offset フィルタ付き)。無ければ `dd` (自動で切り替え。`--writer` で指定)。`--sparse-write` の事前ゼロ化には `blkdiscard` (無ければ `dd`) |
 | ext2/3/4・LUKS 内 | `mke2fs` `e2fsck` `debugfs` `dumpe2fs` |
 | FAT32 | `mkfs.fat` `fsck.fat` `mcopy` (mtools) |
-| exFAT | `mkfs.exfat` `fsck.exfat` (投入は `mount`、root) |
+| exFAT | `mkfs.exfat` `fsck.exfat`。投入は `mount` (root) か、`--exfat-method fuse` なら `mount.exfat-fuse` `fusermount3` `cc` `tune.exfat` (root 不要) |
 | NTFS | `mkntfs` `ntfs-3g` `ntfsfix` `fusermount3` (root でなければ)、`--dirty-ntfs` なら `ntfsinfo` |
 | XFS / Btrfs | `mkfs.xfs` (`-p <dir>` が使える xfsprogs 6.x 以降) `xfs_repair` / `mkfs.btrfs` `btrfs` |
 | F2FS | `mkfs.f2fs` `sload.f2fs` `fsck.f2fs` |
-| LUKS2 | `cryptsetup` |
+| LUKS2 | `cryptsetup` (`luksFormat` `luksDump`)。`--luks-method xts` なら python3 の `cryptography` も (root 不要) |
 | BitLocker 風 | `python3` + `numpy` + `cryptography` (`tools/bitlocker_synth.py` を使う) |
 | squashfs / erofs | `mksquashfs` `unsquashfs` / `mkfs.erofs` `fsck.erofs` |
 | ISO9660 / UDF | `genisoimage` (無ければ `--iso-tool xorriso`) `isoinfo` / `mkudffs` `udfinfo` |
@@ -35,31 +82,53 @@
 ## 3. 使い方
 
 ```sh
-# 1. まず dry-run (何も書かない)。プロファイルを省略すると 3 つとも出る
+# 1. まず dry-run (何も書かない)。プロファイルを省略すると 3 つとも出る。流し込み計画 (書く範囲・触らない範囲・時間の目安) と必要な空き容量が出る
 python3 tools/make_real_usb_testset.py
 python3 tools/make_real_usb_testset.py --profile B --device /dev/sdX     # 実デバイスの検証結果 (OK / NG と理由) も出る
 
-# 2. 実行 (root が必要。自分では sudo を呼ばない)
+# 2-a. 一本道 (root。イメージ作成 -> 確認 -> バックアップ -> 流し込み -> 読み戻し。自分では sudo を呼ばない)
 sudo python3 tools/make_real_usb_testset.py --profile A --device /dev/sdX --execute \
-     --backup-dir ./backup_A --manifest-dir ./usbmem_testset_manifests --work-dir /var/tmp/usbmem_work
+     --work-dir /var/tmp/usbmem_work --keep-images /var/tmp/usbmem_img_A
+
+# 2-b. 二段 (おすすめ): イメージ作成は一般ユーザーで (USB を挿さなくてよい)、流し込みだけ root
+python3 tools/make_real_usb_testset.py --profile A --build-only --execute --keep-images /var/tmp/usbmem_img_A \
+     --work-dir /var/tmp/usbmem_work --udf-method genisoimage            # C のときだけ UDF の指定が要る (root でなければ)
+sudo python3 tools/make_real_usb_testset.py --flash-only /var/tmp/usbmem_img_A --device /dev/sdX --execute
 
 # 3. 試運転 (1 GiB / 4.5 GiB のファイルを作らず短時間で終わる)
-sudo python3 tools/make_real_usb_testset.py --profile C --device /dev/sdX --execute --no-big-files
+python3 tools/make_real_usb_testset.py --profile C --build-only --execute --no-big-files --keep-images /var/tmp/usbmem_img_C --udf-method genisoimage
 ```
 
-`--execute` を付けると、デバイスの情報 (パス・モデル・シリアル・容量・現在のパーティション) を表示し、**デバイスのパス (例 `/dev/sdb`) を手で打ち込んで一致しない限り進まない**。確認を飛ばすオプション (`--yes` など) は無い。
+`--execute` を付けて実デバイスへ進むと、**イメージができた後で**デバイスの情報 (パス・モデル・シリアル・容量・現在のパーティション) を表示し、**デバイスのパス (例 `/dev/sdb`) を手で打ち込んで一致しない限り進まない**。確認を飛ばすオプション (`--yes` など) は無い。
+
+### イメージの再利用 (`--keep-images` / `--flash-only`)
+
+- `--keep-images DIR` で作ったイメージ一式 (`disk_table.img`、`<名前>.img`、`imageset.json`、`manifests/`) を残す。指定しなければ `--work-dir/images_<プロファイル>` に作って、成功したら消す (失敗したら残す)。
+- `--flash-only DIR` は**イメージを作り直さずに**流し込む。同じイメージを何本にも流せる。`imageset.json` のプロファイル・デバイス容量・論理セクタ・配置を照合し、**容量が違うデバイスは拒否**する (配置は容量で決まるため)。流し込み前に各イメージの SHA-256 を作成時の値と照合し、作成後に変わっていたら中止する (`--skip-image-check` で省略)。イメージ作成時の検査が NG のものがあれば流さない (`--ignore-image-checks` で承知の上の続行)。
+- `--only p2_ext4,p8_udf --keep-images DIR` で、既存のイメージ一式の一部だけ作り直せる (root が必要な UDF だけ `sudo` で作り直す、など)。
+- 同じイメージは AVD / ホストでの検証にも使える: `disk_table.img` と各 `<名前>.img` は通常ファイル。FS 単体なら `mount -o loop,ro` (root) や `debugfs` / `ntfs-3g -o ro` / `mdir -i` などで見られる。アプリ側は NBD クライアントを持つ (`docs/nbd.md`) ので、`nbdkit file <名前>.img` で配れば AVD から実機と同じバイト列を開ける。ディスク全体として見せたいときは `--flash-only DIR --image FILE --execute` (「8. イメージモード」) で 1 枚のディスクイメージに合成し、`nbdkit file FILE` で配る (パーティション単位なら `--filter=partition partition=N` を付ける)。
 
 ### オプション
 
 | オプション | 意味 |
 |---|---|
 | `--profile {A,B,C}` | プロファイル。dry-run だけ省略可 |
-| `--device /dev/sdX` | 対象 (ディスク全体)。`--execute` に必須 |
-| `--execute` | 実際に書く。無ければ dry-run |
+| `--device /dev/sdX` | 対象 (ディスク全体)。実デバイスへ流すときに必須 (`--build-only` では任意: 付けるとそのデバイスの容量で配置する) |
+| `--execute` | 実際に作る・書く。無ければ dry-run |
+| `--keep-images DIR` | イメージ一式を DIR に残す (上の「イメージの再利用」) |
+| `--flash-only DIR` | イメージを作り直さず、DIR のイメージ一式を流すだけ。プロファイルはイメージから決まる |
+| `--build-only` | イメージ一式を作るだけで終わる (`--keep-images` が必要。デバイスには書かない。root 不要) |
+| `--overwrite-images` | `--keep-images DIR` に既にあるイメージ一式を作り直す |
+| `--writer {auto,nbdcopy,dd}` | 流し込みの方法 (既定 auto: nbdcopy + nbdkit が使えれば nbdcopy) |
+| `--sparse-write` | ゼロの塊を書き飛ばす。**書き込み前に各パーティションの範囲を事前にゼロ化する** (`blkdiscard -z`、無ければ `dd`)。事前ゼロ化をしないと古いデータが FS の未使用領域に残る。ゼロ化が速い機器以外は、むしろ遅くなる。既定は off (ゼロも含めて全部書く) |
+| `--progress` / `--no-progress` | 流し込みの進捗表示 (端末なら既定で表示) |
+| `--skip-image-check` | `--flash-only` で、流す前のイメージの SHA-256 再確認を省く (読み戻し検証は行う) |
+| `--ignore-image-checks` | イメージ作成時の検査 (fsck 相当) が NG でも流す |
+| `--exfat-method {auto,mount,fuse}` / `--luks-method {auto,open,xts}` | 「0. 方式」の表。auto は root なら従来どおり (mount / open)、root でなければ root 不要の方式 |
 | `--backup-dir DIR` | 元のパーティション表・先頭 4 MiB・末尾 1 MiB の保存先 (既定 `./usbmem_testset_backup/<プロファイル>_<日時>`) |
 | `--full-backup` | デバイス全体のイメージも保存 (空き容量が必要) |
 | `--manifest-dir DIR` | マニフェストの保存先。`DIR/<プロファイル>/<パーティション名>.sha256` (既定 `./usbmem_testset_manifests`) |
-| `--work-dir DIR` | 一時ファイル置き場 (既定 `./usbmem_testset_work`)。4.5 GiB のファイルを作るので **5 GiB 以上の空き**が要る (dry-run に目安が出る)。tmpfs (メモリ) 上には置かないこと |
+| `--work-dir DIR` | 一時ファイル置き場 (投入ツリーなど。既定 `./usbmem_testset_work`)。4.5 GiB のファイルを作るので **5 GiB 以上の空き**が要る。tmpfs (メモリ) 上には置かないこと。イメージ本体は `--keep-images` (無ければここの `images_<プロファイル>`) |
 | `--log FILE` | 実行したコマンドと出力のログ (既定 `./usbmem_testset.log`) |
 | `--dirty-ntfs` | プロファイル A の NTFS を**ダーティフラグ付き**にする (5 の最後の節) |
 | `--no-big-files` | 1 GiB / 4.5 GiB のファイルを作らない |
@@ -70,9 +139,11 @@ sudo python3 tools/make_real_usb_testset.py --profile C --device /dev/sdX --exec
 | `--bitlocker {synth,skip}` | C の BitLocker 風パーティション。`skip` なら作らない (中身は空) |
 | `--iso-tool {genisoimage,xorriso}` | ISO を作るツール |
 | `--skip-mount-fs` | root の `mount` / `cryptsetup open` が要る FS (exFAT・UDF・LUKS の中身・F2FS の mount 方式) の中身投入を省く。FS 自体は作る |
-| `--verify-content` / `--no-verify-content` | 作った直後に中身を取り出してマニフェストと照合する (イメージモードは既定で有効、実デバイスでは既定で無効) |
-| `--only p2_ext4,...` | デバッグ用。指定したパーティションだけ FS を作る (表は全部作る) |
+| `--verify-content` / `--no-verify-content` | イメージを作った直後に中身を取り出してマニフェストと照合する (既定で有効。デバイスではなくイメージに対して行うので速い) |
+| `--only p2_ext4,...` | 指定したパーティションのイメージだけ作る。`--keep-images` の既存のイメージ一式があれば差し替える |
 | `--image FILE` ほか | 「8. イメージモード」 |
+
+必要な空きの目安 (dry-run に表示。余裕を見た値): イメージ A 約 4 GiB / B 約 7.2 GiB / C 約 16 GiB + 投入ツリー (A 約 1.3 GiB / B・C 約 4.8 GiB)。`--no-big-files` ならイメージは A 約 0.7 GiB / B 約 1.1 GiB / C 約 5 GiB、投入ツリーは 0.3 GiB。実測 (疎ファイルの実使用量) は A 3.1 GiB / B 5.7 GiB / C (`--no-big-files`) 3.3 GiB。LUKS と BitLocker 風は全面が非ゼロなのでパーティションの大きさ分かかる。旧方式の「作業ディレクトリに 5 GiB」に比べ、置き場が増える代わりに、デバイスへの書き込みは一度きりになる。
 
 ## 4. 構成表
 
@@ -171,16 +242,16 @@ NTFS のボリュームを ntfs-3g で作って中身を書き、アンマウン
 |---|---|---|
 | ext2/3/4 | `mke2fs -t <fs> -d <ステージ>` (UUID・hash_seed 固定、`lazy_itable_init=0`) | B の ext4 は fsck 後に `debugfs -w -R "feature needs_recovery"`。直後に `dumpe2fs -h` で確認 |
 | FAT32 | `mkfs.fat -F 32` + `mcopy -s` | mtools は BMP 外の文字を落とすので `𠮷` は入れない。symlink / hardlink / 疎ファイル / 大文字小文字違いなし |
-| exFAT | `mkfs.exfat` + カーネル exFAT で mount して書く | root が必要 (`--skip-mount-fs` で省略可) |
+| exFAT | `mkfs.exfat` + 投入 | `mount` 方式: カーネル exFAT で mount (root。`--skip-mount-fs` で省略可)。`fuse` 方式: `mount.exfat-fuse` (root 不要)。exfat-fuse 1.4.0 はボリューム GUID 付きの exFAT を拒否するので、fuse 方式では GUID なしで作って投入・照合を済ませた後に `tune.exfat -U` で GUID を付け、`fsck.exfat -n` で確認する。fuse の `user=` オプションは `LD_PRELOAD` の小さな shim (`tools/exfat_fuse_shim.c`) で除く |
 | NTFS | `mkntfs -F -Q` + `ntfs-3g` (FUSE) で mount して書く (`windows_names`) | root 不要 (FUSE が使えれば)。ハードリンク可・疎ファイル可・symlink なし |
 | XFS | `mkfs.xfs -p <ステージ>` | v5。`-p` は疎ファイルを穴のまま作らない (全部書く) |
 | Btrfs | `mkfs.btrfs --rootdir <ステージ>` | 単一デバイス、メタデータ DUP |
 | F2FS | `mkfs.f2fs` + `sload.f2fs -f <ステージ>` | `--f2fs-method mount` なら mount して書く (root) |
-| LUKS2 | `cryptsetup luksFormat --type luks2` + `open` + `mke2fs -t ext4 -d` + `close` | argon2id・メモリ 64 MiB。root が必要 (`--skip-mount-fs` ならヘッダのみ) |
+| LUKS2 | `open` 方式: `cryptsetup luksFormat --type luks2` + `open` + `mke2fs -t ext4 -d` + `close` (root)。`xts` 方式: `luksFormat` (ファイルに) → マスター鍵を `luksDump --dump-volume-key` で取得 → 内側 ext4 を平文ファイルに作る → Python で AES-256-XTS 暗号化して書く (root 不要) | argon2id・メモリ 64 MiB。xts 方式は 2 GiB で約 1 分。暗号化の向き・IV (plain64)・鍵の分割は、AES-ECB だけで手組みした XTS と数セクタ照合して確かめる。**本物の `cryptsetup open` で開けるかは root でないため未確認** (「9」) |
 | BitLocker 風 | NTFS を作って書く → `tools/bitlocker_synth.py` (XTS-AES-128、パスワード保護) | **実 Windows 製ではない合成**。下記 |
 | squashfs | `mksquashfs -all-root -no-xattrs -b 131072` (gzip) | 作者の時刻を固定 |
 | erofs | `mkfs.erofs -T <固定> -U <UUID> --all-root` (無圧縮) | 圧縮版が必要なら別途 |
-| UDF | `mkudffs --utf8 --blocksize=<論理セクタ> --media-type=hd` + `mount -t udf` で書く | root が必要。`--udf-method genisoimage` なら ISO9660+UDF 1.02 ブリッジ (純粋な UDF ではない) |
+| UDF | `mkudffs --utf8 --blocksize=<論理セクタ> --media-type=hd` + `mount -t udf` で書く | root が必要。`--udf-method genisoimage` なら root 不要だが ISO9660+UDF 1.02 ブリッジ (純粋な UDF ではない) |
 | ISO9660 | `genisoimage -J -R -joliet-long -input-charset utf-8 -iso-level 3` | Joliet は 64 文字・BMP のみなので、名前を 60 文字以内にし `𠮷` は入れない。大文字小文字違い・ハードリンク・疎ファイルなし |
 
 ### BitLocker 風パーティションについて
@@ -191,7 +262,7 @@ NTFS のボリュームを ntfs-3g で作って中身を書き、アンマウン
 
 ## 7. 安全機構
 
-1. **既定は dry-run**。`--execute` + `--profile` + `--device` (または `--image`) がそろわなければ何も書かない。
+1. **既定は dry-run**。`--execute` + (`--profile` と `--device` / `--image` / `--build-only`) か `--flash-only` がそろわなければ何も書かない。**実デバイスに触るのは (b) の確認より後だけ**: (a) のイメージ作成中は USB に一切触らない (デバイスの検証は読み取りのみ)。(a) が失敗または検査 NG なら確認にも進まない。
 2. **デバイスの検証** (`validate_device`)。1 つでも満たさなければ理由を表示して中止する (この時点では何も書かれていない)。
    - ブロックデバイスであり、`lsblk` の種別が `disk` (パーティション・loop は不可)
    - `lsblk` の TRAN が `usb` (`sata` `ata` `nvme` `sas` `mmc` などの内蔵バス、空・不明は拒否)
@@ -202,16 +273,18 @@ NTFS のボリュームを ntfs-3g で作って中身を書き、アンマウン
    - root で実行している
 3. **デバイスパスの手入力確認**。デバイス名・モデル・シリアル・サイズ・現在のパーティション一覧 (`lsblk`) を表示し、`--device` と同じパスを入力しなければ中止。入力待ちの後で検証をもう一度行う。`--yes` のような回避オプションは無い。
 4. **バックアップ** (破壊的操作の前、`--backup-dir`): `sgdisk_backup.bin` (`sgdisk --backup`)、`sfdisk_dump.txt` (`sfdisk -d`)、`head_4MiB.bin`、`tail_1MiB.bin`、`lsblk.json`、`--full-backup` なら `full.img`。バックアップに失敗したら中止。
-5. **途中失敗**: パーティションの認識待ち (`partprobe` + `udevadm settle` + ノードの出現とサイズの確認) を含め、失敗した時点で即中止し、完了した手順とバックアップの場所、中途半端な状態であることを表示する。再実行すると既存のパーティション表を消して最初からやり直す (冪等ではないが、やり直せる)。
-6. 作った直後に GUI の自動マウント (udisks など) で勝手にマウントされた自分のパーティションは外してから続ける。自動マウントが邪魔なら事前に切っておくとよい。
-7. **ログ**: 実行した全コマンドと出力を `--log` に追記。
+5. **途中失敗**: 失敗した時点で即中止し、完了した手順とバックアップの場所、中途半端な状態であることを表示する。イメージは残るので、`--flash-only DIR` で**同じイメージをそのまま流し直せる** (流し込みは表が最後なので、途中で止まったデバイスは「有効な表が無い」状態。再実行は既存の表を消して最初から書く)。
+6. **読み戻し検証**: 流した範囲を O_DIRECT で読み戻し (`blockdev --flushbufs` でキャッシュを捨ててから)、SHA-256 をイメージのものと比べる。1 つでも不一致なら失敗扱い。
+7. **同時実行の禁止**: 実デバイスへの流し込みは排他ロックで 1 本ずつ (ハブの帯域を取り合って固まるのを避ける)。2 本目は即中止。イメージ作成だけ (`--build-only`) は同時に動かしてよい。
+8. **メモリ**: 大きなバッファを持たない (1 回 4 MiB の `mmap` バッファだけ)。作業ディレクトリ・イメージ置き場がメモリ上 (tmpfs / ライブ環境の overlay) なら、必要量が空きメモリの半分を超える場合に中止 (`--allow-ram-workdir` で承知の上の続行)、そうでなくても警告する。
+9. **ログ**: 実行した全コマンドと出力を `--log` に追記。
 
 ## 8. イメージモード (開発側の検証用)
 
-`--image FILE --profile X --execute` で、実デバイスの代わりに**通常ファイル** (疎ファイル) にパーティション表と各 FS を作る。デバイスの検証・手入力確認・バックアップは行わない (実デバイスではないため)。`/dev` 配下 (`/dev/shm` 以外) やデバイスファイルは拒否する。root は不要。各パーティションを一時ファイルに作って、検査 (`fsck` 相当) と中身の照合を済ませてからイメージの該当位置へ書き込む。
+`--image FILE --profile X --execute` は、実デバイスの代わりに**通常ファイル** (疎ファイル) へ、(a) で作ったイメージを (d) と同じ経路 (nbdcopy + nbdkit offset フィルタ、または dd) で流し込み、(e) で読み戻して SHA-256 を照合する。デバイスの検証・手入力確認・バックアップは行わない (実デバイスではないため)。`/dev` 配下 (`/dev/shm` 以外) やデバイスファイルは拒否する。(d)(e) も root は不要。新しいファイルはゼロなので、ゼロの塊は書き飛ばす (`--destination-is-zero`)。`--flash-only DIR --image FILE` なら、作ってあるイメージ一式を 1 枚のディスクイメージに合成できる (AVD・ホスト検証用)。
 
 ```sh
-python3 tools/make_real_usb_testset.py --profile B --image /var/tmp/B.img --execute --skip-mount-fs --work-dir /var/tmp/usbmem_work
+python3 tools/make_real_usb_testset.py --profile B --image /var/tmp/B.img --execute --work-dir /var/tmp/usbmem_work --keep-images /var/tmp/usbmem_img_B
 ```
 
 ## 9. 検証したこと・できなかったこと
@@ -221,24 +294,29 @@ python3 tools/make_real_usb_testset.py --profile B --image /var/tmp/B.img --exec
 **できたこと**
 
 - dry-run が 3 プロファイルで期待どおり: 整列 (開始・サイズが 1 MiB の倍数)、合計が容量に収まる、未割り当て (A: 1.2 MiB / B: 4 GiB / C: 12.5 GiB。容量を ±8% 動かしても C は 10 GiB 以上)。
-- 単体テスト `tools/test_make_real_usb_testset.py` (66 件): 配置、`sgdisk` / `sfdisk` 入力、バックアップのコマンド列、**デバイス拒否** (内蔵 NVMe・SATA、マウント済み、サイズ不一致、TRAN 不明、システム / ホームが対象ディスク上、ルート不明、パーティション指定、読み取り専用)、手入力確認、`--yes` 系オプションが存在しないこと、確認が通るまで破壊的コマンドが 1 つも走らないこと、バックアップが `wipefs` / `sgdisk --zap-all` より先であること、触るデバイスが対象だけであること、データジェネレータ (決定性、各 FS の有無、マニフェスト照合が改ざん・欠落・余分を検出)、NTFS ダーティフラグの書き込み (実 `mkntfs` イメージ、元に戻ること)。
+- 単体テスト `tools/test_make_real_usb_testset.py` (108 件 + 結合テスト 2 件): 配置、`sgdisk` / `sfdisk` 入力、バックアップのコマンド列、**実行順序 (イメージ作成 -> 確認 -> バックアップ -> 消去 -> 流し込み -> 読み戻し。作成が失敗・検査 NG なら確認にも進まない)**、**流し込み範囲の計算** (パーティションの範囲、MBR の EBR 領域、GPT のバックアップ位置、重ならない・デバイス内、未割り当ての補集合、表が最後)、**ゼロ領域の扱い** (既定はゼロも書く、`--sparse-write` は事前ゼロ化とセット、dd/nbdcopy のオプション)、**`--flash-only` のメタデータ検査** (別容量・別プロファイル・不完全・配置違いを拒否、SHA-256 の改変検出)、nbdcopy 引数の組み立て、root 不要方式のコマンド列、LUKS XTS と手組みの独立実装の一致、ファイルをデバイス代わりにした dd 流し込みと読み戻し (壊すと不一致を検出)、**デバイス拒否** (内蔵 NVMe・SATA、マウント済み、サイズ不一致、TRAN 不明、システム / ホームが対象ディスク上、ルート不明、パーティション指定、読み取り専用)、手入力確認、`--yes` 系オプションが存在しないこと、確認が通るまで破壊的コマンドが 1 つも走らないこと、バックアップが `wipefs` / `sgdisk --zap-all` より先であること、触るデバイスが対象だけであること、データジェネレータ (決定性、各 FS の有無、マニフェスト照合が改ざん・欠落・余分を検出)、NTFS ダーティフラグの書き込み (実 `mkntfs` イメージ、元に戻ること)。
 - **イメージモード** (`--skip-mount-fs`) で A / B / C を実際に作成し、パーティション表 (`sgdisk -p` / `sfdisk -l`) と各 FS を確認:
   - 検査 (`fsck` 相当): FAT32 `fsck.fat -n`、ext2/3/4 `e2fsck -fn`、NTFS `ntfsfix -n`、exFAT `fsck.exfat -n`、XFS `xfs_repair -n`、Btrfs `btrfs check`、F2FS `fsck.f2fs`、erofs `fsck.erofs`、squashfs `unsquashfs -s`、ISO `isoinfo -d`、UDF `udfinfo`、BitLocker 風 は署名 `-FVE-FS-` を確認。
   - **中身をマニフェストと全ファイル照合 (サイズ + sha256)**: FAT32 (`mcopy`)、ext2/3/4 (`debugfs rdump`)、NTFS (`ntfs-3g` を FUSE で読み取りマウント。ハードリンクも確認)、Btrfs (`btrfs restore`)、squashfs (`unsquashfs`。symlink・ハードリンクも確認)、erofs (`fsck.erofs --extract`。同上)、ISO (`xorriso -osirrox`)。4.5 GiB のファイルも Btrfs と B の NTFS で照合した。
   - B の ext4 に `needs_recovery` が立っていること、`--dirty-ntfs` で NTFS のダーティフラグが立つこと (`0x0000 → 0x0001`)。
   - 疎ファイルのイメージを実デバイスに見立てた位置へ穴を飛ばしてコピーした後の FS が壊れていないこと (別手順で `e2fsck` / `mdir` / NTFS フラグを再確認)。
 - 結合テスト (`USBMEM_TESTSET_INTEGRATION=1 python3 tools/test_make_real_usb_testset.py`。イメージモードで A (`--dirty-ntfs`) と B を実際に作る。`USBMEM_TESTSET_TMP` で置き場を指定) も通した。
-- 実デバイスへの書き込み経路は、コマンド列の生成部分だけ単体テストした。
+- **イメージ経由の全体** (一般ユーザー、すべて root なし):
+  - A / B / C を `--build-only` で作成。パーティション表 (`sgdisk -p` / `sfdisk -l`) は配置・GUID・ディスク署名とも期待どおり (配置の計算 `compute_layout`、表のコマンド `table_cmds`、テストデータの生成 `build_dataset` は旧方式のコードのまま変えていないので、旧方式と同じ表・同じデータになる)。FS ごとの検査と、中身のマニフェスト全ファイル照合 (サイズ + sha256) は旧方式と同じ項目が通った。exFAT は **fuse 方式で投入と照合まで**、LUKS2 は **xts 方式で内側 ext4 の中身の照合まで**、UDF は genisoimage 方式、を含む (旧方式では root が必要で未確認だった項目)。
+  - `--image` (nbdcopy + nbdkit offset フィルタ) への流し込みと読み戻し: A / B / C の全範囲で SHA-256 一致。`--flash-only` も同様。容量違い・プロファイル違いのデバイスは何も書かずに拒否されること。
+  - **通常ファイルをデバイスに見立てた**流し込み (O_DIRECT 経路、ゼロも含めて全部書く既定、`--sparse-write` の事前ゼロ化 + `--destination-is-zero`、`--writer dd`): 古いデータ (乱数) を入れた 7.8 GiB のファイルへ書き、全範囲が一致し、未割り当て領域が無傷であること。
+- 時間 (ローカル NVMe 上): イメージ作成は A 44 秒 (1 GiB ファイル込み)・B 73 秒 (4.5 GiB ファイル込み)・C 136 秒 (`--no-big-files`。うち LUKS の XTS 暗号化 67 秒)。ファイルへの擬似流し込みは 7.8 GiB で 8 秒 (約 1 GiB/s)、読み戻しは約 600 MiB/s (A 13 秒・B 21 秒・C 31 秒)。実 USB は書き込み速度で決まる (dry-run に 15 / 30 / 60 MiB/s での目安が出る。A 7.8 GiB で 2〜9 分、C 18.5 GiB で 5〜21 分、読み戻しは別にほぼ同じ量)。
 
-**できなかったこと (root が必要)** — ユーザーが実機で行う。
+**できなかったこと (root が必要、または実デバイスが必要)** — ユーザーが実機で行う。いずれも「**未検証**」。
 
-- exFAT・UDF (`mkudffs` 方式)・LUKS2 の**中身の投入と照合** (`mount -t exfat` / `mount -t udf` / `cryptsetup open` が root)。FS 自体 (mkfs / `luksFormat`) は作れて `fsck.exfat` / `udfinfo` / `cryptsetup luksDump` は通ったが、データ入りの状態は未確認。`--udf-method genisoimage` の UDF は確認した (純粋な UDF ではない)。
-- `--f2fs-method mount` (既定の `sload.f2fs` は確認)。
-- 実デバイスに対する一連の流れ全体 (`partprobe` の待ち、udev、GUI の自動マウントの影響、USB での所要時間)。
+- **実デバイスへの流し込みと読み戻し** (root): `nbdcopy` の実デバイスに対する O_DIRECT 書き込み、`blockdev --flushbufs`、`blkdiscard -z`、`wipefs`、バックアップ、デバイスの検証 (`lsblk` の実出力)。ファイルで代用して検証したのは、nbdkit/dd の引数とデータの流れまで。
+- **LUKS2 の本物の `cryptsetup open`**: xts 方式で作ったイメージを実際に開けるかは未確認 (root が必要)。ヘッダは `cryptsetup luksFormat` 製で、暗号化は独立実装との照合まで。初回は実機に流す前に `sudo cryptsetup open --test-passphrase` と、開いて `mount -o ro` して `verify` で確認すること。
+- UDF の `mkudffs` 方式 (`mount -t udf`)、exFAT の `mount` 方式、`--f2fs-method mount` (既定の `sload.f2fs`、exFAT fuse、UDF genisoimage は確認)。
+- 実デバイスに対する一連の流れ全体 (udev、GUI の自動マウントの影響、USB での所要時間)。新方式は流し込み後にパーティション表を再読み込みしないので、取り外して挿し直してから `lsblk` で確認すること。
 - XFS と F2FS と BitLocker 風 の**中身の取り出しによる照合** (取り出せる非 root ツールが無いため `xfs_repair -n` / `fsck.f2fs` / 署名確認まで)。実機で PC に戻したときに `verify` で照合すること。
 - BitLocker 風を Android アプリで開けるか (6 の「BitLocker 風パーティションについて」を参照)。
 
-所要時間の目安 (イメージモード・ローカル SSD・`--skip-mount-fs`): A 約 30 秒、B 約 1 分、C 約 2.5 分 (1 GiB / 4.5 GiB のファイル込み)。実 USB では書き込み速度で決まる (A は約 4 GiB、B は約 8 GiB、C は約 17 GiB を書く)。
+所要時間の目安 (イメージ作成・ローカル SSD): A 約 45 秒、B 約 1.2 分、C 約 2.3 分 (`--no-big-files`、UDF は genisoimage)。実 USB へ流す量は、**ゼロも含めたパーティションの合計**: A 7.8 GiB・B 12 GiB・C 18.5 GiB (読み戻しで同じ量を読む)。従来の mkfs 直書きより総量は増えるが、書き込みが順次の 1 回で、PC 側のキャッシュ負荷 (ダーティページ) も `O_DIRECT` で抑えられる。実 USB での速度比較は未計測。
 
 ## 10. Android 実機での検証手順
 
@@ -310,10 +388,11 @@ sudo dd if=./backup_A/full.img of=/dev/sdX bs=4M conv=fsync status=progress
 ## 13. 既知の制約
 
 - 実デバイス上の一連の流れは、開発側で実行していない (9 参照)。初回は `--no-big-files` の試運転が安全。
-- 4.5 GiB / 1 GiB のファイルは sha256 計算込みで数分かかる。USB 2.0 だと非常に遅い (C は約 17 GiB を書く)。
+- 流し込みはゼロも含めて全パーティションを書く。USB 2.0 だと非常に遅い (C は 18.5 GiB を書き、同じ量を読み戻す)。`--sparse-write` は速くなるとは限らない (事前ゼロ化が遅い機器では逆効果)。
 - FAT32 はファイル名の BMP 外の文字、symlink、ハードリンク、疎ファイル、大文字小文字違いを持たない。ISO は Joliet の制約 (64 文字、BMP のみ)。
 - XFS の `-p` と ext の `-d` は疎ファイルの穴を保たない場合がある (内容の sha256 には影響しない)。穴の保持は mount して書く NTFS / ext (一部) に限る。
-- BitLocker 風は合成。LUKS・UDF・exFAT の投入は root が要る。
+- BitLocker 風は合成。UDF (mkudffs)・F2FS (mount)・exFAT (mount)・LUKS (open) の方式は root が要る (root 不要の代替は「0. 方式」)。LUKS の xts 方式は `cryptography` が要り、2 GiB で約 1 分かかる。
 - 論理セクタが 4096 のデバイスは、パーティション表は 4096 単位で作るが、開発側では確認していない。
-- 「余白」: 未割り当て領域と、パーティション内で FS が使っていない領域には、以前のデータが残る (消さない)。機微なデータの入っていたメモリには使わないこと。
+- 「余白」: **未割り当て領域**には以前のデータが残る (触らない。先頭 4 MiB と末尾 1 MiB だけ消す)。パーティションの中は、既定ではゼロも含めて全部書くので古いデータは残らない (`--sparse-write` を使うと、事前ゼロ化できなかった場合に残りうる)。機微なデータの入っていたメモリには使わないこと。
+- 流し込みの途中で電源が落ちたり抜けたりしたデバイスは、パーティション表が無い状態 (表が最後) か、先頭 4 MiB が消えた状態になる。`--flash-only` で流し直すか、バックアップから戻す (12)。
 - LUKS のパスフレーズ・BitLocker のパスワードは**テスト用の固定値**で、ソースにもドキュメントにも書いてある。実データを入れないこと。

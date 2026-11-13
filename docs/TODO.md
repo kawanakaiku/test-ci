@@ -118,3 +118,5 @@ DiskTools (上の項 6) の進捗: 読み取り専用の整合性検査 (FAT12/1
 Btrfs (読み取り専用) の進捗: 単一デバイスの Btrfs を自前のリーダーで読み取り専用マウントできる (カーネルの fs/btrfs は載せていない。理由は docs/btrfs-port.md)。
 チェックサム 4 種・zlib/lzo/zstd・ノード/セクタサイズ違い・サブボリューム・DUP・NODATASUM・tree-log 未再生の確認ダイアログまで host 4 構成と AVD で検証済み。
 未了: 複数デバイス / RAID、サブボリューム選択 UI、xattr、実機確認、reflink の実イメージ。XFS / F2FS は別の worktree。
+
+- [x] **実機 USB (TransMemory、A の p1_ntfs) への書き込み試験 (2026-11-13、Xperia XQ-FS44)**: `RealUsbWriteTest` (tools/run_android_real_usb_verify.sh --write) の全段階が合格 (事前の fsck/照合 → CreateOnly → 事後照合 → Full (WriteSelfTest + 32MiB 速度計測) → 最終照合)。PC 側の独立検証も合格: `ntfsfix -n` 正常、`make_real_usb_testset.py verify … --allow-extra` が「一致」(ファイル 3026・1.07GiB)。書き込み速度は約 1.8MB/s (この USB メモリの性能と思われる)。残り: A の ext4/exFAT、B の NTFS/exFAT/ext2/ext3 の同試験。

@@ -4,7 +4,7 @@
 #   tools/ci_android_tests.sh run <グループ>...   エミュレータ上で FS 別の計装テストを順に実行し、失敗を集計する (1 つでも失敗なら終了コード 1)
 # グループ (workflow の matrix と同じ名前):
 #   ext-fat        FAT (6 種) / ext2 書き込み / exFAT 書き込み
-#   btrfs-xfs      Btrfs (16 イメージ) / XFS (5 イメージ)
+#   btrfs-xfs      Btrfs (16 イメージ) / Btrfs 書き込み (btrfs check と btrfs restore で検証) / XFS (5 イメージ)
 #   squash-erofs   squashfs / erofs / F2FS (mkfs.f2fs + sload.f2fs で作る 1 イメージだけ。カーネル製 k_* は VM が要るので CI では扱わない)
 #   nested-ntfs    ネスト (ループバック) マウント / NTFS 書き込み (SAF)
 #   ro-misc        読み取りテスト (ext2 / ext4 / exFAT / ISO 9660 / NTFS) と アプリ側テスト (DocumentsProvider / リンク / raw イメージ / 転送チューニング)。専用スクリプトが無いので ci_android_tests.sh が直接 push して実行する
@@ -38,6 +38,7 @@ gen_fs() {
     ext2_write)  py "$HERE/gen_ext2_fixture.py" "$FIX/ext2" ;;
     exfat_write) py "$HERE/gen_exfat_fixture.py" "$FIX/exfat" ;;
     btrfs)       py "$HERE/gen_btrfs_fixture.py" "$FIX/btrfs" ;;
+    btrfs_write) true ;;   # イメージは run_android_btrfs_write_test.sh が mkfs.btrfs --rootdir で作る
     xfs)         py "$HERE/gen_xfs_fixture.py" "$FIX/xfs" ;;
     squashfs)    py "$HERE/gen_squashfs_fixture.py" "$FIX/squashfs" ;;
     erofs)       py "$HERE/gen_erofs_fixture.py" "$FIX/erofs" ;;
@@ -114,6 +115,7 @@ run_fs() {
     ext2_write) bash "$HERE/run_android_ext2_write_test.sh" "$FIX/ext2" ;;
     exfat_write) bash "$HERE/run_android_exfat_write_test.sh" "$FIX/exfat" ;;
     btrfs)       bash "$HERE/run_android_btrfs_test.sh" "$FIX/btrfs" "$ADB" ;;
+    btrfs_write) bash "$HERE/run_android_btrfs_write_test.sh" ;;
     xfs)         bash "$HERE/run_android_xfs_test.sh" "$FIX/xfs" "$ADB" ;;
     squashfs)    bash "$HERE/run_android_squashfs_test.sh" "$FIX/squashfs" "$ADB" ;;
     erofs)       bash "$HERE/run_android_erofs_test.sh" "$FIX/erofs" "$ADB" ;;
@@ -135,7 +137,7 @@ run_fs() {
 group_fs() {
   case $1 in
     ext-fat)       echo "fat ext2_write exfat_write" ;;
-    btrfs-xfs)     echo "btrfs xfs" ;;
+    btrfs-xfs)     echo "btrfs btrfs_write xfs" ;;
     squash-erofs)  echo "squashfs erofs f2fs" ;;
     nested-ntfs)   echo "nested write" ;;
     ro-misc)       echo "ext2_read ext4_read exfat_read iso_read ntfs_read app_misc" ;;

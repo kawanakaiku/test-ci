@@ -20,7 +20,7 @@
 | グループ | 中身 (`tools/run_android_<fs>_test.sh` を呼ぶ) | ジョブ時間の目安 |
 |---|---|---|
 | `ext-fat` | `fat`、`ext2_write`、`exfat_write` | 約 5 分 |
-| `btrfs-xfs` | `btrfs` (16 イメージ)、`xfs` | 約 7 分 (btrfs が約 80-100 秒) |
+| `btrfs-xfs` | `btrfs` (16 イメージ)、`btrfs_write` (書き込み: `run_android_btrfs_write_test.sh`)、`xfs` | 約 7 分 (btrfs が約 80-100 秒) |
 | `squash-erofs` | `squashfs`、`erofs`、`f2fs` (`ext` イメージのみ) | 約 6 分 |
 | `nested-ntfs` | `nested`、`write` (NTFS 書き込み + SAF) | 約 5 分 |
 | `ro-misc` | `ext2_read`、`ext4_read`、`exfat_read`、`iso_read`、`ntfs_read`、`app_misc` | 約 6 分 |

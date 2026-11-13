@@ -1,0 +1,58 @@
+# Btrfs 書き込みの追加検証 (docs/btrfs-write.md)。host-tests.yml の ctest (btrfs_write / btrfs_crash の軽量版) に加えて、
+#   - 実カーネルとの相互確認 (sudo + loop マウント、btrfs scrub): 自前エンジンが書いたイメージをカーネルが読めること / カーネルが書いたイメージを自前エンジンが読み書きできること
+#   - 電源断の模擬のフル版 (サンプルを増やす) と 突然変異テスト (安全機構を外したビルドが検出されること)
+#   - 乱数操作 + モデルの試行数を増やした版
+# トリガ: workflow_dispatch、または usbmem-ci-btrfs ブランチへの push。
+name: Btrfs write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['usbmem-ci-btrfs']
+
+concurrency:
+  group: btrfs-write-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  btrfs-write:
+    name: btrfs write (kernel cross-check, crash, mutation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ python3 btrfs-progs zlib1g-dev
+          uname -r
+          btrfs --version
+
+      - name: Build (write enabled, release)
+        run: |
+          cmake -S core -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSBMEM_NTFS_WRITE=ON
+          cmake --build build --target usbmem_btrfs_write_tests -j"$(nproc)"
+
+      - name: Scripted + model + refuse + fuzz + kernel cross-check
+        env:
+          USBMEM_BTRFS_KERNEL: "1"
+          USBMEM_BTRFS_FUZZ_N: "400"
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          tools/run_btrfs_write_tests.sh build/compat/usbmem_btrfs_write_tests 4
+
+      - name: Crash simulation (full)
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          tools/run_btrfs_crash_tests.sh build/compat/usbmem_btrfs_write_tests 40
+          tools/run_btrfs_crash_tests.sh build/compat/usbmem_btrfs_write_tests 24 --csum xxhash -n 4096
+          USBMEM_CRASH_IMG_SIZE=320M tools/run_btrfs_crash_tests.sh build/compat/usbmem_btrfs_write_tests 24 -m dup -d dup -O ^block-group-tree
+
+      - name: Mutation tests
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          tools/run_btrfs_mutation_tests.sh build/mut 30

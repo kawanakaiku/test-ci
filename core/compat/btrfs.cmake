@@ -2,16 +2,27 @@
 # Btrfs の読み取り専用リーダー。core/compat/CMakeLists.txt の末尾から include される。docs/btrfs-port.md
 # 他のファイルシステムのターゲットと衝突しないよう、このファイルに集める。
 add_library(usbmem_btrfs STATIC ${CMAKE_CURRENT_LIST_DIR}/src/btrfs_volume.cpp ${CMAKE_CURRENT_LIST_DIR}/src/btrfs_decomp.c)
+set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/src/btrfs_volume.cpp PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/src/btrfs_write.inc;${CMAKE_CURRENT_LIST_DIR}/src/btrfs_write_ops.inc")
 target_include_directories(usbmem_btrfs PUBLIC public)
 target_compile_options(usbmem_btrfs PRIVATE
   $<$<COMPILE_LANGUAGE:C>:-std=gnu11> $<$<COMPILE_LANGUAGE:C>:-w> $<$<COMPILE_LANGUAGE:C>:-fno-strict-aliasing> $<$<COMPILE_LANGUAGE:C>:-fwrapv>
   "$<$<COMPILE_LANGUAGE:C>:SHELL:-include stdint.h>" "$<$<COMPILE_LANGUAGE:C>:SHELL:-include stddef.h>" "$<$<COMPILE_LANGUAGE:C>:SHELL:-include endian.h>")
 target_compile_definitions(usbmem_btrfs PRIVATE __KERNEL__)
+if(USBMEM_NTFS_WRITE)
+  # 書き込み経路 (src/btrfs_write.inc / btrfs_write_ops.inc) を有効にする。無効なら書き込み入口は全て EROFS。docs/btrfs-write.md
+  target_compile_definitions(usbmem_btrfs PRIVATE USBMEM_NTFS_WRITE=1)
+endif()
 target_link_libraries(usbmem_btrfs PUBLIC usbmem_kdecomp usbmem_compat_rt usbmem_transform usbmem_core)
 
 if(USBMEM_BUILD_TESTS)
   add_executable(usbmem_btrfs_tests tests/test_btrfs.cpp)
   target_link_libraries(usbmem_btrfs_tests PRIVATE usbmem_btrfs)
+  if(USBMEM_NTFS_WRITE)
+    # 書き込みのテスト本体。独立実装 (btrfs check / restore / dump-tree) との突き合わせは tools/run_btrfs_write_tests.sh。docs/btrfs-write.md
+    add_executable(usbmem_btrfs_write_tests tests/test_btrfs_write.cpp)
+    target_include_directories(usbmem_btrfs_write_tests PRIVATE tests)
+    target_link_libraries(usbmem_btrfs_write_tests PRIVATE usbmem_btrfs)
+  endif()
   # mkfs.btrfs (チェックサム × 圧縮 × ノードサイズ × セクタサイズ × 機能 × サブボリューム) + tools/gen_btrfs_fixture.py。生成時に btrfs check --readonly と btrfs restore との一致を確認する。
   # btrfs_restore_xcheck は、リーダー (usbmem_btrfs_tests tree) の出力を btrfs restore の展開結果と全イメージで突き合わせる。docs/btrfs-port.md
   find_package(Python3 COMPONENTS Interpreter)
@@ -28,5 +39,11 @@ if(USBMEM_BUILD_TESTS)
     set_tests_properties(btrfs_read btrfs_restore_xcheck btrfs_corrupt btrfs_ioerr btrfs_fuzz PROPERTIES FIXTURES_REQUIRED btrfs_fixture TIMEOUT 1800)
     set_tests_properties(btrfs_corrupt btrfs_ioerr btrfs_fuzz PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
     set_tests_properties(btrfs_read PROPERTIES ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+    if(USBMEM_NTFS_WRITE)
+      # 書き込み: 決まった操作列・乱数操作 (モデル)・拒否・満杯・ファジングを btrfs check / btrfs restore と突き合わせ (btrfs_write)、電源断の模擬 (btrfs_crash)。docs/btrfs-write.md
+      add_test(NAME btrfs_write COMMAND sh ${BTRFS_TOOLS}/run_btrfs_write_tests.sh $<TARGET_FILE:usbmem_btrfs_write_tests> 1)
+      add_test(NAME btrfs_crash COMMAND sh ${BTRFS_TOOLS}/run_btrfs_crash_tests.sh $<TARGET_FILE:usbmem_btrfs_write_tests> 10)   # 軽量版。フル版は docs/btrfs-write.md
+      set_tests_properties(btrfs_write btrfs_crash PROPERTIES TIMEOUT 3600 SKIP_RETURN_CODE 77 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+    endif()
   endif()
 endif()

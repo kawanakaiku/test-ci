@@ -11,7 +11,7 @@ squashfs / erofs / ext4 などは Linux の `fs/*` を無改変で LinuxCompat �
 - 読み取りに必要な形式は小さい: スーパーブロック → chunk (論理 → 物理) → root tree → fs tree の B 木 → inode / dir item / file extent。
   自前で約 1000 行 (`core/compat/src/btrfs_volume.cpp`)。ディスク上の値を一切信用しない書き方 (範囲・桁あふれ・ループの検査) を最初から入れられる。
 - 展開だけは既存のカーネルの展開ライブラリ (`third_party/kernel-lib`: `lib/zlib_inflate`・`lib/lzo`・`lib/zstd`、無改変) を使う (`btrfs_decomp.c` の薄いラッパ)。
-- 副作用: 書き込み・tree-log 再生・修復の経路が**コードとして存在しない**。読み取り専用であることが構造で保証される。
+- 副作用: 既定のビルド (`USBMEM_NTFS_WRITE` なし) では、書き込み・tree-log 再生・修復の経路が**コードとして存在しない**。読み取り専用であることが構造で保証される (書き込みは `btrfs_write*.inc` を `USBMEM_NTFS_WRITE` のときだけ取り込む: docs/btrfs-write.md)。
 
 ## 対応範囲
 - **デバイス**: 単一デバイス。複数デバイス (`num_devices != 1`)・RAID0 / RAID10 / RAID5 / RAID6 は `EOPNOTSUPP(95)` で拒否。プロファイルは single / DUP が読める
@@ -67,4 +67,4 @@ squashfs / erofs / ext4 などは Linux の `fs/*` を無改変で LinuxCompat �
 - xattr・ACL・暗号化 (fscrypt)・fs-verity は読まない (`FsVolume` に xattr の口が無い)。ファイルの「圧縮済みか」などの属性も出さない。
 - 大きなファイルの先頭への `read` は、1 回ごとに B 木を引く (キャッシュはノードのみ)。大きな連続読み出しの速度は未測定。
 - 4Kn のデバイス上の Btrfs・ARM 実機での速度・実機の USB での動作は未確認。reflink で共有された extent の実イメージは、tmpfs では `mkfs.btrfs --reflink` が使えず作れなかった (形式は読むが実イメージでは未検証)。
-- 書き込みは永久に別問題 (今回の対象外)。
+- 書き込みは別の実装 (読み取りのコードの上に COW で足した自前のエンジン。実験的、`USBMEM_NTFS_WRITE` ビルドだけ): docs/btrfs-write.md。

@@ -54,7 +54,8 @@ def post_writes(mnt):
             f.write(bytes(((j * 7 + i) & 255) for j in range(n)))
             f.flush()
             os.fsync(f.fileno())
-    os.symlink("k0", os.path.join(d, "lnk"))
+    if not os.path.lexists(os.path.join(d, "lnk")):
+        os.symlink("k0", os.path.join(d, "lnk"))
     for i in range(100):
         open(os.path.join(d, "e%03d" % i), "w").close()
     os.sync()

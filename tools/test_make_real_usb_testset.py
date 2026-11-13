@@ -768,5 +768,25 @@ class ImageModeIntegration(unittest.TestCase):
         self.assertIn("ダーティフラグ", out)
 
 
+class WorkdirRamTests(unittest.TestCase):
+    def test_overlay_with_tmpfs_upper_is_ram(self):
+        mi = M.parse_mountinfo(LIVE_MI_FOR_RAM)
+        self.assertTrue(M.workdir_is_ram(mi, "/home/u/Downloads/usbmem_testset_work"))
+
+    def test_real_disk_is_not_ram(self):
+        mi = M.parse_mountinfo(LIVE_MI_FOR_RAM + "40 38 259:1 / /mnt/data rw - ext4 /dev/nvme0n1p3 rw\n")
+        self.assertFalse(M.workdir_is_ram(mi, "/mnt/data/work"))
+
+    def test_tmpfs_is_ram(self):
+        mi = M.parse_mountinfo("1 0 0:1 / / rw - ext4 /dev/sda1 rw\n2 1 0:2 / /dev/shm rw - tmpfs tmpfs rw\n")
+        self.assertTrue(M.workdir_is_ram(mi, "/dev/shm/x"))
+        self.assertFalse(M.workdir_is_ram(mi, "/home/x"))
+
+
+LIVE_MI_FOR_RAM = (
+    "35 31 0:31 / /run/live/overlay rw - tmpfs tmpfs rw,size=1k\n"
+    "38 2 0:32 / / rw - overlay overlay rw,lowerdir=/run/live/rootfs/filesystem.squashfs/,upperdir=/run/live/overlay/rw,workdir=/run/live/overlay/work\n")
+
+
 if __name__ == "__main__":
     unittest.main()

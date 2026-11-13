@@ -1698,6 +1698,7 @@ def build_parser():
     ap.add_argument("--backup-dir", help="元のパーティション表・先頭 4MiB・末尾 1MiB の保存先 (既定 ./usbmem_testset_backup/<プロファイル>_<日時>)")
     ap.add_argument("--full-backup", action="store_true", help="デバイス全体のイメージも --backup-dir に保存する (空き容量が要る)")
     ap.add_argument("--manifest-dir", default="./usbmem_testset_manifests", help="マニフェストの保存先 (既定 ./usbmem_testset_manifests/<プロファイル>/<パーティション名>.sha256)")
+    ap.add_argument("--allow-ram-workdir", action="store_true", help="作業ディレクトリがメモリ上でも、空きメモリが足りなくても続行する")
     ap.add_argument("--work-dir", help="一時ファイルの置き場 (既定 ./usbmem_testset_work)。最大で 4.5 GiB + 疎イメージ分の空きが要る")
     ap.add_argument("--log", default="./usbmem_testset.log", help="ログファイル")
     ap.add_argument("--dirty-ntfs", action="store_true", help="プロファイル A の NTFS をダーティフラグ付きにする")
@@ -1755,6 +1756,44 @@ def device_node(tree, dev):
 def free_space_check(path, need):
     os.makedirs(path, exist_ok=True)
     return shutil.disk_usage(path).free >= need
+
+
+def workdir_is_ram(mi, path, depth=0):
+    """path がメモリ上 (tmpfs / ramfs、または upperdir が tmpfs の overlay = ライブ環境のルート) にあるか。"""
+    if depth > 4:
+        return False
+    e = _mount_entry_for(mi, path)
+    if e is None:
+        return False
+    if e["fstype"] in ("tmpfs", "ramfs"):
+        return True
+    if e["fstype"] == "overlay":
+        for kv in e["opts"].split(","):
+            if kv.startswith("upperdir=") and workdir_is_ram(mi, kv.split("=", 1)[1], depth + 1):
+                return True
+    return False
+
+
+def mem_available():
+    try:
+        for ln in open("/proc/meminfo"):
+            if ln.startswith("MemAvailable:"):
+                return int(ln.split()[1]) * 1024
+    except OSError:
+        pass
+    return None
+
+
+def acquire_single_instance_lock():
+    """同時に 2 つ以上動かさない (ハブの帯域と、全デバイス対象の sync で互いに詰まるため)。ロックを保持するファイルオブジェクトを返す。"""
+    import fcntl
+    f = open(os.path.join(tempfile.gettempdir(), "usbmem_testset.lock"), "w")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        return None
+    return f
 
 
 def estimate_work_need(layout, opts):
@@ -1890,6 +1929,24 @@ def main_run(argv):
     if not free_space_check(work, estimate_work_need(layout, opts)):
         say("中止: 作業ディレクトリ %s の空きが足りない (目安 %s)。--work-dir で空きの多い場所を指定" % (work, human(estimate_work_need(layout, opts))))
         return 2
+
+    need_work = estimate_work_need(layout, opts)
+    try:
+        mi_work = parse_mountinfo(_read_sys("/proc/self/mountinfo") or "")
+    except Exception:
+        mi_work = []
+    if workdir_is_ram(mi_work, work):
+        avail = mem_available()
+        msg = "作業ディレクトリ %s はメモリ上 (tmpfs / ライブ環境の overlay) にある。目安 %s がメモリを使う" % (work, human(need_work))
+        if avail is not None and need_work > avail // 2 and not args.allow_ram_workdir:
+            say("中止: " + msg + " (空きメモリ %s)。--work-dir にディスク上の場所を指定するか、--no-big-files を付ける。承知の上なら --allow-ram-workdir" % human(avail))
+            return 2
+        say("警告: " + msg + "。スワップが増えると極端に遅くなる")
+    if mode == "device":
+        lock = acquire_single_instance_lock()
+        if lock is None:
+            say("中止: 別の make_real_usb_testset.py が実行中。デバイスは 1 本ずつ順に処理する (同時実行は、ハブの帯域と全デバイス対象の sync で互いに詰まる)")
+            return 2
 
     print_plan(layout, opts, target)
     manifest_dir = os.path.join(args.manifest_dir, prof.name)

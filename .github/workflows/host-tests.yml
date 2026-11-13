@@ -67,8 +67,9 @@ jobs:
 
       # FAT 書き込みをカーネルの vfat と突き合わせる (loop マウントに sudo が要るので CI だけ。docs/fat-write.md)。フィクスチャは ctest の fat_gen_fixture が作る。
       # 書き込み有効のビルド (wrel) だけ。ctest_regex で絞った実行では走らせない。
+      # ctest が (FUSE / ntfs フィクスチャ等の既存の環境要因で) 失敗しても走らせる。
       - name: FAT write vs kernel vfat
-        if: matrix.mode == 'wrel' && github.event.inputs.ctest_regex == ''
+        if: ${{ !cancelled() && matrix.mode == 'wrel' && github.event.inputs.ctest_regex == '' }}
         run: |
           export PATH="$PATH:/sbin:/usr/sbin"
           sh tools/run_fat_kernel_tests.sh build/compat/usbmem_fat_write_tests "/dev/shm/usbmem_fat_$USER"

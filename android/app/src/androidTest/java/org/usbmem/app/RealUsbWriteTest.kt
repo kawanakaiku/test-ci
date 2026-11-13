@@ -280,7 +280,8 @@ class RealUsbWriteTest {
         step("速度計測: ${mbs} MiB を書く") {
             v.create("/$folder", "speed.bin", false)
             val ms = writeBig(v, path, bytes, 11)
-            "%.1f MB/s".format(bytes / 1e6 / (ms / 1000.0))
+            RealUsb.log("write %.1f MB/s".format(bytes / 1e6 / (ms / 1000.0)))   // step は null = 成功。速度はログにだけ出す
+            null
         }
         step("速度計測: ${mbs} MiB を読み戻して照合") {
             val (ok, ms) = readBigCheck(v, path, bytes, 11)
@@ -328,6 +329,11 @@ class RealUsbWriteTest {
         // CreateOnly の段階で自分が作ったフォルダがあれば消す (この試験が作ったもの。他は一切消さない)
         if (exists(v, "/$coFolder")) {
             step("CreateOnly で作ったフォルダを消す ($coFolder)") { v.removeTree("/$coFolder"); v.sync(); if (exists(v, "/$coFolder")) "まだ残っています" else null }
+        }
+        // 前回の実行が CreateOnly の段階で止まって残った、この試験の専用フォルダ (名前が usbmem_cotest_<日付>_<時刻> に完全一致するものだけ)。他は一切消さない
+        val stale = Regex("usbmem_cotest_\\d{8}_\\d{6}")
+        v.list("/").map { it.name }.filter { it != coFolder && stale.matches(it) }.forEach { old ->
+            step("前回の実行が残した専用フォルダを消す ($old)") { v.removeTree("/$old"); v.sync(); if (exists(v, "/$old")) "まだ残っています" else null }
         }
         val r = WriteSelfTest.run(v, stamp) { RealUsb.log("$tag selftest: $it") }
         for (st in r.steps) {

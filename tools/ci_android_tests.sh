@@ -25,6 +25,7 @@ export ANDROID_SERIAL=${ANDROID_SERIAL:-${ADB_SERIAL:-emulator-5554}}
 export ADB_SERIAL=$ANDROID_SERIAL
 case "$ANDROID_SERIAL" in emulator-*) ;; *) echo "refusing: ANDROID_SERIAL must be an emulator ($ANDROID_SERIAL)" >&2; exit 2;; esac
 export USBMEM_SKIP_BUILD=1
+export USBMEM_TMP=${USBMEM_TMP:-$FIX/tmp}; mkdir -p "$USBMEM_TMP"   # 書き込み系スクリプトの作業場所 (ローカルは /dev/shm。runner の /dev/shm 上では FUSE の後始末が失敗した)
 export ANDROID_SDK_EXEC=/usr/bin/env      # run_android_fat_test.sh の android-sdk-exec の代わり (ビルドは省くので実際には使わない)
 
 # ---- フィクスチャ生成 -------------------------------------------------------------

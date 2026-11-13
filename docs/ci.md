@@ -89,6 +89,7 @@ Java は Temurin 17、Gradle は 9.0.0 (ラッパー)、NDK 30.0.16248370、CMak
 - Btrfs: 既定の AVD のヒープ上限は 192 MB で、旧テストは 206 MB のイメージを `readBytes()` で全部読んで OOM になった。テストをストリームの SHA-256 にして解決した (AVD 側の `vm.heapSize` や `adb root` での書き換えは効かなかった)。
 - 書き込み系スクリプト (`ext2_write` / `exfat_write` / `write`) の作業場所は、ローカルでは `/dev/shm`、CI では `$FIX/tmp` (`USBMEM_TMP`)。runner の `/dev/shm` では FUSE の後始末 (`rm -rf` の失敗が EXIT trap の終了コードを変える) で失敗した。
 - runner の FUSE: `fusermount3` に `user_allow_other` が要る (`/etc/fuse.conf` に追記)。ホストツールのバージョンは `ubuntu-latest` (今は 26.04) の追従で変わる。
+- FAT の書き込みは host-tests.yml の wrel で `tools/run_fat_kernel_tests.sh` (sudo + loop の `mount -t vfat -o utf8=1`) を走らせ、カーネル vfat と双方向に突き合わせる。ctest が既存の環境要因で落ちても走る。`ctest_regex=fat_gen_fixture` の手動実行ならこのステップだけ走る (約 3 分)。
 - ビルドは arm64-v8a と x86_64 の両方が作られる (ABI を絞ると APK のパスが変わる)。ビルド時間は Gradle/SDK キャッシュで短縮している。
 - Actions のキャッシュ (Gradle / SDK / AVD) は同じリポジトリの他のワークフローのキャッシュを押し出す可能性がある。キー: AVD は `v5` を上げると作り直し。
 - push で起動するのは `usbmem-ci` ブランチだけ。テスト専用リポジトリ (公開) に push する運用で、このリポジトリのフィクスチャや鍵は含まれない。

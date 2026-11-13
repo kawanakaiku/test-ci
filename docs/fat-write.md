@@ -151,4 +151,12 @@ FAT のファイルサイズは 32 ビット。4GiB-1 (0xFFFFFFFF) を超える�
   `iunique` / `rt_buffer.c` / `rt_pagecache.c` の変更後も通過 (`fat_read` は「rw を要求したマウントが書き込み有効ビルドで成功する」ことを許す形に直した。exFAT のテストと同じ)。
 - **AVD** (x86_64, API 37): `FatWriteTest` 3 件 OK — FAT12 534 / FAT16 567 / FAT32 634 エントリがホスト参照ツリーと一致・`fsck.fat` clean・ダーティ印が消えている。ブートセクタ / FAT[1] のダーティなイメージは読み取り専用に落ちてバイト不変。
   既存の FAT の読み取りテスト 6 件も OK (書き込み有効ビルドで)。
-- **GitHub Actions** (`usbmem-ci-fat`): 後述の「CI」に記入。
+- **GitHub Actions** (`kawanakaiku/test-ci` の `usbmem-ci-fat`):
+  - Android emulator tests (ext-fat グループ = fat / fat_write / ext2_write / exfat_write): 5 グループ全て success。`FatWriteTest` 3 件 OK (534 / 567 / 634 エントリがホスト参照と一致、fsck.fat clean)、既存の FAT 読み取り 6 件 OK。
+  - Host tests (wrel): `fat_write` (72 秒) と `fat_crash` (140 秒、`main` + `dense`) が通過。plain の `fat_read` / `fat_coexist` も通過。
+    ctest 全体は **このブランチと無関係な既存の 20 件** (partedit_tools / disktools_tools / ntfs_* / erofs_* / xfs_read / ext2_write・exfat_write・ext4_write の FUSE 後始末 / fat_probe は ntfs フィクスチャ依存で Not Run) が runner 上で失敗する。
+    他のブランチ (`usbmem-ci-lun` / `-btrfs` / `-f2fs` / `-host`) の実行でも同じ件数 (wrel 20 件) が失敗しており、FAT の変更が原因ではない。
+  - **カーネル vfat との双方向突き合わせ** (`run_fat_kernel_tests.sh`、wrel、sudo + loop): A (自前ドライバが書いたイメージをカーネルが読む) と B (カーネルが書いたイメージを自前ドライバが読む) の FAT12 / FAT16 / FAT32 全てで、
+    534 / 567 / 634 エントリがホスト参照と一致。「Volume was not properly unmounted」なし、カーネルが続けて書いた後も fsck.fat clean。
+    最初の実行ではカーネルを `iocharset=utf8` でマウントしたため絵文字 (BMP 外) が `?` に化けて不一致になった。カーネルの vfat は BMP 外を `utf8=1` でしか扱えないので、マウントを `utf8=1` に直した (ドライバ側の不具合ではない)。
+    ctest が既存の理由で失敗してもこのステップは走るようにし (`!cancelled()`)、`ctest_regex=fat_gen_fixture` の手動実行でこのステップだけを素早く走らせられる。

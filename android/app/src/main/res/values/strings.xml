@@ -44,7 +44,7 @@
     <string name="usb_guide_2_body">迷ったら読み取り専用のままにします。</string>
     <string name="usb_guide_3_title">USB を開く (複数本を同時に開けます)</string>
     <string name="usb_guide_3_body">USB ごとのカードの「開く」を押します。初回は許可ダイアログが出ます。ほかの USB を開いたままでも、続けて開けます。</string>
-    <string name="usb_guide_4_title">NTFS / exFAT パーティションをマウントする</string>
+    <string name="usb_guide_4_title">パーティションをマウントする (NTFS / exFAT / ext2・3・4 / FAT ほか)</string>
     <string name="usb_guide_4_body">マウントすると、ファイルアプリから見られます (この端末の中だけで、ネットには出ません)。</string>
     <string name="usb_guide_5_title">終わったら、その USB の「USB を安全に閉じる」</string>
     <string name="usb_guide_5_body">書き込みの確定とアンマウントをします。その USB だけが閉じ、ほかの USB はそのままです。</string>
@@ -56,7 +56,7 @@
     <string name="image_inspect_title">パーティションを調べる</string>
     <string name="image_inspect_subtitle">ディスクイメージ (.img / .bin) を読み取り専用で開きます。書き込みはしません</string>
     <string name="image_open_raw">RAW イメージを開く</string>
-    <string name="image_share_title">NTFS / exFAT イメージをマウント</string>
+    <string name="image_share_title">ディスクイメージをマウント</string>
     <string name="image_share_subtitle">ファイルアプリから中身を見られるようにします</string>
     <string name="image_chip_write">書き込み可 (実験的)</string>
     <string name="image_write_warning">データ破損の恐れがあります。バックアップを取ってください。</string>
@@ -155,8 +155,8 @@
     <string name="mode_create_only">新規作成のみ書き込み可</string>
     <string name="notice_published_read_only">読み取り専用でマウントしました</string>
     <string name="notice_published_read_only_detail">書き込みは使えません (ビルドで無効、またはボリュームに異常/ダーティがあります)。</string>
-    <string name="notice_ntfs_open_failed">NTFS / exFAT / ext として開けません</string>
-    <string name="notice_ntfs_open_failed_with_reason">NTFS / exFAT / ext として開けません: %1$s</string>
+    <string name="notice_ntfs_open_failed">対応するファイルシステムとして開けません</string>
+    <string name="notice_ntfs_open_failed_with_reason">対応するファイルシステムとして開けません: %1$s</string>
     <string name="notice_fs_needs_recovery">未回復または破損のため、マウントしません</string>
     <string name="notice_fs_needs_recovery_detail">まだ反映されていない更新 (ext3 / ext4 / XFS のジャーナル、Btrfs のログ、F2FS の直近の fsync の記録) が残っているか、ファイルシステムの内部が壊れています。書き込み中に取り外された可能性があります。このアプリはジャーナルを再生しないため、そのまま読むと古い内容が見えることがあります。PC や Linux 機器で fsck (e2fsck / chkdsk) を実行してから、もう一度マウントしてください。</string>
     <string name="notice_fs_unsupported_feature">対応していない機能のため、マウントできません</string>

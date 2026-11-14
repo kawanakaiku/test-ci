@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // XFS 書き込み: inode の更新・データフォーク (extent / bmbt)・ディレクトリ (sf / block / leaf)・ファイル操作。xfs_write_alloc.inc の後で Impl の中に #include される。docs/xfs-write.md
-// 対応: create / mkdir / symlink / write (追記・上書き・穴あけ) の CreateOnly の範囲。削除・rename・truncate・link は未対応 (EOPNOTSUPP)。
+// 対応: create / mkdir / symlink / write (追記・上書き・穴あけ)。削除・rename・truncate・link は xfs_write_full.inc、ノード形式のディレクトリは xfs_write_node.inc。
 
   // ============ 時刻・inode の生データ ============
   static constexpr uint64_t kFlags2Reflink = 1u << 1, kFlags2Bigtime = 1u << 3, kFlags2Nrext64 = 1u << 4;
@@ -404,6 +404,36 @@
     return 0;
   }
 
+  // short-form ディレクトリの内容 sf を書く。inode の中に収まらなければ block 形式 (1 ブロック) に変換する
+  int dir_sf_store(uint64_t dino, const SfDir& sf) {
+    std::vector<uint8_t> enc = sf_encode(sf);
+    uint8_t* ip; int rc = ino_raw(dino, &ip); if (rc) return rc;
+    uint32_t dsize = ip[82] ? uint32_t(ip[82]) * 8 : inodesize - 176;
+    if (enc.size() <= dsize) {
+      std::memset(ip + 176, 0, dsize);
+      std::memcpy(ip + 176, enc.data(), enc.size());
+      pb64(ip + 56, enc.size());
+      return 0;
+    }
+    // block 形式へ変換 (. と .. と全エントリを詰めて 1 ブロックに)
+    std::vector<DEnt> all;
+    all.push_back({".", dino, 2, 0}); all.push_back({"..", sf.parent, 2, 0});
+    for (auto& e : sf.ents) all.push_back(e);
+    uint64_t fsb; uint32_t got;
+    rc = fs_alloc(uint32_t(dino >> (agblklog + inopblog)), ~0ULL, 1, &fsb, &got, true); if (rc) return rc;
+    uint64_t blk; if (!fsb_to_blk(fsb, &blk)) return -EUCLEAN;
+    WBuf* b = bnew(blk * bs, bs, BLFT_DIR_BLOCK);
+    if (!block_build(dino, b->d.data(), b->off, all)) return -EUCLEAN;
+    rc = ino_raw(dino, &ip); if (rc) return rc;
+    std::memset(ip + 176, 0, dsize);
+    ip[5] = kFmtExtents;
+    pb64(ip + 56, bs);
+    pb64(ip + 64, be64(ip + 64) + 1);
+    if (be64(ip + 120) & kFlags2Nrext64) pb64(ip + 24, 1); else pb32(ip + 76, 1);
+    ext_encode(Ext{0, fsb, 1, false}, ip + 176);
+    return 0;
+  }
+
   // 親ディレクトリ d に (name → ino, ft) を追加する
   int dir_add(uint64_t dino, const std::string& name, uint64_t ino, uint8_t ft) {
     std::shared_ptr<Inode> din;
@@ -417,38 +447,14 @@
       uint32_t next = 0x60;
       for (auto& e : sf.ents) next = std::max(next, e.off + ent_sz(e.name.size()));
       sf.ents.push_back({name, ino, ft, next});
-      std::vector<uint8_t> enc = sf_encode(sf);
-      rc = ino_raw(dino, &ip); if (rc) return rc;
-      uint32_t dsize = ip[82] ? uint32_t(ip[82]) * 8 : inodesize - 176;
-      if (enc.size() <= dsize) {
-        std::memset(ip + 176, 0, dsize);
-        std::memcpy(ip + 176, enc.data(), enc.size());
-        pb64(ip + 56, enc.size());
-        return 0;
-      }
-      // block 形式へ変換 (. と .. と全エントリを詰めて 1 ブロックに)
-      std::vector<DEnt> all;
-      all.push_back({".", dino, 2, 0}); all.push_back({"..", sf.parent, 2, 0});
-      for (auto& e : sf.ents) all.push_back(e);
-      uint64_t fsb; uint32_t got;
-      rc = fs_alloc(uint32_t(dino >> (agblklog + inopblog)), ~0ULL, 1, &fsb, &got, true); if (rc) return rc;
-      uint64_t blk; if (!fsb_to_blk(fsb, &blk)) return -EUCLEAN;
-      WBuf* b = bnew(blk * bs, bs, BLFT_DIR_BLOCK);
-      if (!block_build(dino, b->d.data(), b->off, all)) return -EUCLEAN;
-      rc = ino_raw(dino, &ip); if (rc) return rc;
-      std::memset(ip + 176, 0, dsize);
-      ip[5] = kFmtExtents;
-      pb64(ip + 56, bs);
-      pb64(ip + 64, be64(ip + 64) + 1);
-      if (be64(ip + 120) & kFlags2Nrext64) pb64(ip + 24, 1); else pb32(ip + 76, 1);
-      ext_encode(Ext{0, fsb, 1, false}, ip + 176);
-      return 0;
+      return dir_sf_store(dino, sf);
     }
     rc = load_extents(d); if (rc) return rc;
     const uint64_t leaf_fb = leaf_lblk();
     const std::vector<Ext>& ev = *d->exts;
     bool has_leaf = false;
     for (auto& e : ev) if (e.off >= leaf_fb) { has_leaf = true; break; }
+    if (dir_is_node(ev)) return node_add(dino, name, ino, ft);   // ノード形式 (xfs_write_node.inc)
     if (d->size == bs && !has_leaf) {
       // block 形式
       WBuf* b; rc = dir_buf(d, 0, BLFT_DIR_BLOCK, &b); if (rc) return rc;
@@ -501,9 +507,9 @@
     {
       const uint8_t* p = lf->d.data();
       uint32_t count = be16(p + 56), stale = be16(p + 58), bc = be32(p + bs - 4);
-      if (stale != 0) return -EOPNOTSUPP;
+      (void)stale;   // カーネルが作った葉は stale (address 0) のエントリを持ちうる: 読み飛ばし、書き直すときに詰める
       if (64 + 8 * uint64_t(count) + 2 * uint64_t(bc) + 4 > bs || bc != ndata) return -EUCLEAN;
-      for (uint32_t i = 0; i < count; i++) lents.push_back({be32(p + 64 + i * 8), be32(p + 68 + i * 8)});
+      for (uint32_t i = 0; i < count; i++) { uint32_t a = be32(p + 68 + i * 8); if (a != 0) lents.push_back({be32(p + 64 + i * 8), a}); }
       for (uint32_t i = 0; i < bc; i++) bests.push_back(be16(p + bs - 4 - 2 * bc + 2 * i));
     }
     const uint32_t sz = ent_sz(name.size());
@@ -511,8 +517,9 @@
     int64_t target = -1;
     for (uint64_t i = 0; i < ndata; i++) if (bests[i] != 0xFFFF && bests[i] >= sz) { target = int64_t(i); break; }
     WBuf* db = nullptr;
+    // leaf1 に収まらなくなった (エントリ or データブロックが増えて葉が溢れる): ノード形式に移して追加する (xfs_write_node.inc)
+    if (64 + 8 * (lents.size() + 1) + 2 * (bests.size() + (target < 0 ? 1 : 0)) + 4 > bs) return node_add(dino, name, ino, ft);
     if (target < 0) {
-      if (64 + 8 * (lents.size() + 1) + 2 * (bests.size() + 1) + 4 > bs) return -ENOSPC;   // node 形式が必要 (未対応)
       rc = dir_add_block(d, ndata, BLFT_DIR_DATA, &db); if (rc) return rc;
       uint8_t* p = db->d.data();
       dir_hdr_init(p, kDir3Data, db->off, dino);
@@ -544,7 +551,7 @@
     lents.insert(lents.begin() + pos, {h, addr});
     WBuf* lf2; rc = dir_buf(d, leaf_fb, BLFT_DIR_LEAF1, &lf2); if (rc) return rc;
     uint8_t* lp = bw(lf2);
-    if (!leaf1_build(dino, lp, lf2->off, lents, bests)) return -ENOSPC;
+    if (!leaf1_build(dino, lp, lf2->off, lents, bests)) return -EUCLEAN;   // 容量は上で確認済み
     return 0;
   }
 
@@ -676,6 +683,20 @@
   }
 
   // ============ ファイルの書き込み ============
+  // 旧 EOF より先 (まだ見えない領域) をその場でゼロにする前の確認: コミット済みのサイズ (まだログに載っていない縮小より前) がいまのサイズより大きいなら、
+  // その領域は電源断で「ファイルの中」に戻りうる (縮小がコミットされる前にゼロが書かれてしまう)。true なら呼び出し側は kRetryBusy を返し、いったんコミットしてからやり直す
+  bool tail_zero_unsafe(uint64_t ino, uint64_t cur_size) {
+#ifdef USBMEM_MUTATE_TAIL_ZERO_EARLY
+    (void)ino; (void)cur_size; return false;   // 突然変異: 縮小がコミットされる前に EOF 以降をゼロにしてしまう
+#endif
+    uint64_t bo; uint32_t sl;
+    if (ino_loc(ino, &bo, &sl)) return false;
+    auto it = wb.find(bo);
+    if (it == wb.end() || it->second.fresh || it->second.orig.size() < size_t(sl + 1) * inodesize) return false;
+    const uint8_t* p = it->second.orig.data() + size_t(sl) * inodesize;
+    if (be16(p) != kInodeMagic) return false;
+    return be64(p + 56) > cur_size;
+  }
   int write_file(uint64_t ino, uint64_t off, const uint8_t* buf, size_t len, bool inplace_only, int64_t* written) {
     *written = 0;
     std::shared_ptr<Inode> in;
@@ -702,6 +723,7 @@
         uint64_t zend = std::min<uint64_t>(off, (lb + 1) * bs);
         uint64_t b; if (!fsb_to_blk(e->fsb + (lb - e->off), &b)) return -EUCLEAN;
         if (reflink) return -EOPNOTSUPP;
+        if (tail_zero_unsafe(ino, old_size)) return kRetryBusy;
         std::vector<uint8_t> z(size_t(zend - old_size), 0);
         rc = dev_write_data(b * bs + (old_size % bs), z.data(), z.size()); if (rc) return rc;
       }
@@ -729,7 +751,12 @@
         uint64_t fsb; uint32_t got;
         rc = fs_alloc(ag, hint, uint32_t(std::min<uint64_t>(want, 1u << 20)), &fsb, &got); if (rc) return rc;
         { uint32_t a = uint32_t(fsb >> agblklog), bn = uint32_t(fsb & ((1ULL << agblklog) - 1));
-          for (auto& x : busy) if (x.ag == a && bn < x.bno + x.len && x.bno < bn + got) return kRetryBusy; }
+#ifndef USBMEM_MUTATE_REUSE_FREED   // 突然変異: 解放したばかりのブロックにデータを書く (コミット前の電源断で、削除したはずの古いファイルが壊れる)
+          for (auto& x : busy) if (x.ag == a && bn < x.bno + x.len && x.bno < bn + got) return kRetryBusy;
+#else
+          (void)a; (void)bn;
+#endif
+        }
         // 新しいブロックの内容: 範囲外はゼロ
         for (uint32_t k = 0; k < got; k++) {
           uint64_t lb = fb + k;

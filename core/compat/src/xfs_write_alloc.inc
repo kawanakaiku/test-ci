@@ -515,6 +515,7 @@
     uint32_t ag = uint32_t(fsb >> agblklog), bno = uint32_t(fsb & ((1ULL << agblklog) - 1));
     if (ag >= agcount || uint64_t(bno) + len > ag_len(ag)) return -EUCLEAN;
     int rc = fix_freelist(ag); if (rc) return rc;
+    bdrop_range(agb_off(ag, bno), uint64_t(len) * bs);
     rc = fs_free_raw(ag, bno, len); if (rc) return rc;
     return fix_freelist(ag);
   }

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0 (本ファイル) — xfs_volume.cpp は GPL-2.0-or-later (ディスク形式を Linux fs/xfs の形式定義を仕様として独立に実装。カーネルのソースは取り込まない)
 # XFS の読み取り専用リーダ (docs/xfs-port.md)。core/compat/CMakeLists.txt の末尾から include される。
 add_library(usbmem_xfs STATIC ${CMAKE_CURRENT_LIST_DIR}/src/xfs_volume.cpp)
-set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/src/xfs_volume.cpp PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/src/xfs_write.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_alloc.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_ops.inc")
+set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/src/xfs_volume.cpp PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/src/xfs_write.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_alloc.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_ops.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_full.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_node.inc")
 if(USBMEM_NTFS_WRITE)
   # 書き込み経路 (src/xfs_write*.inc) を有効にする。無効なら書き込み入口は全て EROFS。docs/xfs-write.md
   target_compile_definitions(usbmem_xfs PRIVATE USBMEM_NTFS_WRITE=1)
@@ -42,7 +42,8 @@ if(USBMEM_BUILD_TESTS)
       set(XFS_TOOLS ${CMAKE_CURRENT_LIST_DIR}/../../tools)
       add_test(NAME xfs_write COMMAND sh ${XFS_TOOLS}/run_xfs_write_tests.sh $<TARGET_FILE:usbmem_xfs_write_tests> 1)
       add_test(NAME xfs_crash COMMAND sh ${XFS_TOOLS}/run_xfs_crash_tests.sh $<TARGET_FILE:usbmem_xfs_write_tests> 40)   # 軽量版。フル版は docs/xfs-write.md
-      set_tests_properties(xfs_write xfs_crash PROPERTIES TIMEOUT 3600 SKIP_RETURN_CODE 77 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+      # 作業場所は /tmp (ディスク)。/dev/shm は他の ctest (失敗した fixture の残骸など) と共有で、CI では quota 超過 (ENOSPC) になった
+      set_tests_properties(xfs_write xfs_crash PROPERTIES TIMEOUT 3600 SKIP_RETURN_CODE 77 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1;USBMEM_WORK_DIR=/tmp;USBMEM_XFS_NODE_N=1200")
     endif()
   endif()
 endif()

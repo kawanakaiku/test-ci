@@ -129,6 +129,41 @@ if fsck_clean "$W/big.img" "many files"; then
   kq_add "$W/big.img" "$W/tr" "many files"
 fi
 kq_flush
+rm -f "$W/big.img"
+
+# ---------- 3b. 大きなディレクトリ (ノード形式: leaf1 に収まらない。作成・削除・rename・縮小・全削除 + rmdir) ----------
+r=0; mk "$W/nd.img" 320M "" || r=$?
+python3 -I - "$W/nd.ops" "${USBMEM_XFS_NODE_N:-3000}" <<'PY'
+import sys
+N = int(sys.argv[2])      # ctest (ASan) では減らす。ノード形式にするには 1000 以上
+L = []
+nm = lambda i: "node_dir_entry_with_a_longish_name_%05d" % i
+L += ["mkdir /nd", "mkdir /nd2", "mkdir /nd3", "mkdir /nd4"]
+for i in range(N):
+    L.append("create /nd/" + nm(i))
+    if i % 7 == 0: L.append("write /nd/%s 0 %d %d" % (nm(i), 100 + i, i % 251))
+for i in range(0, N, 2): L.append("unlink /nd/" + nm(i))               # 途中のデータブロックが空になる
+M = N + N // 5
+for i in range(N, M): L.append("create /nd/" + nm(i))                # 空きの再利用・伸長
+for i in range(1, N, 4): L.append("rename /nd/%s /nd/r_%s" % (nm(i), nm(i)))   # 同じディレクトリの中
+for i in range(3, N, 4): L.append("rename /nd/%s /nd2/m_%s" % (nm(i), nm(i)))  # 別のディレクトリへ
+for i in range(N, M - 1, 2): L.append("link /nd/h_%s /nd/%s" % (nm(i), nm(i + 1)))      # ハードリンク (名前を足す)
+for i in range(700): L.append("create /nd3/" + nm(i))                       # leaf1 → ノード → 縮小して葉 1 枚
+for i in range(5, 700): L.append("unlink /nd3/" + nm(i))
+for i in range(650): L.append("create /nd4/" + nm(i))                       # 全部消して rmdir (ノード形式の inode の解放)
+for i in range(650): L.append("unlink /nd4/" + nm(i))
+L.append("rmdir /nd4")
+L.append("rename /nd3 /nd2/nd3_moved")                                     # ノード形式を持つ (縮小した) ディレクトリの移動
+open(sys.argv[1], "w").write("\n".join(L) + "\n")
+PY
+d=$W/ref; rm -rf "$d"; mkdir -p "$d"; python3 -I "$HERE/ops_ref.py" "$d" "$W/nd.ops" && python3 -I "$HERE/ops_ref.py" --tree "$d" > "$W/tr" && rm -rf "$d"
+out=$("$T" --ops "$W/nd.img" "$W/nd.ops" 2>&1) || { printf "%s\n" "$out" | tail -5; fail "node dir: driver"; }
+if fsck_clean "$W/nd.img" "node dir"; then
+  "$T" --tree "$W/nd.img" "$W/ta" && cmp -s "$W/ta" "$W/tr" && echo "[node dir] $(printf "%s\n" "$out" | grep -a 'ops:' | tail -1); $(wc -l < "$W/ta") entries identical to reference; xfs_repair -n clean" || fail "node dir: tree differs"
+  kq_add "$W/nd.img" "$W/tr" "node dir"
+fi
+kq_flush
+rm -f "$W/nd.img"
 
 # ---------- 4. 何も書かない / 書き込み拒否 / 満杯 ----------
 r=0; mk "$W/n.img" 320M "$W/seed" || r=$?

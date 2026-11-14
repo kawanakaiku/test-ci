@@ -3,8 +3,8 @@
 使い方:
   gen_xfs_ops.py seed <dir>            元ファイル群 (小さい / 大きい / 疎 / シンボリックリンク / ハードリンク / 日本語名 / 長い名前 / short-form・block・leaf 形式のディレクトリ) を <dir> に作る
   gen_xfs_ops.py crashseed <dir> / crashops <出力>   電源断の検査用 (小さな操作列。ディレクトリ形式の変わり目をまたぐ)
-  gen_xfs_ops.py ops <出力> [seeded|createonly]   操作列を出力 (書式は usbmem_xfs_write_tests --ops / tools/ops_ref.py と同じ)。seeded なら seed のファイル・ディレクトリにも書く。createonly は seed のディレクトリへの追加だけ (既存ファイルの中身は変えない)
-XFS の書き込みは CreateOnly の範囲 (mkdir / create / write / symlink) だけなので、操作列も truncate / unlink / rmdir / rename / link は含まない。
+  gen_xfs_ops.py ops <出力> [seeded|createonly]   操作列を出力 (書式は usbmem_xfs_write_tests --ops / tools/ops_ref.py と同じ)。seeded なら seed のファイル・ディレクトリにも書く。createonly は seed のディレクトリへの追加だけ (既存ファイルの中身は変えない・削除しない)
+既定 (createonly 以外) の操作列は Full の操作 (truncate / unlink / rmdir / rename / link。sf / block / leaf 形式のディレクトリ・bmbt 形式のファイルを含む) も含む。createonly は含まない (アプリが CreateOnly で開く場合の列)。
 tools/run_xfs_write_tests.sh (ホスト) と tools/run_android_xfs_write_test.sh (Android) が共有する。docs/xfs-write.md"""
 import os
 import sys
@@ -41,6 +41,79 @@ def seed(d):
         w("blkdir/block_entry_%03d.txt" % i, b"b%d\n" % i)
     for i in range(400):                      # leaf 形式 (複数のデータブロック + 葉)
         w("leafdir/leaf_entry_with_longer_name_%04d.txt" % i, b"l%d\n" % i)
+    for i in range(1200):                     # ノード形式 (leaf1 に収まらない。mkfs.xfs -p が作る = カーネルと同じ構造のディレクトリ)
+        w("nodedir/node_entry_with_a_fairly_long_name_%05d" % i, b"n%d\n" % i)
+
+
+def full_ops(A, seeded):
+    """Full の操作 (truncate / unlink / rmdir / rename / link)。ops() の /w の木ができたあとに続く。seeded なら元ファイルの木 (sf / block / leaf のディレクトリ) にも行う"""
+    # --- truncate: 縮小 → 拡張 (EOF 以降はゼロ)・ブロック境界・0・空ファイルの拡張
+    A("truncate /w/big.bin 1000000"); A("truncate /w/big.bin 4097"); A("truncate /w/big.bin 4096"); A("truncate /w/big.bin 100000"); A("write /w/big.bin 99990 30 41")
+    A("truncate /w/m1m.bin 0"); A("write /w/m1m.bin 0 20000 42")
+    A("truncate /w/blk.bin 10"); A("truncate /w/blk.bin 5000"); A("write /w/blk.bin 3000 20 43")
+    A("truncate /w/blk_plus1.bin 4096"); A("truncate /w/blk_plus1.bin 4096")
+    A("truncate /w/sparse.bin 1000050"); A("truncate /w/sparse.bin 6000000")
+    A("truncate /w/empty.bin 12345")
+    A("truncate /w/one.bin 0"); A("truncate /w/one.bin 1")
+    # --- extent が多いファイル (bmbt 形式): 縮小で bmbt → extents に戻る / 丸ごと削除
+    A("create /w/frag")
+    for i in range(60): A("write /w/frag %d 100 %d" % (i * 8192, i))
+    A("create /w/frag2")
+    for i in range(50): A("write /w/frag2 %d 100 %d" % (i * 8192, i + 7))
+    A("truncate /w/frag 245760"); A("truncate /w/frag 40960"); A("write /w/frag 40000 50000 9")
+    A("truncate /w/frag2 400000")
+    # --- link / unlink
+    A("link /w/hard1 /w/two.bin"); A("link /w/sub0/hard2 /w/two.bin"); A("unlink /w/two.bin"); A("write /w/hard1 100 50 44"); A("unlink /w/hard1")
+    A("unlink /w/small.txt"); A("unlink /w/empty.bin"); A("unlink /w/blk_minus1.bin"); A("unlink /w/short.lnk"); A("unlink /w/long.lnk"); A("unlink /w/" + "x" * 255)
+    A("unlink /w/frag2")
+    A("link /w/many/hl /w/app.bin")
+    # --- rename: 同じディレクトリ / 別のディレクトリ / 上書き / ディレクトリ (".." と親の nlink) / 同じ inode
+    A("rename /w/blk.bin /w/blk_renamed.bin"); A("rename /w/one.bin /w/sub1/one_moved")
+    A("rename /w/sub2 /w/日本語ディレクトリ/sub2"); A("rename /w/sub3 /w/sub3b")
+    A("mkdir /w/emptyd"); A("rename /w/sub3b /w/emptyd")
+    A("mkdir /w/gone"); A("rmdir /w/gone")
+    A("create /w/ov_src"); A("write /w/ov_src 0 50000 45"); A("create /w/ov_dst"); A("write /w/ov_dst 0 90000 46"); A("rename /w/ov_src /w/ov_dst")
+    A("rename /w/ov_dst /w/ov_dst"); A("link /w/h_a /w/ov_dst"); A("rename /w/h_a /w/ov_dst"); A("unlink /w/h_a")
+    A("rename /w/many /w/sub1/many_moved")                                                        # leaf 形式のディレクトリごと (".." はデータブロック 0)
+    A("rename /w/sub1/many_moved/ファイル005.txt /w/sub1/many_moved/ファイル005b.txt"); A("rename /w/sub1/many_moved/ファイル007.txt /w/moved007.txt")
+    A("symlink /w/sl /w/sub4"); A("rename /w/sl /w/sub4/sl2")
+    # --- leaf 形式のディレクトリの削除: 中ほどのデータブロックが空になる (穴) → 末尾のブロックも空になる (縮む) → 再び育てる → 全部消して rmdir
+    M = "/w/sub1/many_moved/"
+    gone = set()
+    for i in range(0, 300, 3): A("unlink %sファイル%03d.txt" % (M, i)); gone.add(i)
+    for i in range(126, 252):
+        if i not in gone: A("unlink %sファイル%03d.txt" % (M, i)); gone.add(i)
+    for i in range(252, 300):
+        if i not in gone: A("unlink %sファイル%03d.txt" % (M, i)); gone.add(i)
+    for i in range(150): A("create %snew_after_delete_%03d" % (M, i)); A("write %snew_after_delete_%03d 0 %d %d" % (M, i, i * 5, i % 90))
+    left = ["ファイル%03d.txt" % i for i in range(126) if i not in gone and i not in (5, 7)] + ["ファイル005b.txt", "hl"] + ["new_after_delete_%03d" % i for i in range(150)]
+    for n in left: A("unlink %s%s" % (M, n))
+    A("rmdir /w/sub1/many_moved")
+    # --- サブツリーの削除
+    for j in range(3): A("unlink /w/sub0/f%d" % j)
+    A("unlink /w/sub0/hard2"); A("rmdir /w/sub0")
+    if seeded:
+        # 元ファイルの木: sf / block / leaf のディレクトリからの削除・ディレクトリ形式をまたぐ rename・ハードリンクの片方の削除・縮小
+        A("unlink /mid_hard.bin"); A("truncate /mid.bin 150000"); A("unlink /mid.bin")
+        A("unlink /ln_rel"); A("unlink /ln_abs"); A("unlink /one_block.bin")
+        for i in range(0, 12, 2): A("unlink /sfdir/s%d" % i)
+        for i in range(0, 40, 3): A("unlink /sfdir/new%d" % i)
+        for i in range(0, 60): A("unlink /blkdir/block_entry_%03d.txt" % i)
+        for i in range(0, 400, 2): A("unlink /leafdir/leaf_entry_with_longer_name_%04d.txt" % i)
+        for i in range(0, 80, 5): A("unlink /leafdir/more_leaf_entry_with_longer_name_%04d.txt" % i)
+        A("rename /emptydir/d /sfdir/dmoved"); A("rename /deep/a /deep/a2"); A("rename /deep/a2/b /deep/b_up")
+        A("unlink /deep/b_up/c/leaf.bin"); A("rmdir /deep/b_up/c"); A("rmdir /deep/b_up")
+        A("truncate /big.bin 100"); A("truncate /sparse.bin 3000"); A("truncate /sparse.bin 3000000")
+        A("rename /日本語/ファイル.txt /emptydir/f.txt"); A("rmdir /日本語")
+        A("rename /" + "n" * 255 + " /renamed_long"); A("link /sfdir/tiny_link /tiny.txt"); A("link /leafdir/tiny_link2 /tiny.txt")
+        A("rename /blkdir /blkdir2"); A("rename /leafdir /sfdir/leafdir_moved"); A("rename /sfdir /emptydir/sfdir_moved")
+        # カーネルが作ったノード形式のディレクトリ: 削除 (途中のデータブロックが空になる)・追加・別ディレクトリとの rename・ディレクトリごとの移動
+        for i in range(0, 1200, 3): A("unlink /nodedir/node_entry_with_a_fairly_long_name_%05d" % i)
+        for i in range(1, 600, 3): A("rename /nodedir/node_entry_with_a_fairly_long_name_%05d /emptydir/nd_%05d" % (i, i))
+        for i in range(120): A("create /nodedir/again_with_a_long_enough_name_%04d" % i)
+        for i in range(2, 1200, 3):
+            if i > 900: A("unlink /nodedir/node_entry_with_a_fairly_long_name_%05d" % i)
+        A("rename /nodedir /emptydir/nodedir_moved")
 
 
 def ops(out, seeded, create_only=False):
@@ -77,6 +150,8 @@ def ops(out, seeded, create_only=False):
         for i in range(120): A("create /blkdir/added_with_a_long_name_%03d.txt" % i)   # block → leaf
         for i in range(80): A("create /leafdir/more_leaf_entry_with_longer_name_%04d.txt" % i); A("write /leafdir/more_leaf_entry_with_longer_name_%04d.txt 0 %d %d" % (i, i * 11, i % 100))
         A("create /emptydir/first"); A("symlink /emptydir/ln /tiny.txt"); A("mkdir /emptydir/d")
+        for i in range(60): A("create /nodedir/added_%03d" % i); A("write /nodedir/added_%03d 0 %d %d" % (i, i * 13, i % 90))   # 既にあるノード形式への追加
+    if not create_only: full_ops(A, seeded)
     open(out, "w").write("\n".join(L) + "\n")
 
 
@@ -95,6 +170,7 @@ def crash_seed(d):
     for i in range(28): w("sfd/s%02d" % i, b"x")                 # short-form が (512 バイト inode で) ほぼ一杯
     for i in range(160): w("blkd/n%03d" % i, b"y")               # block 形式がほぼ一杯 (4 KiB ブロック)
     for i in range(245): w("leafd/m%03d" % i, b"z")              # leaf 形式で 1 ブロック目がほぼ一杯
+    for i in range(495): w("nodd/e%04d" % i, b"q")               # leaf1 の葉がほぼ一杯 (追加でノード形式に移る)
 
 
 def crash_ops(out):
@@ -108,6 +184,22 @@ def crash_ops(out):
     A("mkdir /cr/sub"); A("create /cr/sub/x.txt"); A("write /cr/sub/x.txt 0 9000 7"); A("symlink /cr/lnk /cr/g3"); A("symlink /cr/longlnk " + "/".join(["seg"] * 30))
     A("write /tiny.txt 100 5000 44"); A("write /one_block.bin 4000 200 45"); A("write /mid.bin 199990 70000 46"); A("write /keep/a.txt 10 20 3")
     A("create /cr/big.bin"); A("write /cr/big.bin 0 1400000 61"); A("create /cr/sparse"); A("write /cr/sparse 300000 100 62")
+    # Full の操作: 縮小・拡張 (ゼロ)・削除 (ブロック / inode の解放)・rename (同じ / 別のディレクトリ・上書き・ディレクトリ)・link / unlink・ディレクトリ形式の中の削除 (leaf のデータブロックが空になって解放される)
+    A("truncate /cr/g3 1000"); A("truncate /cr/g3 30000"); A("write /cr/g3 20000 100 5")
+    A("unlink /cr/g1"); A("unlink /cr/lnk"); A("unlink /cr/longlnk")
+    A("rename /cr/g2 /cr/sub/g2m"); A("rename /cr/sub /cr/sub2"); A("rename /cr/g5 /cr/f0")
+    A("link /cr/hl /cr/g4"); A("unlink /cr/g4"); A("mkdir /cr/emptyd"); A("rmdir /cr/emptyd")
+    for i in range(10): A("unlink /leafd/v%03d" % i)
+    for i in range(4): A("unlink /sfd/t%02d" % i)
+    for i in range(10): A("unlink /blkd/u%03d" % i)
+    A("unlink /sfd/s00"); A("unlink /blkd/n000"); A("unlink /leafd/m000")
+    A("truncate /keep/c.bin 50"); A("truncate /keep/c.bin 6000"); A("write /keep/c.bin 5990 30 8")   # 元ファイルの縮小 → 拡張 (EOF 以降のゼロ化は縮小のコミットのあと)
+    A("rename /keep/c.bin /cr/c_moved"); A("unlink /keep/sub/b.bin")
+    A("truncate /cr/big.bin 700000"); A("unlink /cr/sparse")
+    for i in range(30): A("create /nodd/f%04d" % i)             # leaf1 → ノード形式 (索引の作り直し)
+    for i in range(0, 495, 17): A("unlink /nodd/e%04d" % i)       # ノード形式からの削除
+    A("rename /nodd/f0001 /cr/f_moved"); A("rename /cr/f0 /nodd/f_in")
+    A("create /cr/after_free"); A("write /cr/after_free 0 300000 77"); A("create /cr/after_free2"); A("write /cr/after_free2 0 120000 78")   # 解放した領域を再利用したくなる書き込み (コミットを挟んでから)
     open(out, "w").write("\n".join(L) + "\n")
 
 

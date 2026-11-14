@@ -24,7 +24,7 @@ python3 -I "$HERE/gen_xfs_ops.py" crashops "$W/ops"
 mk_xfs "$W/base.img" 320M "$W/tree" || { echo "mkfs failed"; exit 1; }
 xfs_clean "$W/base.img" || { echo "base image not clean"; exit 1; }
 tree_of_dir() { python3 -I "$HERE/ops_ref.py" --tree "$1"; }
-orig_part() { grep -v -E ' (cr|post|kpost|tiny\.txt|one_block\.bin|mid\.bin|keep/a\.txt|sfd/t[0-9]+|blkd/u[0-9]+|leafd/v[0-9]+)(/|$)' "$1" || true; }
+orig_part() { grep -v -E ' (cr|post|kpost|tiny\.txt|one_block\.bin|mid\.bin|keep/a\.txt|keep/c\.bin|keep/sub/b\.bin|sfd/t[0-9]+|sfd/s00|blkd/u[0-9]+|blkd/n000|leafd/v[0-9]+|leafd/m000|nodd/(f[^/ ]*|e(0000|0017|0034|0051|0068|0085|0102|0119|0136|0153|0170|0187|0204|0221|0238|0255|0272|0289|0306|0323|0340|0357|0374|0391|0408|0425|0442|0459|0476|0493)))(/|$)' "$1" || true; }
 cp -a "$W/tree" "$W/refd"
 tree_of_dir "$W/refd" > "$W/orig.tree"
 orig_part "$W/orig.tree" > "$W/orig.part"

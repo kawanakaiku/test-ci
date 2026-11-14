@@ -259,4 +259,15 @@ tools/run_crypt_mutation_tests.sh /tmp/mut                                   # �
 
 ### 9.8 結果
 
-(CI の実行 ID と結果は下に記録する。)
+GitHub Actions `crypt-write.yml` (usbmem-crypt-write、ubuntu-latest) run **43591624048** (2026-11-14): 3 ジョブすべて成功。
+
+- `crypt write`: 単体テスト 23 件 0 失敗。LUKS 9 構成 × 3 seed × 800 操作 (LUKS1 / LUKS2、xts-plain64・cbc-essiv・cbc-plain64、512 / 4096 セクタ、pbkdf2 / argon2id) の乱数書き込みを、**実カーネルの dm-crypt** (sudo losetup + cryptsetup open、9 構成 × 3 seed = 27 件)・cryptsetup のマスターキー + Python cryptography の両方で復号してモデルと全バイト一致。BitLocker 6 方式 (XTS 128/256、CBC 128/256、diffuser 128/256) × 3 seed は bitlocker_synth.py での暗号化し直しと libbde bdemount の両方で一致。失敗注入・ファジング 300 回・非対応構成と変換途中の BitLocker の「書き込み要求 → 読み取り専用・イメージ不変」も成功。暗号層の上の FS: 20 ケース (ext4 / ext2 / NTFS / FAT × LUKS2-XTS 512 / LUKS2-XTS 4096 / LUKS1-CBC-ESSIV / BitLocker-XTS128、ext4 と NTFS は上書き・truncate・unlink を含む Full も LUKS2 と BitLocker-diffuser256 で) が全部 clean (e2fsck / ntfsfix / fsck.fat)・実カーネルの dm-crypt で復号したものを fuse2fs / ntfs-3g / 実カーネルの ext4・vfat が読んだツリーがモデルと一致。
+- `crypt mutation`: 10 種すべて検出 (単体テストで 4 種: CW_NO_CACHE_UPDATE / CW_NO_RMW_HEAD / CW_NO_FLUSH / CW_NO_LATCH、独立検証で 6 種: CW_LUKS_IV / CW_ALWAYS_WRITABLE / CW_BL_NO_VH_MAP / CW_BL_NO_HIDDEN_CHECK / CW_BL_PARTIAL / CW_DIFF_ORDER)。
+- `crypt san`: ASan + UBSan のビルドで単体テスト + `run_crypt_write_tests.sh` (乱数書き込み・失敗注入・ファジング 150 回) が成功。
+
+ローカルで見つかって直した不具合 (回帰テストあり):
+
+- BitLocker: 壊れた / 食い違うメタデータ (3 コピーが全部読めて一致していない、退避先がメタデータ領域と重なる) でも書き込み可で開き、`fuzzw` が保護範囲の変化を検出した (iteration 66)。書き込みを不可に (`write_note` あり) した。
+- ext2 / FAT / exFAT / NTFS の `mount_rw` は下のデバイスが読み取り専用でも書き込み可でマウントしていた (書き込みはデバイス側で拒否されるだけ)。ext4 と同じく読み取り専用でマウントするようにした (`test_cryptfs_write ro`)。
+- `tools/crypt_indep.py` が LUKS1 の `cbc-essiv:sha256` の暗号モードを `:` で切って読み違えていた (検証ツール側の不具合)。
+- ctest の `crypt_write` / `crypt_fs_write` を `sh` (dash) で起動していて、配列を使うスクリプトが構文エラーになった (host-tests の wrel で検出)。bash で起動する。

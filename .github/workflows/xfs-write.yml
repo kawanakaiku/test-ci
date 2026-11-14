@@ -59,9 +59,14 @@ jobs:
           tools/run_xfs_crash_tests.sh build/compat/usbmem_xfs_write_tests 1
 
   xfs-mutation:
-    name: xfs mutation (power-loss simulation must detect each)
+    # 変異ごとに別ジョブ (9 種を 1 ジョブで順に回すと 300 分の上限に届いた)
+    name: xfs mutation ${{ matrix.mut }} (power-loss simulation must detect it)
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        mut: [NO_FLUSH_LOG, NO_FLUSH_COMMIT, NO_FLUSH_INPLACE, INPLACE_FIRST, TAIL_OWN, DATA_AFTER, NO_CRC, REUSE_FREED, TAIL_ZERO_EARLY]
     steps:
       - uses: actions/checkout@v7
 
@@ -80,4 +85,4 @@ jobs:
       - name: Mutation tests
         run: |
           export PATH="$PATH:/sbin:/usr/sbin"
-          USBMEM_JOBS="$(nproc)" tools/run_xfs_mutation_tests.sh build/mut 2
+          USBMEM_JOBS="$(nproc)" tools/run_xfs_mutation_tests.sh build/mut 2 ${{ matrix.mut }}

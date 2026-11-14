@@ -1,14 +1,38 @@
+# ホスト (x86_64 Linux) の ctest を 4 構成で実行する: plain / san (ASan+UBSan) / wsan (書き込み有効+san) / wrel (書き込み有効 release)。
+# 手元のメモリが足りないときに、重い 4 構成を GitHub Actions へ逃がすために使う。docs/ci.md
+# トリガ: workflow_dispatch (ctest_regex で絞れる)、または usbmem-ci* ブランチへの push。
 name: Host tests
+
 on:
+  workflow_dispatch:
+    inputs:
+      ctest_regex:
+        description: "ctest -R に渡す正規表現 (空なら全件)"
+        required: false
+        default: ""
   push:
     branches: ['usbmem-ci*']
+
+concurrency:
+  group: host-tests-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
+
 jobs:
-  diag:
+  host:
+    name: host (${{ matrix.mode }})
     runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        mode: [plain, san, wsan, wrel]
     steps:
       - uses: actions/checkout@v7
+
       - name: Install host tools
         run: |
           sudo apt-get update
@@ -17,40 +41,58 @@ jobs:
             btrfs-progs xfsprogs f2fs-tools erofs-utils squashfs-tools zstd lzop lz4 xz-utils \
             gdisk fdisk bc genisoimage xorriso cryptsetup-bin nbdkit libnbd-bin qemu-utils partclone gddrescue zlib1g-dev
           echo user_allow_other | sudo tee -a /etc/fuse.conf
-      - name: NTFS diag
-        continue-on-error: true
+
+      # ubuntu 26.04 の runner は AppArmor の fusermount3 プロファイルが FUSE のマウント / アンマウントを /home・/mnt・/media・/tmp・/run/user の下に限る。
+      # テストのフィクスチャ・作業場所は /dev/shm なので、fuse2fs / exfat-fuse の mount が "fusermount3: mount failed: Permission denied"、
+      # ntfs-3g の mount 後の fusermount3 -u が "Operation not permitted" になる。ローカル上書き (local/fusermount3) で /dev/shm を足す。
+      - name: Allow FUSE mounts under /dev/shm (AppArmor)
         run: |
-          ls -l /usr/bin/ntfs-3g /usr/bin/fusermount3; dpkg-statoverride --list | grep -i "ntfs\|fuse" || true
-          cat /etc/fuse.conf; ls -ld /dev/shm /dev/fuse; id
-          export PATH="$PATH:/sbin:/usr/sbin"
-          D=/dev/shm/diag_ntfs; mkdir -p $D; truncate -s 64M $D/i.img; mkntfs -F -Q -q $D/i.img >/dev/null
-          mkdir $D/m; ntfs-3g -o rw,compression $D/i.img $D/m; echo "mount rc=$?"
-          grep -i "ntfs\|fuse" /proc/mounts
-          fusermount3 -u $D/m; echo "fusermount3 -u rc=$?"
-          grep -i "ntfs\|fuse" /proc/mounts || true
-          umount $D/m; echo "umount rc=$?"
-          sudo umount $D/m; echo "sudo umount rc=$?"
-          echo ---- script in /dev/shm
-          sh -x tools/gen_ntfs_fixture.sh /dev/shm/diag_ntfs2 2>&1 | tail -15; echo "rc=$?"
-          echo ---- script in RUNNER_TEMP
-          sh tools/gen_ntfs_fixture.sh $RUNNER_TEMP/diag_ntfs3 2>&1 | tail -5; echo "rc=$?"
-          dpkg -l ntfs-3g exfatprogs | tail -3
+          if [ -f /etc/apparmor.d/fusermount3 ] && command -v apparmor_parser >/dev/null; then
+            sudo tee -a /etc/apparmor.d/local/fusermount3 >/dev/null <<'EOT'
+          mount fstype=@{fuse_types} options=(nosuid,nodev) options in (ro,rw,noatime,dirsync,nodiratime,noexec,sync) -> /dev/shm/**/,
+          umount /dev/shm/**/,
+          EOT
+            sudo apparmor_parser -r /etc/apparmor.d/fusermount3
+          fi
+
+      - name: Configure
+        run: |
+          flags=""; bt=Debug
+          case "${{ matrix.mode }}" in
+            san)  flags="-DUSBMEM_SANITIZE=ON" ;;
+            wsan) flags="-DUSBMEM_SANITIZE=ON -DUSBMEM_NTFS_WRITE=ON" ;;
+            wrel) flags="-DUSBMEM_NTFS_WRITE=ON"; bt=Release ;;
+          esac
+          cmake -S core -B build -G Ninja -DCMAKE_BUILD_TYPE=$bt $flags
+
       - name: Build
-        run: |
-          cmake -S core -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build -j"$(nproc)"
-      - name: XFS diag
-        continue-on-error: true
-        run: |
-          export PATH="$PATH:/sbin:/usr/sbin"
-          mkfs.xfs -V
-          python3 -I tools/gen_xfs_fixture.py /dev/shm/diag_xfs v5_bs64k 2>&1 | tail -5
-          ls -l /dev/shm/diag_xfs | head
-          build/compat/usbmem_xfs_tests /dev/shm/diag_xfs 2>&1 | tail -20
-          # 比較用: 同じツリーを 4k でも
-          python3 -I tools/gen_xfs_fixture.py /dev/shm/diag_xfs4 v5_default 2>&1 | tail -2
-          build/compat/usbmem_xfs_tests /dev/shm/diag_xfs4 2>&1 | tail -5
-      - name: partedit / disktools / erofs diag
-        continue-on-error: true
+        run: cmake --build build -j"$(nproc)"
+
+      - name: ctest
+        working-directory: build
+        env:
+          PATH_EXTRA: /sbin:/usr/sbin
+          ASAN_OPTIONS: verify_asan_link_order=0:detect_leaks=1
+          # gen_erofs_fixture.py: Ubuntu の erofs-utils の fsck.erofs が展開できない (fragments の) イメージの独立検証を省く (警告を出す)。Android CI と同じ
+          USBMEM_FIXTURE_LENIENT: "1"
         run: |
           export PATH="$PATH:/sbin:/usr/sbin"
-          cd build && ctest --output-on-failure -R "partedit_tools|disktools_tools" 2>&1 | tail -40
+          re="${{ github.event.inputs.ctest_regex }}"
+          if [ -n "$re" ]; then ctest --output-on-failure -R "$re"; else ctest --output-on-failure; fi
+
+      # FAT 書き込みをカーネルの vfat と突き合わせる (loop マウントに sudo が要るので CI だけ。docs/fat-write.md)。フィクスチャは ctest の fat_gen_fixture が作る。
+      # 書き込み有効のビルド (wrel) だけ。ctest_regex で絞った実行では走らせない (ただし fat_gen_fixture を含む絞り込みなら走らせる = このステップだけの素早い確認用)。
+      # ctest が (FUSE / ntfs フィクスチャ等の既存の環境要因で) 失敗しても走らせる。
+      - name: FAT write vs kernel vfat
+        if: ${{ !cancelled() && matrix.mode == 'wrel' && (github.event.inputs.ctest_regex == '' || contains(github.event.inputs.ctest_regex, 'fat_gen_fixture')) }}
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          sh tools/run_fat_kernel_tests.sh build/compat/usbmem_fat_write_tests "/dev/shm/usbmem_fat_$USER"
+
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-log-${{ matrix.mode }}
+          path: build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore

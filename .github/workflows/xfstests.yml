@@ -122,14 +122,16 @@ jobs:
 
       - name: Build fstests
         run: |
-          # kernel.org は接続できないことがある (接続待ちが 2 分以上かかる) ので、短いタイムアウトで数回試す
+          # kernel.org は接続できないことがある (接続待ちが 2 分以上かかる) ので、短いタイムアウトで複数のミラーを順に試す
           ok=0
-          for i in 1 2 3 4; do
-            rm -rf "$RUNNER_TEMP/fstests"
-            if timeout 90 git clone --depth 1 --branch "$FSTESTS_TAG" https://git.kernel.org/pub/scm/fs/xfs/xfstests-dev.git "$RUNNER_TEMP/fstests"; then ok=1; break; fi
-            sleep 5
+          for i in 1 2 3; do
+            for url in https://git.kernel.org/pub/scm/fs/xfs/xfstests-dev.git https://kernel.googlesource.com/pub/scm/fs/xfs/xfstests-dev; do
+              rm -rf "$RUNNER_TEMP/fstests"
+              if timeout 120 git clone --depth 1 --branch "$FSTESTS_TAG" "$url" "$RUNNER_TEMP/fstests"; then ok=1; break 2; fi
+              sleep 3
+            done
           done
-          [ $ok = 1 ] || git clone --depth 1 --branch "$FSTESTS_TAG" https://github.com/kdave/xfstests.git "$RUNNER_TEMP/fstests"
+          [ $ok = 1 ] || { echo "::warning::固定タグを取得できなかったので GitHub ミラーの既定ブランチを使う"; rm -rf "$RUNNER_TEMP/fstests"; git clone --depth 1 https://github.com/kdave/xfstests.git "$RUNNER_TEMP/fstests"; }
           cd "$RUNNER_TEMP/fstests"
           make -j"$(nproc)" >"$RUNNER_TEMP/fstests_build.log" 2>&1 || { tail -50 "$RUNNER_TEMP/fstests_build.log"; exit 1; }
           for u in fsgqa fsgqa2 123456-fsgqa; do id "$u" >/dev/null 2>&1 || sudo useradd -m -U "$u"; done

@@ -19,6 +19,7 @@
 #include <set>
 #include <unordered_map>
 
+#include "usbmem/crc32.h"
 #include "usbmem/crypto.h"
 #include "usbmem/sha256.h"
 
@@ -72,22 +73,7 @@ inline int kcmp(const Key& a, const Key& b) {
 }
 
 // ---- チェックサム (crc32c / xxhash64 / sha256 / blake2b-256)
-struct Crc32cTable {
-  u32 t[256];
-  Crc32cTable() {
-    for (u32 i = 0; i < 256; i++) {
-      u32 c = i;
-      for (int k = 0; k < 8; k++) c = (c & 1) ? (c >> 1) ^ 0x82F63B78u : c >> 1;
-      t[i] = c;
-    }
-  }
-};
-const Crc32cTable& crc_tab() { static const Crc32cTable t; return t; }
-u32 crc32c_raw(u32 crc, const u8* p, size_t n) {   // 前後の反転なし (カーネルの crc32c() と同じ)
-  const u32* t = crc_tab().t;
-  while (n--) crc = t[(crc ^ *p++) & 0xFF] ^ (crc >> 8);
-  return crc;
-}
+u32 crc32c_raw(u32 crc, const u8* p, size_t n) { return usbmem::crc32c_raw(crc, p, n); }   // 前後の反転なし (カーネルの crc32c() と同じ)。命令 / 8 バイト表引きは core/src/crc32.cpp
 u32 name_hash(const u8* p, size_t n) { return crc32c_raw(0xFFFFFFFEu, p, n); }   // btrfs_name_hash = crc32c(~1, name)
 
 inline u64 rotl64(u64 x, int r) { return (x << r) | (x >> (64 - r)); }

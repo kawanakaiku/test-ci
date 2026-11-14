@@ -192,3 +192,60 @@ TEST(transform_c_api_arguments) {
   CHECK(out == nullptr);
   usbmem_close(h);
 }
+
+// 小さい読みの扱い: ランダムな 4 KiB 読みは 4 KiB ずつしか下位から読まない (先読みで膨らまない)、連続読みは先読みで下位の読み回数が減る、
+// キャッシュに載っているデータの再読みは下位に触れない。内容は常に参照と一致する。
+namespace {
+class CountingFake final : public DecryptingDevice {
+ public:
+  CountingFake(uint64_t size, uint32_t sector) : DecryptingDevice(std::make_shared<MemoryDevice>(std::vector<uint8_t>(4096, 0)), size, sector, 0, "cf") {}
+  uint64_t calls = 0, bytes = 0;
+
+ protected:
+  Status read_plain(uint64_t off, uint8_t* buf, size_t len, const IoOptions&) override {
+    calls++; bytes += len;
+    for (size_t i = 0; i < len; i++) buf[i] = plain_byte(off + i);
+    return Status::Ok();
+  }
+  void wipe_keys() override {}
+};
+bool matches(BlockDevice& d, uint64_t off, size_t len) {
+  std::vector<uint8_t> b(len);
+  if (!d.read_at(off, b.data(), len).ok()) return false;
+  for (size_t i = 0; i < len; i++) if (b[i] != plain_byte(off + i)) return false;
+  return true;
+}
+}  // namespace
+
+TEST(transform_decrypting_device_readahead) {
+  const uint64_t size = 64ull << 20;
+  {  // ランダム 4 KiB: 1 回 4 KiB だけ
+    CountingFake d(size, 512);
+    std::mt19937_64 rng(3);
+    for (int i = 0; i < 300; i++) CHECK(matches(d, (rng() % (size / 4096)) * 4096, 4096));
+    CHECK(d.calls <= 300);
+    CHECK(d.bytes <= 300ull * 4096);
+  }
+  {  // 連続 4 KiB: 先読みで下位の読みが大幅に減り、全体を読んでも読み過ぎない (末尾の先読み分だけ)
+    CountingFake d(size, 512);
+    for (uint64_t o = 0; o < (4u << 20); o += 4096) CHECK(matches(d, o, 4096));
+    CHECK(d.calls < 100);
+    CHECK(d.bytes <= (4u << 20) + 512 * 1024);
+    uint64_t c = d.calls;
+    for (uint64_t o = (3u << 20); o < (4u << 20); o += 4096) CHECK(matches(d, o, 4096));  // 直近の 1 MiB はキャッシュ内
+    CHECK_EQ(d.calls, c);
+  }
+  {  // 非整列・ページをまたぐ・デバイス末尾の端数 (セクタ 4096 でも)
+    for (uint32_t sec : {512u, 4096u}) {
+      CountingFake d(size + sec * 3, sec);
+      std::mt19937_64 rng(sec);
+      for (int i = 0; i < 1500; i++) {
+        uint64_t off = rng() % (d.size() - 1);
+        size_t len = std::min<uint64_t>(d.size() - off, size_t(rng() % 20000) + 1);
+        CHECK(matches(d, off, len));
+      }
+      CHECK(matches(d, d.size() - 100, 100));
+      CHECK(matches(d, d.size() - 4096, 4096));
+    }
+  }
+}

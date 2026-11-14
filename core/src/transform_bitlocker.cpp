@@ -199,18 +199,31 @@ bool parse_recovery(const Secret& in, uint8_t out16[16]) {
 
 // stretch: last = SHA256(last || initial || salt || counter_u64_LE) を 0x100000 回
 Status stretch_key(const uint8_t initial[32], const uint8_t salt[16], const CancelToken* cancel, uint8_t out[32]) {
-  uint8_t last[32] = {0}, msg[88];
-  std::memcpy(msg + 32, initial, 32);
-  std::memcpy(msg + 64, salt, 16);
+  // 入力は 88 バイト固定なので、パディング込みの 128 バイト (2 ブロック) を最初に組み、毎回 last と counter だけ差し替えて圧縮関数を直接回す
+  // (HashCtx の生成・パディング・コピーを 100 万回繰り返さない。SHA-256 命令があればそれを使う)。
+  static const uint32_t kIv[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+  uint8_t last[32] = {0}, blk[128] = {0};
+  uint32_t st[8];
+  std::memcpy(blk + 32, initial, 32);
+  std::memcpy(blk + 64, salt, 16);
+  blk[88] = 0x80;
+  blk[126] = uint8_t((88 * 8) >> 8);
+  blk[127] = uint8_t((88 * 8) & 0xff);
   for (uint32_t i = 0; i < kStretchIterations; i++) {
-    if ((i & 0x3fff) == 0 && cancel && cancel->cancelled()) { crypto::secure_zero(last, 32); return Status::Make(Errc::Cancelled); }
-    std::memcpy(msg, last, 32);
-    put_le64(msg + 80, i);
-    crypto::hash(Hash::Sha256, msg, sizeof msg, last);
+    if ((i & 0x3fff) == 0 && cancel && cancel->cancelled()) {
+      crypto::secure_zero(last, 32); crypto::secure_zero(blk, sizeof blk); crypto::secure_zero(st, sizeof st);
+      return Status::Make(Errc::Cancelled);
+    }
+    std::memcpy(blk, last, 32);
+    put_le64(blk + 80, i);
+    std::memcpy(st, kIv, sizeof st);
+    crypto::sha256_compress(st, blk, 2);
+    for (int k = 0; k < 8; k++) { last[4 * k] = uint8_t(st[k] >> 24); last[4 * k + 1] = uint8_t(st[k] >> 16); last[4 * k + 2] = uint8_t(st[k] >> 8); last[4 * k + 3] = uint8_t(st[k]); }
   }
   std::memcpy(out, last, 32);
   crypto::secure_zero(last, sizeof last);
-  crypto::secure_zero(msg, sizeof msg);
+  crypto::secure_zero(blk, sizeof blk);
+  crypto::secure_zero(st, sizeof st);
   return Status::Ok();
 }
 

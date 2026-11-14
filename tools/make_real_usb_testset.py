@@ -1,3 +1,23 @@
+
+def _xfs_supports(opt_args):
+    """この mkfs.xfs が opt_args (例 ["-m", "rmapbt=0"]) を受け付けるか (-N: 何も書かない)。"""
+    import subprocess, tempfile
+    try:
+        with tempfile.NamedTemporaryFile(prefix="xfsprobe") as f:
+            f.truncate(300 * 1024 * 1024)
+            r = subprocess.run(["mkfs.xfs", "-N", "-q"] + opt_args + [f.name], capture_output=True)
+            return r.returncode == 0
+    except OSError:
+        return False
+
+
+def _xfs_mkfs_m_opts():
+    return ",rmapbt=0" if _xfs_supports(["-m", "rmapbt=0"]) else ""
+
+
+def _xfs_mkfs_n_opts():
+    return ["-n", "parent=0"] if _xfs_supports(["-n", "parent=0"]) else []
+
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 """実機 USB メモリ 3 本 (プロファイル A / B / C) に、検証用のパーティション構成と決定的なテストデータを作る**ユーザー実行用**スクリプト。
@@ -1114,7 +1134,9 @@ def fs_plan(pp, dev, stage, out, opts):
             add(Cmd(["ntfsinfo", "-m", dev], kind="check", note="独立実装 (libntfs-3g) がダーティと認識することの確認 (出力に 'scheduled for check' があれば OK)"))
     elif fs == "xfs":
         add(S("@stage"))
-        add(Cmd(["mkfs.xfs", "-f", "-q", "-L", lab, "-m", "uuid=" + u, "-p", stage, dev]))
+        # 新しい mkfs.xfs (7.x) の既定 (rmapbt=1 / parent=1) は、アプリの書き込みが拒否する構成 (docs/xfs-write.md)。
+        # 実機の書き込み試験ができるよう、無効にして作る。古い mkfs.xfs に無いオプションは外す。
+        add(Cmd(["mkfs.xfs", "-f", "-q", "-L", lab, "-m", "uuid=" + u + _xfs_mkfs_m_opts()] + _xfs_mkfs_n_opts() + ["-p", stage, dev]))
         add(S("@rmstage"))
         add(Cmd(["xfs_repair", "-n", dev], kind="check"))
     elif fs == "btrfs":

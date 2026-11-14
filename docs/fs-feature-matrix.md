@@ -32,6 +32,8 @@ CI は ubuntu-latest (安定版・古め) と Arch Linux のコンテナ (ロー
 - Btrfs: OK (block_group_tree を含め、既定のフラグはすべて読み書き可)。
 - F2FS: OK (1.16.0 の既定は機能なし)。
 
+CI (run 43587926211、2026-11-14): ubuntu-latest (mkfs.xfs 6.18.0 / btrfs-progs 6.17.1 / f2fs-tools 1.16.0) は XFS が GAP (rmapbt)、Btrfs と F2FS は OK。Arch Linux (mkfs.xfs 7.2.1 / btrfs-progs 7.3 / f2fs-tools 1.17.0) は XFS が GAP (rmapbt と parent_pointer)、Btrfs と F2FS は OK。**新しい (NEW) フラグは、まだ無い**。
+
 ## 新しい機能が見つかったときの手順
 
 1. `check_mkfs_defaults.py` が NEW を報告する (CI が失敗する)。

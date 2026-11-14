@@ -119,6 +119,8 @@
 
 - [x] **Host tests の待ち時間を短縮 (2026-11-14)**: push で動く構成をブランチ名で選ぶ (通常は plain / wrel、`usbmem-ci-full-*` で全 4 構成、`usbmem-ci-only-<構成>` で 1 構成) + ctest を並列化 (`-j4`、並列で落ちたものは直列でやり直し)。wsan の ctest 139 分 → 72 分 (run 43597804995)。docs/ci.md 参照。統合前は `usbmem-ci-full-*` で全構成を通すこと。
 - [ ] **xfstests (fstests) を GitHub Actions で試す** (ユーザー要望 2026-11-15、他の担当が片づいてから): xfstests はカーネルがマウントした FS を VFS 越しに試すので、自前実装 (XFS / Btrfs / F2FS / NTFS と、LinuxCompat 経由の ext4 / FAT / exFAT) をそのままは試せない。**前提として、`core` の API を FUSE (libfuse3) で見せるホスト用アダプタ (`usbmem_fuse`) を作る** (副産物として、PC で自前実装を読み取り専用/書き込みでマウントする道具にもなる)。そのうえで `FSTYP=fuse` + `FUSE_SUBTYP` で `generic/` の quick グループを動かす。見込み: 権限・ACL・xattr・クォータ・ファイル属性などの範囲外は notrun / 期待失敗リストで外し、残りで書き込み経路 (rename / truncate / 穴 / fsync / ハードリンク / 巨大ファイル) の意味論の回帰を見る。dm-flakey / log-writes 系の電源断試験は FUSE では動かない (自前のクラッシュ試験が代わり)。Ubuntu の `xfstests` パッケージ + sudo + FUSE が runner で使える見込み。1 つの FS (まず ext4 か FAT のような簡単なもの) で通してから広げる。
+- [ ] Android の実機試験補助 `RealUsbCommon.kt` の `mountPartition` は、暗号を解錠した後、最初のパーティションの長さを使い、オフセット 0 から `mountDeviceRange` する。解錠した中に GPT があるとき (cryptdisk の「全体が暗号で中に GPT」) は、パーティションの開始位置を使わないと誤る見込み (core 層の試験は通っている。cryptdisk 担当の指摘)。
+- [ ] Host tests の wsan が 144 分 (直列) と 180 分の上限に近い。ciopt の並列化で約 72 分になったが、`timeout-minutes` の見直しか、wsan のジョブ分割を検討する (主因は xfs_write、blockdev_fixtures など)。
 - [ ] CI の大きなイメージを使う試験 (host-tests の XFS / Btrfs の大きなフィクスチャ、xfs-write.yml など) を `tools/ci/nbdfuse.sh` に載せ替える。実際の XFS / Btrfs のイメージを nbdkit に載せてアプリの NBD クライアントで読み書きする通し試験を足す (XFS Full の作業が終わってから)。
 
 進行中のファイルシステム移植 (別の worktree): FAT/vfat・isofs・udf (統合済み)、squashfs・erofs (検証中)。

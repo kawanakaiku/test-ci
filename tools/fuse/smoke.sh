@@ -37,6 +37,9 @@ ls -la "$MNT" "$MNT/d"
 df "$MNT" | cat
 umount "$MNT" || { fusermount3 -u "$MNT"; }
 sleep 1
-$FSCK "$IMG" || { echo "SMOKE-FAIL: fsck $FS"; fail=1; }
+case $FS in ext*) dumpe2fs -h "$IMG" 2>&1 | grep -i "features\|state\|journal\|orphan\|free" ;; esac
+$FSCK "$IMG"; rc=$?
+echo "fsck rc=$rc"
+[ $rc -eq 0 ] || { echo "SMOKE-FAIL: fsck $FS rc=$rc"; fail=1; }
 rm -rf "$W"
 exit $fail

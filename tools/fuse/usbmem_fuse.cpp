@@ -8,7 +8,7 @@
 //   ro / rw (既定 rw。rw を要求して core が書き込み不可 (writable()==false) と判断したら、黙って読み取り専用にせずマウントを失敗させる)、
 //   offset=BYTES / size=BYTES (イメージの一部をボリュームとして使う。未実装)、quiet_setattr (下記)、uid=N / gid=N (stat に見せる所有者。既定 = 起動したユーザー)、
 //   sync / dirsync (変更のたびに core の sync() を呼ぶ)。nosuid / noatime などの mount(8) の汎用フラグは無視する。
-// それ以外の -o は libfuse に渡す (allow_other / default_permissions / fsname= / subtype= など)。subtype は既定で usbmem (= /proc/mounts の型 fuse.usbmem)。
+// それ以外の -o は libfuse に渡す (allow_other / default_permissions / fsname= / subtype= など)。subtype は既定では付けない (/proc/mounts の型は fuse。xfstests の FSTYP=fuse はこの型を前提にする)。
 // 環境変数: USBMEM_FUSE_TRACE=1 (全操作を stderr に出す)、USBMEM_FUSE_FSCK="コマンド" (アンマウントでボリュームを閉じた後に `sh -c コマンド sh IMAGE` を実行し、
 //   終了コードが 0 以外なら USBMEM_FUSE_FSCK_LOG (既定 stderr) に "FSCK-FAIL IMAGE" を書く。xfstests は FUSE の整合性検査を持たないのでその代わり)。
 //
@@ -16,7 +16,7 @@
 //   - chmod / chown / utimes (setattr の mode / uid / gid / atime / mtime): core に API が無い。既定は EOPNOTSUPP。
 //     ただし要求が「今の値と同じ」なら成功する。-o quiet_setattr を付けると、FAT の quiet マウントと同じく黙って成功させる (値は変わらない。近似)。
 //   - xattr / ACL / fallocate / ioctl / lseek(SEEK_DATA/HOLE) / copy_file_range / mknod (通常ファイル以外) / rename の EXCHANGE・WHITEOUT: 未対応 (ENOSYS / EOPNOTSUPP)。
-//   - statfs: core に空き容量の API が無い。総容量 (イメージのサイズ) だけ返し、空きは 0 (不明) とする。
+//   - statfs: core に空き容量の API が無い。総容量 = イメージのサイズ、空き = 総容量の 95% からツリーのファイル大きさの合計を引いた見積もり (疎ファイル・メタデータは見ない近似)。
 //   - 所有者・時刻: core は mode / nlink / size / mtime だけ返す。uid / gid は固定、atime / ctime は mtime と同じ。
 // アダプター側の補完 (core の機能ではない): 開いたまま unlink / rename で上書きされたファイルを、最後に閉じるまで隠し名 (.usbmem_hidden_N) で残す (libfuse の hard_remove 無し相当)。
 #define FUSE_USE_VERSION 312
@@ -33,6 +33,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <time.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -518,12 +519,50 @@ void op_fsyncdir(fuse_req_t req, fuse_ino_t, int, struct fuse_file_info*) {
   fuse_reply_err(req, to_errno(rc));
 }
 
+// 使用量の見積もり: core に空き容量の API が無いので、ツリーを歩いて通常ファイル / シンボリックリンクの大きさ (4 KiB 単位に切り上げ) を足す。
+// 疎ファイル・メタデータ・ジャーナルは分からない (近似)。大きなツリー (20 万エントリ超 / 3 秒超) は諦めて空き 0 (不明) を返す。
+bool estimate_used(uint64_t* used) {
+  struct timespec t0;
+  clock_gettime(CLOCK_MONOTONIC, &t0);
+  std::vector<uint64_t> stack = {g.root};
+  std::unordered_map<uint64_t, bool> seen;   // ハードリンクの重複を避ける
+  uint64_t total = 0, entries = 0;
+  while (!stack.empty()) {
+    uint64_t d = stack.back();
+    stack.pop_back();
+    std::vector<FsDirEntry> ents;
+    if (g.vol->readdir(d, &ents)) continue;
+    for (auto& e : ents) {
+      if (e.name == "." || e.name == "..") continue;
+      if (++entries > 200000) return false;
+      struct timespec t1;
+      clock_gettime(CLOCK_MONOTONIC, &t1);
+      if (t1.tv_sec - t0.tv_sec > 3) return false;
+      FsStat s;
+      if (fs_stat(e.ino, &s)) continue;
+      if (is_dir(s)) { stack.push_back(e.ino); continue; }
+      if (!is_reg(s) && (s.mode & S_IFMT) != S_IFLNK) continue;
+      if (s.nlink > 1 && seen.count(e.ino)) continue;
+      seen[e.ino] = true;
+      total += (s.size + 4095) / 4096 * 4096;
+    }
+  }
+  *used = total;
+  return true;
+}
+
 void op_statfs(fuse_req_t req, fuse_ino_t) {
   struct statvfs sv;
   memset(&sv, 0, sizeof sv);
   sv.f_bsize = sv.f_frsize = 4096;
-  sv.f_blocks = g.total_bytes / 4096;   // 空きは core から分からないので 0 (不明) とする
+  sv.f_blocks = g.total_bytes / 4096;
   sv.f_namemax = 255;
+  uint64_t used = 0;
+  if (!g.cfg.ro && estimate_used(&used)) {
+    uint64_t reserve = sv.f_blocks / 20;   // メタデータ分の見積もり 5%
+    uint64_t u = used / 4096 + reserve;
+    sv.f_bfree = sv.f_bavail = u >= sv.f_blocks ? 0 : sv.f_blocks - u;
+  }
   fuse_reply_statfs(req, &sv);
 }
 
@@ -597,7 +636,7 @@ int main(int argc, char** argv) {
   c.uid = getuid();
   c.gid = getgid();
   std::vector<std::string> fuse_opts;
-  bool debug = false, has_subtype = false;
+  bool debug = false;
   std::vector<std::string> pos;
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
@@ -625,7 +664,6 @@ int main(int argc, char** argv) {
         else if (o.compare(0, 4, "gid=") == 0) c.gid = static_cast<gid_t>(strtoul(o.c_str() + 4, nullptr, 0));
         else if (o.compare(0, 7, "offset=") == 0 || o.compare(0, 5, "size=") == 0) { fprintf(stderr, "usbmem_fuse: %s is not implemented\n", o.c_str()); return 2; }
         else {
-          if (o.compare(0, 8, "subtype=") == 0) has_subtype = true;
           fuse_opts.push_back(o);
         }
       }
@@ -637,10 +675,11 @@ int main(int argc, char** argv) {
   char rp[PATH_MAX];
   c.image = realpath(pos[0].c_str(), rp) ? rp : pos[0];
   std::string mnt = realpath(pos[1].c_str(), rp) ? rp : pos[1];
-  if (!has_subtype) fuse_opts.push_back("subtype=usbmem");
   g.trace = getenv("USBMEM_FUSE_TRACE") && *getenv("USBMEM_FUSE_TRACE") == '1';
 
-  // デーモン化: 子がマウントして、準備ができた (または失敗した) ことを親に 1 バイトで知らせる。親は mount(8) のヘルパーとして結果の終了コードを返す。
+  // デーモン化: 子がマウントして、準備ができた (または失敗した) ことを親に知らせる (先頭 1 バイト = 結果、残り = 失敗の理由)。
+  // 親は mount(8) のヘルパーとして理由を stderr に出し、終了コードを返す。子の stdout / stderr は最初にログへ向ける
+  // (互換層がマウント時に stdout に出す診断が mount の出力に混ざると、xfstests の出力比較が壊れる)。
   int pfd[2] = {-1, -1};
   if (!c.foreground) {
     if (pipe(pfd)) { perror("pipe"); return 1; }
@@ -648,20 +687,36 @@ int main(int argc, char** argv) {
     if (pid < 0) { perror("fork"); return 1; }
     if (pid > 0) {
       close(pfd[1]);
-      char r = 1;
-      ssize_t n = read(pfd[0], &r, 1);
-      return n == 1 ? r : 1;
+      std::string msg;
+      char b[512];
+      ssize_t n;
+      while ((n = read(pfd[0], b, sizeof b)) > 0) msg.append(b, static_cast<size_t>(n));
+      if (msg.empty()) { fprintf(stderr, "usbmem_fuse: daemon exited unexpectedly\n"); return 1; }
+      if (msg.size() > 1) fprintf(stderr, "%s", msg.c_str() + 1);
+      return msg[0] == 0 ? 0 : 1;
     }
     close(pfd[0]);
     setsid();
+    const char* lg = getenv("USBMEM_FUSE_LOG");
+    int nul = open(lg && *lg ? lg : "/dev/null", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (nul >= 0) { dup2(nul, 1); dup2(nul, 2); if (nul > 2) close(nul); }
+    int in = open("/dev/null", O_RDONLY);
+    if (in >= 0) { dup2(in, 0); if (in > 2) close(in); }
   }
-  auto notify = [&](char r) {
-    if (pfd[1] >= 0) { ssize_t w = write(pfd[1], &r, 1); (void)w; close(pfd[1]); pfd[1] = -1; }
+  auto notify = [&](char r, const std::string& msg = "") {
+    if (pfd[1] >= 0) {
+      std::string m(1, r);
+      m += msg;
+      ssize_t w = write(pfd[1], m.data(), m.size());
+      (void)w;
+      close(pfd[1]);
+      pfd[1] = -1;
+    }
   };
-  auto die = [&](const std::string& msg, char code = 1) -> int {
+  auto die = [&](const std::string& msg) -> int {
     fprintf(stderr, "usbmem_fuse: %s\n", msg.c_str());
-    notify(code);
-    return code;
+    notify(1, "usbmem_fuse: " + msg + "\n");
+    return 1;
   };
 
   Status st = RawImageDevice::open_path(c.image, c.ro, 512, &g.dev);
@@ -735,13 +790,6 @@ int main(int argc, char** argv) {
     return die("fuse_session_mount " + mnt + " failed");
   }
   fuse_opt_free_args(&args);
-  if (!c.foreground) {
-    // ここから先は端末に出さない (ログが要るなら USBMEM_FUSE_LOG のファイルへ)
-    int nul = open(getenv("USBMEM_FUSE_LOG") && *getenv("USBMEM_FUSE_LOG") ? getenv("USBMEM_FUSE_LOG") : "/dev/null", O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (nul >= 0) { dup2(nul, 1); dup2(nul, 2); if (nul > 2) close(nul); }
-    int in = open("/dev/null", O_RDONLY);
-    if (in >= 0) { dup2(in, 0); if (in > 2) close(in); }
-  }
   notify(0);
   int ret = fuse_session_loop(se);
   fuse_session_unmount(se);

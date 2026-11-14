@@ -36,15 +36,19 @@ def sh(cmd, **kw):
     return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, **kw)
 
 
+def mk_one(fsname, p, size):
+    if os.path.exists(p):
+        os.unlink(p)
+    with open(p, "wb") as f:
+        f.truncate(size)
+    return sh(FS[fsname]["mkfs"] + [p])
+
+
 def mk_images(fsname, work, size):
     imgs = {}
     for role in ("test", "scratch"):
         p = os.path.join(work, role + ".img")
-        if os.path.exists(p):
-            os.unlink(p)
-        with open(p, "wb") as f:
-            f.truncate(size)
-        r = sh(FS[fsname]["mkfs"] + [p])
+        r = mk_one(fsname, p, size)
         if r.returncode != 0:
             sys.exit("mkfs failed for %s: %s" % (p, r.stdout))
         imgs[role] = p
@@ -98,6 +102,7 @@ def main():
     ap.add_argument("--timeout", type=int, default=300, help="1 件あたりの秒数")
     ap.add_argument("--size", default="1G")
     ap.add_argument("--mount-opts", default="allow_other,default_permissions", help="usbmem_fuse の -o (quiet_setattr など)")
+    ap.add_argument("--no-remkfs", action="store_true", help="テストごとにイメージを作り直さない (既定は作り直す。FSTYP=fuse の fstests は mkfs をしないので、前のテストの残りや破損が次へ持ち越される)")
     ap.add_argument("--max-seconds", type=int, default=0, help="全体の上限 (0 = 無制限)。超えたら残りは skipped-by-budget")
     a = ap.parse_args()
 
@@ -150,6 +155,11 @@ def main():
             results[t] = dict(status="skipped-by-budget")
             continue
         shutil.rmtree(results_dir, ignore_errors=True)
+        if not a.no_remkfs and i > 0:
+            for role in ("test", "scratch"):
+                r = mk_one(a.fs, imgs[role], size)
+                if r.returncode != 0:
+                    print("remkfs failed %s: %s" % (role, r.stdout[:300]), flush=True)
         fsck_before = len(read_tail(fsck_log, 100000).splitlines())
         t0 = time.time()
         proc = subprocess.Popen(["./check", t], cwd=a.fstests, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)

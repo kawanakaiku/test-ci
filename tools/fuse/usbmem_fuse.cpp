@@ -731,7 +731,14 @@ int main(int argc, char** argv) {
   if (ro_only_fs) { rw = false; c.ro = true; fuse_opts.push_back("ro"); }
   g.vol = mount_volume(g.dev, type, rw, &err, &why);
   if (!g.vol) return die("mount " + type + " failed: " + why + " (errno " + std::to_string(err) + ": " + strerror(err) + ")");
-  if (rw && !g.vol->writable()) return die("the " + type + " driver opened the volume read-only: " + read_only_reason(g.vol.get()) + " (use -o ro to mount read-only)");
+  if (rw && !g.vol->writable()) {
+    std::string why2 = read_only_reason(g.vol.get());
+    if (type == "ext2" || type == "ext4" || type == "ext3") {   // 理由を報告しないドライバーのために、s_state を見せる (0x1 = クリーン、0x2 = 汚れ / 未アンマウント、0x4 = エラー)
+      uint8_t sb[2] = {0, 0};
+      if (g.dev->read_at(1024 + 0x3A, sb, 2).ok()) { char b[64]; snprintf(b, sizeof b, " [s_state=0x%x]", sb[0] | (sb[1] << 8)); why2 += b; }
+    }
+    return die("the " + type + " driver opened the volume read-only: " + why2 + " (use -o ro to mount read-only)");
+  }
   g.root = g.vol->root();
 
   std::string fsname = c.image;

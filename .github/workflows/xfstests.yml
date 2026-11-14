@@ -115,8 +115,14 @@ jobs:
 
       - name: Build fstests
         run: |
-          git clone --depth 1 --branch "$FSTESTS_TAG" https://git.kernel.org/pub/scm/fs/xfs/xfstests-dev.git "$RUNNER_TEMP/fstests" \
-            || git clone --depth 1 --branch "$FSTESTS_TAG" https://github.com/kdave/xfstests.git "$RUNNER_TEMP/fstests"
+          # kernel.org は接続できないことがある (接続待ちが 2 分以上かかる) ので、短いタイムアウトで数回試す
+          ok=0
+          for i in 1 2 3 4; do
+            rm -rf "$RUNNER_TEMP/fstests"
+            if timeout 90 git clone --depth 1 --branch "$FSTESTS_TAG" https://git.kernel.org/pub/scm/fs/xfs/xfstests-dev.git "$RUNNER_TEMP/fstests"; then ok=1; break; fi
+            sleep 5
+          done
+          [ $ok = 1 ] || git clone --depth 1 --branch "$FSTESTS_TAG" https://github.com/kdave/xfstests.git "$RUNNER_TEMP/fstests"
           cd "$RUNNER_TEMP/fstests"
           make -j"$(nproc)" >"$RUNNER_TEMP/fstests_build.log" 2>&1 || { tail -50 "$RUNNER_TEMP/fstests_build.log"; exit 1; }
           for u in fsgqa fsgqa2 123456-fsgqa; do id "$u" >/dev/null 2>&1 || sudo useradd -m -U "$u"; done

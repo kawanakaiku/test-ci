@@ -1,6 +1,11 @@
 # ホスト (x86_64 Linux) の ctest を 4 構成で実行する: plain / san (ASan+UBSan) / wsan (書き込み有効+san) / wrel (書き込み有効 release)。
 # 手元のメモリが足りないときに、重い 4 構成を GitHub Actions へ逃がすために使う。docs/ci.md
-# トリガ: workflow_dispatch (ctest_regex で絞れる)、または usbmem-ci* ブランチへの push。
+# トリガ: workflow_dispatch (ctest_regex と modes で絞れる)、または usbmem-ci* ブランチへの push。
+# 待ち時間を減らす工夫 (docs/ci.md):
+#   - push で動かす構成はブランチ名で決まる。通常の usbmem-ci-<名前> は軽い 2 構成 (plain / wrel)。usbmem-ci-full-<名前> は 4 構成すべて、
+#     usbmem-ci-only-<構成> (例: usbmem-ci-only-wsan) はその 1 構成だけ。統合前の最終確認は usbmem-ci-full-* で 4 構成を通すこと。
+#   - ctest は並列 (-j)。FIXTURES / RESOURCE_LOCK が宣言済みなので依存は守られる。並列で落ちたテストは直列でやり直し、直列で通れば警告つきで通す
+#     (並列で干渉するテストの目印として step summary に出す)。
 name: Host tests
 
 on:
@@ -10,6 +15,10 @@ on:
         description: "ctest -R に渡す正規表現 (空なら全件)"
         required: false
         default: ""
+      modes:
+        description: "動かす構成 (空白区切り。既定は全部): plain san wsan wrel"
+        required: false
+        default: "plain san wsan wrel"
   push:
     branches: ['usbmem-ci*']
 
@@ -21,15 +30,42 @@ permissions:
   contents: read
 
 jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      modes: ${{ steps.p.outputs.modes }}
+    steps:
+      - id: p
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref_name }}
+          INPUT_MODES: ${{ github.event.inputs.modes }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then m="${INPUT_MODES:-plain san wsan wrel}"
+          else
+            case "$REF" in
+              usbmem-ci-only-*) m="${REF#usbmem-ci-only-}" ;;
+              usbmem-ci-full*)  m="plain san wsan wrel" ;;
+              *)                m="plain wrel" ;;
+            esac
+          fi
+          for x in $m; do case "$x" in plain|san|wsan|wrel) ;; *) echo "未知の構成: $x" >&2; exit 1;; esac; done
+          json=$(printf '%s\n' $m | jq -R . | jq -sc .)
+          echo "modes=$json" >> "$GITHUB_OUTPUT"
+          echo "構成: $json" | tee -a "$GITHUB_STEP_SUMMARY"
+
   host:
     name: host (${{ matrix.mode }})
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 180
     strategy:
       fail-fast: false
       max-parallel: 4
       matrix:
-        mode: [plain, san, wsan, wrel]
+        mode: ${{ fromJSON(needs.plan.outputs.modes) }}
     steps:
       - uses: actions/checkout@v7
 
@@ -85,7 +121,22 @@ jobs:
         run: |
           export PATH="$PATH:/sbin:/usr/sbin"
           re="${{ github.event.inputs.ctest_regex }}"
-          if [ -n "$re" ]; then ctest --output-on-failure -R "$re"; else ctest --output-on-failure; fi
+          sel=(); [ -z "$re" ] || sel=(-R "$re")
+          jobs="${CTEST_JOBS:-4}"
+          set +e
+          ctest -j"$jobs" --output-on-failure "${sel[@]}"
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            cp Testing/Temporary/LastTestsFailed.log "$RUNNER_TEMP/failed_parallel.log" 2>/dev/null
+            echo "::warning::並列 (-j$jobs) で失敗したテストを直列でやり直す"
+            ctest --rerun-failed --output-on-failure
+            rc=$?
+            if [ $rc -eq 0 ]; then
+              echo "::warning::直列では通った。並列で干渉するテストがある (step summary を参照)"
+              { echo '### 並列 (-j'"$jobs"') で失敗し、直列で通ったテスト (${{ matrix.mode }})'; echo '```'; cat "$RUNNER_TEMP/failed_parallel.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          exit $rc
 
       # FAT 書き込みをカーネルの vfat と突き合わせる (loop マウントに sudo が要るので CI だけ。docs/fat-write.md)。フィクスチャは ctest の fat_gen_fixture が作る。
       # 書き込み有効のビルド (wrel) だけ。ctest_regex で絞った実行では走らせない (ただし fat_gen_fixture を含む絞り込みなら走らせる = このステップだけの素早い確認用)。

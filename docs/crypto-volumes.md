@@ -304,10 +304,10 @@ GitHub Actions `crypt-write.yml` (usbmem-crypt-write、ubuntu-latest) run **4359
 - `crypt mutation`: 10 種すべて検出 (単体テストで 4 種: CW_NO_CACHE_UPDATE / CW_NO_RMW_HEAD / CW_NO_FLUSH / CW_NO_LATCH、独立検証で 6 種: CW_LUKS_IV / CW_ALWAYS_WRITABLE / CW_BL_NO_VH_MAP / CW_BL_NO_HIDDEN_CHECK / CW_BL_PARTIAL / CW_DIFF_ORDER)。
 - `crypt san`: ASan + UBSan のビルドで単体テスト + `run_crypt_write_tests.sh` (乱数書き込み・失敗注入・ファジング 150 回) が成功。
 
-**最終ツリー (main の cryptdisk 統合 4b31502 を取り込み済み) の結果**:
+**最終ツリー (main の cryptdisk 統合 4b31502 と XFS Full 6e7d679 を取り込み済み) の結果**:
 
-- `crypt-write.yml` run **43645188580** (usbmem-crypt-write): `crypt write` (実カーネル dm-crypt・libbde・上位 FS) / `crypt mutation` (10 種すべて検出) / `crypt san` の 3 ジョブすべて成功。
-- host-tests run **43631253032** (usbmem-ci-full-cryptwrite、4 構成): plain / san / wsan / wrel すべて成功 (crypt_write・crypt_fs_write は ctest に含まれる。host-tests には libbde が無いので libbde 比較は省かれる)。
+- `crypt-write.yml` run **43647958462** (usbmem-crypt-write): `crypt write` (実カーネル dm-crypt・libbde・上位 FS) / `crypt mutation` (10 種すべて検出) / `crypt san` の 3 ジョブすべて成功。
+- host-tests run **43647956713** (usbmem-ci-full-cryptwrite、4 構成): plain / san / wsan / wrel すべて成功 (crypt_write・crypt_fs_write は ctest に含まれる。host-tests には libbde が無いので libbde 比較は省かれる)。
 - 途中の失敗 run: 43591625837 (wrel: ctest が sh で起動、修正済み)、43605943790 (wsan: 直列実行で 180 分の上限。サニタイザ構成の操作数を減らし、並列 ctest に変更して解消)、43618994009 (mutation 9/10: 下記)、43620706470・43628485883・43631250487・43633643835 (libbde の EOF / 開けない: 下記)。
 
 後から見つかった不具合 (すべて試験側。製品コードではない):

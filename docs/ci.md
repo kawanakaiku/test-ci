@@ -141,7 +141,7 @@ nbdfuse_stop "$NBDFUSE_ROOT/c"
 - `crypt san`: ASan + UBSan のビルドで単体テストと `run_crypt_write_tests.sh` (ファジング・失敗注入)。
 - 作業ディレクトリは `/tmp` (`USBMEM_WORK_DIR`)。`/dev/shm` はユーザークォータがあるので使わない。FUSE は AppArmor の都合で `/tmp` の下にだけマウントする。
 - ローカルで `sync` が止まる PC 用の `LD_PRELOAD=/tmp/nosync.so` は、ここにも各スクリプトにも入れない (CI には不要)。
-- 結果 (最終ツリー): crypt-write.yml run 43645188580 (3 ジョブ成功)、host-tests run 43631253032 (usbmem-ci-full-cryptwrite、plain / san / wsan / wrel 成功)。libbde 比較は、試験の平文の先頭 16 セクタが本物の NTFS (mkntfs) でないと、実行ごとに違うオフセットで EOF になる (docs/crypto-volumes.md 9.8)。host-tests には libbde が無いので、その比較は crypt-write.yml だけで動く。
+- 結果 (最終ツリー): crypt-write.yml run 43647958462 (3 ジョブ成功)、host-tests run 43647956713 (usbmem-ci-full-cryptwrite、plain / san / wsan / wrel 成功)。libbde 比較は、試験の平文の先頭 16 セクタが本物の NTFS (mkntfs) でないと、実行ごとに違うオフセットで EOF になる (docs/crypto-volumes.md 9.8)。host-tests には libbde が無いので、その比較は crypt-write.yml だけで動く。
 
 ## 暗号ボリュームの「ディスク全体」の試験 (cryptodisk_*、2026-11-14)
 

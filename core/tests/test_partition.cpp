@@ -464,3 +464,25 @@ TEST(fat_bpb_claiming_more_than_device_is_not_superfloppy) {
   CHECK(!t.whole_device_volume);
   CHECK(t.kind == TableKind::Mbr);
 }
+
+// 表なしの LUKS1 ボリューム全体: ヘッダの 510-511 バイト目は未使用 keyslot の salt (乱数) で、1/65536 の確率で 55 AA になる。MBR と取り違えず、
+// 暗号ボリューム全体 (whole_device_volume, FsType::Luks) として見えること。ディスク全体が暗号ボリュームの構成の回帰テスト (tools/gen_cryptodisk_fixtures.py の w_luks1_mbr_signature_lookalike と同じ)
+TEST(whole_disk_luks1_with_mbr_signature_lookalike_is_not_an_mbr) {
+  Bytes img(2048 * 512, 0);
+  std::memcpy(img.data(), "LUKS\xba\xbe", 6);
+  img[6] = 0;
+  img[7] = 1;  // version 1
+  img[510] = 0x55;
+  img[511] = 0xAA;
+  PartitionTable t;
+  CHECK(parse(img, &t).ok());
+  CHECK(t.whole_device_volume);
+  CHECK(t.whole_device_fs == FsType::Luks);
+  CHECK_EQ(t.partitions.size(), 1u);
+  CHECK(t.partitions[0].fs == FsType::Luks);
+  // 署名が無ければ (ふつうの LUKS1) 従来どおり
+  img[510] = 0;
+  PartitionTable t2;
+  CHECK(parse(img, &t2).ok());
+  CHECK(t2.whole_device_volume && t2.whole_device_fs == FsType::Luks);
+}

@@ -132,7 +132,7 @@ mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・
 | `REUSE_FREED` | 解放したばかりのブロック (まだコミットされていない) にデータを書く (busy の確認を外す) |
 | `TAIL_ZERO_EARLY` | truncate / write で EOF より先をゼロにするとき、直前の縮小のコミットを待たない |
 
-`tools/run_xfs_mutation_tests.sh` は 7 種すべてを検出できなければ失敗する。flush を省く 2 種 (`NO_FLUSH_LOG` / `NO_FLUSH_INPLACE`) は cache 方式の全カットポイント (stride 1、乱数の種を変えて最大 3 回) で試す。flush カットを入れる前は、この 2 種は検出できなかった (3150 試行で 0 件。順序の入れ替えが起きる窓がカットポイントに存在しなかったため。省いた flush は同値変異ではなく、テスト側の観測の穴だった)。
+`tools/run_xfs_mutation_tests.sh` は 9 種すべて (上の 7 種 + `REUSE_FREED` / `TAIL_ZERO_EARLY`) を検出できなければ失敗する。flush を省く 2 種 (`NO_FLUSH_LOG` / `NO_FLUSH_INPLACE`) は cache 方式の全カットポイント (stride 1、乱数の種を変えて最大 3 回) で試す。flush カットを入れる前は、この 2 種は検出できなかった (3150 試行で 0 件。順序の入れ替えが起きる窓がカットポイントに存在しなかったため。省いた flush は同値変異ではなく、テスト側の観測の穴だった)。
 
 ## 既知の限界・未実装
 - **アプリは XFS を常に CreateOnly で開く** (Full の操作はコアとテストだけ。実機 USB での Full 試験は未実施)。
@@ -146,7 +146,7 @@ mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・
 - 既存ブロックの上書きはメタデータのコミットと原子的ではない。
 
 ## 実測結果
-(2026-11-13 / 14。CI は kawanakaiku/test-ci の `usbmem-ci-xfs` ブランチ。mkfs.xfs / xfs_repair 6.18.0、カーネル再生は loop マウント)
+(2026-11-13 / 14。CI は kawanakaiku/test-ci の `usbmem-ci-xfs` / `usbmem-ci-xfsfull` ブランチ。mkfs.xfs / xfs_repair 6.18.0、カーネル再生は loop マウント)
 
 - **書き込みテスト** (`tools/run_xfs_write_tests.sh`、CI run 43482508837): all passed。構成 (fresh / seeded / isize=1024 / agcount=2 / 2 GiB agcount=16 / finobt=0 / sparse=0 / bigtime=0 inobtcount=0 reflink=0 / imaxpct=90 …) ごとに 1045 操作が失敗 0 で、自前リーダーのツリーが POSIX 参照と一致 (1073 エントリ)、`xfs_repair -n` clean、ログ CLEAN。ファジング (書き込みマウント) 400 イメージ × 2 回 (339 / 334 がマウント、250 / 252 が書き込み可、61 / 66 が拒否) でクラッシュなし。
 - **電源断の模擬のフル版** (run 43482508837): 6708 試行 (cache 方式は flush もカットに数える)、(K) / (S) / (A) / (P) / (KP) すべて 0。うち未再生のログが残っていたのが 3242、カーネルが再生して mount できたのが 6708、`xfs_repair` 計 13840 回、カーネルの続きの書き込み 422 回。
@@ -157,8 +157,9 @@ mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・
 - **Full の操作 + ノード形式ディレクトリ (2026-11-14、手元のホスト、mkfs.xfs / xfs_repair 7.2、カーネル再生は loop マウント)**:
   - `run_xfs_write_tests.sh` all passed: 決まった操作列 (Full を含む) は fresh 1636 操作・seeded 構成ごとに 3229 操作が失敗 0、自前リーダーのツリーが POSIX 参照と一致 (1343 エントリ)、`xfs_repair -n` clean、ログ CLEAN、カーネルとの相互確認も同一。乱数操作 + モデル 4 種 (338 / 381 / 320 / 357 エントリ)、多数ファイル (5010 操作・2510 エントリ)、**大きなディレクトリ (ノード形式。10030 操作・2408 エントリが参照と同一・カーネルが追加で書いても clean)**、noop、拒否 9 種、満杯からの回復 (unlink / truncate)、ファジング (rw 150 画像 ×2)、カーネル → 自前 (1801 エントリ → 自前が書いて 1925 エントリ同一)。`xfs_repair` 49 回・カーネル相互確認 18 回。
   - `run_xfs_crash_tests.sh` (stride 10、Full 操作 163 本・ノード形式への移行と削除を含む): 1706 試行 (prefix / cache / batch / each)、(K) (S) (A) (P) (KP) すべて 0。未再生のログが残っていたのが 1194、カーネルが再生して mount できたのが 1706、`xfs_repair` 計 3526 回。
-  - 突然変異 (stride 3): 新規 2 種を検出。`REUSE_FREED` は K=3903 / S=144 / KP=246 (5540 試行)、`TAIL_ZERO_EARLY` は K=1 (5680 試行。検出は薄いので、フル版 (stride 1) は CI の `xfs-write` ワークフローで確認)。
-  - Android エミュレータ (CI run 43566699852、`btrfs-xfs` を含む 5 グループ全部 success): `XfsWriteTest` に Full の操作を含む新テスト `fullOperationsLeaveCleanVolume` を追加。
+  - **CI のフル版 (run 43590439847、`usbmem-ci-xfsfull`、全ジョブ success)**: `xfs_write` all passed (`xfs_repair` 73 回・カーネル相互確認 30 回)、電源断の模擬のフル版 (全カットポイント) 17032 試行で (K) (S) (A) (P) (KP) すべて 0、**突然変異 9/9 検出** (変異ごとの別ジョブ。NO_FLUSH_LOG S=4 / NO_FLUSH_COMMIT K=1036 / NO_FLUSH_INPLACE K=284 / INPLACE_FIRST K=4570 / TAIL_OWN K=4136 / DATA_AFTER S=2410 / NO_CRC 自己検査 / REUSE_FREED S=213 / TAIL_ZERO_EARLY S=3)。9 種を 1 ジョブで順に回すと 300 分の上限で cancelled になったので、ワークフローを変異ごとの matrix にした。
+  - 突然変異 (手元、stride 3): 新規 2 種を検出。`REUSE_FREED` は K=3903 / S=144 / KP=246 (5540 試行)、`TAIL_ZERO_EARLY` は K=1 (5680 試行。検出は薄いので、フル版 (stride 1) は CI の `xfs-write` ワークフローで確認)。
+  - Android エミュレータ (CI run 43590439926 (最終コミット) と 43566699852、`btrfs-xfs` を含む 5 グループ全部 success): `XfsWriteTest` に Full の操作を含む新テスト `fullOperationsLeaveCleanVolume` を追加。
   - ホストテスト (CI run 43566699768): 失敗は基準 (`usbmem-ci-hosttests`、run 43560691106) と同じ既存の 13 / 22 テスト (`xfs_read` の 64 KiB ブロックの穴あきファイル、ntfs / erofs の fixture 等。本変更と無関係)。ただし `xfs_write` / `xfs_crash` は CI の /dev/shm の quota 超過 (`Disk quota exceeded`) で落ちたため、ctest の作業場所を /tmp にして大きな中間イメージを早めに消すよう直した (CI で再確認)。
   - 運用上の落とし穴: Data (NTFS) の書き戻しが止まっている環境では、全体同期 (`sync` / Python の `os.sync()`) が永遠に D 状態になる。`tools/xfs_vm/kreplay.py` は対象のマウントへの `syncfs` に変えた。
 - 未確認: 実機 USB での Full 操作 (アプリは XFS を CreateOnly でしか開かない)、V4 / rmapbt / realtime / 外部ログ / クォータ / ストライプ (すべて書き込み拒否)、reflink 共有ブロックの削除 (拒否)。

@@ -81,6 +81,8 @@ struct State {
   struct Hidden { uint64_t dir; std::string name; };
   std::unordered_map<uint64_t, Hidden> hidden;      // 実 ino -> 隠し名 (最後の close で unlink)
   std::unordered_map<uint64_t, uint64_t> alias;     // FUSE に渡した ino -> 隠し名への rename で変わった実 ino
+  struct DirOpen { int count; FsStat st; };
+  std::unordered_map<uint64_t, DirOpen> dir_opens;  // 開いているディレクトリ (実 ino) -> 開いた時点の stat。rename で上書き / rmdir された後の fstat に答えるため
   uint64_t hidden_seq = 0, dirty_ops = 0, dirty_bytes = 0;
 };
 State g;
@@ -111,11 +113,11 @@ uint64_t to_real(fuse_ino_t f) {
   return f;
 }
 
-void fill_stat(uint64_t real, const FsStat& s, struct stat* st) {
+void fill_stat(uint64_t real, const FsStat& s, struct stat* st, bool unlinked = false) {
   memset(st, 0, sizeof *st);
   st->st_ino = to_fuse(real);
   st->st_mode = s.mode;
-  st->st_nlink = s.nlink ? s.nlink : 1;
+  st->st_nlink = unlinked ? 0 : (s.nlink ? s.nlink : 1);
   st->st_size = static_cast<off_t>(s.size);
   st->st_uid = g.cfg.uid;
   st->st_gid = g.cfg.gid;
@@ -239,9 +241,16 @@ void op_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info*) {
   uint64_t real = to_real(ino);
   int rc = fs_stat(real, &s);
   trace("getattr %llu -> %d", (unsigned long long)ino, rc);
-  if (rc) { fuse_reply_err(req, to_errno(rc)); return; }
+  if (rc) {
+    auto d = g.dir_opens.find(real);   // 開いたままのディレクトリが消された (rename で上書き / rmdir): 開いた時点の属性を nlink 0 で返す (Linux の通常の FS と同じ)
+    if (d == g.dir_opens.end()) { fuse_reply_err(req, to_errno(rc)); return; }
+    struct stat st;
+    fill_stat(real, d->second.st, &st, true);
+    fuse_reply_attr(req, &st, 0.0);
+    return;
+  }
   struct stat st;
-  fill_stat(real, s, &st);
+  fill_stat(real, s, &st, g.hidden.count(real) != 0);   // 開いたまま unlink したファイル (隠し名) は nlink 0
   fuse_reply_attr(req, &st, 0.0);
 }
 
@@ -448,7 +457,7 @@ void op_write(fuse_req_t req, fuse_ino_t ino, const char* buf, size_t size, off_
   fuse_reply_write(req, done);
 }
 
-struct DirHandle { std::vector<FsDirEntry> ents; };
+struct DirHandle { std::vector<FsDirEntry> ents; uint64_t real = 0; };
 
 void load_dir(uint64_t dir, std::vector<FsDirEntry>* out, int* rc) {
   std::vector<FsDirEntry> raw;
@@ -473,9 +482,13 @@ void op_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) {
   if (rc) { fuse_reply_err(req, to_errno(rc)); return; }
   if (!is_dir(s)) { fuse_reply_err(req, ENOTDIR); return; }
   auto* h = new DirHandle;
+  h->real = real;
   load_dir(real, &h->ents, &rc);
   trace("opendir %llu -> %d (%zu entries)", (unsigned long long)ino, rc, h->ents.size());
   if (rc) { delete h; fuse_reply_err(req, to_errno(rc)); return; }
+  auto& d = g.dir_opens[real];
+  d.count++;
+  d.st = s;
   fi->fh = reinterpret_cast<uintptr_t>(h);
   fuse_reply_open(req, fi);
 }
@@ -510,7 +523,12 @@ void op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
 }
 
 void op_releasedir(fuse_req_t req, fuse_ino_t, struct fuse_file_info* fi) {
-  delete reinterpret_cast<DirHandle*>(fi->fh);
+  auto* h = reinterpret_cast<DirHandle*>(fi->fh);
+  if (h) {
+    auto d = g.dir_opens.find(h->real);
+    if (d != g.dir_opens.end() && --d->second.count <= 0) g.dir_opens.erase(d);
+  }
+  delete h;
   fuse_reply_err(req, 0);
 }
 

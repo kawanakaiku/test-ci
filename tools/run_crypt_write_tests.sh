@@ -28,9 +28,14 @@ command -v python3 >/dev/null && python3 -c "import cryptography" 2>/dev/null ||
 if ! command -v cryptsetup >/dev/null; then echo "skip: cryptsetup missing" >&2; exit 77; fi
 CI=$HERE/crypt_indep.py
 head -c 12582912 /dev/urandom > "$W/plain12.bin"
-# libbde は復号した論理先頭セクタを NTFS ブートセクタ (BPB) として読み、ボリューム長をそこから決める。乱数のままだと実行ごとに長さが
-# 変わり、モデルより短いと bdemount の出力が途中で EOF になる (CI で観測: 毎回違うオフセットで cmp: EOF)。先頭 512 バイトだけ妥当な BPB にする
-# (書き込み試験は --keep-boot で、この 512 バイトを保ったまま、退避先へ写す経路を乱数データで叩く)。
+# libbde は復号した論理先頭セクタを NTFS ブートセクタ (BPB) として読み、ボリューム長や開けるかどうかをそこから決める。乱数のままだと実行ごとに
+# 長さが変わり、モデルより短いと bdemount の出力が途中で EOF になる (CI で観測: 毎回違うオフセットで cmp: EOF)。そこで先頭 16 セクタ
+# (退避先へ写される範囲) を本物の mkntfs の出力にする。書き込み試験は --keep-boot で先頭 512 バイト (BPB) を保ったまま、退避先への写しを乱数データで叩く。
+# mkntfs が無いときは先頭 512 バイトを手書きの BPB にする (libbde が開けない場合は libbde 比較が失敗するので、CI は ntfs-3g を入れる)。
+if command -v mkntfs >/dev/null && truncate -s 12582912 "$W/ntfs12.img" && mkntfs -F -Q -q -s 512 -c 4096 -L cwtest "$W/ntfs12.img" >/dev/null 2>&1; then
+  head -c 8192 "$W/ntfs12.img" | dd of="$W/plain12.bin" conv=notrunc status=none
+  rm -f "$W/ntfs12.img"
+else
 python3 -I - "$W/plain12.bin" <<'PYEOF'
 import struct, sys
 p = sys.argv[1]
@@ -42,6 +47,7 @@ struct.pack_into("<Q", b, 0x28, 12582912 // 512 - 1)
 b[510:512] = b"\x55\xaa"
 with open(p, "r+b") as f: f.write(b)
 PYEOF
+fi
 head -c 8388608 /dev/urandom > "$W/plain8.bin"
 printf 'cw-test-passphrase-1' > "$W/pw"
 

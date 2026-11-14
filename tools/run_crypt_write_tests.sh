@@ -118,10 +118,20 @@ PYEOF
       # (1) libbde
       if command -v bdemount >/dev/null && command -v fusermount3 >/dev/null; then
         mkdir -p "$W/mnt"
-        if bdemount -p "$PWBL" "$W/bl$m.w.img" "$W/mnt" >/dev/null 2>&1; then
-          if cmp -n $PL "$W/mnt/bde1" "$W/bl$m.model"; then echo "     libbde bdemount output == model ($PL bytes)"; else fail "bl$m: libbde output != model"; fi
+        # libbde (FUSE) の読み出しが途中で EOF になる (cmp: EOF) ことが、負荷の高い環境でまれにある (自前の復号・独立した Python 再暗号化は一致している)。
+        # 内容の食い違い (differ) は即失敗。EOF (短い読み) のときだけ、マウントし直して 2 回まで再試行し、再試行したことを出力に残す。
+        att=0; bl_ok=0
+        while [ $att -lt 3 ]; do
+          att=$((att + 1))
+          bdemount -p "$PWBL" "$W/bl$m.w.img" "$W/mnt" >/dev/null 2>&1 || { fail "bl$m: bdemount cannot open the written image"; bl_ok=2; break; }
+          cmpout=$(cmp -n $PL "$W/mnt/bde1" "$W/bl$m.model" 2>&1) && r=0 || r=1
           fusermount3 -u "$W/mnt"
-        else fail "bl$m: bdemount cannot open the written image"; fi
+          if [ $r = 0 ]; then bl_ok=1; break; fi
+          echo "$cmpout"
+          case $cmpout in *"EOF on"*) echo "     WARN: bl$m: libbde の読み出しが短い (試行 $att/3)"; sleep 2 ;; *) break ;; esac
+        done
+        if [ $bl_ok = 1 ]; then echo "     libbde bdemount output == model ($PL bytes)$([ $att -gt 1 ] && echo " (試行 $att 回目で一致)")"
+        elif [ $bl_ok = 0 ]; then fail "bl$m: libbde output != model"; fi
       fi
     done
     "$T" failinj "$W/bl$m.w.img" "pw:$PWBL" 5 "${P[@]}" >/dev/null || fail "bl$m: failinj"

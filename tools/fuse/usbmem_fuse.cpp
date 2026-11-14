@@ -90,6 +90,9 @@ State g;
 void trace(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 void trace(const char* fmt, ...) {
   if (!g.trace) return;
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  fprintf(stderr, "[%d %ld.%03ld] ", (int)getpid(), (long)(ts.tv_sec % 100000), ts.tv_nsec / 1000000);
   va_list ap;
   va_start(ap, fmt);
   vfprintf(stderr, fmt, ap);
@@ -199,12 +202,15 @@ void op_init(void*, struct fuse_conn_info* conn) { (void)conn; }
 void shutdown_volume() {
   if (g.closed) return;
   g.closed = true;
+  trace("shutdown: begin");
   if (g.vol) {
     int rc = g.vol->sync();
+    trace("shutdown: synced rc=%d", rc);
     if (rc) fprintf(stderr, "usbmem_fuse: sync on unmount failed: %d\n", rc);
     g.vol.reset();   // 書き込みの最終コミット (XFS はデストラクタでもコミットする)
   }
   if (g.dev) { g.dev->flush(); g.dev->close(); g.dev.reset(); }
+  trace("shutdown: closed");
   const char* fsck = getenv("USBMEM_FUSE_FSCK");
   if (fsck && *fsck) {
     pid_t p = fork();
@@ -223,7 +229,7 @@ void shutdown_volume() {
   }
 }
 
-void op_destroy(void*) { shutdown_volume(); }
+void op_destroy(void*) { trace("destroy"); shutdown_volume(); trace("destroy done"); }
 
 void op_lookup(fuse_req_t req, fuse_ino_t parent, const char* name) {
   uint64_t ino;
@@ -747,7 +753,9 @@ int main(int argc, char** argv) {
   bool rw = !c.ro;
   bool ro_only_fs = type == "iso9660" || type == "isofs" || type == "udf" || type == "squashfs" || type == "erofs";
   if (ro_only_fs) { rw = false; c.ro = true; fuse_opts.push_back("ro"); }
+  trace("mount: %s %s rw=%d", type.c_str(), c.image.c_str(), (int)rw);
   g.vol = mount_volume(g.dev, type, rw, &err, &why);
+  trace("mount: done %s", g.vol ? "ok" : "FAILED");
   if (!g.vol) return die("mount " + type + " failed: " + why + " (errno " + std::to_string(err) + ": " + strerror(err) + ")");
   if (rw && !g.vol->writable()) {
     std::string why2 = read_only_reason(g.vol.get());

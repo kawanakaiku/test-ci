@@ -590,7 +590,12 @@ int get_tree_bdev(struct fs_context *fc, int (*fill_super)(struct super_block *,
   int rc = fill_super(sb, fc);
   if (rc) { fprintf(stderr, "usbmem-compat: fill_super failed: %d\n", rc);
     if (sb->usbmem_root_made_) { struct dentry *rd = sb->usbmem_root_made_; sb->usbmem_root_made_ = NULL; sb->s_root = NULL; usbmem_d_free_root(rd); }   /* dput が何もしないので、失敗時に根 dentry (と inode 参照) が漏れる */
-    drop_inodes_sb(sb); if (sb->s_type && sb->s_type->kill_sb) sb->s_type->kill_sb(sb); free(sb); usbmem_rcu_flush(); return rc; }
+    /* erofs: kill_sb (erofs_kill_sb) が fill_super の作った内部 inode (packed / metabox / managed cache) を iput する。drop_inodes_sb で先に解放すると
+     * その iput が解放済みの inode を触る (UAF・二重解放。ルート inode の読み込みだけが失敗する壊れたイメージで起きる)。erofs だけ kill_sb を先にする
+     * (他の FS は従来どおりの順。ext4 / exfat の kill_sb は sbi を解放するので、順序を変えると inode 後始末が sbi を読む)。 */
+    int kill_first = sb->s_type && sb->s_type->name && !strcmp(sb->s_type->name, "erofs");
+    if (kill_first && sb->s_type->kill_sb) sb->s_type->kill_sb(sb);
+    drop_inodes_sb(sb); if (!kill_first && sb->s_type && sb->s_type->kill_sb) sb->s_type->kill_sb(sb); free(sb); usbmem_rcu_flush(); return rc; }
   fc->root = sb->s_root;
   return 0;
 }

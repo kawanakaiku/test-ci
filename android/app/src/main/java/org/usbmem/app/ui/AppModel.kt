@@ -20,6 +20,8 @@ data class NoloadPrompt(val startBytes: Long, val sizeBytes: Long, val label: St
 data class PublishedVolume(
     val label: String, val modeText: String, val writable: Boolean, val fullWrite: Boolean = false, val canLink: Boolean = false,
     val volumeKey: String = "", val startBytes: Long = 0,
+    /** 暗号ボリュームを解錠した中の FS (アンマウント = ロック。同じ解錠の兄弟も一緒に閉じる) */
+    val crypto: Boolean = false,
 )
 
 /**
@@ -55,6 +57,8 @@ class UsbDeviceState(val key: String) {
     var busy by mutableStateOf<String?>(null)                // このデバイスの処理中の説明 (null = なし)
     var notice by mutableStateOf<Notice?>(null)
     var noloadPrompt by mutableStateOf<NoloadPrompt?>(null)   // 非 null のとき、確認ダイアログを出す
+    var unlockTarget by mutableStateOf<UnlockTarget?>(null)   // 非 null のとき、暗号ボリュームの解錠ダイアログを出す (資格情報は含まない)
+    var unlocking by mutableStateOf(false)                    // 解錠中 (ダイアログの入力を無効にする)
 
     // ---- 診断 (デバイスごと)
     var ops by mutableStateOf("")                            // 送信した SCSI 命令の集計
@@ -67,7 +71,7 @@ class UsbDeviceState(val key: String) {
     fun resetAfterClose() {
         open = false; writable = false; table = null; published = emptyList(); diskStopped = false; diskIdleStopped = false
         mediaKind = MediaKindInfo.UNKNOWN; spinDownUnlocked = false
-        busy = null; noloadPrompt = null; ops = ""; tuneLog = ""; tuningSaved = null; selfTestLog = ""; selfTestPassed = null
+        busy = null; noloadPrompt = null; unlockTarget = null; unlocking = false; ops = ""; tuneLog = ""; tuningSaved = null; selfTestLog = ""; selfTestPassed = null
     }
 }
 

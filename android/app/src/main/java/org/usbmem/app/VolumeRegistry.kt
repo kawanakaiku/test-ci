@@ -19,7 +19,9 @@ object VolumeRegistry {
     class Entry(val id: String, val label: String, val volume: NtfsVolume, val parentId: String? = null, val backingPath: String? = null,
                 /** USB 由来 (UsbDevice.deviceName)。USB 以外・ネストした子は null (子は親をたどって、親のデバイスと一緒に閉じる) */
                 val deviceName: String? = null,
-                internal val closer: (() -> Unit)? = null)
+                internal val closer: (() -> Unit)? = null,
+                /** 暗号ボリュームを解錠した中の FS のとき、その情報 (非 null なら、閉じる = ロック。同じ解錠から出た兄弟も一緒に閉じる) */
+                val crypto: CryptoMeta? = null)
 
     private val volumes = LinkedHashMap<String, Entry>()
     private var restored = false
@@ -99,6 +101,23 @@ object VolumeRegistry {
     }
 
     /**
+     * 暗号ボリュームを解錠した中の FS (マウント済み) を登録する (永続化しない: 資格情報を保存しないので、再起動後は再び解錠が要る)。
+     * 所有権は登録簿に移る。閉じる (= ロック) と、同じ [CryptoMeta.groupId] の兄弟も一緒に閉じ、最後の 1 つで復号済みデバイスを閉じる。
+     * [deviceName] = USB 由来のとき、そのスロット名 ([removeByDevice] で一緒に閉じる)。
+     */
+    @Synchronized
+    fun addCryptoVolume(label: String, key: String, volume: NtfsVolume, group: CryptoGroup, meta: CryptoMeta, deviceName: String? = null): Entry {
+        val id = idOf(key)
+        volumes.remove(id)?.let { closeEntry(it) }
+        group.retain()
+        return Entry(id, label, volume, deviceName = deviceName, closer = group::release, crypto = meta).also { volumes[id] = it }
+    }
+
+    /** 解錠した暗号ボリューム (中の FS) の一覧。同じ解錠 ([CryptoMeta.groupId]) の兄弟は 1 つにまとめず、全部返す。 */
+    @Synchronized
+    fun cryptoEntries(): List<Entry> = volumes.values.filter { it.crypto != null }
+
+    /**
      * ボリューム [parentId] の中のイメージ [path] のパーティション表を読む (開いて、読んで、すぐ閉じる。何も登録しない)。
      * 表が無く全体が 1 つのファイルシステムなら [PartitionTable.wholeDeviceVolume]。
      */
@@ -158,6 +177,9 @@ object VolumeRegistry {
             out += x
         }
         walk(e)
+        // 同じ暗号ボリュームの解錠から出た兄弟 (中に複数の FS があるとき) も一緒に閉じる (復号済みデバイスを共有しているため)
+        val gid = e.crypto?.groupId
+        if (gid != null) for (sib in volumes.values.filter { it.crypto?.groupId == gid }.toList()) { volumes.remove(sib.id); walk(sib) }
         return out
     }
 

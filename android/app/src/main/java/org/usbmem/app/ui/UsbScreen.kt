@@ -19,11 +19,13 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.usbmem.app.BuildConfig
+import org.usbmem.app.CryptoMount
 import org.usbmem.app.MediaBasis
 import org.usbmem.app.MediaHint
 import org.usbmem.app.MediaKind
@@ -47,6 +49,11 @@ interface UsbActions : LinkActions {
     fun publishPartition(key: String, startBytes: Long, sizeBytes: Long, label: String)
     fun publishPartitionNoload(key: String, startBytes: Long, sizeBytes: Long, label: String)
     fun cancelNoload(key: String)
+    /** 暗号ボリューム (LUKS / BitLocker) のパーティションを調べて、解錠ダイアログを出す。 */
+    fun requestUnlock(key: String, startBytes: Long, sizeBytes: Long, label: String)
+    /** 解錠ダイアログの入力で解錠して、中のファイルシステムをマウント・公開する。 */
+    fun unlockPartition(key: String, input: UnlockInput)
+    fun cancelUnlock(key: String)
     /** 公開中のボリューム 1 つだけをアンマウントする (USB は開いたまま)。 */
     fun unpublish(key: String, volumeKey: String)
     fun closeUsb(key: String)
@@ -192,6 +199,12 @@ private fun DeviceCard(d: UsbDeviceState, a: UsbActions, canRelease: Boolean = f
             onDismiss = { a.cancelNoload(d.key) },
         )
     }
+    d.unlockTarget?.let { t ->
+        UnlockDialog(
+            t.prompt, writeAvailable = d.writable, writeInitial = false, busy = d.unlocking,
+            onSubmit = { a.unlockPartition(d.key, it) }, onCancel = { a.cancelUnlock(d.key) },
+        )
+    }
     linkFor?.let { pub ->
         LinkDialog(a, volumeKey = pub.volumeKey, allowHard = pub.fullWrite, onDone = { linkFor = null; a.linkCreated(d.key, it) }, onDismiss = { linkFor = null })
     }
@@ -321,14 +334,19 @@ private fun PartitionList(d: UsbDeviceState, t: PartitionTable, a: UsbActions, o
         Text(stringResource(R.string.common_partitions_subtitle, d.title, t.kind.uppercase(), formatBytes(t.diskBytes), t.sectorSize), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         t.partitions.forEach { p ->
             val pub = if (t.wholeDeviceVolume) null else d.published.firstOrNull { it.startBytes == p.startBytes }
+            val crypt = CryptoMount.isCryptoFs(p.fs)
+            val cryptPubs = if (crypt) d.published.filter { it.crypto && it.startBytes == p.startBytes } else emptyList()
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("#${p.index} ${p.name}".trim(), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
                     Chip(p.fs.uppercase())
+                    if (crypt) Chip(stringResource(R.string.crypto_chip_encrypted), severity = if (cryptPubs.isEmpty()) Severity.Info else Severity.Success)
                     if (pub != null) Chip(pub.modeText, severity = if (pub.writable) Severity.Warning else Severity.Success)
                 }
                 Text(stringResource(if (p.extendedContainer) R.string.common_partition_detail_extended else R.string.common_partition_detail, formatBytes(p.sizeBytes), p.typeName, p.startLba), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (pub != null) {
+                if (crypt && !t.wholeDeviceVolume) {
+                    CryptoPartitionActions(d, cryptPubs, a, onLink, p.startBytes, p.sizeBytes, UsbDeviceNaming.volumeLabel(d.productName, d.shortId, p.index, if (d.lunInfo != null) d.lun else null), canPublish)
+                } else if (pub != null) {
                     PublishedActions(d, pub, a, onLink)
                 } else if (fsMountable(p.fs)) {
                     // ISO 9660 / UDF / squashfs / erofs は読み取り専用 (書き込みは未対応)。NTFS・exFAT・FAT12/16/32・ext2・ext3・ext4・btrfs・f2fs・xfs は、このデバイスの書き込みモードに従う (xfs は CreateOnly の範囲だけ: docs/xfs-write.md) (ext3/ext4 は jbd2: docs/ext4-write.md、btrfs は COW: docs/btrfs-write.md、f2fs は docs/f2fs-write.md)
@@ -341,11 +359,29 @@ private fun PartitionList(d: UsbDeviceState, t: PartitionTable, a: UsbActions, o
         }
         if (t.wholeDeviceVolume) {
             val pub = d.published.firstOrNull { it.startBytes == 0L }
-            if (pub != null) PublishedActions(d, pub, a, onLink)
+            if (CryptoMount.isCryptoFs(t.partitions.firstOrNull()?.fs ?: "")) {
+                CryptoPartitionActions(d, d.published.filter { it.crypto && it.startBytes == 0L }, a, onLink, 0, t.diskBytes, UsbDeviceNaming.volumeLabel(d.productName, d.shortId, null, if (d.lunInfo != null) d.lun else null), canPublish)
+            } else if (pub != null) PublishedActions(d, pub, a, onLink)
             else OutlinedButton(onClick = { a.publishPartition(d.key, 0, t.diskBytes, UsbDeviceNaming.volumeLabel(d.productName, d.shortId, null, if (d.lunInfo != null) d.lun else null)) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_publish_whole_device)) }
         }
         t.diagnostics.forEach { x -> Text("${x.severity}: ${x.message}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }
     }
+}
+
+/** 暗号ボリュームのパーティション: 解錠していなければ「解錠してマウント」、解錠済みなら中の FS ごとの状態と「ロック」。 */
+@Composable
+private fun CryptoPartitionActions(d: UsbDeviceState, pubs: List<PublishedVolume>, a: UsbActions, onLink: (PublishedVolume) -> Unit, start: Long, size: Long, label: String, canPublish: Boolean) {
+    if (pubs.isEmpty()) {
+        Text(stringResource(R.string.crypto_inner_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(onClick = { a.requestUnlock(d.key, start, size, label) }, enabled = canPublish, modifier = Modifier.fillMaxWidth().testTag("crypto_unlock_button")) { Text(stringResource(R.string.crypto_unlock_button)) }
+        return
+    }
+    pubs.forEach { pub ->
+        Text(stringResource(R.string.usb_published_desc) + "  (" + pub.label + ")", style = MaterialTheme.typography.bodySmall)
+        Chip(pub.modeText, severity = if (pub.writable) Severity.Warning else Severity.Success)
+        if (pub.canLink) OutlinedButton(onClick = { onLink(pub) }, enabled = d.busy == null, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.link_button)) }
+    }
+    OutlinedButton(onClick = { a.unpublish(d.key, pubs.first().volumeKey) }, enabled = d.busy == null, modifier = Modifier.fillMaxWidth().testTag("crypto_lock_button")) { Text(stringResource(R.string.crypto_lock_button)) }
 }
 
 @Composable

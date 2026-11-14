@@ -1,0 +1,237 @@
+package org.usbmem.app.ui
+
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.dp
+import org.usbmem.app.CryptoInfo
+import org.usbmem.app.CryptoMount
+import org.usbmem.app.R
+import org.usbmem.app.UnlockCredentials
+
+/**
+ * 解錠ダイアログに出す内容 (人に見せてよい情報だけ。資格情報は含まない)。[error] = 直前の解錠の失敗 (認証失敗など)。付いていれば、そのまま再入力できる。
+ * [startBytes] / [sizeBytes] = 暗号ボリュームの範囲 (親デバイス上)。
+ */
+data class UnlockPrompt(
+    val startBytes: Long, val sizeBytes: Long, val label: String,
+    val format: String, val cipher: String,
+    val canPassword: Boolean, val canRecoveryKey: Boolean, val canKeyFile: Boolean,
+    /** 保護が一時停止中 (BitLocker の clear key) などで、資格情報なしで解錠できる */
+    val noSecret: Boolean,
+    /** false = 非対応の方式・TPM のみなど。解錠の操作を出さず、[note] を見せる */
+    val usable: Boolean,
+    val note: String,
+    /** このビルド・構成なら書き込み可で開ける (core の write_supported) */
+    val writeSupported: Boolean,
+    val writeNote: String,
+    val error: String? = null,
+) {
+    companion object {
+        fun of(info: CryptoInfo, startBytes: Long, sizeBytes: Long, label: String): UnlockPrompt = UnlockPrompt(
+            startBytes, sizeBytes, label, CryptoMount.displayFormat(info), info.cipher,
+            info.canPassword, info.canRecoveryKey, info.canKeyFile, info.unlockedWithoutSecret,
+            usable = info.supported && !info.tpmOnly, note = info.note, writeSupported = info.writeSupported, writeNote = info.writeNote,
+        )
+    }
+}
+
+/**
+ * ダイアログが集めた入力。[cred] のバイト列は、受け取った側が使い終えたらゼロ埋めする ([CryptoMount.unlock] が最後に埋める)。
+ * [keyFileUri] = BEK ファイル (中身は解錠の直前に読む。UI の状態には載せない)。[write] = 書き込み可で開く要求。
+ */
+class UnlockInput(val cred: UnlockCredentials, val method: CryptoMount.Method, val keyFileUri: Uri?, val write: Boolean)
+
+/** 暗号ボリュームを調べた結果。[prompt] があれば解錠ダイアログを出す。なければ [notice] (暗号ではない・開けない) を見せる。 */
+data class CryptoProbeResult(val prompt: UnlockPrompt? = null, val notice: Notice? = null)
+
+/** 解錠の結果。[retryError] があれば、ダイアログを開いたまま、その文言を出して再入力させる (認証失敗など)。なければ [notice] を見せてダイアログを閉じる。 */
+data class CryptoUnlockResult(val notice: Notice? = null, val retryError: String? = null)
+
+/** 解錠済みの暗号ボリューム (中の FS) 1 つ。[id] = VolumeRegistry の id (ロックの操作に渡す)。 */
+data class CryptoVolumeRow(val id: String, val label: String, val fsName: String, val format: String, val writable: Boolean)
+
+/** 解錠ダイアログを出す対象 (パーティションの範囲と、ダイアログの内容)。 */
+data class UnlockTarget(val startBytes: Long, val sizeBytes: Long, val prompt: UnlockPrompt)
+
+/** 回復キーの入力を、数字 48 桁なら 6 桁ずつのハイフン区切りにする (そうでなければ入力のまま)。 */
+internal fun normalizeRecoveryKey(s: String): String {
+    val digits = s.filter { it in '0'..'9' }
+    return if (digits.length == 48 && s.all { it in '0'..'9' || it == '-' || it == ' ' }) digits.chunked(6).joinToString("-") else s.trim()
+}
+
+/**
+ * 暗号ボリュームの解錠ダイアログ。パスワード (マスク表示・表示切替)、BitLocker の回復キー (48 桁)・BEK ファイル (SAF) に対応する。
+ * 入力は `remember` (Activity の状態保存・SharedPreferences には載せない) で持ち、送信した瞬間に空にする。
+ * 文字列 (String) は JVM のヒープに残り消せないので、できるだけ短い間しか持たない。ByteArray に変えて渡した分は受け取った側がゼロ埋めする。
+ *
+ * @param writeAvailable 書き込み可で開ける状況か (USB を書き込み可で開いている / 画面の書き込み許可がオン)。false なら書き込みの切り替えは無効。
+ * @param writeInitial 書き込みの切り替えの初期値 (画面の「書き込みを許可」がオンなら true)
+ * @param busy 解錠中 (入力を無効にして、進行表示を出す)
+ */
+@Composable
+fun UnlockDialog(
+    prompt: UnlockPrompt, writeAvailable: Boolean, writeInitial: Boolean, busy: Boolean,
+    onSubmit: (UnlockInput) -> Unit, onCancel: () -> Unit,
+) {
+    val methods = buildList {
+        if (prompt.canPassword) add(CryptoMount.Method.Password)
+        if (prompt.canRecoveryKey) add(CryptoMount.Method.RecoveryKey)
+        if (prompt.canKeyFile) add(CryptoMount.Method.KeyFile)
+    }
+    var method by remember { mutableStateOf(methods.firstOrNull() ?: CryptoMount.Method.Password) }
+    var password by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
+    var recovery by remember { mutableStateOf("") }
+    var keyFileUri by remember { mutableStateOf<Uri?>(null) }
+    val writePossible = writeAvailable && prompt.writeSupported
+    var write by remember { mutableStateOf(writePossible && writeInitial) }
+    var confirmWrite by remember { mutableStateOf(false) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> if (uri != null) keyFileUri = uri }
+
+    val recoveryOk = recovery.count { it in '0'..'9' } == 48
+    val canSubmit = !busy && prompt.usable && (prompt.noSecret || when (method) {
+        CryptoMount.Method.Password -> password.isNotEmpty()
+        CryptoMount.Method.RecoveryKey -> recoveryOk
+        CryptoMount.Method.KeyFile -> keyFileUri != null
+    })
+
+    fun submit() {
+        val c = UnlockCredentials()
+        when (method) {
+            CryptoMount.Method.Password -> if (password.isNotEmpty()) c.password = password.toByteArray(Charsets.UTF_8)
+            CryptoMount.Method.RecoveryKey -> if (recovery.isNotEmpty()) c.recoveryKey = normalizeRecoveryKey(recovery).toByteArray(Charsets.UTF_8)
+            CryptoMount.Method.KeyFile -> {}
+        }
+        val input = UnlockInput(c, method, if (method == CryptoMount.Method.KeyFile) keyFileUri else null, write && writePossible)
+        // 送信したら、入力欄の文字列への参照を捨てる (失敗して再入力になっても、前回の内容は残さない)
+        password = ""; recovery = ""; showPassword = false
+        onSubmit(input)
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onCancel() },
+        modifier = Modifier.testTag("unlock_dialog"),
+        title = { Text(stringResource(R.string.unlock_title)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(prompt.label, style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.unlock_subtitle, prompt.format, prompt.cipher), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!prompt.usable) Banner(Notice(Severity.Warning, stringResource(R.string.unlock_unusable, prompt.note)))
+                prompt.error?.let { Banner(Notice(Severity.Error, it), Modifier.testTag("unlock_error")) }
+                if (prompt.usable && prompt.noSecret) Text(stringResource(R.string.unlock_no_secret), style = MaterialTheme.typography.bodyMedium)
+                if (prompt.usable && methods.size > 1) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        methods.forEach { m ->
+                            FilterChip(
+                                selected = method == m, onClick = { method = m }, enabled = !busy,
+                                label = { Text(stringResource(when (m) { CryptoMount.Method.Password -> R.string.unlock_method_password; CryptoMount.Method.RecoveryKey -> R.string.unlock_method_recovery; CryptoMount.Method.KeyFile -> R.string.unlock_method_keyfile })) },
+                            )
+                        }
+                    }
+                }
+                if (prompt.usable) when (method) {
+                    CryptoMount.Method.Password -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        OutlinedTextField(
+                            value = password, onValueChange = { password = it }, enabled = !busy, singleLine = true,
+                            label = { Text(stringResource(R.string.unlock_field_password)) },
+                            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { if (canSubmit) submit() }),
+                            modifier = Modifier.fillMaxWidth().testTag("unlock_password"),
+                        )
+                        TextButton(onClick = { showPassword = !showPassword }, enabled = !busy, modifier = Modifier.testTag("unlock_show_toggle")) {
+                            Text(stringResource(if (showPassword) R.string.unlock_hide else R.string.unlock_show))
+                        }
+                    }
+                    CryptoMount.Method.RecoveryKey -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        OutlinedTextField(
+                            value = recovery, onValueChange = { recovery = it }, enabled = !busy, singleLine = true,
+                            label = { Text(stringResource(R.string.unlock_field_recovery)) },
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { if (canSubmit) submit() }),
+                            modifier = Modifier.fillMaxWidth().testTag("unlock_recovery"),
+                        )
+                        Text(stringResource(R.string.unlock_recovery_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    CryptoMount.Method.KeyFile -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("unlock_pick_bek")) { Text(stringResource(R.string.unlock_pick_bek)) }
+                        Text(
+                            keyFileUri?.let { stringResource(R.string.unlock_bek_selected, it.lastPathSegment?.substringAfterLast('/') ?: "") } ?: stringResource(R.string.unlock_bek_none),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                // ---- 書き込み (既定は読み取り専用。他の書き込みと同じく、明示的に有効にする。暗号ボリュームの書き込みは実験的)
+                if (prompt.usable) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.unlock_write_title), style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            when {
+                                !writeAvailable -> stringResource(R.string.unlock_write_off_device)
+                                !prompt.writeSupported -> stringResource(R.string.unlock_write_off_build, prompt.writeNote)
+                                else -> stringResource(R.string.unlock_write_desc)
+                            },
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = write && writePossible, enabled = writePossible && !busy, modifier = Modifier.testTag("unlock_write_switch"),
+                        onCheckedChange = { if (it) confirmWrite = true else write = false },
+                    )
+                }
+                Text(stringResource(R.string.unlock_not_saved), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (busy) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text(stringResource(R.string.unlock_progress), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { submit() }, enabled = canSubmit, modifier = Modifier.testTag("unlock_submit")) {
+                Text(stringResource(if (write && writePossible) R.string.unlock_button_write else R.string.unlock_button))
+            }
+        },
+        dismissButton = { TextButton(onClick = onCancel, enabled = !busy, modifier = Modifier.testTag("unlock_cancel")) { Text(stringResource(R.string.common_cancel)) } },
+    )
+    if (confirmWrite) {
+        ConfirmDialog(
+            title = stringResource(R.string.unlock_write_confirm_title),
+            text = stringResource(R.string.unlock_write_confirm_text),
+            confirmLabel = stringResource(R.string.unlock_write_confirm),
+            onConfirm = { confirmWrite = false; write = true },
+            onDismiss = { confirmWrite = false },
+        )
+    }
+}

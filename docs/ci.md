@@ -112,3 +112,5 @@ Java は Temurin 17、Gradle は 9.0.0 (ラッパー)、NDK 30.0.16248370、CMak
 | `erofs_gen_fixture` と依存する 5 件 | `fsck.erofs` が `lz4_fragments` を展開できない (`failed to verify packed file`)。やり直しが `File exists` で失敗して原因が隠れていた | `USBMEM_FIXTURE_LENIENT=1` を渡す (Android CI と同じ)。やり直しの前に出力先を消す |
 | `xfs_read` (`v5_bs64k` のみ) | xfsprogs 6.18 の `mkfs.xfs -p` の不具合 (既知の制約の項) | `gen_xfs_fixture.py` で穴をゼロで埋めてから `mkfs.xfs -p` に渡す |
 | `erofs_fuzz` (fixture が直ってから顕在化) | **製品コードの不具合**: マウント失敗時の後始末 (`get_tree_bdev` の失敗経路) が inode を先に解放してから `erofs_kill_sb` を呼ぶため、`erofs_drop_internal_inodes` が解放済みの packed inode を `iput` する (UAF・二重解放)。ルート inode の読み込みだけが失敗する壊れたイメージ (`bogus i_mode`) で起きる。fragments (packed inode) のイメージが対象 | erofs だけ `kill_sb` を先に呼ぶ (rt_core.c)。回帰テストを `erofs_corrupt` に追加 (ルート inode の i_mode を 0 にしてチェックサムを無効にした 5 イメージ。ASan で修正前の UAF を再現) |
+
+確認 (2026-11-14): 修正後の `usbmem-ci-hosttests` ブランチで Host tests (run 43572195880) は plain / san / wsan / wrel の 4 構成すべて成功 (plain 130 件、wrel 148 件)。同じブランチの Android emulator tests (run 43572195885) も 5 ジョブすべて成功。変更したのは host-tests.yml だけなので、btrfs-write・xfs-write は影響を受けない (どちらも自分のブランチでしか動かない)。

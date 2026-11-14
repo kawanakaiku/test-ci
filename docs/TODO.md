@@ -20,6 +20,7 @@
 - [ ] 残りのスタブ 55 個 (`tools/compat_stub_names.txt`)。書き込み拡張で必要になったものから実装。
 
 ## 検証・ツール
+- [x] GitHub Actions の Host tests (ctest 4 構成) の失敗の解消 (2026-11-14)。ubuntu-latest 26.04 の環境差 (AppArmor の fusermount3 が /dev/shm を拒否、/dev/shm のユーザークォータ約 6.3 GB、exfatprogs 1.3.2 の GUID のバイト順、erofs-utils の fsck.erofs、xfsprogs 6.18 の mkfs.xfs -p の不具合) をテスト側と workflow で吸収し、隠れていた製品コードの不具合 (erofs のマウント失敗後の後始末の UAF・二重解放) を直した。詳細は docs/ci.md。**未了**: `ntfs_windows_images` と `f2fs_gen_kfixture` は前提 (Windows 製イメージ・QEMU のカーネル製イメージ) が無いので skip のまま。
 - [ ] `tools/winvhd/make_encrypted_fixtures.sh` の起動待ちループが雑 (約 12 分かかる)。DHCP 取得後すぐ進むよう直す。
 - [ ] EFS: 復号は未実装 (読み出しは -EOPNOTSUPP で拒否)。BitLocker は Phase 4。
 - [ ] 巨大 (TB 級) ボリューム上の Windows 製データ、未再生 `$LogFile` ボリューム。
@@ -109,15 +110,19 @@
 11. [ ] **P2 以降**: SMB (9 章、libsmbclient / SMBJ)、ntfs3 (第二の NTFS バックエンド)、Btrfs / XFS / F2FS、UASP、QEMU 仮想 USB の AVD 接続実測 (14 章)。
 
 - [x] XFS 読み取り専用 (v4/v5、独立実装のリーダ — カーネル fs/xfs は取り込まず形式を実装。docs/xfs-port.md): 18 イメージ + special_proto、ホスト検証、AVD 通過。ログ未再生は EUCLEAN + allow_noload。[ ] 実機確認、reflink 共有 extent の実イメージ、リアルタイム領域・外部ログ・xattr は未対応。
-- [x] XFS 書き込み (実験的・`USBMEM_NTFS_WRITE` ビルドのみ・docs/xfs-write.md): V5 の**新規作成・追記・mkdir・symlink (CreateOnly の範囲)** と、**Full の操作 (unlink / rmdir / truncate 縮小・拡張 / rename (同一・別ディレクトリ・上書き・ディレクトリごと) / link) とノード形式ディレクトリ (2026-11-14、コアとテストのみ。アプリは XFS を常に CreateOnly で開く)** を、カーネルが再生できる形で XFS のログに書く方式で実装 (ログが dirty なら読み取り専用)。xfs_repair -n・xfs_logprint・実カーネルのログ再生 (loop / QEMU)・電源断の模擬・突然変異・ファジング・AVD で検証。 **実機 (J9260、C の p1) の CreateOnly 試験に合格 (2026-11-14)**: 専用フォルダ・300 KB・小ファイル 10 個・32 MiB (書き 5.0 秒 / 読み戻し 1.3 秒) の作成と、既存ファイルの書き換え・縮小・名前変更・削除の拒否、閉じた後の再オープン照合・fsck が pass。初回は C の XFS が mkfs.xfs 7.2 の既定 (rmapbt=1) で書き込みを拒否した (安全機構が正しく働いた) ため、`make_real_usb_testset.py` を `rmapbt=0 / parent=0` で作るよう変えて p1 だけ作り直した。実機の Full 試験は未実施 (アプリが Full で開かないため)。PC 側の独立検証も合格: `xfs_repair -n` はエラーなし、ro マウント + `verify` は元のファイル 3029 一致、アプリが書いた f.bin (300000 B)・speed.bin (32 MiB)・sub/ を PC が読めた。
+- [x] XFS 書き込み (実験的・`USBMEM_NTFS_WRITE` ビルドのみ・docs/xfs-write.md): V5 の**新規作成・追記・mkdir・symlink (CreateOnly の範囲)** を、カーネルが再生できる形で XFS のログに書く方式で実装 (ログが dirty なら読み取り専用)。xfs_repair -n・xfs_logprint・実カーネルのログ再生 (loop / QEMU)・電源断の模擬・突然変異・ファジング・AVD で検証。 **実機 (J9260、C の p1) の CreateOnly 試験に合格 (2026-11-14)**: 専用フォルダ・300 KB・小ファイル 10 個・32 MiB (書き 5.0 秒 / 読み戻し 1.3 秒) の作成と、既存ファイルの書き換え・縮小・名前変更・削除の拒否、閉じた後の再オープン照合・fsck が pass。初回は C の XFS が mkfs.xfs 7.2 の既定 (rmapbt=1) で書き込みを拒否した (安全機構が正しく働いた) ため、`make_real_usb_testset.py` を `rmapbt=0 / parent=0` で作るよう変えて p1 だけ作り直した。Full 段階は XFS の unlink 等が未実装のため対象外。PC 側の独立検証も合格: `xfs_repair -n` はエラーなし、ro マウント + `verify` は元のファイル 3029 一致、アプリが書いた f.bin (300000 B)・speed.bin (32 MiB)・sub/ を PC が読めた。
   - [x] Full の操作 + ノード形式ディレクトリ (docs/xfs-write.md): 手元のホストで write テスト (Full 3229 操作・ノード形式 10030 操作が POSIX 参照と一致、xfs_repair -n clean、カーネル相互確認)・電源断の模擬 1706 試行 (K/S/A/P/KP 0)・新規突然変異 2 種 (REUSE_FREED / TAIL_ZERO_EARLY) の検出に合格。Android エミュレータ (CI run 43590439926、btrfs-xfs 含む全グループ) 通過、CI のフル版 (run 43590439847): 電源断の模擬 17032 試行 (K/S/A/P/KP 0)・突然変異 9/9 検出。[ ] アプリで XFS の Full を出すかは実機の Full 試験 (C の p1) のあとに決める。
   - [ ] 未実装 (既定で無効): dirty log の再生、4Kn、dirblklog>0、ストライプ、クォータ、rmapbt (新しい mkfs.xfs の既定。7.x で確認)、外部ログ、リアルタイム、V4、reflink 共有ブロックの上書き (CoW)、実機 USB での確認。
+- [x] **実機の読み取りが遅い問題を解消 (2026-11-14)**: 原因は実機試験 APK のネイティブコードが -O0 だったこと + 暗号ボリュームの 32 KiB キャッシュ + ハードウェア命令の未使用。-O2・キャッシュ/先読み・AES/SHA-256/CRC32C の命令版で、J9260 の実測は Btrfs 9.0→44.0 MB/s、LUKS2 4.5→33.1 MB/s、BitLocker 0.5→6.5 MB/s (C の p2/p4/p5、全件一致)。詳細は docs/crypto-volumes.md 6.4 と docs/real-usb-testset.md。実機に入れる APK は GitHub Actions の `build-apk` (usbmem-ci-apk) で作る。
+- [x] **上流 (mkfs) の機能追従を検査する仕組み (2026-11-14)**: `tools/check_mkfs_defaults.py` + `tools/fs_feature_matrix.json` + `.github/workflows/mkfs-defaults.yml` (ubuntu-latest と Arch の最新ツール)。最新の mkfs の既定のフラグが対応表に無ければ失敗、書き込めない機能が既定なら「既知の穴」として報告。現状の穴は XFS の `rmapbt` / `parent_pointer` (mkfs.xfs 7.x の既定)。方針と手順は docs/fs-feature-matrix.md。
+- [x] **CI で nbdfuse の疎イメージを使う共通関数 (2026-11-14)**: `tools/ci/nbdfuse.sh` + `tools/ci/nbdfuse_smoke.sh` + `.github/workflows/nbdfuse-smoke.yml` (100 GiB でも nbdkit の常駐メモリ 6 MiB、run 43588211176)。docs/ci.md 参照。
+- [ ] CI の大きなイメージを使う試験 (host-tests の XFS / Btrfs の大きなフィクスチャ、xfs-write.yml など) を `tools/ci/nbdfuse.sh` に載せ替える。実際の XFS / Btrfs のイメージを nbdkit に載せてアプリの NBD クライアントで読み書きする通し試験を足す (XFS Full の作業が終わってから)。
 
 進行中のファイルシステム移植 (別の worktree): FAT/vfat・isofs・udf (統合済み)、squashfs・erofs (検証中)。
 
 ホストに入れてもらうと検証が進むツール: gptfdisk (sgdisk)、cryptsetup、ddrescue、partclone、libbde-tools (bdeinfo / bdemount)、nbdkit。無くても自前の Python / qemu-nbd 等で代替して進めるが、独立検証の強さが落ちる。
 
-暗号化ボリューム (上の項 3) の進捗: BitLocker / LUKS1 / LUKS2 の読み取り専用復号 (core + C API + JNI + Kotlin ラッパ) は実装・検証済み (docs/crypto-volumes.md)。未了: UI (パスワード入力・解錠状態の表示)、Android Keystore 連携 (設計メモのみ)、ARM 実機での速度測定と ARMv8 Crypto Extensions の高速パス、Windows 7/8 実機の diffuser 付きボリュームでの確認、LUKS2 4096 バイトセクタの実カーネル照合。
+暗号化ボリューム (上の項 3) の進捗: BitLocker / LUKS1 / LUKS2 の読み取り専用復号 (core + C API + JNI + Kotlin ラッパ) は実装・検証済み (docs/crypto-volumes.md)。未了: UI (パスワード入力・解錠状態の表示)、Android Keystore 連携 (設計メモのみ)、ARM 実機での速度測定 (AES / SHA-256 / CRC32C の命令版は実装済みだが aarch64 では実行未確認、docs/crypto-volumes.md 6.4)、Windows 7/8 実機の diffuser 付きボリュームでの確認、LUKS2 4096 バイトセクタの実カーネル照合。
 
 DiskTools (上の項 6) の進捗: 読み取り専用の整合性検査 (FAT12/16/32・exFAT・ext2/3/4・NTFS) と mkfs (ext2・exFAT・FAT32) は core + C API + JNI + Kotlin ラッパまで実装・検証済み (docs/disk-tools.md。fsck.fat / fsck.exfat / e2fsck / ntfsfix -n との突き合わせで見逃し 0・過検出 0、ASan/UBSan で破損入力 2000 件)。未了: UI、実機 USB メモリでの mkfs、NTFS の mkfs (対象外)、ext の htree 順序・bigalloc・meta_bg の検査、FAT16/FAT12 の mkfs、実 Windows / macOS での読み取り確認、修復 (明示承認つき) は未着手。
 

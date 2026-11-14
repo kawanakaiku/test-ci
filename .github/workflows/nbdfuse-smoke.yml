@@ -1,0 +1,30 @@
+# nbdfuse で作る疎の大きなイメージ (tools/ci/nbdfuse.sh) が runner で動くかの確認。
+# 他のワークフローが大きなイメージを使うときは、この関数を source して使う (docs/ci.md)。
+# トリガ: workflow_dispatch、usbmem-nbd-smoke ブランチへの push (host-tests / emulator が動かないよう usbmem-ci* の名前は避ける)。
+name: nbdfuse smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['usbmem-nbd-smoke']
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install
+        run: |
+          . tools/ci/nbdfuse.sh
+          nbdfuse_install
+          sudo apt-get install -y --no-install-recommends xfsprogs
+          nbdfuse_apparmor
+          df -h /dev/shm /tmp | cat; free -m | sed -n 2p
+      - name: Smoke (40 GiB sparse image)
+        run: tools/ci/nbdfuse_smoke.sh 40G
+      - name: Smoke (100 GiB sparse image)
+        run: tools/ci/nbdfuse_smoke.sh 100G

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// AES (FIPS 197) と CBC / XTS (IEEE 1619) / CCM (SP 800-38C)。表引き方式 (ハードウェア命令なし)。
+// AES (FIPS 197) と CBC / XTS (IEEE 1619) / CCM (SP 800-38C)。表引き方式 (どの CPU でも動く基準実装) と、
+// ハードウェア命令版 (x86 AES-NI / ARMv8 Crypto Extensions。CPU が持ち、自己テストに通ったときだけ使う)。
 // S-box は GF(2^8) の逆元から起動時に生成する (表の転記ミスを避けるため)。
+#include <atomic>
 #include <mutex>
 
-#include "usbmem/crypto.h"
+#include "crypto_internal.h"
 
 namespace usbmem {
 namespace crypto {
@@ -49,8 +51,32 @@ inline uint32_t ror(uint32_t x, int n) { return (x >> n) | (x << (32 - n)); }
 
 }  // namespace
 
-bool Aes::set_key(const uint8_t* key, size_t len) {
+namespace {
+std::atomic<bool> g_hw_enabled{true};
+#if USBMEM_HW_ANY
+// CPU が AES 命令を持ち、表引き版との一致 (自己テスト) を確認できたか。初回だけ判定する。
+bool hw_usable() {
+  static const bool ok = AesHw::cpu_has() && AesHw::selftest();
+  return ok;
+}
+#endif
+}  // namespace
+
+bool Aes::hw_supported() {
+#if USBMEM_HW_ANY
+  return hw_usable();
+#else
+  return false;
+#endif
+}
+void Aes::set_hw_enabled(bool on) { g_hw_enabled.store(on, std::memory_order_relaxed); }
+
+bool Aes::set_key(const uint8_t* key, size_t len) { return set_key_impl(key, len, kAuto); }
+bool Aes::set_key_sw(const uint8_t* key, size_t len) { return set_key_impl(key, len, kSwOnly); }
+
+bool Aes::set_key_impl(const uint8_t* key, size_t len, HwMode mode) {
   rounds_ = 0;
+  hw_ = false;
   if (len != 16 && len != 24 && len != 32) return false;
   const Tables& t = T();
   const int nk = int(len / 4);
@@ -78,10 +104,21 @@ bool Aes::set_key(const uint8_t* key, size_t len) {
       dk_[4 * r + c] = t.td0[t.sbox[w >> 24]] ^ ror(t.td0[t.sbox[(w >> 16) & 0xff]], 8) ^ ror(t.td0[t.sbox[(w >> 8) & 0xff]], 16) ^ ror(t.td0[t.sbox[w & 0xff]], 24);
     }
   rounds_ = nr;
+#if USBMEM_HW_ANY
+  if (mode == kForce || (mode == kAuto && g_hw_enabled.load(std::memory_order_relaxed) && hw_usable())) {
+    for (int i = 0; i < total; i++) { wr(hek_ + 4 * i, ek_[i]); wr(hdk_ + 4 * i, dk_[i]); }
+    hw_ = true;
+  }
+#else
+  (void)mode;
+#endif
   return true;
 }
 
 void Aes::encrypt_block(const uint8_t in[16], uint8_t out[16]) const {
+#if USBMEM_HW_ANY
+  if (hw_) { AesHw::enc_block(*this, in, out); return; }
+#endif
   const Tables& t = T();
   const uint32_t* rk = ek_;
   uint32_t s0 = rd(in) ^ rk[0], s1 = rd(in + 4) ^ rk[1], s2 = rd(in + 8) ^ rk[2], s3 = rd(in + 12) ^ rk[3];
@@ -102,6 +139,9 @@ void Aes::encrypt_block(const uint8_t in[16], uint8_t out[16]) const {
 }
 
 void Aes::decrypt_block(const uint8_t in[16], uint8_t out[16]) const {
+#if USBMEM_HW_ANY
+  if (hw_) { AesHw::dec_block(*this, in, out); return; }
+#endif
   const Tables& t = T();
   const uint32_t* rk = dk_;
   uint32_t s0 = rd(in) ^ rk[0], s1 = rd(in + 4) ^ rk[1], s2 = rd(in + 8) ^ rk[2], s3 = rd(in + 12) ^ rk[3];
@@ -122,6 +162,9 @@ void Aes::decrypt_block(const uint8_t in[16], uint8_t out[16]) const {
 }
 
 void aes_cbc_decrypt(const Aes& k, const uint8_t iv[16], const uint8_t* in, uint8_t* out, size_t len) {
+#if USBMEM_HW_ANY
+  if (k.hw()) { AesHw::cbc_dec(k, iv, in, out, len); return; }
+#endif
   uint8_t prev[16], cur[16], tmp[16];
   std::memcpy(prev, iv, 16);
   for (size_t o = 0; o + 16 <= len; o += 16) {
@@ -139,6 +182,9 @@ inline void xts_mul_alpha(uint8_t t[16]) {
   t[0] = uint8_t((t[0] << 1) ^ (carry ? 0x87 : 0));
 }
 void xts_crypt(const Aes& k1, const Aes& k2, uint64_t tweak, const uint8_t* in, uint8_t* out, size_t len, bool dec) {
+#if USBMEM_HW_ANY
+  if (k1.hw() && k2.hw()) { AesHw::xts(k1, k2, tweak, in, out, len, dec); return; }
+#endif
   uint8_t t[16] = {0}, x[16];
   for (int i = 0; i < 8; i++) t[i] = uint8_t(tweak >> (8 * i));
   k2.encrypt_block(t, t);

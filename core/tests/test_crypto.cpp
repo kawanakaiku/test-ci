@@ -6,6 +6,7 @@
 
 #include "test_util.h"
 #include "usbmem/crypto.h"
+#include "usbmem/crc32.h"
 
 using namespace usbmem::crypto;
 
@@ -187,4 +188,107 @@ TEST(crypto_throughput) {
   sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
   std::fprintf(stderr, "  perf: SHA-256 %.0f MB/s\n", 8.0 / sec);
   CHECK(sec < 5.0);  // 極端に遅くないこと (ASan 下でも通る緩い上限)
+}
+
+// ハードウェア AES (あれば) と表引き版が、鍵長・長さ・位置 (in == out 含む) の組み合わせで一致すること。
+// ハードウェア命令の無い環境では hw() が偽で、表引き同士の比較になるだけ (失敗にはしない)。
+TEST(crypto_aes_hw_matches_software) {
+  std::fprintf(stderr, "  aes hw supported: %s\n", Aes::hw_supported() ? "yes" : "no");
+  uint32_t x = 0x9e3779b9u;
+  auto rnd = [&]() { x ^= x << 13; x ^= x >> 17; x ^= x << 5; return uint8_t(x >> 7); };
+  for (size_t kl : {size_t(16), size_t(24), size_t(32)}) {
+    uint8_t key[64];
+    for (auto& b : key) b = rnd();
+    Aes a, b, a2, b2;
+    CHECK(a.set_key(key, kl) && b.set_key_sw(key, kl) && a2.set_key(key + 32, kl) && b2.set_key_sw(key + 32, kl));
+    CHECK(!b.hw());
+    CHECK_EQ(a.hw(), Aes::hw_supported());
+    for (size_t len : {size_t(16), size_t(32), size_t(48), size_t(64), size_t(80), size_t(512), size_t(1040), size_t(4096)}) {
+      std::vector<uint8_t> in(len), o1(len), o2(len);
+      for (auto& v : in) v = rnd();
+      uint8_t iv[16];
+      for (auto& v : iv) v = rnd();
+      aes_cbc_decrypt(a, iv, in.data(), o1.data(), len);
+      aes_cbc_decrypt(b, iv, in.data(), o2.data(), len);
+      CHECK(o1 == o2);
+      std::vector<uint8_t> ip = in;
+      aes_cbc_decrypt(a, iv, ip.data(), ip.data(), len);
+      CHECK(ip == o2);
+      for (uint64_t tw : {uint64_t(0), uint64_t(1), uint64_t(0xfffffffffffffffeull), uint64_t(123456789)}) {
+        aes_xts_decrypt(a, a2, tw, in.data(), o1.data(), len);
+        aes_xts_decrypt(b, b2, tw, in.data(), o2.data(), len);
+        CHECK(o1 == o2);
+        aes_xts_encrypt(a, a2, tw, in.data(), o1.data(), len);
+        aes_xts_encrypt(b, b2, tw, in.data(), o2.data(), len);
+        CHECK(o1 == o2);
+        ip = in;
+        aes_xts_encrypt(a, a2, tw, ip.data(), ip.data(), len);  // in-place
+        CHECK(ip == o2);
+        aes_xts_decrypt(a, a2, tw, ip.data(), ip.data(), len);
+        CHECK(ip == in);
+      }
+    }
+    for (int i = 0; i < 50; i++) {
+      uint8_t p[16], c1[16], c2[16];
+      for (auto& v : p) v = rnd();
+      a.encrypt_block(p, c1); b.encrypt_block(p, c2);
+      CHECK(std::memcmp(c1, c2, 16) == 0);
+      a.decrypt_block(p, c1); b.decrypt_block(p, c2);
+      CHECK(std::memcmp(c1, c2, 16) == 0);
+    }
+  }
+  // 診断用の切り替え: 無効にすると、以後に設定する鍵は表引きになる
+  Aes::set_hw_enabled(false);
+  Aes d;
+  uint8_t key[16] = {1, 2, 3};
+  CHECK(d.set_key(key, 16));
+  CHECK(!d.hw());
+  Aes::set_hw_enabled(true);
+  Aes e;
+  CHECK(e.set_key(key, 16));
+  CHECK_EQ(e.hw(), Aes::hw_supported());
+}
+
+// CRC-32C: 標準の検査値 (CRC-32C("123456789") = 0xE3069283)、命令版 (あれば) と表引き版の一致、細切れ呼び出しの一致、位置ずれ。
+TEST(crc32c_known_and_hw_matches_software) {
+  const char* s = "123456789";
+  CHECK_EQ(~usbmem::crc32c_raw(0xFFFFFFFFu, s, 9), 0xE3069283u);
+  CHECK_EQ(~usbmem::crc32c_raw_sw(0xFFFFFFFFu, s, 9), 0xE3069283u);
+  // Btrfs の名前ハッシュ: crc32c(~1, name) は反転なしの生の値。ここでは細切れでも同じになることだけを確認
+  std::fprintf(stderr, "  crc32c hw: %s\n", usbmem::crc32c_hw_active() ? "yes" : "no");
+  std::vector<uint8_t> buf(70000);
+  uint32_t x = 0x1234567u;
+  for (auto& b : buf) { x ^= x << 13; x ^= x >> 17; x ^= x << 5; b = uint8_t(x >> 9); }
+  for (size_t skew : {size_t(0), size_t(1), size_t(2), size_t(5)})
+    for (size_t len : {size_t(0), size_t(1), size_t(7), size_t(8), size_t(9), size_t(15), size_t(31), size_t(4096), size_t(65536), size_t(69000)}) {
+      const uint8_t* p = buf.data() + skew;
+      uint32_t a = usbmem::crc32c_raw(0xFFFFFFFFu, p, len), b = usbmem::crc32c_raw_sw(0xFFFFFFFFu, p, len);
+      CHECK_EQ(a, b);
+      size_t h = len / 3;
+      uint32_t c = usbmem::crc32c_raw(usbmem::crc32c_raw(0xFFFFFFFEu, p, h), p + h, len - h);
+      CHECK_EQ(c, usbmem::crc32c_raw_sw(0xFFFFFFFEu, p, len));
+    }
+}
+
+// SHA-256 の命令版 (あれば) と表引き版が一致し、PBKDF2 / HMAC の結果も変わらないこと。
+TEST(crypto_sha256_hw_matches_software) {
+  std::fprintf(stderr, "  sha256 hw supported: %s\n", sha256_hw_supported() ? "yes" : "no");
+  std::vector<uint8_t> buf(5000);
+  uint32_t x = 0xabcdef1u;
+  for (auto& b : buf) { x ^= x << 13; x ^= x >> 17; x ^= x << 5; b = uint8_t(x >> 9); }
+  for (size_t len : {size_t(0), size_t(1), size_t(63), size_t(64), size_t(65), size_t(127), size_t(1000), size_t(4999)}) {
+    uint8_t a[32], b[32];
+    sha256_set_hw_enabled(true);
+    hash(Hash::Sha256, buf.data(), len, a);
+    sha256_set_hw_enabled(false);
+    hash(Hash::Sha256, buf.data(), len, b);
+    CHECK(std::memcmp(a, b, 32) == 0);
+  }
+  uint8_t p1[32], p2[32];
+  sha256_set_hw_enabled(true);
+  CHECK(pbkdf2(Hash::Sha256, buf.data(), 20, buf.data() + 100, 16, 3000, p1, 32));
+  sha256_set_hw_enabled(false);
+  CHECK(pbkdf2(Hash::Sha256, buf.data(), 20, buf.data() + 100, 16, 3000, p2, 32));
+  CHECK(std::memcmp(p1, p2, 32) == 0);
+  sha256_set_hw_enabled(true);
 }

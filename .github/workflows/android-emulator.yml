@@ -5,7 +5,7 @@ name: Android emulator tests
 on:
   workflow_dispatch:
   push:
-    branches: [usbmem-ci, 'usbmem-ci-*']
+    branches: [usbmem-ci, 'usbmem-ci-*', '!usbmem-ci-apk', '!usbmem-ci-apk-*']
 
 concurrency:
   group: android-emulator-${{ github.ref }}

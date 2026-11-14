@@ -82,14 +82,61 @@ Java は Temurin 17、Gradle は 9.0.0 (ラッパー)、NDK 30.0.16248370、CMak
 ## 既知の制約
 
 - erofs: Ubuntu 26.04 の `mkfs.erofs` 1.9.1 が作る `lz4_dedupe` イメージは `fsck.erofs` にも本アプリのドライバにも拒否される (作り手側の不具合)。CI では `USBMEM_FIXTURE_LENIENT=1` でその変種を省く。
-  `lz4_fragments` の `fsck.erofs` による独立した展開確認も、展開できないので警告にして続ける (ローカルでは従来どおり失敗扱い)。
+  `lz4_fragments` の `fsck.erofs` による独立した展開確認も、展開できないので警告にして続ける (ローカルでは従来どおり失敗扱い)。host-tests.yml の ctest も同じ環境変数を渡す。
 - f2fs: `ext` イメージ (mkfs + sload.f2fs) のみ。QEMU で作る `k_*` のカーネル製イメージは CI に無い。
 - 実行スクリプトが無く CI に入っていないテストクラス: `UdfInstrumentedTest`、`DocumentsWriteTest`、`NestedMountTest` の一部 (nested スクリプトが扱う分は実行される) など。ローカルの `tools/run_android_*` に無いものは未対応。
 - テストは `assumeTrue` でフィクスチャが無いと黙って skip になる。`ci_android_tests.sh` は 0 件・rc 77・skip を失敗にして見逃しを防ぐが、新しいテストを足したら group_fs と生成/実行の分岐を足すこと。
 - Btrfs: 既定の AVD のヒープ上限は 192 MB で、旧テストは 206 MB のイメージを `readBytes()` で全部読んで OOM になった。テストをストリームの SHA-256 にして解決した (AVD 側の `vm.heapSize` や `adb root` での書き換えは効かなかった)。
 - 書き込み系スクリプト (`ext2_write` / `exfat_write` / `write`) の作業場所は、ローカルでは `/dev/shm`、CI では `$FIX/tmp` (`USBMEM_TMP`)。runner の `/dev/shm` では FUSE の後始末 (`rm -rf` の失敗が EXIT trap の終了コードを変える) で失敗した。
+- runner の `/dev/shm` で FUSE が使えない原因 (Android CI の「FUSE の後始末で失敗」と同じ): ubuntu 26.04 の AppArmor の `fusermount3` プロファイルが、FUSE のマウント / アンマウントを `/home`・`/mnt`・`/media`・`/tmp`・`/run/user/<uid>` の下に限る
+  (`/dev/shm`・`/var/tmp` は不可)。`fuse2fs` / `exfat-fuse` の mount は `fusermount3: mount failed: Permission denied`、root 権限の helper で mount された `ntfs-3g` の `fusermount3 -u` は `Operation not permitted` で落ちる。
+  host-tests.yml は `/etc/apparmor.d/local/fusermount3` に `/dev/shm` の mount / umount を足して `apparmor_parser -r` で読み直す (プロファイルを無効にはしない)。ホストのテストはフィクスチャも作業場所も `/dev/shm` 固定なので、スクリプト側を直すより環境を整える方が影響が小さい。
+- xfsprogs 6.18 (ubuntu 26.04) の `mkfs.xfs -p <dir>` は、ブロックサイズが 4 KiB より大きい (16 KiB / 64 KiB) と、1 ブロックの中にデータと穴 (ページ単位) が混ざる疎ファイルの内容を取り違えて書く。
+  `xfs_repair -n` は clean と言うが、カーネルで loop マウントして元のファイルと比べると違う (実カーネルの読みと本ドライバの読みは一致するので、ドライバの不具合ではない)。xfsprogs 7.2 では起きない。
+  `tools/gen_xfs_fixture.py` は 4 KiB より大きいブロックの変種で、データを含むブロックの中の穴をゼロで埋めてから (内容と mtime は変わらない。ブロック全体の穴は残す) `mkfs.xfs -p` に渡す。
 - runner の FUSE: `fusermount3` に `user_allow_other` が要る (`/etc/fuse.conf` に追記)。ホストツールのバージョンは `ubuntu-latest` (今は 26.04) の追従で変わる。
 - FAT の書き込みは host-tests.yml の wrel で `tools/run_fat_kernel_tests.sh` (sudo + loop の `mount -t vfat -o utf8=1`) を走らせ、カーネル vfat と双方向に突き合わせる。ctest が既存の環境要因で落ちても走る。`ctest_regex=fat_gen_fixture` の手動実行ならこのステップだけ走る (約 3 分)。
 - ビルドは arm64-v8a と x86_64 の両方が作られる (ABI を絞ると APK のパスが変わる)。ビルド時間は Gradle/SDK キャッシュで短縮している。
 - Actions のキャッシュ (Gradle / SDK / AVD) は同じリポジトリの他のワークフローのキャッシュを押し出す可能性がある。キー: AVD は `v5` を上げると作り直し。
 - push で起動するのは `usbmem-ci` ブランチだけ。テスト専用リポジトリ (公開) に push する運用で、このリポジトリのフィクスチャや鍵は含まれない。
+
+## Host tests (host-tests.yml) が赤かった原因と対処 (2026-11-14)
+
+`.github/workflows/host-tests.yml` は ctest を 4 構成 (plain / san / wsan / wrel) で走らせる。ubuntu-latest が 26.04 になってから ctest 130 件中 13 件 (wrel は 148 件中 20 件) が落ちていた。直近の変更ではなく環境の変化が原因で、1 件だけ製品コードの不具合が隠れていた。
+
+| 失敗 | 原因 | 対処 |
+|---|---|---|
+| `partedit_tools` | exfatprogs 1.3.2 の `mkfs.exfat -U` はボリューム GUID を RFC 4122 の並びで書く (1.4.3 は Microsoft 形式)。ドライバは仕様どおり Microsoft 形式で読むので、期待値と食い違った | テスト側: イメージに実際に書かれたバイト列を探し、それを Microsoft 形式で読んだ GUID を期待値にする (どちらの並びも見つからなければ失敗) |
+| `ntfs_gen_fixture` ほか (`disktools_tools`、`ntfs_read`、`ntfs_fuzz`、`fat_probe`、`ntfs_gen_fixture_c2048`、`ntfs_write` が連鎖) / `ext2_write` / `ext4_write` / `ext4_crash` / `exfat_write` | AppArmor の `fusermount3` プロファイルが `/dev/shm` への FUSE マウントとアンマウントを許さない (下の既知の制約) | host-tests.yml に `/dev/shm` を許可するローカル上書きを足す |
+| `fat_write`・`xfs_gen_fixture`・`xfs_write`・`xfs_crash` (環境を直した後に顕在化) | runner の `/dev/shm` はユーザーのクォータが約 6.3 GB で、全フィクスチャで超える ("Disk quota exceeded") | クォータなしの tmpfs (10 GB) を `/dev/shm` に重ねる |
+| `erofs_gen_fixture` と依存する 5 件 | `fsck.erofs` が `lz4_fragments` を展開できない (`failed to verify packed file`)。やり直しが `File exists` で失敗して原因が隠れていた | `USBMEM_FIXTURE_LENIENT=1` を渡す (Android CI と同じ)。やり直しの前に出力先を消す |
+| `xfs_read` (`v5_bs64k` のみ) | xfsprogs 6.18 の `mkfs.xfs -p` の不具合 (既知の制約の項) | `gen_xfs_fixture.py` で穴をゼロで埋めてから `mkfs.xfs -p` に渡す |
+| `erofs_fuzz` (fixture が直ってから顕在化) | **製品コードの不具合**: マウント失敗時の後始末 (`get_tree_bdev` の失敗経路) が inode を先に解放してから `erofs_kill_sb` を呼ぶため、`erofs_drop_internal_inodes` が解放済みの packed inode を `iput` する (UAF・二重解放)。ルート inode の読み込みだけが失敗する壊れたイメージ (`bogus i_mode`) で起きる。fragments (packed inode) のイメージが対象 | erofs だけ `kill_sb` を先に呼ぶ (rt_core.c)。回帰テストを `erofs_corrupt` に追加 (ルート inode の i_mode を 0 にしてチェックサムを無効にした 5 イメージ。ASan で修正前の UAF を再現) |
+
+確認 (2026-11-14): 修正後の `usbmem-ci-hosttests` ブランチで Host tests (run 43572195880) は plain / san / wsan / wrel の 4 構成すべて成功 (plain 130 件、wrel 148 件)。同じブランチの Android emulator tests (run 43572195885) も 5 ジョブすべて成功。変更したのは host-tests.yml だけなので、btrfs-write・xfs-write は影響を受けない (どちらも自分のブランチでしか動かない)。
+
+## 大きな疎イメージは nbdfuse で作る (`tools/ci/nbdfuse.sh`)
+
+大きなテスト用イメージ (C 相当の 29 GiB、XFS の `large`、Btrfs の 4.5 GiB 入りなど) を runner のディスクや `/dev/shm` に疎ファイルとして置くと、ディスク不足か `/dev/shm` のユーザークォータ (EDQUOT) に当たる。代わりに `nbdfuse` + `nbdkit memory allocator=sparse` で作る。ファイルシステムには書かず、触れたページだけプロセスのメモリに持つ。手元でも同じ手順を使う (Data の NTFS に大きな書き込みをしない)。
+
+```sh
+. tools/ci/nbdfuse.sh
+nbdfuse_install            # CI のみ: nbdkit / libnbd-bin / fuse3
+nbdfuse_apparmor           # CI のみ: fusermount3 の FUSE マウントを許可 (host-tests.yml と同じ対処)
+nbdfuse_start "$NBDFUSE_ROOT/c" 31G     # $NBDFUSE_ROOT/c/nbd が 31 GiB の疎ファイル
+...                                      # mkfs / テスト
+nbdfuse_stop "$NBDFUSE_ROOT/c"
+```
+
+確認 (`tools/ci/nbdfuse_smoke.sh`、`.github/workflows/nbdfuse-smoke.yml`、run 43588211176、2026-11-14): ubuntu-latest で 40 GiB / 100 GiB のイメージ、39 GiB 付近の読み書き、`mkfs.xfs` (agcount 4) が通り、nbdkit の常駐メモリは 6 MiB。手元 (tmpfs) でも 40 GiB で 9 MiB。ルート権限は要らない。マウントポイントは `NBDFUSE_ROOT` (既定 `/dev/shm/nbdfuse`) の下に作る。
+
+次の段階: 大きなイメージを使う既存の試験 (host-tests の XFS / Btrfs の大きなフィクスチャ、`xfs-write.yml` など) をこの関数に載せ替える、実際の XFS / Btrfs のイメージを nbdkit に載せてアプリの NBD クライアントで読み書きする通し試験を足す。
+
+## CI の完了待ちは `tools/ci/gh_wait.sh` で 1 本だけ (CPU 暴走の再発防止)
+
+`until [ "$(gh run view ID ...)" = completed ]; do sleep 20; done` のような待機ループを前景の Bash で何度も起動すると、ツールのタイムアウトで背景に回された古いループが終了せずに溜まる (2026-11-14 に 30 本超、同じ run を 4 本で待つ例も)。固まった `gh` が 1 個あたり CPU 約 30% を 10 分以上使い続け、PC がほぼフリーズした。
+
+- 待つときは `tools/ci/gh_wait.sh RUN_ID [REPO] [INTERVAL秒] [MAX秒]` を **run_in_background で 1 本だけ**起動する。同じ run の二重起動は、ロックで即終了 (終了コード 3)。間隔は 60 秒以上 (既定 120 秒)、上限は 4 時間 (終了コード 4)。`gh` は 1 回ごとに `timeout 30` と `nice -n 19` で包む。
+- 前景の Bash に、gh を呼ぶ `until` / `while` を書かない。状況確認は `gh run view ID --json status,conclusion` の単発 (連打しない)。
+- `gh run view --log` で巨大なログを何度も取らない (1 回だけ、ファイルに落として grep)。
+- 用が済んだ待機は止める。新しい run を push したら、古い run の待機は不要。

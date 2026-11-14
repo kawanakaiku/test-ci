@@ -431,14 +431,21 @@ static void test_corrupt(const std::string& dir) {
   int n_cases = 0;
   const uint64_t SB = 1024;
   for (auto& name : list_images(dir)) {
-    if (name != "plain_4k" && name != "chunk_index" && name != "plain_1k" && name != "lz4_4k") continue;
+    // lz4_fragments: packed inode (sbi->packed_inode) を持つ。ルート inode の読み込みが失敗すると、失敗後の後始末が packed inode を二重に解放しないこと (CI の fuzz で二重解放として見つかった)
+    if (name != "plain_4k" && name != "chunk_index" && name != "plain_1k" && name != "lz4_4k" && name != "lz4_fragments") continue;
     if (!expect_mountable(name)) continue;
     BlockDevicePtr base = open_img(dir + "/" + name + ".img");
     CHECK(base);
     CHECK(mount_dev(std::make_shared<SpyDevice>(base))->err == 0);   // 正常
     auto Q = [](uint64_t off, uint64_t val, int n) { std::map<uint64_t, uint8_t> m; for (int i = 0; i < n; i++) m[off + (uint64_t)i] = (uint8_t)(val >> (8 * i)); return m; };
     struct Case { const char* what; std::map<uint64_t, uint8_t> mut; uint64_t size; bool must_fail; };
+    // ルート inode (meta_blkaddr * blksize + rootnid * 32) の i_mode (+4) を 0 にする: ルート inode の読み込み (erofs_iget) だけが
+    // EFSCORRUPTED で失敗する (チェックサムは feature_compat を 0 にして無効にする)。packed inode / metabox inode を作った後に失敗する経路の後始末 (二重解放しないこと) を通す
+    uint8_t sbraw[256] = {0};
+    base->read_at(SB, sbraw, 256);
+    uint64_t root_inode_off = (uint64_t)le32(sbraw + 40) * (1u << sbraw[12]) + (uint64_t)(sbraw[14] | (sbraw[15] << 8)) * 32;
     std::vector<Case> cases = {
+      {"root inode i_mode = 0 (checksum feature off)", [&]() { auto m = Q(root_inode_off + 4, 0, 2); auto m2 = Q(SB + 8, 0, 4); m.insert(m2.begin(), m2.end()); return m; }(), 0, true},
       {"magic", Q(SB + 0, 0x12345678, 4), 0, true},
       {"checksum", Q(SB + 4, 0xDEADBEEF, 4), 0, false},
       {"blkszbits = 0", Q(SB + 12, 0, 1), 0, true},

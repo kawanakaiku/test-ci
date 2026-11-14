@@ -98,7 +98,58 @@ libbde / cryptsetup / nbdkit / qemu-img は「正解を知っている別実装�
 | LUKS2 argon2id (64 MiB・2 パス・4 レーン、逐次) | 約 0.5 s |
 | LUKS PBKDF2 (1000 反復) | 約 0.01 s |
 
-**ARM での実測はしていない** (実機に触れない指示のため、ARM のエミュレータ/実機測定は未実施)。テーブル引きの素の C++ なので、ARM64 は一般に x86-64 デスクトップの 1/2〜1/4 程度になると見積もられ、BitLocker のストレッチは 2〜4 秒、XTS 復号は 25〜60 MB/s 程度が目安 (推定であり実測ではない)。USB3 のHDD/SSD の速度を律速しうるので、実機で測って必要なら ARMv8 Crypto Extensions (`vaeseq_u8`) を使った高速パスを追加する (現状は未実装)。Argon2 のメモリ上限は端末の RAM に合わせて `OpenOptions::max_kdf_memory_kib` で下げること (既定 1 GiB は PC 向け)。
+**ARM での実測はしていない** (実機に触れない指示のため、ARM のエミュレータ/実機測定は未実施)。上の表は 6.4 の高速化の**前**の値 (表引き実装)。6.4 で AES / SHA-256 / CRC32C にハードウェア命令の経路を足したので、x86-64 ではこの表の数倍になる。ARM64 の命令版 (Crypto Extensions) はコードを書いて aarch64 向けに構文・命令選択まで確認したが、**手元でも CI でも実行はしていない** (CI の arm64 エミュレータで自己テストが通れば有効になる。通らなければ表引きに戻る)。Argon2 のメモリ上限は端末の RAM に合わせて `OpenOptions::max_kdf_memory_kib` で下げること (既定 1 GiB は PC 向け)。
+
+### 6.4 実機での遅さ (BitLocker 0.5 MB/s・LUKS2 4.5 MB/s・Btrfs 9 MB/s) の原因調査と対策 (2026-11-14)
+
+J9260 (USB 2.0 級) の実機測定で、BitLocker 約 0.5 MB/s、LUKS2 約 4.5 MB/s、Btrfs (小さいファイル・大きいファイルとも) 約 9 MB/s と遅かった (同じ USB の XFS は 28.8 MB/s)。**実機での再測定は未実施**。以下は「往復遅延 1 ms・帯域 30 MB/s・1 転送最大 512 KiB の模擬デバイス」を挟んだホストのマイクロベンチ (`core/tests/bench_transform.cpp`、`usbmem_transform_bench`) での切り分けと対策の結果で、実機の絶対値ではない。
+
+**原因 (大きい順)**
+
+1. **実機試験用 APK が `assembleDebug` で、ネイティブコードが最適化なし (-O0) でビルドされていた。** AGP の Debug は `CMAKE_BUILD_TYPE=Debug` かつ `CMAKE_CXX_FLAGS_DEBUG` が空で、`-O` が付かない (clang は -O0)。AES・SHA-256・Argon2・CRC32C・各 FS のコードがすべて 5〜8 倍遅くなる。ホストで同じ条件を再現すると、AES-XTS-256 復号は 23 MB/s (-O2 で 104 MB/s)、SHA-256 は 30 MB/s (同 146 MB/s)、BitLocker の鍵伸長 (SHA-256 × 2^20) を含む解錠は CPU 4.2 s (同 1.1 s)。ARM の実機はこれより遅いので、0.5 MB/s までの低下は -O0 + 小さい読みの増幅 (下の 2) で説明がつく。
+2. **`DecryptingDevice` の 32 KiB チャンクキャッシュが小さい読みを 8 倍に増幅し、連続読みの検出もなかった。** 4 KiB を読むたびに 32 KiB を読んで復号していた (ランダム 4 KiB × 500 で下位 16 MB を転送・復号)。
+3. **ハードウェア命令を使っていなかった。** AES・SHA-256 は表引きの C++ のみ。Btrfs のデータ検証用 CRC32C は 1 バイトずつの表引き (279 MB/s) で、XFS の slicing-by-8 (約 1.2 GB/s) より遅い。-O0 だとさらに数倍遅く、Btrfs 9 MB/s と XFS 28.8 MB/s の差の主因 (ほかの FS 共通の下位 I/O は同じ)。
+
+**原因ではなかったもの**: 解錠時の下位 I/O (BitLocker 20 回・LUKS2 12 回、合計 20 ms 程度)、KDF の繰り返し (1 回だけ)。Btrfs の小ファイルは `mkfs --rootdir` で物理的にほぼ連続に置かれるため、既存の `ReadAheadDevice` で足りており (2400 ファイル 71 MB が下位 700 回、模擬デバイスで 20.6 MB/s)、先読みの追加は不要だった。
+
+**対策**
+
+- `android/app/src/main/cpp/CMakeLists.txt`: Debug (最適化指定なし) のときも `-O2` を付ける (`-DUSBMEM_DEBUG_NO_OPT=ON` で外せる。Release 系は従来どおり)。
+- `DecryptingDevice` (`transform.cpp`): 4 KiB ページ単位のキャッシュ (ハッシュ表 + LRU、既定 4 MiB、メモリは `Secret` で閉じるときにゼロ化) に変更。連続読みは 4 本まで追跡し、16 KiB から 256 KiB まで倍々で先読みする。ランダムな 4 KiB 読みは 4 KiB しか読まない。32 KiB 以上でセクタ境界の読みはキャッシュを通さず直接復号する (最大 1 MiB ずつ)。
+- AES (`crypto_aes_hw.cpp`): x86 は AES-NI、aarch64 は Crypto Extensions。ECB / CBC 復号 / XTS を 4 ブロック並列。復号は等価逆暗号の鍵スケジュール。実行時に CPU を判定し (x86 は cpuid、aarch64 Linux は `getauxval(AT_HWCAP)`)、**初回に FIPS-197 の既知答テストと表引き実装との一致確認 (AES-128/192/256 × ECB/CBC/XTS)** を行い、ひとつでも違えば表引きに戻る (フェイルクローズ)。
+- SHA-256 (`crypto_sha_hw.cpp`): x86 は SHA-NI、aarch64 は SHA2 命令。同様に自己テスト付き。BitLocker の鍵伸長 (`stretch_key`) は圧縮関数を直接 2 ブロックずつ回す形にして、毎回の `HashCtx` 生成・パディングを省いた。
+- CRC32C (`crc32.cpp`、Btrfs): x86 は SSE4.2 `crc32`、aarch64 は CRC32 命令、どちらもなければ slicing-by-8。自己テスト付き。`btrfs_volume.cpp` の 1 バイトずつの表引きを置き換えた。
+- どの経路も関数単位の `target` 属性で、プロジェクト全体に `-maes` 等は付けない (対応していない CPU でも起動できる)。`crypto::Aes::set_hw_enabled(false)` / `sha256_set_hw_enabled(false)` で表引きに固定でき、テストが両者の一致を比べる。
+
+**ホストのマイクロベンチ (x86-64、単一スレッド。-O0 は Debug の再現、-O2 は変更前の Release、後は変更後の Release)**
+
+| 項目 | -O0 (変更前) | -O2 (変更前) | 変更後 (-O2 + 命令) |
+|---|---|---|---|
+| AES-XTS-256 復号 (512 B セクタ) | 23.0 MB/s | 104.2 MB/s | 993 MB/s (表引き強制 126 MB/s) |
+| AES-CBC-128 復号 | 29.7 MB/s | 167.7 MB/s | 3968 MB/s |
+| SHA-256 | 30.4 MB/s | 145.9 MB/s | 832 MB/s (表引き強制 153 MB/s) |
+| PBKDF2-SHA256 20 万反復 | 0.993 s | 0.270 s | 0.110 s |
+| CRC32C (Btrfs のデータ検証) | 未測定 (1 バイト表引きの -O2 は 279 MB/s) | 279 MB/s | 5802 MB/s (命令)、1199 MB/s (slicing-by-8) |
+| BitLocker 解錠 CPU (鍵伸長込み) | 4.17 s | 1.14 s | 0.18 s |
+| LUKS2 解錠 CPU (Argon2id 64 MiB) | 2.28 s | 0.57 s | 0.62 s (Argon2 が支配的で変化なし) |
+
+模擬デバイス経由の読み取り (BitLocker。LUKS2 もほぼ同じ。MB/s は要求した量 / (CPU + I/O 時間)):
+
+| 読み方 | -O0 (変更前) | -O2 (変更前) | 変更後 |
+|---|---|---|---|
+| 連続 1 MiB 要求 | 12.3 | 22.9 | 27.4 |
+| 連続 64 KiB 要求 | 10.8 | 17.5 | 20.1 |
+| 連続 4 KiB 要求 (4 MiB) | 9.2 (下位 129 回) | 13.7 (129 回) | 23.4 (22 回) |
+| ランダム 4 KiB × 500 | 1.12 (下位 16.3 MB) | 1.72 | 3.61 (下位 2.0 MB) |
+| 小ファイル (4K メタ + 4K × 8) | 3.58 | 5.35 | 6.20 |
+
+- 変更後は CPU 時間がほぼ消え (連続 1 MiB で 0.77 s → 0.02 s)、残りは模擬した USB の遅延・帯域で、これは下位デバイスの限界。USB 2.0 級の実機でも、読み取り速度は復号ではなく USB の転送速度で決まるはず。
+- Btrfs (全ファイル読み、2401 ファイル 71 MB、同じ模擬デバイス): -O0 は CPU 0.477 s で 18.3 MB/s、変更後は CPU 0.043 s で 20.6 MB/s。模擬デバイスの帯域 (30 MB/s) と往復が律速なので差が小さく見えるが、**CPU 時間は 11 分の 1**。実機の 9 MB/s が CPU 側の遅さ (-O0 の CRC32C など) だったかどうかは、実機で再測定しないと確定しない。
+- 先読み無し (`--no-ra`) だと同じ Btrfs 読みが下位 2997 回・12.8 MB/s に落ちる。`ReadAheadDevice` が効いていることの確認。
+
+**検証**: `usbmem_transform_tests` (13 件、先読み・キャッシュの境界・セクタ 512/4096 のテストを追加)、`crypto_unit` (AES / SHA-256 / CRC32C の命令版と表引きの一致テストを追加)、`crypto_volume_fixtures` (実 Windows の BitLocker イメージ・LUKS 35 ケース・libbde との全バイト比較を含む) が通る。Btrfs の `btrfs_read` / `btrfs_restore_xcheck` / `btrfs_corrupt` / `btrfs_ioerr` / `btrfs_fuzz` も通る (CRC32C の置き換え後)。Android 側は CI で確認する。
+
+**未了・限界**: 実機での再測定、aarch64 命令版の実行確認 (構文と命令選択のみ確認。x86 の自己テストと同じ内容が起動時に走るので、誤りがあれば表引きに落ちるだけで復号結果は壊れないが、速度は上がらない)、`ReadAheadDevice` の複数ストリーム対応、直接復号経路での復号と I/O のパイプライン化は未実施。ホストの ctest のうち `ntfs_gen_fixture` / `udf_gen_fixture` / `blockdev_fixtures` とその依存の計 12 件は、この環境のフィクスチャ生成 (mkntfs の排他オープン競合、sgdisk のハング) が原因で失敗しており、本変更とは無関係 (他のテストは全部通った)。
 
 ## 7. 制限・未解決 (正直に)
 

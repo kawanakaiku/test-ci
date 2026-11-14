@@ -1,0 +1,76 @@
+{
+  "_doc": "自前実装 (XFS / Btrfs / F2FS) が各スーパーブロックの機能フラグをどう扱うかの一覧。tools/check_mkfs_defaults.py が、最新の mkfs の既定で作ったイメージのフラグをこの表と突き合わせる。状態: rw = 読み書きできる / ro = マウントできるが書き込みは拒否 (読み取り専用に落ちる) / refused = マウント自体を拒否。表に無いビットが立っていたら「新しい機能」として失敗にする。値の根拠: XFS = docs/xfs-write.md、core/compat/src/xfs_volume.cpp。Btrfs = docs/btrfs-port.md、docs/btrfs-write.md、core/compat/src/btrfs_volume.cpp (kIncompatKnown)、btrfs_write_ops.inc。F2FS = docs/f2fs-write.md、core/compat/src/f2fs_volume.cpp (kFeatKnownMask)。コードやドキュメントの対応範囲を変えたら、ここも直す。",
+  "xfs": {
+    "offsets": {"features_compat": 208, "features_ro_compat": 212, "features_incompat": 216, "features_log_incompat": 220},
+    "features_compat": {},
+    "features_ro_compat": {
+      "0": {"name": "finobt", "status": "rw"},
+      "1": {"name": "rmapbt", "status": "ro", "note": "mkfs.xfs 7.x の既定で立つ。読み取りは可、書き込みは拒否 (実機・CI のイメージは -m rmapbt=0 で作る)"},
+      "2": {"name": "reflink", "status": "rw", "note": "共有 extent を持つファイルの書き込みには制限がある (docs/xfs-write.md)"},
+      "3": {"name": "inobtcount", "status": "rw"}
+    },
+    "features_incompat": {
+      "0": {"name": "ftype", "status": "rw"},
+      "1": {"name": "sparse_inodes", "status": "rw"},
+      "2": {"name": "meta_uuid", "status": "ro"},
+      "3": {"name": "bigtime", "status": "rw"},
+      "4": {"name": "needsrepair", "status": "refused", "note": "xfs_repair が必要。マウントしない"},
+      "5": {"name": "nrext64", "status": "rw"},
+      "6": {"name": "exchrange", "status": "rw", "note": "mkfs.xfs 7.2 の既定。C の p1 (incompat 0x6b) の実機書き込み試験で確認 (2026-11-14)"},
+      "7": {"name": "parent_pointer", "status": "ro", "note": "mkfs.xfs 7.x の既定で立つ。読み取りは可、書き込みは拒否 (-n parent=0 で作る)"},
+      "8": {"name": "metadir", "status": "ro"},
+      "9": {"name": "zoned", "status": "refused"}
+    },
+    "features_log_incompat": {}
+  },
+  "btrfs": {
+    "offsets": {"compat_flags": 172, "compat_ro_flags": 180, "incompat_flags": 188},
+    "compat_flags": {},
+    "compat_ro_flags": {
+      "0": {"name": "free_space_tree", "status": "rw", "note": "書き込みには必須 (v1 の空き領域キャッシュは書き込み未対応)"},
+      "1": {"name": "free_space_tree_valid", "status": "rw"},
+      "2": {"name": "verity", "status": "ro", "note": "読み取りは可、書き込みは拒否"},
+      "3": {"name": "block_group_tree", "status": "rw", "note": "btrfs-progs 6.x 以降の mkfs の既定"}
+    },
+    "incompat_flags": {
+      "0": {"name": "mixed_backref", "status": "rw"},
+      "1": {"name": "default_subvol", "status": "rw"},
+      "2": {"name": "mixed_groups", "status": "ro"},
+      "3": {"name": "compress_lzo", "status": "rw"},
+      "4": {"name": "compress_zstd", "status": "rw"},
+      "5": {"name": "big_metadata", "status": "rw"},
+      "6": {"name": "extended_iref", "status": "rw"},
+      "7": {"name": "raid56", "status": "refused"},
+      "8": {"name": "skinny_metadata", "status": "rw", "note": "書き込みには必須"},
+      "9": {"name": "no_holes", "status": "rw", "note": "書き込みには必須"},
+      "10": {"name": "metadata_uuid", "status": "rw"},
+      "11": {"name": "raid1c34", "status": "rw"},
+      "12": {"name": "zoned", "status": "refused"},
+      "13": {"name": "extent_tree_v2", "status": "refused"},
+      "14": {"name": "raid_stripe_tree", "status": "refused"},
+      "16": {"name": "simple_quota", "status": "rw"}
+    }
+  },
+  "f2fs": {
+    "offsets": {"feature": 2180, "superblock": 1024},
+    "feature": {
+      "0": {"name": "encrypt", "status": "refused"},
+      "1": {"name": "blkzoned", "status": "refused"},
+      "2": {"name": "atomic_write", "status": "ro"},
+      "3": {"name": "extra_attr", "status": "rw"},
+      "4": {"name": "project_quota", "status": "ro"},
+      "5": {"name": "inode_checksum", "status": "rw"},
+      "6": {"name": "flexible_inline_xattr", "status": "rw"},
+      "7": {"name": "quota_ino", "status": "ro"},
+      "8": {"name": "inode_crtime", "status": "rw"},
+      "9": {"name": "lost_found", "status": "rw"},
+      "10": {"name": "verity", "status": "refused"},
+      "11": {"name": "sb_checksum", "status": "rw"},
+      "12": {"name": "casefold", "status": "refused"},
+      "13": {"name": "compression", "status": "ro"},
+      "14": {"name": "ro", "status": "ro"},
+      "15": {"name": "device_alias", "status": "refused"},
+      "16": {"name": "packed_ssa", "status": "refused"}
+    }
+  }
+}

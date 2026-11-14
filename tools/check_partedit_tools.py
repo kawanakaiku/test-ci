@@ -600,7 +600,19 @@ def scenario_labels():
             print(f"    (udf uuid: ours={p['fsUuid']!r} blkid={exp_uuid!r} — not compared)")
         elif name == "exfat":
             check(p["fsUuid"] == exp_uuid or p["fsSerial"] == exp_uuid, f"D {name}: serial/uuid ours={p['fsUuid']!r}/{p['fsSerial']!r} blkid={exp_uuid!r}")
-            check(p.get("fsGuid", "").lower() == "11223344-5566-7788-99aa-bbccddeeff00", f"D {name}: volume GUID {p.get('fsGuid')!r}")
+            # mkfs.exfat -U がディスクに書くバイト順は exfatprogs のバージョンで違う (1.3.2 は RFC 4122 の並びのまま、1.4.3 は Microsoft 形式 =
+            # 先頭 3 フィールドがリトルエンディアン)。ドライバは仕様どおり Microsoft 形式で読むので、実際にイメージに書かれたバイト列を探して、
+            # 期待値を「そのバイト列を Microsoft 形式で読んだ GUID」にする (ツールの版に依存しない。どちらも見つからなければ失敗)
+            import uuid
+            want_u = uuid.UUID("11223344-5566-7788-99aa-bbccddeeff00")
+            img_bytes = open(path, "rb").read()
+            if want_u.bytes_le in img_bytes:
+                exp_guid = str(want_u)
+            elif want_u.bytes in img_bytes:
+                exp_guid = str(uuid.UUID(bytes_le=want_u.bytes))
+            else:
+                exp_guid = None
+            check(exp_guid is not None and p.get("fsGuid", "").lower() == exp_guid, f"D {name}: volume GUID {p.get('fsGuid')!r} (expected {exp_guid!r})")
         elif name in ("squashfs",):
             pass
         else:

@@ -78,3 +78,6 @@ include(${CMAKE_CURRENT_LIST_DIR}/transform.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/disktools.cmake)
 # データ救出 / バックアップ (ddrescue / Partclone 方式)
 include(${CMAKE_CURRENT_LIST_DIR}/recovery.cmake)
+
+# FUSE アダプター (xfstests 用。docs/xfstests.md)
+include(${CMAKE_CURRENT_LIST_DIR}/fuse.cmake)

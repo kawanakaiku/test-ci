@@ -1,0 +1,98 @@
+# xfstests (fstests) で自前実装の FS を試す (docs/xfstests.md)。core の FS API を FUSE で見せる usbmem_fuse (tools/fuse/usbmem_fuse.cpp) を
+# runner でビルドし、FSTYP=fuse / FUSE_SUBTYP=.usbmem で fstests の generic/ を 1 件ずつ実行して、pass / fail / notrun / hang と
+# アンマウント時の fsck の結果を記録する (tools/fuse/run_xfstests.py)。
+# トリガ: workflow_dispatch、usbmem-xfstests* ブランチへの push (usbmem-ci* は重い Host tests / emulator が動くので使わない)。
+name: xfstests
+
+on:
+  workflow_dispatch:
+    inputs:
+      fs_json:
+        description: 'FS の JSON 配列 (ext4 ext2 fat exfat ntfs xfs btrfs f2fs)'
+        default: '["ext4"]'
+      group:
+        description: 'fstests のグループ (tests が空のとき)'
+        default: 'quick'
+      tests:
+        description: 'カンマ区切りのテスト名 (空 = グループ全部)'
+        default: ''
+      mount_opts:
+        description: 'usbmem_fuse の -o'
+        default: 'allow_other,default_permissions,quiet_setattr'
+      timeout:
+        description: '1 件あたりの秒数'
+        default: '300'
+  push:
+    branches: ['usbmem-xfstests*']
+
+concurrency:
+  group: xfstests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FSTESTS_TAG: v2026.11.10
+
+jobs:
+  xfstests:
+    name: xfstests ${{ matrix.fs }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        fs: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.fs_json || '["ext4"]') }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ pkg-config python3 zlib1g-dev libfuse3-dev fuse3 \
+            e2fsprogs xfsprogs btrfs-progs f2fs-tools dosfstools exfatprogs ntfs-3g \
+            build-essential libtool-bin automake autoconf gawk bc acl attr psmisc uuid-dev libuuid1 xfslibs-dev libacl1-dev libattr1-dev libaio-dev \
+            libgdbm-dev libcap-dev liburing-dev libssl-dev libgdbm-compat-dev fio dbench sqlite3 indent libmount-dev
+          ls -l /dev/fuse; uname -r; id
+          mkfs.ext4 -V 2>&1 | head -1; mkfs.xfs -V; mkfs.btrfs --version; mkfs.f2fs -V 2>&1 | head -1 || true
+
+      - name: Build usbmem_fuse
+        run: |
+          cmake -S core -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSBMEM_NTFS_WRITE=ON -DUSBMEM_BUILD_TESTS=OFF -DUSBMEM_BUILD_FUSE=ON
+          cmake --build build --target usbmem_fuse -j"$(nproc)"
+          sudo install -m 0755 build/usbmem_fuse /usr/local/bin/usbmem_fuse
+          usbmem_fuse --help || true
+
+      - name: Smoke test
+        run: sudo tools/fuse/smoke.sh ${{ matrix.fs }} /usr/local/bin/usbmem_fuse
+
+      - name: Build fstests
+        run: |
+          git clone --depth 1 --branch "$FSTESTS_TAG" https://git.kernel.org/pub/scm/fs/xfs/xfstests-dev.git "$RUNNER_TEMP/fstests" \
+            || git clone --depth 1 --branch "$FSTESTS_TAG" https://github.com/kdave/xfstests.git "$RUNNER_TEMP/fstests"
+          cd "$RUNNER_TEMP/fstests"
+          make -j"$(nproc)" >"$RUNNER_TEMP/fstests_build.log" 2>&1 || { tail -50 "$RUNNER_TEMP/fstests_build.log"; exit 1; }
+          for u in fsgqa fsgqa2 123456-fsgqa; do id "$u" >/dev/null 2>&1 || sudo useradd -m -U "$u"; done
+          sudo mkdir -p /mnt/usbmem_xfstests && sudo chmod 755 /mnt/usbmem_xfstests
+          df -h /mnt | cat
+
+      - name: Run fstests
+        env:
+          FSTESTS_GROUP: ${{ github.event_name == 'workflow_dispatch' && inputs.group || 'quick' }}
+          FSTESTS_TESTS: ${{ github.event_name == 'workflow_dispatch' && inputs.tests || 'generic/001,generic/002,generic/005,generic/006,generic/007,generic/010,generic/011,generic/013,generic/023,generic/024,generic/035,generic/075,generic/091,generic/112' }}
+          MOUNT_OPTS: ${{ github.event_name == 'workflow_dispatch' && inputs.mount_opts || 'allow_other,default_permissions,quiet_setattr' }}
+          TEST_TIMEOUT: ${{ github.event_name == 'workflow_dispatch' && inputs.timeout || '300' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          sudo -E python3 tools/fuse/run_xfstests.py --fs ${{ matrix.fs }} --fstests "$RUNNER_TEMP/fstests" --out "$RUNNER_TEMP/out" \
+            --group "$FSTESTS_GROUP" --tests "$FSTESTS_TESTS" --mount-opts "$MOUNT_OPTS" --timeout "$TEST_TIMEOUT" --max-seconds 18000
+          cat "$RUNNER_TEMP/out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xfstests-${{ matrix.fs }}
+          path: ${{ runner.temp }}/out
+          if-no-files-found: ignore

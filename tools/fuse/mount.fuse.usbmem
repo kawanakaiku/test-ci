@@ -1,0 +1,17 @@
+#!/bin/bash
+# mount(8) のヘルパー (mount -t fuse.usbmem DEV MNT -o opts)。xfstests の FSTYP=fuse / FUSE_SUBTYP=.usbmem から呼ばれる。docs/xfstests.md
+#   /sbin/mount.fuse.usbmem として置く。環境は /etc/usbmem_fuse.env (あれば) を読む (USBMEM_FUSE_BIN / USBMEM_FUSE_FSCK / USBMEM_FUSE_FSCK_LOG / USBMEM_FUSE_LOG / USBMEM_FUSE_TRACE)。
+[ -f "${USBMEM_FUSE_ENV:-/etc/usbmem_fuse.env}" ] && . "${USBMEM_FUSE_ENV:-/etc/usbmem_fuse.env}"
+BIN=${USBMEM_FUSE_BIN:-/usr/local/bin/usbmem_fuse}
+dev=$1; mnt=$2; shift 2
+opts=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) opts="${opts:+$opts,}$2"; shift 2 ;;
+    -o*) opts="${opts:+$opts,}${1#-o}"; shift ;;
+    -t|-N) shift 2 ;;
+    *) shift ;;
+  esac
+done
+export USBMEM_FUSE_FSCK USBMEM_FUSE_FSCK_LOG USBMEM_FUSE_LOG USBMEM_FUSE_TRACE
+exec "$BIN" ${opts:+-o "$opts"} "$dev" "$mnt"

@@ -42,6 +42,26 @@ jobs:
             gdisk fdisk bc genisoimage xorriso cryptsetup-bin nbdkit libnbd-bin qemu-utils partclone gddrescue zlib1g-dev
           echo user_allow_other | sudo tee -a /etc/fuse.conf
 
+      # runner の /dev/shm は tmpfs (7.9 GB) に usrquota が付き、ユーザーのクォータが約 6.3 GB で EDQUOT ("Disk quota exceeded") になる (remount,size=… では広がらない)。
+      # 全フィクスチャ (xfs・btrfs・blockdev 等) で 6 GB を超えるので、クォータなしの tmpfs を /dev/shm に重ねる。
+      - name: Larger /dev/shm (no quota)
+        run: |
+          sudo mount -t tmpfs -o size=10G,mode=1777,nosuid,nodev tmpfs /dev/shm
+          df -h /dev/shm
+
+      # ubuntu 26.04 の runner は AppArmor の fusermount3 プロファイルが FUSE のマウント / アンマウントを /home・/mnt・/media・/tmp・/run/user の下に限る。
+      # テストのフィクスチャ・作業場所は /dev/shm なので、fuse2fs / exfat-fuse の mount が "fusermount3: mount failed: Permission denied"、
+      # ntfs-3g の mount 後の fusermount3 -u が "Operation not permitted" になる。ローカル上書き (local/fusermount3) で /dev/shm を足す。
+      - name: Allow FUSE mounts under /dev/shm (AppArmor)
+        run: |
+          if [ -f /etc/apparmor.d/fusermount3 ] && command -v apparmor_parser >/dev/null; then
+            sudo tee -a /etc/apparmor.d/local/fusermount3 >/dev/null <<'EOT'
+          mount fstype=@{fuse_types} options=(nosuid,nodev) options in (ro,rw,noatime,dirsync,nodiratime,noexec,sync) -> /dev/shm/**/,
+          umount /dev/shm/**/,
+          EOT
+            sudo apparmor_parser -r /etc/apparmor.d/fusermount3
+          fi
+
       - name: Configure
         run: |
           flags=""; bt=Debug
@@ -60,6 +80,8 @@ jobs:
         env:
           PATH_EXTRA: /sbin:/usr/sbin
           ASAN_OPTIONS: verify_asan_link_order=0:detect_leaks=1
+          # gen_erofs_fixture.py: Ubuntu の erofs-utils の fsck.erofs が展開できない (fragments の) イメージの独立検証を省く (警告を出す)。Android CI と同じ
+          USBMEM_FIXTURE_LENIENT: "1"
         run: |
           export PATH="$PATH:/sbin:/usr/sbin"
           re="${{ github.event.inputs.ctest_regex }}"

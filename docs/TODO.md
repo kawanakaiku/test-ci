@@ -20,6 +20,7 @@
 - [ ] 残りのスタブ 55 個 (`tools/compat_stub_names.txt`)。書き込み拡張で必要になったものから実装。
 
 ## 検証・ツール
+- [x] GitHub Actions の Host tests (ctest 4 構成) の失敗の解消 (2026-11-14)。ubuntu-latest 26.04 の環境差 (AppArmor の fusermount3 が /dev/shm を拒否、/dev/shm のユーザークォータ約 6.3 GB、exfatprogs 1.3.2 の GUID のバイト順、erofs-utils の fsck.erofs、xfsprogs 6.18 の mkfs.xfs -p の不具合) をテスト側と workflow で吸収し、隠れていた製品コードの不具合 (erofs のマウント失敗後の後始末の UAF・二重解放) を直した。詳細は docs/ci.md。**未了**: `ntfs_windows_images` と `f2fs_gen_kfixture` は前提 (Windows 製イメージ・QEMU のカーネル製イメージ) が無いので skip のまま。
 - [ ] `tools/winvhd/make_encrypted_fixtures.sh` の起動待ちループが雑 (約 12 分かかる)。DHCP 取得後すぐ進むよう直す。
 - [ ] EFS: 復号は未実装 (読み出しは -EOPNOTSUPP で拒否)。BitLocker は Phase 4。
 - [ ] 巨大 (TB 級) ボリューム上の Windows 製データ、未再生 `$LogFile` ボリューム。

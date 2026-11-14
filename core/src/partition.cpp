@@ -585,7 +585,10 @@ Status read_partition_table(BlockDevice& dev, PartitionTable* out, const ParseOp
       diag(t, Severity::Info, "superfloppy", "no partition table; the whole device is one volume");
       return Status::Ok();
     }
-    if (s0[510] == 0x55 && s0[511] == 0xAA) {
+    // LUKS1 のヘッダには 510-511 バイト目が乱数 (未使用 keyslot の salt) の領域があり、1/65536 の確率で 55 AA になる。
+    // LUKS のマジックで始まるなら MBR ではなく暗号ボリューム全体として扱う (MBR のブートコードが "LUKS\xba\xbe" で始まることはない)。
+    const bool luks_head = std::memcmp(s0.data(), "LUKS\xba\xbe", 6) == 0;
+    if (s0[510] == 0x55 && s0[511] == 0xAA && !luks_head) {
       Status io;
       parse_mbr(dev, t, s0.data(), &io);
       if (!io.ok()) return io;

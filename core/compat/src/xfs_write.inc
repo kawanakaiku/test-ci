@@ -101,6 +101,15 @@
     b->dirty = true;
     return b->d.data();
   }
+  // 解放したブロック [off, off+len) のバッファは、もうコミットしない (中身は参照されない。巻き戻し用に元の状態を保存する)
+  void bdrop_range(uint64_t off, uint64_t len) {
+    for (auto it = wb.lower_bound(off); it != wb.end() && it->first < off + len; ++it) {
+      WBuf& b = it->second;
+      if (!b.dirty) continue;
+      if (in_op && !undo.count(b.off)) undo.emplace(b.off, Undo{b.d, b.dirty, b.fresh, true});
+      b.dirty = false;
+    }
+  }
   void op_begin() { in_op = true; undo.clear(); u_icount = d_icount; u_ifree = d_ifree; u_fdblocks = d_fdblocks; }
   void op_end() { in_op = false; undo.clear(); }
   void op_abort() {

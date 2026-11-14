@@ -58,7 +58,27 @@ def post_writes(mnt):
         os.symlink("k0", os.path.join(d, "lnk"))
     for i in range(100):
         open(os.path.join(d, "e%03d" % i), "w").close()
-    os.sync()
+    nd = os.path.join(mnt, "nd")   # 自前が作った大きな (ノード形式の) ディレクトリにも、カーネル自身に追加・削除をさせる
+    if os.path.isdir(nd):
+        for n in sorted(os.listdir(nd))[::3][:250]:
+            os.unlink(os.path.join(nd, n))
+        for i in range(300):
+            open(os.path.join(nd, "kernel_added_with_a_long_name_%04d" % i), "w").close()
+    fs_sync(mnt)
+
+
+def fs_sync(path):
+    """path のファイルシステムだけを同期する (syncfs)。os.sync() は全ファイルシステムを同期するので、他の (書き戻しが止まった) ファイルシステムがあるとハングする。
+    syncfs が使えなければ何もしない (アンマウントが同期する)。"""
+    try:
+        import ctypes
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            ctypes.CDLL(None, use_errno=True).syncfs(fd)
+        finally:
+            os.close(fd)
+    except (OSError, AttributeError):
+        pass
 
 
 def worker_loop(post, imgs):

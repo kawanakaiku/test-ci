@@ -8,10 +8,12 @@
 #   TAIL_OWN        : 各レコードの tail_lsn を自分の先頭にする (カーネルはトランザクションの先頭側のレコードを再生しない)
 #   DATA_AFTER      : ファイルのデータをコミットの後に書く (コミット済みのメタデータが未書き込みのデータを指す窓)
 #   NO_CRC          : メタデータの CRC を付けない (カーネルが検出する)
+#   REUSE_FREED     : unlink / truncate で解放したばかりのブロック (まだコミットされていない) にデータを書く (電源断で、削除が反映されない場合に古いファイルが壊れる)
+#   TAIL_ZERO_EARLY : truncate / write で EOF より先をゼロにするとき、直前の縮小のコミットを待たない (電源断で、縮小前のファイルの中身が壊れる)
 # 使い方: run_xfs_mutation_tests.sh <ビルドディレクトリの親 (例 build/host)> [stride (既定 3)] [変異名...]
 set -eu
 B=$1; ST=${2:-3}; shift 2 2>/dev/null || shift $#
-MUTS=${*:-NO_FLUSH_LOG NO_FLUSH_COMMIT NO_FLUSH_INPLACE INPLACE_FIRST TAIL_OWN DATA_AFTER NO_CRC}
+MUTS=${*:-NO_FLUSH_LOG NO_FLUSH_COMMIT NO_FLUSH_INPLACE INPLACE_FIRST TAIL_OWN DATA_AFTER NO_CRC REUSE_FREED TAIL_ZERO_EARLY}
 HERE=$(cd "$(dirname "$0")" && pwd)
 SRC=$(cd "$HERE/../core" && pwd)
 rc=0; found=0; total=0

@@ -1,14 +1,15 @@
-# XFS の書き込み — 実験的 (CreateOnly の範囲)
+# XFS の書き込み — 実験的 (CreateOnly + Full の操作)
 
 `USBMEM_NTFS_WRITE` (Gradle: `-PusbmemNtfsWrite=true`) のビルドだけで有効。無効なビルドでは書き込み入口はすべて `EROFS` を返し、読み取りの挙動は変わらない。
 読み取り側の独立実装は `docs/xfs-port.md`。ジャーナル方式の参考は `docs/ext4-write.md`、構成・テスト体系は `docs/btrfs-write.md`。
 
 ## 先に結論
-- **実装した範囲 (ステージ)**: V5 (CRC) ボリュームで **新規ファイル・ディレクトリ・シンボリックリンクの作成、ファイルへの追記・既存ブロックの上書き・穴あきファイル**。アプリ (`WriteMode.CreateOnly`) からは XFS は常に CreateOnly で開く (`NativeBridge.xfsCreateOnlyOnly`)。つまり既存ファイルの上書きもアプリからは拒否される。
-- **未実装 (既定で無効、呼ぶと `EOPNOTSUPP`)**: `unlink` / `rmdir` / `rename` / `truncate` / `link` (Full の範囲)。ノード形式のディレクトリ (1 つのディレクトリが約 500 エントリ (4 KiB ブロック) を超えるもの) への追加は `ENOSPC`。
-- **方式**: ログ (ジャーナル) を正しく書く方式 (a)。コミットごとに変更したメタデータを XFS のログに書き、そのあと本来の場所に書く。電源断で途中までのとき、Linux カーネルが同じログを再生して整合する。ログを避ける方式 (b) は採らなかった (下記)。
+- **実装した範囲**: V5 (CRC) ボリュームで **新規ファイル・ディレクトリ・シンボリックリンクの作成、ファイルへの追記・既存ブロックの上書き・穴あきファイル** (CreateOnly の範囲) と、**Full の操作: `unlink` / `rmdir` / `truncate` (縮小・拡張) / `rename` (同じディレクトリ・別のディレクトリ・上書き・ディレクトリごと) / `link`**。ノード形式のディレクトリ (1 ディレクトリが約 500 エントリを超えるもの) も書ける。
+- **アプリからは (まだ) 常に CreateOnly で開く** (`NativeBridge.xfsCreateOnlyOnly`)。Full の操作はコア (`XfsVolume`) に実装済みで、ホストと Android の計装テスト (`mountReadWrite(xfsFull = true)`) だけが使う。アプリで Full を出すかどうかは、実機 (XFS の USB) での Full 試験のあとに決める。
+- **拒否する構成は従来どおり**: rmapbt / parent pointer / クォータ / ストライプ / V4 / 外部ログなどは読み取り専用で開く (下の表)。reflink で共有されうるブロックを持つファイルの削除・縮小は `EOPNOTSUPP` (参照カウントの木を持たないため)。
+- **方式**: ログ (ジャーナル) を正しく書く方式 (a)。コミットごとに変更したメタデータを XFS のログに書き、そのあと本来の場所に書く。電源断で途中までのとき、Linux カーネルが同じログを再生して整合する。ログを避ける方式 (b) は採らなかった (下記)。Full の操作は 1 操作 = 1 トランザクション (名前の削除・nlink・ブロックの解放・inode の解放まで 1 回のコミットに入る。カーネルの「unlinked list に載せてから解放」の 2 段階は踏まない)。
 - **書き込みを許す条件はホワイトリスト**: 満たさなければ読み取り専用で開く (イメージは 1 バイトも変わらない)。ログが dirty のボリュームは読み取り専用 (自前では再生しない。読み取りでは従来どおり dirty log を拒否)。
-- 検証は独立実装 (`xfs_repair -n` / `xfs_logprint` / **実カーネルでのログ再生とマウント**) と、カーネルが書いたイメージを自前エンジンが書き換える逆向きの確認。数値は末尾の「実測結果」。
+- 検証は独立実装 (`xfs_repair -n` / `xfs_logprint` / **実カーネルでのログ再生とマウント**) と、カーネルが書いたイメージを自前エンジンが書き換える逆向きの確認、自前が作ったノード形式のディレクトリにカーネル自身に追加・削除をさせる確認。数値は末尾の「実測結果」。
 
 ## 構成
 | ファイル | 内容 |
@@ -16,6 +17,8 @@
 | `core/compat/src/xfs_write.inc` | 基盤: バッファキャッシュ (`WBuf`)、ログへの書き出し (`log_put`)、コミット (`commit`)、ホワイトリスト (`prepare_rw`)、`do_sync` |
 | `core/compat/src/xfs_write_alloc.inc` | 空き領域 (bno / cnt B+ツリー)・AGFL・inode チャンク (ino / fino B+ツリー) の確保と解放 |
 | `core/compat/src/xfs_write_ops.inc` | inode・フォーク・ディレクトリ (sf / block / leaf1)・`create` / `mkdir` / `symlink` / `write`、`run_op` (忙しい extent の再試行) |
+| `core/compat/src/xfs_write_full.inc` | Full の操作: `unlink` / `rmdir` / `truncate` / `rename` / `link`、inode の破棄 (`ino_destroy`)、ディレクトリからの削除 (`dir_remove`) |
+| `core/compat/src/xfs_write_node.inc` | ノード形式のディレクトリ (leafn・da ノード・free 索引) の追加・削除・索引の作り直し |
 | `core/compat/src/xfs_volume.cpp` | 読み取りのフック (`read_meta` がバッファを重ねる)、公開 API (`mount_rw` ほか) |
 | `core/compat/tests/test_xfs_write.cpp` | テスト本体 (`--ops` / `--model` / `--noop` / `--refuse` / `--enospc` / `--norw` / `--tree` / `--post` / `--fuzzw`)、`crash_device.h` を使う |
 | `tools/run_xfs_write_tests.sh` / `run_xfs_crash_tests.sh` / `run_xfs_mutation_tests.sh` | 独立実装との突き合わせ・電源断の模擬・突然変異 |
@@ -50,7 +53,12 @@
 - 既存ブロックへの上書きはその場書き込みで、メタデータのコミットとは原子的ではない (ext4 の ordered と同じ)。電源断の検査 (S) は上書きするファイルの sha256 を比較から外す。
 
 ### ディレクトリ
-形式は sf (インライン) → block (1 ブロック) → leaf1 (データブロック + 末尾に leaf と bests) まで。それ以上 (leafn / da ノード / free 索引のノード形式) は未実装で、`ENOSPC` を返す (約 505 エントリ (4 KiB)/ディレクトリ)。ノード形式のディレクトリが既にあるボリュームの**読み取り**は従来どおり。そのディレクトリへの追加は `EOPNOTSUPP`。
+形式は sf (インライン) → block (1 ブロック) → leaf1 (データブロック + 末尾に leaf と bests) → **node** (データブロック + leafn 群 + 根の da ノード + free 索引)。
+- **leaf1 → node**: leaf1 の葉 (4 KiB で約 500 エントリ / データブロック数) に収まらなくなった追加のときに移る。移行後は元に戻さない (エントリを減らしても node のまま。カーネルは減ると leaf / block に戻すが、戻さなくても `xfs_repair -n` は clean)。
+- **node の作り方** (`xfs_write_node.inc`。単純さ優先): データブロックの中のエントリを真実とし、変更のたびに索引を全部作り直す。(1) 全データブロックを読んで (ハッシュ, アドレス) と各ブロックの最大の空きを集める (2) 葉 (LEAFN, 0x3dff) を容量の 7/8 ずつハッシュ順に詰める。葉が 1 つならそれが根 (論理ブロック LEAF_OFFSET)、2 つ以上なら根が da ノード (0x3ebe, level 1)、葉は LEAF_OFFSET + 1 から (3) free 索引 (XDF3, 論理ブロック FREE_OFFSET) に各データブロックの bestfree[0] を書く。変わらないチャンク (128 バイト) はログに載らない。1 操作が読むブロック数は (エントリ数 / 約 80) なので、数千エントリまでは軽い。
+- **上限**: 葉が da ノード 1 枚に収まる数 (4 KiB で 504 枚 ≒ 20 万エントリ)、データブロックが free 索引 1 枚に収まる数 (4 KiB で 2016 ブロック)。超えると追加は `ENOSPC`。
+- 削除: データブロックが空になれば (0 番以外) 解放し、末尾の穴を詰めてサイズを縮める。途中の穴は (leaf1 / node とも) bests が 0xFFFF の穴あきデータ空間としてそのまま。
+- 読み取り側はデータブロックだけを走査するので、索引の形式 (leaf1 / node) に依存しない。
 
 ### ホワイトリスト (`prepare_rw`。満たさなければ読み取り専用 = `ro_reason`)
 次のどれかに当てはまると読み取り専用 (書き込み系は `EROFS`)。スーパーブロックのビットが読み取りのリーダーも拒否するもの (未知の incompat / realtime / 外部ログ / dirty log) は、マウントそのものが失敗する (`mount_rw` もエラー)。
@@ -72,6 +80,14 @@
 | `imax_pct` > 100 | |
 
 mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・bigtime・inobtcount・ftype) は書き込み可。**新しい mkfs.xfs (手元の 7.2 で確認) の既定の `rmapbt=1` は拒否**する (読み取りは従来どおり。`parent=1` も未知の incompat として拒否)。そのため CI のテストイメージは `-m rmapbt=0 -n parent=0` で作る (古い mkfs.xfs は該当オプションを外す)。
+
+### Full の操作 (`xfs_write_full.inc`)
+- 共通: 各操作は `run_op` の中で 1 トランザクション (失敗したら開始時点へ巻き戻す)。解放したブロックは busy に載り (`fs_free_raw`)、同じコミットの窓の中ではデータとして再利用しない (`write_file` が `kRetryBusy` でいったんコミットしてからやり直す)。解放したメタデータのバッファは `bdrop_range` でコミット対象から外す (解放済みブロックに古い内容を書き戻さない)。
+- **unlink / rmdir**: 名前を消し (sf / block / leaf1 / node それぞれ)、親の mtime / ctime (ディレクトリなら nlink も)、対象の nlink を減らす。nlink が 0 (ディレクトリは常に) なら `ino_destroy`: データフォークの extent と bmbt のブロックを解放し、inode を「空き」の形 (magic / version 3 / 世代 / next_unlinked = NULL / 自身の番号 / uuid) に戻して inobt / finobt / AGI / スーパーブロックのカウンタを更新する (inode チャンク自体は解放しない)。属性フォーク: inode に収まる (local) ものは捨て、ブロックを持つものは `EOPNOTSUPP`。リアルタイム inode・reflink で共有されうるブロックを持つ inode も `EOPNOTSUPP`。immutable / append-only は `EPERM`。
+- **truncate**: 縮小は extent を切って (必要なら bmbt を extents 形式に戻して) ブロックを解放し、サイズを更新。拡張は穴 (割り当てなし) のままサイズだけ増やし、旧 EOF からそのブロックの終わりまで (または新 EOF まで) をその場でゼロにする。縮小で EOF 以降の残りを消さない設計なので、EOF より先は拡張・EOF をまたぐ `write` のときにゼロにする。**直前の縮小がまだコミットされていないとき**はこのゼロ化が電源断で「縮小前のファイルの中」に見えてしまうため、いったんコミットしてからやり直す (`tail_zero_unsafe`。突然変異 `TAIL_ZERO_EARLY` で検出を確認)。
+- **rename**: 同じディレクトリ・別のディレクトリ・上書き (上書き先が空のディレクトリ / ファイル。上書きされた inode は nlink を減らすか破棄) ・ディレクトリの移動 (`..` を新しい親にし、両方の親の nlink を更新。自分自身・自分の下への移動は `EINVAL`)。同じ inode への rename は何もしない。順序は「上書き先を消す → 新しい名前を足す → 古い名前を消す」で、全体が 1 トランザクション。
+- **link**: 名前を足して対象の nlink + 1 (ディレクトリは `EPERM`、nlink 0 の inode は `ENOENT`)。
+- 時刻は各操作で mtime / ctime を更新する (ctime のみ: 対象 inode の nlink 変更)。`di_changecount` を進める。
 
 ### 書き込みの境界
 - `fs_write` / `write_inplace`: ファイルの末尾までの追記・穴あきの拡張・既存ブロックの上書き。extent は inode 内 (extents 形式) と B+ツリー形式 (bmbt) の両方を扱う。シンボリックリンクはインライン (local) と extent 形式。
@@ -117,14 +133,15 @@ mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・
 `tools/run_xfs_mutation_tests.sh` は 7 種すべてを検出できなければ失敗する。flush を省く 2 種 (`NO_FLUSH_LOG` / `NO_FLUSH_INPLACE`) は cache 方式の全カットポイント (stride 1、乱数の種を変えて最大 3 回) で試す。flush カットを入れる前は、この 2 種は検出できなかった (3150 試行で 0 件。順序の入れ替えが起きる窓がカットポイントに存在しなかったため。省いた flush は同値変異ではなく、テスト側の観測の穴だった)。
 
 ## 既知の限界・未実装
-- **Full の操作 (`unlink` / `rmdir` / `rename` / `truncate` / `link`) は未実装** (呼ぶと `EOPNOTSUPP`)。アプリは CreateOnly に固定。ブロックの解放自体 (`fs_free`) は失敗時の巻き戻しとバッファの再利用のために実装済みだが、削除系の操作には接続していない。
-- **ノード形式のディレクトリ** (leafn / da ノード / free 索引): 1 ディレクトリの上限は約 500 エントリ (4 KiB ブロックの leaf1)。それ以上は `ENOSPC`。
+- **アプリは XFS を常に CreateOnly で開く** (Full の操作はコアとテストだけ。実機 USB での Full 試験は未実施)。
+- **ノード形式のディレクトリ**: 変更のたびに索引を作り直す (大きなディレクトリへの連続追加は O(エントリ数) / 操作)。上限は約 20 万エントリ / 2016 データブロック (4 KiB)。移行後に leaf / block へ戻さない。da ノードは 1 レベルだけ (木の高さ 2 以上は作らない)。
+- **reflink 共有ブロック**: 参照カウント木を持たないので、reflink フラグのある inode (共有ブロックを持ちうる) の削除・縮小・上書きは `EOPNOTSUPP` (CoW は未実装)。
+- 解放した inode チャンク (64 個) 全体が空になっても、チャンクは返さない (inobt に空きのまま残る)。カーネルの動作とは違うが `xfs_repair -n` は clean。
+- 属性フォークがブロックを持つ inode (xattr / ACL が大きい) の削除は `EOPNOTSUPP`。xattr / ACL / プロジェクト ID は書かない (新規 inode には付けない)。
 - ログが dirty のボリュームの再生は未実装 (カーネルで再生してから使う)。
 - 4Kn デバイス、dirblklog > 0 (V5 でブロックサイズ < 4 KiB)、ストライプ、クォータ、rmapbt、外部ログ、リアルタイム、V4 は書き込み拒否。
-- 実機の USB での書き込みは未確認 (ホスト・CI・AVD のみ)。
+- 実機の USB での書き込みは CreateOnly のみ確認 (Full は未確認)。
 - 既存ブロックの上書きはメタデータのコミットと原子的ではない。
-- reflink で共有されたブロックの上書きは行わない (`EOPNOTSUPP`。コピー・オン・ライトは未実装)。
-- xattr / ACL / プロジェクト ID は書かない (新規 inode には付けない)。
 
 ## 実測結果
 (2026-11-13 / 14。CI は kawanakaiku/test-ci の `usbmem-ci-xfs` ブランチ。mkfs.xfs / xfs_repair 6.18.0、カーネル再生は loop マウント)

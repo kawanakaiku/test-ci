@@ -4,7 +4,7 @@
 //   --model <img> <seed> <nops> [dump] 乱数で操作列を作り、メモリ上のモデルと突き合わせる (途中・unmount 後の再マウント後にも全体比較)。dump に tools/ops_ref.py --tree と同じ書式でモデルを書く
 //   --noop <img>                      rw マウントして何もせず unmount: イメージが 1 バイトも変わらないこと
 //   --refuse <img>                    rw を要求したが書き込み不可のイメージ (汚れている/エラー状態/未知の機能): マウントは成功し writable()==false、書き込みは -EROFS、イメージ不変
-//   --enospc <img>                    満杯で安全に失敗し、削除で回復すること
+//   --enospc <img>                    満杯で安全に失敗し、unlink / truncate で回復すること
 //   --norw <img>                      mount_rw 自体が失敗する (未対応の必須機能・未再生ログなど): イメージ不変
 //   --tree <img> <out>                読み取り専用でマウントして、モデルのダンプと同じ書式でツリーを書く (btrfs restore の結果との比較用)
 //   --fuzzw <img> <n> <seed>          イメージのメタデータ領域をランダムに壊して書き込みマウント・操作する (クラッシュ・ハング・ASan エラーが無いこと)
@@ -280,8 +280,7 @@ static int model_run(const std::string& img, unsigned seed, int nops, const std:
   const size_t sizes[] = {0, 1, 11, 511, 512, 513, 1023, 1024, 1025, 2047, 2048, 2049, 4095, 4096, 4097, 8192, 12 * 1024, 12 * 1024 + 1, 65536, 130000, 270 * 1024, 300 * 1024, 1100000};
   for (int it = 0; it < nops; it++) {
     uint32_t k = R(100);
-    (void)cr_only;
-    if ((k >= 55 && k < 90) || k >= 95) continue;   // XFS の書き込みは CreateOnly の範囲: 作成・書き込み (追記 / 上書き / 疎)・mkdir・symlink だけ (truncate / unlink / rmdir / rename / link は未対応)
+    if (cr_only && ((k >= 55 && k < 90) || k >= 95)) continue;   // USBMEM_MODEL_CREATEONLY: 作成・書き込み・mkdir・symlink だけ (Full の操作 truncate / unlink / rmdir / rename / link を除く)
     if (k < 12) {   // mkdir
       std::string d = rdir(), n = rname(), p = join(d, n);
       std::string nn; MP par = m.parent(p, &nn);
@@ -412,7 +411,7 @@ static int refuse_run(const std::string& img) {
   return g_fail ? 1 : 0;
 }
 
-// ---- --enospc: 満杯まで書いて安全に失敗すること (削除は未対応なので回復の検査はしない。後段で xfs_repair -n)
+// ---- --enospc: 満杯まで書いて安全に失敗すること。削除・縮小で回復すること (後段で xfs_repair -n)
 static int enospc_run(const std::string& img) {
   BlockDevicePtr dev = open_rw(img); int err = 0; auto vol = XfsVolume::mount_rw(dev, &err);
   if (!vol || !vol->writable()) { std::fprintf(stderr, "mount_rw failed\n"); return 1; }
@@ -436,6 +435,19 @@ static int enospc_run(const std::string& img) {
   CHECK(lastrc == -ENOSPC || lastrc == 0);
   CHECK(vol->sync() == 0);
   CHECK(vol->writable());
+  // 満杯からの回復: 大きなファイルを削除 (ブロックの解放) すると、また書ける。縮小 (truncate) でも解放される
+  CHECK(vol->unlink(vol->root(), "big") == 0);
+  uint64_t again; CHECK(vol->create(vol->root(), "again", 0644, &again) == 0);
+  std::vector<uint8_t> blob(1 << 20, 0x5A);
+  int64_t w2 = vol->write(again, 0, blob.data(), blob.size()); CHECK(w2 == (int64_t)blob.size());
+  uint64_t freed_big = 0;
+  for (int i = 0; i < 40; i++) { int64_t w3 = vol->write(again, blob.size() * (uint64_t)(i + 1), blob.data(), blob.size()); if (w3 != (int64_t)blob.size()) break; freed_big += (uint64_t)w3; }
+  CHECK(freed_big >= (8u << 20));
+  CHECK(vol->truncate(again, 100) == 0);
+  int64_t w4 = vol->write(again, 100, blob.data(), blob.size()); CHECK(w4 == (int64_t)blob.size());   // 縮小で解放したブロックを再利用できる
+  for (int i = 0; i < made; i++) CHECK(vol->unlink(vol->root(), "i" + std::to_string(i)) == 0);       // 満杯のときに作った小さなファイルも削除できる
+  CHECK(vol->sync() == 0);
+  std::fprintf(stderr, "enospc: recovered by unlink / truncate (rewrote %llu bytes after freeing)\n", (unsigned long long)freed_big);
   vol.reset();
   return g_fail ? 1 : 0;
 }

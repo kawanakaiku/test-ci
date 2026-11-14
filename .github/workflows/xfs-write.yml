@@ -3,13 +3,13 @@
 #     そのあと xfs_repair -n が clean であること / カーネルが書いたイメージを自前エンジンが読み書きできること
 #   - 電源断の模擬のフル版 (全カットポイント。prefix / cache の 2 方式、torn 書き込みあり、sync 粒度 2 通り) と 突然変異テスト (安全機構を外したビルドが検出されること)
 #   - 乱数操作 + モデルの試行数を増やした版、ファジング
-# トリガ: workflow_dispatch、または usbmem-ci-xfs ブランチへの push。
+# トリガ: workflow_dispatch、または usbmem-ci-xfs / usbmem-ci-xfsfull ブランチへの push。
 name: XFS write
 
 on:
   workflow_dispatch:
   push:
-    branches: ['usbmem-ci-xfs']
+    branches: ['usbmem-ci-xfs', 'usbmem-ci-xfsfull']
 
 concurrency:
   group: xfs-write-${{ github.ref }}

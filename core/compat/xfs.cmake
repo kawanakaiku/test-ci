@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0 (本ファイル) — xfs_volume.cpp は GPL-2.0-or-later (ディスク形式を Linux fs/xfs の形式定義を仕様として独立に実装。カーネルのソースは取り込まない)
 # XFS の読み取り専用リーダ (docs/xfs-port.md)。core/compat/CMakeLists.txt の末尾から include される。
 add_library(usbmem_xfs STATIC ${CMAKE_CURRENT_LIST_DIR}/src/xfs_volume.cpp)
-set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/src/xfs_volume.cpp PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/src/xfs_write.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_alloc.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_ops.inc")
+set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/src/xfs_volume.cpp PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/src/xfs_write.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_alloc.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_ops.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_full.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_node.inc")
 if(USBMEM_NTFS_WRITE)
   # 書き込み経路 (src/xfs_write*.inc) を有効にする。無効なら書き込み入口は全て EROFS。docs/xfs-write.md
   target_compile_definitions(usbmem_xfs PRIVATE USBMEM_NTFS_WRITE=1)

@@ -61,21 +61,23 @@ jobs:
         run: |
           SMOKE='generic/001,generic/002,generic/005,generic/006,generic/007,generic/010,generic/011,generic/013,generic/023,generic/024,generic/035,generic/075,generic/091,generic/112'
           ALL='["ext4","ext2","fat","exfat","ntfs","xfs","btrfs","f2fs"]'
-          extra=''; trace=0; fs='["ext4"]'; tests="$SMOKE"; group=quick; mopts='allow_other,default_permissions,quiet_setattr'; to=180
+          extra=''; custom=''; trace=0; fs='["ext4"]'; tests="$SMOKE"; group=quick; mopts='allow_other,default_permissions,quiet_setattr'; to=180
           if [ "$EVENT" = workflow_dispatch ]; then
             fs=$IN_FS; tests=$IN_TESTS; group=$IN_GROUP; mopts=$IN_MOUNT; to=$IN_TIMEOUT
           else
             name=${REF#usbmem-xfstests-}
             smoke=0; case "$name" in *-smoke) smoke=1; name=${name%-smoke} ;; esac
+            # -t<番号>_<番号>... : 指定した generic テストだけ (例 usbmem-xfstests-xfs-t023_024)
+            case "$name" in *-t[0-9]*) sel=${name##*-t}; name=${name%-t*}; tests=$(echo "$sel" | tr '_' '\n' | sed 's|^|generic/|' | paste -sd,); smoke=1; trace=1; custom=1 ;; esac
             case "$name" in *-noremkfs) extra=--no-remkfs; name=${name%-noremkfs} ;; esac
-            case "$name" in *-trace) trace=1; smoke=1; tests='generic/001,generic/002,generic/003,generic/005'; name=${name%-trace} ;; esac
+            case "$name" in *-trace) trace=1; smoke=1; name=${name%-trace} ;; esac
             case "$name" in
               all) fs=$ALL ;;
               ext4|ext2|fat|exfat|ntfs|xfs|btrfs|f2fs) fs="[\"$name\"]" ;;
               *) smoke=1 ;;
             esac
             [ $smoke = 1 ] || tests=''
-            [ "$trace" = 1 ] && tests='generic/001,generic/002,generic/003,generic/005'
+            [ "$trace" = 1 ] && [ -z "$custom" ] && tests='generic/001,generic/002,generic/003,generic/005'
             case "$REF" in *-strict*) mopts='allow_other,default_permissions' ;; esac
           fi
           echo "fs_json=$fs" >> "$GITHUB_OUTPUT"

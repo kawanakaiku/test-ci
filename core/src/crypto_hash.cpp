@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SHA-1 / SHA-256 / SHA-512 / HMAC / PBKDF2 (FIPS 180-4, RFC 2104, RFC 8018)
 #include <algorithm>
+#include <atomic>
 
-#include "usbmem/crypto.h"
+#include "crypto_internal.h"
 
 namespace usbmem {
 namespace crypto {
@@ -70,7 +71,62 @@ HashCtx::HashCtx(Hash h) : kind_(h) {
   }
 }
 
+#if USBMEM_HW_ANY
+namespace {
+std::atomic<bool> g_sha_hw_enabled{true};
+thread_local int tl_sha_mode = -1;  // 自己テスト中だけ、このスレッドで強制 (0 = 表引き / 1 = 命令)
+bool sha_hw_selftest();
+bool sha_hw_usable() {
+  static const bool ok = sha256_hw_cpu_has() && sha_hw_selftest();
+  return ok;
+}
+inline bool use_sha_hw() {
+  if (tl_sha_mode >= 0) return tl_sha_mode == 1;
+  return g_sha_hw_enabled.load(std::memory_order_relaxed) && sha_hw_usable();
+}
+}  // namespace
+bool sha256_hw_supported() { return sha_hw_usable(); }
+void sha256_set_hw_enabled(bool on) { g_sha_hw_enabled.store(on, std::memory_order_relaxed); }
+#else
+bool sha256_hw_supported() { return false; }
+void sha256_set_hw_enabled(bool) {}
+#endif
+
+namespace {
+void sha256_block_sw(uint32_t* st, const uint8_t* p) {
+    uint32_t w[64];
+    for (int i = 0; i < 16; i++) w[i] = be32(p + 4 * i);
+    for (int i = 16; i < 64; i++) {
+      uint32_t s0 = ror32(w[i - 15], 7) ^ ror32(w[i - 15], 18) ^ (w[i - 15] >> 3);
+      uint32_t s1 = ror32(w[i - 2], 17) ^ ror32(w[i - 2], 19) ^ (w[i - 2] >> 10);
+      w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+    uint32_t a = st[0], b = st[1], c = st[2], d = st[3], e = st[4], f = st[5], g = st[6], h = st[7];
+    for (int i = 0; i < 64; i++) {
+      uint32_t S1 = ror32(e, 6) ^ ror32(e, 11) ^ ror32(e, 25);
+      uint32_t ch = (e & f) ^ (~e & g);
+      uint32_t t1 = h + S1 + ch + K256[i] + w[i];
+      uint32_t S0 = ror32(a, 2) ^ ror32(a, 13) ^ ror32(a, 22);
+      uint32_t mj = (a & b) ^ (a & c) ^ (b & c);
+      uint32_t t2 = S0 + mj;
+      h = g; g = f; f = e; e = d + t1; d = c; c = b; b = a; a = t1 + t2;
+    }
+    st[0] += a; st[1] += b; st[2] += c; st[3] += d; st[4] += e; st[5] += f; st[6] += g; st[7] += h;
+}
+}  // namespace
+
+// 圧縮関数を直接回す (BitLocker の鍵伸長のように、短い入力を大量にハッシュする所のオーバーヘッド削減用)。st = 内部状態 8 ワード、blocks = 64 バイト × n。
+void sha256_compress(uint32_t st[8], const uint8_t* blocks, size_t n) {
+#if USBMEM_HW_ANY
+  if (use_sha_hw()) { sha256_hw_blocks(st, blocks, n, K256); return; }
+#endif
+  for (size_t i = 0; i < n; i++) sha256_block_sw(st, blocks + 64 * i);
+}
+
 void HashCtx::block(const uint8_t* p) {
+#if USBMEM_HW_ANY
+  if (kind_ == Hash::Sha256 && use_sha_hw()) { sha256_hw_blocks(st32_, p, 1, K256); return; }
+#endif
   if (kind_ == Hash::Sha1) {
     uint32_t w[80];
     for (int i = 0; i < 16; i++) w[i] = be32(p + 4 * i);
@@ -87,24 +143,7 @@ void HashCtx::block(const uint8_t* p) {
     }
     st32_[0] += a; st32_[1] += b; st32_[2] += c; st32_[3] += d; st32_[4] += e;
   } else if (kind_ == Hash::Sha256) {
-    uint32_t w[64];
-    for (int i = 0; i < 16; i++) w[i] = be32(p + 4 * i);
-    for (int i = 16; i < 64; i++) {
-      uint32_t s0 = ror32(w[i - 15], 7) ^ ror32(w[i - 15], 18) ^ (w[i - 15] >> 3);
-      uint32_t s1 = ror32(w[i - 2], 17) ^ ror32(w[i - 2], 19) ^ (w[i - 2] >> 10);
-      w[i] = w[i - 16] + s0 + w[i - 7] + s1;
-    }
-    uint32_t a = st32_[0], b = st32_[1], c = st32_[2], d = st32_[3], e = st32_[4], f = st32_[5], g = st32_[6], h = st32_[7];
-    for (int i = 0; i < 64; i++) {
-      uint32_t S1 = ror32(e, 6) ^ ror32(e, 11) ^ ror32(e, 25);
-      uint32_t ch = (e & f) ^ (~e & g);
-      uint32_t t1 = h + S1 + ch + K256[i] + w[i];
-      uint32_t S0 = ror32(a, 2) ^ ror32(a, 13) ^ ror32(a, 22);
-      uint32_t mj = (a & b) ^ (a & c) ^ (b & c);
-      uint32_t t2 = S0 + mj;
-      h = g; g = f; f = e; e = d + t1; d = c; c = b; b = a; a = t1 + t2;
-    }
-    st32_[0] += a; st32_[1] += b; st32_[2] += c; st32_[3] += d; st32_[4] += e; st32_[5] += f; st32_[6] += g; st32_[7] += h;
+    sha256_block_sw(st32_, p);
   } else {
     uint64_t w[80];
     for (int i = 0; i < 16; i++) w[i] = be64(p + 8 * i);
@@ -126,6 +165,35 @@ void HashCtx::block(const uint8_t* p) {
     st64_[0] += a; st64_[1] += b; st64_[2] += c; st64_[3] += d; st64_[4] += e; st64_[5] += f; st64_[6] += g; st64_[7] += h;
   }
 }
+
+#if USBMEM_HW_ANY
+namespace {
+// 命令版と表引き版が、長さの違う入力 (1 / 2 ブロック・端数) で同じダイジェストを出すか。"abc" の既知値も確認する。
+bool sha_hw_selftest() {
+  static const uint8_t kAbc[32] = {0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea, 0x41, 0x41, 0x40, 0xde, 0x5d, 0xae, 0x22, 0x23,
+                                   0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c, 0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00, 0x15, 0xad};
+  uint8_t msg[300];
+  uint32_t x = 0xC0FFEEu;
+  for (auto& b : msg) { x ^= x << 13; x ^= x >> 17; x ^= x << 5; b = uint8_t(x >> 9); }
+  bool ok = true;
+  tl_sha_mode = 1;
+  {
+    uint8_t d[32];
+    crypto::hash(Hash::Sha256, "abc", 3, d);
+    ok = std::memcmp(d, kAbc, 32) == 0;
+  }
+  for (size_t len : {size_t(0), size_t(1), size_t(55), size_t(56), size_t(63), size_t(64), size_t(65), size_t(119), size_t(128), size_t(300)}) {
+    if (!ok) break;
+    uint8_t a[32], b[32];
+    tl_sha_mode = 1; crypto::hash(Hash::Sha256, msg, len, a);
+    tl_sha_mode = 0; crypto::hash(Hash::Sha256, msg, len, b);
+    ok = std::memcmp(a, b, 32) == 0;
+  }
+  tl_sha_mode = -1;
+  return ok;
+}
+}  // namespace
+#endif
 
 void HashCtx::update(const void* data, size_t n) {
   const uint8_t* p = static_cast<const uint8_t*>(data);

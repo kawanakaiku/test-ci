@@ -2,7 +2,7 @@
 # BlockTransform (BitLocker / LUKS の読み取り専用復号) と暗号プリミティブ。docs/crypto-volumes.md
 # core/CMakeLists.txt の末尾から include される。usbmem_core にだけ依存する (Android 非依存・PC でテスト可能)。
 add_library(usbmem_transform STATIC
-  src/crypto_hash.cpp src/crypto_aes.cpp src/crypto_argon2.cpp
+  src/crypto_hash.cpp src/crypto_aes.cpp src/crypto_aes_hw.cpp src/crypto_sha_hw.cpp src/crypto_argon2.cpp
   src/transform.cpp src/transform_bitlocker.cpp src/transform_luks.cpp src/mini_json.cpp src/c_api_transform.cpp)
 target_include_directories(usbmem_transform PUBLIC include)
 target_link_libraries(usbmem_transform PUBLIC usbmem_core)
@@ -13,6 +13,13 @@ if(USBMEM_BUILD_TESTS)
   target_include_directories(usbmem_transform_tests PRIVATE tests src)
   target_link_libraries(usbmem_transform_tests PRIVATE usbmem_transform)
   add_test(NAME crypto_unit COMMAND usbmem_transform_tests)
+  # 復号ボリュームの読み取り速度のマイクロベンチ (遅延つき模擬デバイス。ctest には入れない。docs/crypto-volumes.md 6.4)
+  add_executable(usbmem_transform_bench tests/bench_transform.cpp)
+  target_link_libraries(usbmem_transform_bench PRIVATE usbmem_transform)
+  if(TARGET usbmem_btrfs)
+    target_link_libraries(usbmem_transform_bench PRIVATE usbmem_btrfs)
+    target_compile_definitions(usbmem_transform_bench PRIVATE USBMEM_BENCH_BTRFS=1)
+  endif()
 endif()
 
 # 復号 → 既存 FS 実装への結合検証ツール (LinuxCompat 版 FS が有効なビルドのみ)

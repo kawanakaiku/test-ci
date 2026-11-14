@@ -389,7 +389,7 @@ tools/run_android_real_usb_verify.sh --serial <adb serial> [--devices 0930:6544[
 - 3 本の合計で、**失敗した FS は無い** (BitLocker 風を除く)。XFS / Btrfs / F2FS / squashfs / erofs / UDF / ISO の symlink 4 つ (相対・ディレクトリ・ぶら下がり・日本語名) のリンク先も一致した (`readlink` 未対応で確認できなかったものは 0)。BMP 外の文字 `𠮷`、NFC / NFD の濁点、半角カナ、255 バイト近い名前、20 階層、疎ファイル、大文字小文字違いの同名も全て一致 (FS が持つもの)。
 - A / B の FAT32 の「余分」6 つは、USB を挿したとき OS (vold) が FAT32 だけ自動マウントして作ったもの (**テスト実行前にあったもの**)。アプリは OS のマウント中は USB を開かないので、テスト中に増えたものではない。なお、アプリが USB を閉じるたびに OS が FAT32 を再マウントすることがあり (実機の端末の挙動)、次の実行の前に `sm unmount public:X,Y` が必要だった。
 - **BitLocker 風 (C の p5)**: 当初は `corrupt: ボリュームヘッダの退避位置が不正です` で解錠できなかった。原因は合成ライターが「暗号化済みボリュームのサイズ」に退避領域を含めていなかったこと (docs/crypto-volumes.md 6.1)。修正して p5 だけ作り直して書き込み (PC 側では libbde の `bdemount` で復号 → NTFS を全ツリー照合して一致)、J9260 の実機で `synth-Password-1` により解錠・全件一致を確認した (J9260、読み取り専用)。LUKS2 は argon2id の鍵導出込みで 20.6 s、解錠してから中の ext4 を全ファイル照合できた。
-- **遅い読み取り**: Btrfs は 9 MB/s (同じ USB の XFS は 28.8 MB/s、4.5 GiB のファイルを 1 本読むのに 9 分)、LUKS2 は 4.5 MB/s (AES-XTS を ARM でソフトウェア計算、ARMv8 Crypto Extensions の高速パスは未実装。`docs/crypto-volumes.md` 6.3 の見積もり 25〜60 MB/s を大きく下回る)。正しさには影響しないが、実用上の改善候補。
+- **遅い読み取り**: Btrfs は 9 MB/s (同じ USB の XFS は 28.8 MB/s、4.5 GiB のファイルを 1 本読むのに 9 分)、LUKS2 は 4.5 MB/s、BitLocker は 0.5 MB/s。原因は、実機試験の APK が `assembleDebug` でネイティブコードが最適化なし (-O0) だったこと (5〜8 倍遅い)、暗号ボリュームの 32 KiB キャッシュが小さい読みを 8 倍に増幅していたこと、AES / SHA-256 / Btrfs の CRC32C がハードウェア命令を使っていなかったこと。Debug でも `-O2` を付け、キャッシュ・先読みを作り直し、AES / SHA-256 / CRC32C に命令版を足した (`docs/crypto-volumes.md` 6.4)。ホストの模擬デバイスでの測定のみで、**実機での再測定は未実施** (次回の実機試験で BitLocker / LUKS2 / Btrfs の読み取り速度を測り直すこと)。正しさには影響しない。
 
 3 本を**同時に開いて並列に読んだ**結果 (3 回試みた。うち 1 回は電池残量の都合で途中で止めた):
 

@@ -16,6 +16,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "usbmem/block_device.h"
@@ -40,7 +41,7 @@ struct OpenOptions {
   // LUKS の PBKDF2 反復回数 / Argon2 時間コストの上限。超える keyslot は試さない (壊れた/悪意あるヘッダで何分も固まらないように)。
   uint32_t max_pbkdf2_iterations = 20000000;
   uint32_t max_argon2_time_cost = 64;
-  // 復号済みセクタのキャッシュ (チャンク数 × 32 KiB)。0 で既定 (32)。
+  // 復号済みセクタのキャッシュ (チャンク数 × 32 KiB)。0 で既定 (128 = 4 MiB)。
   uint32_t cache_chunks = 0;
   const CancelToken* cancel = nullptr;  // KDF (数秒かかりうる) の途中でキャンセル確認
 };
@@ -95,23 +96,33 @@ class DecryptingDevice : public BlockDevice {
   BlockDevicePtr base_;
 
  private:
-  struct Chunk {
-    uint64_t index;
+  // 復号済みデータのキャッシュは「ページ」単位 (page_bytes_ = max(4096, セクタ))。小さい読み (キャッシュ経由) の欠けたページは、
+  // 必要なページに加えて、連続読みと判定したときだけ先読みして 1 回の下位読み取りにまとめる (ランダム読みでは先読みしない)。
+  struct Page {
+    uint64_t index = 0;
     crypto::Secret data;
-    size_t len;
-    uint64_t stamp;
+    size_t len = 0;
+    uint64_t stamp = 0;
   };
-  Status read_chunk_locked(uint64_t index, const uint8_t** data, size_t* len, const IoOptions& opt);
+  struct Stream {  // 連続読みの追跡 (最大 4 本。NTFS のメタデータとデータのように交互に読まれても追えるように)
+    uint64_t next = UINT64_MAX;  // 次に続くはずのページ
+    uint32_t ra = 0;             // 現在の先読みページ数
+    uint64_t stamp = 0;
+  };
+  // 読み取り要求 [first_page, last_page] を追跡し、欠けたときの先読みページ数を返す (cache_mu_ を持って呼ぶ)
+  uint32_t track_stream_locked(uint64_t first_page, uint64_t last_page, bool* sequential);
   uint64_t size_;
   uint32_t sector_;
-  uint32_t chunk_bytes_;
-  uint32_t max_chunks_;
+  uint32_t page_bytes_;
+  uint32_t max_pages_;
   std::string desc_;
   std::shared_mutex life_;  // 共有: I/O、排他: close
   bool closed_ = false;
   bool wiped_ = false;
   std::mutex cache_mu_;
-  std::vector<Chunk> cache_;
+  std::vector<Page> pages_;
+  std::unordered_map<uint64_t, uint32_t> page_map_;  // ページ番号 -> pages_ の添字
+  Stream streams_[4];
   uint64_t tick_ = 0;
 };
 

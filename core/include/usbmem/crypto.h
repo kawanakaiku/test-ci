@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // 暗号プリミティブ (BitLocker / LUKS の読み取り復号用)。外部ライブラリに依存しない小さな自前実装 (docs/crypto-volumes.md)。
 // 正しさは tests/crypto_vectors.inc (Python cryptography / hashlib / argon2-cffi / openssl の出力) との一致で固めている。
-// 秘密データを扱う型は破棄時にゼロ化する (Secret)。ハードウェア命令は使わない (どの ABI でも動く。速度は docs に記録)。
+// 秘密データを扱う型は破棄時にゼロ化する (Secret)。AES は表引きの基準実装に加え、CPU が持てば AES-NI / ARMv8 Crypto Extensions を使う
+// (起動時の自己テストで表引き版と一致したときだけ。どの ABI でも動く。速度は docs/crypto-volumes.md 6.3 / 6.4)。
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -45,6 +46,11 @@ class Secret {
 };
 
 // ---- ハッシュ / HMAC / PBKDF2
+// SHA-256 の圧縮関数は、CPU に SHA 命令 (x86 SHA-NI / ARMv8 SHA2) があり自己テストに通れば命令版を使う。
+bool sha256_hw_supported();
+void sha256_set_hw_enabled(bool on);  // 診断・比較用 (既定 true)
+// SHA-256 の圧縮関数を直接呼ぶ (st = 状態 8 ワード、blocks = 64 バイト × n。パディングは呼び出し側)。
+void sha256_compress(uint32_t st[8], const uint8_t* blocks, size_t n);
 enum class Hash { Sha1, Sha256, Sha512 };
 size_t hash_size(Hash h);
 size_t hash_block_size(Hash h);
@@ -71,21 +77,36 @@ void hmac(Hash h, const uint8_t* key, size_t klen, const uint8_t* data, size_t d
 bool pbkdf2(Hash h, const uint8_t* pw, size_t pwlen, const uint8_t* salt, size_t slen, uint32_t iterations, uint8_t* out, size_t outlen);
 
 // ---- AES (鍵長 16/24/32 バイト)
+struct AesHw;
 class Aes {
  public:
   Aes() = default;
   ~Aes() { secure_zero(this, sizeof *this); }
   Aes(const Aes&) = delete;
   Aes& operator=(const Aes&) = delete;
-  bool set_key(const uint8_t* key, size_t len);  // 不正な鍵長は false
+  // 不正な鍵長は false。CPU に AES 命令があり自己テストに通っていれば、以後の暗号化・復号はハードウェア命令で行う。
+  bool set_key(const uint8_t* key, size_t len);
+  bool set_key_sw(const uint8_t* key, size_t len);  // 常に表引き実装 (テスト・ベンチ・自己テスト用)
   bool ready() const { return rounds_ != 0; }
+  bool hw() const { return hw_; }  // この鍵がハードウェア命令を使うか
   void clear() { secure_zero(this, sizeof *this); }  // 鍵表をゼロ化 (ready() == false に戻る)
   void encrypt_block(const uint8_t in[16], uint8_t out[16]) const;
   void decrypt_block(const uint8_t in[16], uint8_t out[16]) const;
+  // このビルド・CPU でハードウェア命令が使え、起動時の自己テストにも通ったか (set_key が使う条件)
+  static bool hw_supported();
+  // false にすると、以後の set_key はハードウェア命令を使わない (診断・比較用。設定済みの鍵には影響しない)
+  static void set_hw_enabled(bool on);
+
  private:
+  friend struct AesHw;
+  enum HwMode { kSwOnly = 0, kAuto = 1, kForce = 2 };
+  bool set_key_impl(const uint8_t* key, size_t len, HwMode mode);
   uint32_t ek_[60];
   uint32_t dk_[60];
   int rounds_ = 0;
+  bool hw_ = false;
+  alignas(16) uint8_t hek_[16 * 15];  // ハードウェア用の暗号側ラウンド鍵 (バイト列)
+  alignas(16) uint8_t hdk_[16 * 15];  // 同じく復号側 (等価逆暗号の鍵: 中間は InvMixColumns 済み)
 };
 
 // CBC 復号 (len は 16 の倍数)。in == out 可。

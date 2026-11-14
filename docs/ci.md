@@ -140,4 +140,5 @@ host-tests.yml の ctest に `cryptodisk_gen_fixture` / `cryptodisk_part` / `cry
 - フィクスチャ (約 430 MB) は `/dev/shm/usbmem_cryptodisk_$USER` (10 GB の tmpfs の step の後)。NTFS の中身を入れるための `ntfs-3g` の FUSE マウントは `_work` の下 (= `/dev/shm/**`) で、AppArmor の許可の対象。
 - 8 GiB の疎ディスクは `tools/ci/nbdfuse.sh` (nbdfuse_start/stop) で作る (`cryptodisk_high_offset`)。ファイルシステムには何も書かない。
 - 実 Windows 製の BitLocker (`USBMEM_WINBL_DIR`) は CI に無いので、その構成は走らない。
+- **結果**: run 43590409180 (最初の push): plain / san / wrel は成功 (cryptodisk 6 件とも Passed。plain で合計約 1.5 分、san で約 15 分: 異常系 39 件が 677 秒)。**wsan は 180 分の `timeout-minutes` で打ち切り** (cryptodisk 6 件は全て Passed。打ち切られたのは別の試験 `xfs_write` の途中で、wsan は元々 2.5 時間超かかる)。そこで `USBMEM_CRYPTODISK_JOBS=3` (ケースを 3 並列) にして異常系を短縮した。run 43605628654 (並列化後): **plain / san / wsan / wrel の 4 ジョブすべて成功** (所要 144 分、wsan が最長)。
 

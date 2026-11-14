@@ -54,7 +54,9 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         val fs = e.volume.fsName.uppercase()
         val mode = if (e.parentId != null) "読み取り専用・イメージ内" else if (!e.volume.writable) "読み取り専用" else if (e.volume.createOnly) "新規作成のみ・実験的" else "読み書き・実験的"
         val dev = e.deviceName?.let { " · USB " + UsbDeviceNaming.busLabel(it) } ?: ""
-        return "$fs ($mode)$dev"
+        // 暗号ボリュームを解錠した中の FS: 暗号化されていることと形式 (LUKS2 / BitLocker) を示す。ロックするとこのルートは消える
+        val enc = e.crypto?.let { " · 暗号化 " + it.format.ifBlank { "" } }?.trimEnd() ?: ""
+        return "$fs ($mode)$dev$enc"
     }
 
     /** "<id>:<path>" を分解し、ボリュームを返す。".." や "." を含むパスは拒否(パストラバーサル対策)。 */

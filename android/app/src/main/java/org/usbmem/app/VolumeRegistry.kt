@@ -142,7 +142,7 @@ object VolumeRegistry {
         val img = parent.volume.openImage(path)
         val v = try { img.mount(offsetBytes, sizeBytes, allowNoload) } catch (t: Throwable) { img.close(); throw t }
         parent.volume.pin(path)
-        val e = Entry(id, label, v, parentId, path) { img.close(); parent.volume.unpin(path) }
+        val e = Entry(id, label, v, parentId, path, closer = { img.close(); parent.volume.unpin(path) })
         volumes[id] = e
         return e
     }

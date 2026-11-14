@@ -151,6 +151,41 @@ J9260 (USB 2.0 級) の実機測定で、BitLocker 約 0.5 MB/s、LUKS2 約 4.5 
 
 **未了・限界**: 実機での再測定、aarch64 命令版の実行確認 (構文と命令選択のみ確認。x86 の自己テストと同じ内容が起動時に走るので、誤りがあれば表引きに落ちるだけで復号結果は壊れないが、速度は上がらない)、`ReadAheadDevice` の複数ストリーム対応、直接復号経路での復号と I/O のパイプライン化は未実施。ホストの ctest のうち `ntfs_gen_fixture` / `udf_gen_fixture` / `blockdev_fixtures` とその依存の計 12 件は、この環境のフィクスチャ生成 (mkntfs の排他オープン競合、sgdisk のハング) が原因で失敗しており、本変更とは無関係 (他のテストは全部通った)。
 
+### 6.5 「ディスク全体」の構成の試験 (2026-11-14)
+
+それまでの試験 (6.2) は暗号ボリューム単体 (`luksFormat` したファイルそのもの、実 Windows 製の BitLocker の 1 パーティション部分を `<off> <len>` で切り出したもの) を開くものが中心で、**ディスクイメージ → パーティション走査 → 暗号の検出 → 解錠 → 中の FS → ファイルツリー照合**を通した記録がホストになかった (実機 C の p4/p5 と Android の `RealUsbVerifyTest` だけ)。それを足した。
+
+**道具**
+- `core/compat/tests/test_cryptodisk.cpp` (`usbmem_cryptodisk_tests --scan <image> ...`): アプリの `RealUsb.mountPartition` と同じ順序。`read_partition_table` → 各パーティション (表がなければディスク全体) を `SubRangeDevice` にして `probe_crypto_volume` → 資格情報を順に試して `open_crypto_volume` (`AuthFailed` なら次の資格情報) → **復号済みデバイスをもう一度走査** (中にパーティション表があっても効く。入れ子もたどる、深さ 4 まで) → FS なら `probe_filesystem` → ext2/4・FAT・NTFS をマウントし、manifest と全件照合 (欠け・内容違い・manifest に無い余分なエントリ (`lost+found` と `System Volume Information` は除く) が 1 つでもあれば不一致)。ノードごとに結果 (`unlocked` / `auth-failed` / `unknown-fs` / `verified` / `partial` / `mismatch` ...) を出し、期待と突き合わせる。見つかったノードに期待が書かれていなければ失敗 (構成の取りこぼしを防ぐ。`--lenient` で緩める)。`safe` は「無いか、`mismatch` (誤った内容を見せる) でなければ可」で、切り詰め・破損の試験に使う。引数: `--cred [KEY=]pw:...`、`--cut N` (ディスクを N バイトで切る)、`--clip KEY=N` (パーティション表は無傷のままそのパーティションだけ N バイトに縮める)、`--poke OFF=HEX` (読み出し時にバイトを差し替える。イメージのファイルは変えない)。
+- `tools/gen_cryptodisk_fixtures.py`: 本物の `sgdisk` / `sfdisk` (GPT・MBR+拡張)、`cryptsetup luksFormat` (LUKS1 / LUKS2、`open --test-passphrase` で検証。ペイロードは既知のマスターキーで dm-crypt と同じ規則で暗号化)、`bitlocker_synth.py` (XTS-AES-128・パスワード、合成。実 Windows 製ではない)、`mke2fs -d` / `mkntfs` + `ntfs-3g` (FUSE) で、中身 (ボリュームごとに seed が違う 53 ファイル 4 ディレクトリ・日本語名・空ファイル・約 1 MiB のファイル) を持つ FS を作る。**資格情報はすべて使い捨て** (`cases.txt` に平文)。root 不要。`USBMEM_WINBL_DIR` に実 Windows 製の BitLocker イメージがあれば、それを GPT の p2 に入れた構成も足す (CI には無いので未実行)。
+- `tools/run_cryptodisk_tests.sh <tool> <group> [dir]` / `tools/run_cryptodisk_highoffset_test.sh <tool>` (nbdfuse)。ctest: `cryptodisk_gen_fixture`、`cryptodisk_part` / `_whole` / `_nested` / `_errors`、`cryptodisk_high_offset`。道具が無ければ SKIP (77)。CI は `USBMEM_CRYPTODISK_REQUIRE=1` で SKIP を失敗にする。
+
+**通した構成** (すべて ctest で全件一致)
+
+| 構成 | 中身 | 試験 (ctest) |
+|---|---|---|
+| GPT: p1 平文 ext4 / p2 LUKS2 argon2id→ext4 / p3 LUKS2 pbkdf2→ext4 / p4 LUKS1→ext4 / p5 BitLocker(合成)→NTFS / p6 平文 NTFS | 暗号パーティションが 4 つ。パスワードはそれぞれ別 | `part/gpt_all` (パーティションごとに資格情報を結び付け)、`part/gpt_all_shared_credentials` (全ノード共通のリストを逆順に渡し、AuthFailed のたびに次を試す) |
+| MBR: p1 LUKS2 argon2id / p2 LUKS1 (aes-cbc-essiv:sha256) / p3 BitLocker / 拡張 p4 { 論理 p5 LUKS2 pbkdf2 / 論理 p6 平文 ext4 } | 主・論理の両方に暗号パーティション | `part/mbr_all` |
+| ディスク全体が LUKS1 / LUKS2 argon2id / LUKS2 pbkdf2 (中は NTFS) / BitLocker (表なし。`read_partition_table` は whole_device_volume) | 中は ext4 / NTFS | `whole/w_*` |
+| ディスク全体が LUKS2 argon2id / LUKS1 / BitLocker(合成) で、中に GPT (p1 ext4・p2 NTFS) | 復号済みデバイスの走査 | `nested/wg_luks2`・`wg_luks1`・`wg_bitlocker` |
+| 同、LUKS2 pbkdf2 の中の GPT の p2 がさらに LUKS1 | 入れ子 (2 重の暗号) | `nested/wg_luks2_luks1` |
+| 8 GiB の疎ディスク (nbdfuse): p1 ext4 (1 MiB) / p2 空 4.25 GiB / **p3 LUKS2 (開始 4.27 GiB)** / **p4 BitLocker (4.29 GiB)** | 4 GiB を超えるバイトオフセット | `high_offset` |
+
+**異常系** (`errors`、39 件。上のイメージに引数だけ足す。いずれもクラッシュ・ハングなし、誤った内容 (`mismatch`) なし、他のパーティションに影響なし)
+- パスワード違い: 1 つだけ違う (GPT / MBR) → そのパーティションだけ `auth-failed`、残りは全件一致。全部違う → 暗号 4 つが `auth-failed`、平文 2 つは通る。資格情報なし → `no-credentials`。ディスク全体が暗号 (表なし・中に GPT) で違うパスワード → `auth-failed`。
+- 先頭だけ壊れたヘッダ: LUKS2 主ヘッダの JSON 1 バイト (チェックサム不一致) → 副ヘッダで開いて全件一致。LUKS2 主ヘッダのマジックを消す → `unknown-fs` (副ヘッダだけから開く経路は無い。他は無傷)。LUKS1 のマジックを消す / BitLocker の `-FVE-FS-` を消す → `unknown-fs` (2 つ同時も)。LUKS1 の mk-digest を壊す → `auth-failed`。**BitLocker のメタデータ 1 つ目のブロックヘッダを壊す → 残りのコピーで開いて全件一致 (下の不具合 2)**。GPT の先頭ヘッダ / エントリ配列を壊す → 予備の GPT から復元して全件一致 (`gpt-backup`)。MBR の 55 AA を消す → 表なし扱いで `unknown-fs`。
+- 切り詰め: `--clip` で暗号パーティションだけ途中までにする (LUKS2 のヘッダ内・ペイロード途中・ペイロード末尾 4 MiB 不足、LUKS1 同、BitLocker の途中・メタデータの 2 つ目のコピーの途中) → ヘッダが足りなければ `corrupt`、ヘッダは揃いペイロードが足りなければ `unlocked` だが中の FS は `mount-failed`。**BitLocker はメタデータの 2 つ目のコピーの途中で切れていても (1 つ目 + ボリュームヘッダ退避領域が無傷なので) 開けて全件一致**。MBR の論理パーティションも同様。`--cut` でディスク全体を切る: MBR は切り詰め位置より前に収まるパーティションが残り (超えるものは `subrange-failed:out-of-range`)、**GPT は予備ヘッダが無くなり先頭ヘッダの last usable LBA がディスクの外になるため、表全体が使えない (何も見せない。安全側)**。
+
+**見つけた不具合 (製品コード、2 件。どちらも回帰テスト付き)**
+1. `read_partition_table` が、表なしの **LUKS1 全体**を MBR と誤認することがある。LUKS1 ヘッダの 510-511 バイト目は未使用 keyslot の salt (乱数) で、1/65536 で `55 AA` になる。そのときパーティション 0 個の MBR と判定され、暗号ボリュームが見つからなかった (`whole/w_luks1_mbr_signature_lookalike`、ユニットテスト `whole_disk_luks1_with_mbr_signature_lookalike_is_not_an_mbr`)。LUKS のマジックで始まるセクタ 0 は MBR として解析しないようにした (`core/src/partition.cpp`)。
+2. BitLocker のメタデータ 3 コピーのうち**先頭のコピーのブロックヘッダ (ボリュームヘッダ退避位置・暗号化済みサイズ) だけが壊れていると**、中身 (保護エントリ) が同じ 2 つ目以降のコピーが「重複」として捨てられ、壊れたヘッダの 1 つ目で `Corrupt` ("ボリュームヘッダの退避位置が不正です") になっていた。ドキュメント (3 章) の「壊れたコピーは飛ばして残りで読む」と食い違う。退避位置が範囲外のコピーは壊れたコピーとして飛ばし、ブロックヘッダの値が違うコピーは重複として捨てないようにした (`core/src/transform_bitlocker.cpp`、`errors/gpt_bitlocker_metadata_copy1_corrupt`)。実 Windows 製イメージは従来どおり検査を通る値 (退避位置は後段の検査と同じ条件より緩い) なので影響しない想定だが、**手元・CI に実イメージが無いため再確認していない**。
+
+**既知の限界 (この試験の範囲外・未了)**
+- 実 Windows 製の BitLocker をパーティション表の中に入れた構成は `USBMEM_WINBL_DIR` があるときだけ。**ホスト (CI) では未実行**。BitLocker の中身が実 Windows 製の構成は実機 C (J9260) では以前から通っている (docs/real-usb-testset.md)。
+- LUKS2 の主ヘッダのマジックだけ消えたイメージは、副ヘッダが無傷でも開かない (`unknown-fs`)。`cryptsetup` は副ヘッダから開けるが、このアプリは検出をマジックに頼る。必要になれば `probe_crypto_volume` が副ヘッダ (hdr_size 位置) も見る形にできる。
+- GPT のディスクを切り詰めたイメージは (上記のとおり) 表が使えず何も見えない。部分的に取れたイメージを開きたい要望があれば、予備ヘッダなしでも先頭ヘッダのエントリ配列から読む緩和が要る。
+- `android/.../RealUsbCommon.kt` の `mountPartition` は、解錠後に `nativeListPartitions(dec)` の**最初のパーティションの長さ**を使い、**オフセット 0 から** `mountDeviceRange` する。復号済みデバイスが表なし (開始 0) なら正しいが、中に GPT がある構成 (本節の 3 番目) ではパーティションの開始位置を使わないと誤る。本節の試験は core の層で通っており、この Kotlin のテスト補助 (UI はまだ無い) は触っていない。
+
 ## 7. 制限・未解決 (正直に)
 
 - **Elephant diffuser (0x8000/0x8001)**: 実 Windows 7/8 のボリュームは手元になく、**実機製では未検証**。独立実装 libbde が復号できる形に作り替えた合成イメージとのバイト一致だけを根拠にしている。AES-128 + diffuser の鍵データは 64 バイト (FVEK 16 + 詰め物 + tweak 16 + 詰め物) で、32 バイトのみのときは 16+16 と解釈する — 実機の配置は libbde の解釈に依る。
@@ -174,6 +209,8 @@ python3 -I tools/gen_luks_fixtures.py /dev/shm/usbmem_crypt_$USER/luks
 tools/winvhd/make_bitlocker_matrix.sh /dev/shm/usbmem_crypt_$USER/winbl <w11 のパス> [variant …]
 # 全部の結合検証 (libbde-utils があれば bdemount 比較も)
 tools/run_crypto_volume_tests.sh build/t/usbmem_cryptovol_tests
+# ディスク全体の構成 (パーティション表の中の暗号パーティション・表なし・中に GPT・異常系・nbdfuse の 4 GiB 超)。cryptsetup / sgdisk / mkntfs / ntfs-3g / python3 の cryptography・numpy が要る
+ctest --test-dir build/t -R cryptodisk
 # 暗号方式差し替え (Windows 7/8 方式を含む) と libbde との全バイト比較
 tools/bitlocker_retarget_matrix.sh build/t/usbmem_cryptovol_tests <実 BitLocker イメージ> <パーティション先頭> <パスワード>
 ```

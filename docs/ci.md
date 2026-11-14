@@ -131,3 +131,13 @@ nbdfuse_stop "$NBDFUSE_ROOT/c"
 確認 (`tools/ci/nbdfuse_smoke.sh`、`.github/workflows/nbdfuse-smoke.yml`、run 43588211176、2026-11-14): ubuntu-latest で 40 GiB / 100 GiB のイメージ、39 GiB 付近の読み書き、`mkfs.xfs` (agcount 4) が通り、nbdkit の常駐メモリは 6 MiB。手元 (tmpfs) でも 40 GiB で 9 MiB。ルート権限は要らない。マウントポイントは `NBDFUSE_ROOT` (既定 `/dev/shm/nbdfuse`) の下に作る。
 
 次の段階: 大きなイメージを使う既存の試験 (host-tests の XFS / Btrfs の大きなフィクスチャ、`xfs-write.yml` など) をこの関数に載せ替える、実際の XFS / Btrfs のイメージを nbdkit に載せてアプリの NBD クライアントで読み書きする通し試験を足す。
+
+## 暗号ボリュームの「ディスク全体」の試験 (cryptodisk_*、2026-11-14)
+
+host-tests.yml の ctest に `cryptodisk_gen_fixture` / `cryptodisk_part` / `cryptodisk_whole` / `cryptodisk_nested` / `cryptodisk_errors` / `cryptodisk_high_offset` が入った (4 構成すべてで走る)。内容と結果は docs/crypto-volumes.md 6.5。CI 側の要点:
+- 道具: `cryptsetup-bin gdisk fdisk e2fsprogs ntfs-3g (FUSE) nbdkit libnbd-bin` は既にあり、`python3-cryptography python3-numpy` を apt に足した (LUKS のペイロード暗号化と `bitlocker_synth.py` が使う。無いと既存の `crypto_volume_fixtures` (LUKS 35 ケース) も黙って SKIP になっていたはずなので、そちらも効くようになる)。
+- `USBMEM_CRYPTODISK_REQUIRE=1` を ctest の step の env に渡し、道具が無いときは SKIP ではなく失敗にする。
+- フィクスチャ (約 430 MB) は `/dev/shm/usbmem_cryptodisk_$USER` (10 GB の tmpfs の step の後)。NTFS の中身を入れるための `ntfs-3g` の FUSE マウントは `_work` の下 (= `/dev/shm/**`) で、AppArmor の許可の対象。
+- 8 GiB の疎ディスクは `tools/ci/nbdfuse.sh` (nbdfuse_start/stop) で作る (`cryptodisk_high_offset`)。ファイルシステムには何も書かない。
+- 実 Windows 製の BitLocker (`USBMEM_WINBL_DIR`) は CI に無いので、その構成は走らない。
+

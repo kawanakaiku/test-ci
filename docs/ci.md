@@ -114,3 +114,20 @@ Java は Temurin 17、Gradle は 9.0.0 (ラッパー)、NDK 30.0.16248370、CMak
 | `erofs_fuzz` (fixture が直ってから顕在化) | **製品コードの不具合**: マウント失敗時の後始末 (`get_tree_bdev` の失敗経路) が inode を先に解放してから `erofs_kill_sb` を呼ぶため、`erofs_drop_internal_inodes` が解放済みの packed inode を `iput` する (UAF・二重解放)。ルート inode の読み込みだけが失敗する壊れたイメージ (`bogus i_mode`) で起きる。fragments (packed inode) のイメージが対象 | erofs だけ `kill_sb` を先に呼ぶ (rt_core.c)。回帰テストを `erofs_corrupt` に追加 (ルート inode の i_mode を 0 にしてチェックサムを無効にした 5 イメージ。ASan で修正前の UAF を再現) |
 
 確認 (2026-11-14): 修正後の `usbmem-ci-hosttests` ブランチで Host tests (run 43572195880) は plain / san / wsan / wrel の 4 構成すべて成功 (plain 130 件、wrel 148 件)。同じブランチの Android emulator tests (run 43572195885) も 5 ジョブすべて成功。変更したのは host-tests.yml だけなので、btrfs-write・xfs-write は影響を受けない (どちらも自分のブランチでしか動かない)。
+
+## 大きな疎イメージは nbdfuse で作る (`tools/ci/nbdfuse.sh`)
+
+大きなテスト用イメージ (C 相当の 29 GiB、XFS の `large`、Btrfs の 4.5 GiB 入りなど) を runner のディスクや `/dev/shm` に疎ファイルとして置くと、ディスク不足か `/dev/shm` のユーザークォータ (EDQUOT) に当たる。代わりに `nbdfuse` + `nbdkit memory allocator=sparse` で作る。ファイルシステムには書かず、触れたページだけプロセスのメモリに持つ。手元でも同じ手順を使う (Data の NTFS に大きな書き込みをしない)。
+
+```sh
+. tools/ci/nbdfuse.sh
+nbdfuse_install            # CI のみ: nbdkit / libnbd-bin / fuse3
+nbdfuse_apparmor           # CI のみ: fusermount3 の FUSE マウントを許可 (host-tests.yml と同じ対処)
+nbdfuse_start "$NBDFUSE_ROOT/c" 31G     # $NBDFUSE_ROOT/c/nbd が 31 GiB の疎ファイル
+...                                      # mkfs / テスト
+nbdfuse_stop "$NBDFUSE_ROOT/c"
+```
+
+確認 (`tools/ci/nbdfuse_smoke.sh`、`.github/workflows/nbdfuse-smoke.yml`、run 43588211176、2026-11-14): ubuntu-latest で 40 GiB / 100 GiB のイメージ、39 GiB 付近の読み書き、`mkfs.xfs` (agcount 4) が通り、nbdkit の常駐メモリは 6 MiB。手元 (tmpfs) でも 40 GiB で 9 MiB。ルート権限は要らない。マウントポイントは `NBDFUSE_ROOT` (既定 `/dev/shm/nbdfuse`) の下に作る。
+
+次の段階: 大きなイメージを使う既存の試験 (host-tests の XFS / Btrfs の大きなフィクスチャ、`xfs-write.yml` など) をこの関数に載せ替える、実際の XFS / Btrfs のイメージを nbdkit に載せてアプリの NBD クライアントで読み書きする通し試験を足す。

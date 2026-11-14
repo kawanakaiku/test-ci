@@ -114,6 +114,8 @@
   - [ ] 未実装 (既定で無効): Full の操作 (unlink / rmdir / rename / truncate / link)、ノード形式ディレクトリ (約 500 エントリ/ディレクトリが上限)、dirty log の再生、4Kn、dirblklog>0、ストライプ、クォータ、rmapbt (新しい mkfs.xfs の既定。7.x で確認)、外部ログ、リアルタイム、V4、reflink 共有ブロックの上書き (CoW)、実機 USB での確認。
 - [x] **実機の読み取りが遅い問題を解消 (2026-11-14)**: 原因は実機試験 APK のネイティブコードが -O0 だったこと + 暗号ボリュームの 32 KiB キャッシュ + ハードウェア命令の未使用。-O2・キャッシュ/先読み・AES/SHA-256/CRC32C の命令版で、J9260 の実測は Btrfs 9.0→44.0 MB/s、LUKS2 4.5→33.1 MB/s、BitLocker 0.5→6.5 MB/s (C の p2/p4/p5、全件一致)。詳細は docs/crypto-volumes.md 6.4 と docs/real-usb-testset.md。実機に入れる APK は GitHub Actions の `build-apk` (usbmem-ci-apk) で作る。
 - [x] **上流 (mkfs) の機能追従を検査する仕組み (2026-11-14)**: `tools/check_mkfs_defaults.py` + `tools/fs_feature_matrix.json` + `.github/workflows/mkfs-defaults.yml` (ubuntu-latest と Arch の最新ツール)。最新の mkfs の既定のフラグが対応表に無ければ失敗、書き込めない機能が既定なら「既知の穴」として報告。現状の穴は XFS の `rmapbt` / `parent_pointer` (mkfs.xfs 7.x の既定)。方針と手順は docs/fs-feature-matrix.md。
+- [x] **CI で nbdfuse の疎イメージを使う共通関数 (2026-11-14)**: `tools/ci/nbdfuse.sh` + `tools/ci/nbdfuse_smoke.sh` + `.github/workflows/nbdfuse-smoke.yml` (100 GiB でも nbdkit の常駐メモリ 6 MiB、run 43588211176)。docs/ci.md 参照。
+- [ ] CI の大きなイメージを使う試験 (host-tests の XFS / Btrfs の大きなフィクスチャ、xfs-write.yml など) を `tools/ci/nbdfuse.sh` に載せ替える。実際の XFS / Btrfs のイメージを nbdkit に載せてアプリの NBD クライアントで読み書きする通し試験を足す (XFS Full の作業が終わってから)。
 
 進行中のファイルシステム移植 (別の worktree): FAT/vfat・isofs・udf (統合済み)、squashfs・erofs (検証中)。
 

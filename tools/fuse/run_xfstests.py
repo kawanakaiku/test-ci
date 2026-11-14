@@ -125,7 +125,7 @@ def main():
         if fsck:
             f.write("USBMEM_FUSE_FSCK='%s >>%s.out 2>&1'\n" % (fsck, fsck_log))
             f.write("USBMEM_FUSE_FSCK_LOG=%s\n" % fsck_log)
-        if os.environ.get("USBMEM_FUSE_TRACE"):
+        if os.environ.get("USBMEM_FUSE_TRACE") == "1":
             f.write("USBMEM_FUSE_TRACE=1\n")
     shutil.copy(os.path.join(HERE, "mount.fuse.usbmem"), "/sbin/mount.fuse.usbmem")
     os.chmod("/sbin/mount.fuse.usbmem", 0o755)
@@ -180,6 +180,8 @@ def main():
         dt = time.time() - t0
         base = os.path.join(results_dir, t)
         r = dict(seconds=round(dt, 1))
+        if a.fs in ("ext2", "ext4"):
+            r["state_after"] = {k: re.sub(r"\s+", " ", sh("dumpe2fs -h %s 2>/dev/null | grep -i 'state\\|features'" % v, shell=True).stdout.strip()) for k, v in imgs.items()}
         if hung:
             r["status"] = "hang"
             r["detail"] = out[-1500:]
@@ -202,6 +204,7 @@ def main():
             if not det:
                 det = out[-1500:]
             r["detail"] = det[:4000]
+            r["procs"] = sh("pgrep -a usbmem_fuse; mount | grep -c fuse", shell=True).stdout[:500]
             r["full_tail"] = read_tail(full, 25)[-2500:]
         # アンマウント時の fsck の失敗 (テストが pass でも記録する)
         newlog = read_tail(fsck_log, 100000).splitlines()[fsck_before:]

@@ -28,6 +28,20 @@ command -v python3 >/dev/null && python3 -c "import cryptography" 2>/dev/null ||
 if ! command -v cryptsetup >/dev/null; then echo "skip: cryptsetup missing" >&2; exit 77; fi
 CI=$HERE/crypt_indep.py
 head -c 12582912 /dev/urandom > "$W/plain12.bin"
+# libbde は復号した論理先頭セクタを NTFS ブートセクタ (BPB) として読み、ボリューム長をそこから決める。乱数のままだと実行ごとに長さが
+# 変わり、モデルより短いと bdemount の出力が途中で EOF になる (CI で観測: 毎回違うオフセットで cmp: EOF)。先頭 512 バイトだけ妥当な BPB にする
+# (書き込み試験は --keep-boot で、この 512 バイトを保ったまま、退避先へ写す経路を乱数データで叩く)。
+python3 -I - "$W/plain12.bin" <<'PYEOF'
+import struct, sys
+p = sys.argv[1]
+b = bytearray(open(p, "rb").read(512))
+b[0:3] = b"\xeb\x52\x90"; b[3:11] = b"NTFS    "
+struct.pack_into("<H", b, 0x0B, 512); b[0x0D] = 8; struct.pack_into("<H", b, 0x0E, 0); b[0x10:0x15] = b"\0" * 5; b[0x15] = 0xF8
+struct.pack_into("<H", b, 0x13, 0); struct.pack_into("<I", b, 0x20, 0)
+struct.pack_into("<Q", b, 0x28, 12582912 // 512 - 1)
+b[510:512] = b"\x55\xaa"
+with open(p, "r+b") as f: f.write(b)
+PYEOF
 head -c 8388608 /dev/urandom > "$W/plain8.bin"
 printf 'cw-test-passphrase-1' > "$W/pw"
 
@@ -125,9 +139,10 @@ PYEOF
           att=$((att + 1))
           bdemount -p "$PWBL" "$W/bl$m.w.img" "$W/mnt" >/dev/null 2>&1 || { fail "bl$m: bdemount cannot open the written image"; bl_ok=2; break; }
           cmpout=$(cmp -n $PL "$W/mnt/bde1" "$W/bl$m.model" 2>&1) && r=0 || r=1
+          bsz=$(stat -c %s "$W/mnt/bde1" 2>/dev/null)
           fusermount3 -u "$W/mnt"
           if [ $r = 0 ]; then bl_ok=1; break; fi
-          echo "$cmpout"
+          echo "$cmpout (libbde が示すボリューム長 ${bsz:-?}、モデル $PL、モデル先頭 BPB: $(head -c 64 "$W/bl$m.model" | xxd -p | tr -d '\n' | cut -c1-96))"
           case $cmpout in *"EOF on"*) echo "     WARN: bl$m: libbde の読み出しが短い (試行 $att/3)"; sleep 2 ;; *) break ;; esac
         done
         if [ $bl_ok = 1 ]; then echo "     libbde bdemount output == model ($PL bytes)$([ $att -gt 1 ] && echo " (試行 $att 回目で一致)")"

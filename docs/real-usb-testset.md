@@ -401,7 +401,9 @@ tools/run_android_real_usb_verify.sh --serial <adb serial> [--devices 0930:6544[
 
 #### 書き込み試験の状況
 
-`RealUsbWriteTest` は実装・ビルド済みだが、**実機 USB では未実行**。実行する場合は、`tools/run_android_real_usb_verify.sh --serial <serial> --write --devices 0930:6544 --part 1` のように 1 パーティションずつ。終わったら USB を PC に戻し、書き込み前後で壊れていないことを 11 の手順で確認する:
+`RealUsbWriteTest` は実機 USB で実行済み (2026-11-13〜14、J9260)。**A の p1 NTFS / p2 ext4 / p3 FAT32 / p4 exFAT、B の p1 FAT32 / p2 NTFS / p3 exFAT / p5 ext2 / p6 ext3、C の p1 XFS (CreateOnly) は、すべて合格**。PC に戻した後の独立検証 (読み取りのみ) も全部通った: `ntfsfix -n` / `e2fsck -fn` / `fsck.exfat -n` / `fsck.fat -n` はエラーなし、`verify --allow-extra` は元のファイルの不一致 0・試験フォルダの残骸なし (A: NTFS 3026 / ext4 3029 / exFAT 3023 ファイル、B: FAT32 3022 / NTFS 3026 (4.57 GiB) / exFAT 3024 / ext2・ext3 3028 ファイル)。B の p7 (ext4、`needs_recovery`) は書き込んでいない。C の XFS は PC 側でも `xfs_repair -n` と照合を通した。実機の USB が PC に刺さっていてネットワークが違うときは、`ssh home-notepc` 上で `sudo mount -o ro` して `verify` を走らせると、5 GiB 級の転送が要らない。
+
+再実行する場合は、`tools/run_android_real_usb_verify.sh --serial <serial> --write --devices 0930:6544 --part 1` のように 1 パーティションずつ。終わったら USB を PC に戻し、書き込み前後で壊れていないことを 11 の手順で確認する:
 
 ```sh
 sudo ntfsfix -n /dev/sdX1        # NTFS (-n は修復しない)

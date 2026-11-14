@@ -174,6 +174,8 @@ int cmd_rand(const std::string& img, const std::string& cred, uint64_t seed, int
     }
     if (len > S) len = S;
     if (off + len > S) off = S - len;
+    // 論理先頭 (BitLocker では退避先へ写される先頭 16 セクタ付近。LUKS ではデータ領域の先頭) は、一様乱数ではほとんど当たらないので、1/6 の確率で狙う
+    if (rnd(6) == 0) off = std::min<uint64_t>(rnd(17 * uint64_t(sec)), S - len);
     // キャッシュを温めてから書く (書き込みがキャッシュを正しく更新 / 無効化するか)
     if (rnd(3) == 0) {
       uint64_t w = rnd(S / 4096) * 4096;

@@ -79,6 +79,7 @@ def make(outdir, name, args, sqb, compressed):
         ex = os.path.join(td, "ex")
         r = subprocess.run(["fsck.erofs", "--extract=" + ex, "--no-preserve", img], capture_output=True, text=True)
         if r.returncode != 0:
+            shutil.rmtree(ex, ignore_errors=True)   # 1 回目が途中まで作った出力先が残ると、やり直しが "File exists" で失敗して本当の原因が隠れる
             r = subprocess.run(["fsck.erofs", "--extract=" + ex, img], capture_output=True, text=True)
         a, b = sq.tree_digest(tree), sq.tree_digest(ex)
         if a != b and os.environ.get("USBMEM_FIXTURE_LENIENT") == "1":

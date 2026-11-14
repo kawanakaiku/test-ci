@@ -140,3 +140,21 @@ nbdfuse_stop "$NBDFUSE_ROOT/c"
 - 前景の Bash に、gh を呼ぶ `until` / `while` を書かない。状況確認は `gh run view ID --json status,conclusion` の単発 (連打しない)。
 - `gh run view --log` で巨大なログを何度も取らない (1 回だけ、ファイルに落として grep)。
 - 用が済んだ待機は止める。新しい run を push したら、古い run の待機は不要。
+
+## Host tests の構成選びと並列実行 (待ち時間の短縮、2026-11-14)
+
+Host tests (`host-tests.yml`) は、ctest が 1 本ずつ直列で、wsan が 139 分、san 66 分、wrel 34 分、plain 23 分かかっていた (4 構成を同時に走らせても、最長の wsan で全体が決まる)。次の 2 つで短くした。
+
+1. **push で動く構成は、ブランチ名で決まる** (`plan` ジョブ)。
+
+   | ブランチ名 | 動く構成 |
+   |---|---|
+   | `usbmem-ci-<名前>` (通常) | plain / wrel (軽い 2 構成) |
+   | `usbmem-ci-full-<名前>` | plain / san / wsan / wrel (全部) |
+   | `usbmem-ci-only-<構成>` (例 `usbmem-ci-only-wsan`) | その 1 構成だけ |
+   | `workflow_dispatch` | 入力 `modes` (空白区切り、既定は全部) |
+
+   **統合前の最終確認は、`usbmem-ci-full-*` で 4 構成すべてを通すこと** (通常の push では san / wsan が走らない)。
+2. **ctest を並列 (`-j4`、`CTEST_JOBS` で変更可)**。FIXTURES / RESOURCE_LOCK が宣言済みなので依存は守られる。並列で落ちたテストは `ctest --rerun-failed` で直列にやり直し、直列で通れば警告 (`::warning::`) と step summary に出して通す (並列で干渉するテストの目印)。
+
+実測 (run 43597804995、`usbmem-ci-only-wsan`): wsan の ctest は **139 分 → 72 分** (run 全体 74 分)、並列で落ちたテストは無し (警告なし)。

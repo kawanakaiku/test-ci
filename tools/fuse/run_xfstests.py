@@ -186,7 +186,8 @@ def main():
             full = base + ".full"
             det = ""
             if os.path.exists(bad):
-                d = sh(["diff", "-u", base + ".out" if os.path.exists(base + ".out") else os.path.join(a.fstests, "tests", t + ".out"), bad]).stdout
+                exp = [x for x in (os.path.join(a.fstests, "tests", t + sfx) for sfx in (".out", ".out.default", ".out.nfs")) if os.path.exists(x)]
+                d = sh(["diff", "-u", exp[0], bad]).stdout if exp else ""
                 det += "".join(d.splitlines(True)[:60])
             if not det:
                 det = out[-1500:]

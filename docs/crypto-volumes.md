@@ -294,7 +294,7 @@ tools/run_crypt_mutation_tests.sh /tmp/mut                                   # �
 - diffuser 付きの書き込みは実 Windows 7/8 のイメージでは未確認。
 - BitLocker の 4Kn、dm-integrity、TPM のみ、複数 segment は書き込めない (拒否)。
 - 書き込んだ後に Windows で開いたときの挙動 (BitLocker のメタデータ・TPM 検証値の更新が不要なことの確認) は未確認。書き込むのはデータ領域と退避ヘッダの暗号化セクタだけで、FVE メタデータ・ブートセクタは変えない設計。
-- 負荷時に libbde の `bdemount` の読み出しが途中で切れる (EOF) のを 1 度観測した (ビルド実行中のローカル。再実行で消え、CI の結果は 9.8)。
+- libbde の `bdemount` の読み出しが途中で切れる (EOF) 現象の原因は負荷ではなく、試験の平文の先頭 512 バイトが乱数だったこと (libbde はそこを NTFS BPB として読む) だった。9.8 の「後から見つかった不具合」を参照。
 
 ### 9.8 結果
 
@@ -303,6 +303,17 @@ GitHub Actions `crypt-write.yml` (usbmem-crypt-write、ubuntu-latest) run **4359
 - `crypt write`: 単体テスト 23 件 0 失敗。LUKS 9 構成 × 3 seed × 800 操作 (LUKS1 / LUKS2、xts-plain64・cbc-essiv・cbc-plain64、512 / 4096 セクタ、pbkdf2 / argon2id) の乱数書き込みを、**実カーネルの dm-crypt** (sudo losetup + cryptsetup open、9 構成 × 3 seed = 27 件)・cryptsetup のマスターキー + Python cryptography の両方で復号してモデルと全バイト一致。BitLocker 6 方式 (XTS 128/256、CBC 128/256、diffuser 128/256) × 3 seed は bitlocker_synth.py での暗号化し直しと libbde bdemount の両方で一致。失敗注入・ファジング 300 回・非対応構成と変換途中の BitLocker の「書き込み要求 → 読み取り専用・イメージ不変」も成功。暗号層の上の FS: 20 ケース (ext4 / ext2 / NTFS / FAT × LUKS2-XTS 512 / LUKS2-XTS 4096 / LUKS1-CBC-ESSIV / BitLocker-XTS128、ext4 と NTFS は上書き・truncate・unlink を含む Full も LUKS2 と BitLocker-diffuser256 で) が全部 clean (e2fsck / ntfsfix / fsck.fat)・実カーネルの dm-crypt で復号したものを fuse2fs / ntfs-3g / 実カーネルの ext4・vfat が読んだツリーがモデルと一致。
 - `crypt mutation`: 10 種すべて検出 (単体テストで 4 種: CW_NO_CACHE_UPDATE / CW_NO_RMW_HEAD / CW_NO_FLUSH / CW_NO_LATCH、独立検証で 6 種: CW_LUKS_IV / CW_ALWAYS_WRITABLE / CW_BL_NO_VH_MAP / CW_BL_NO_HIDDEN_CHECK / CW_BL_PARTIAL / CW_DIFF_ORDER)。
 - `crypt san`: ASan + UBSan のビルドで単体テスト + `run_crypt_write_tests.sh` (乱数書き込み・失敗注入・ファジング 150 回) が成功。
+
+**最終ツリー (main の cryptdisk 統合 4b31502 を取り込み済み) の結果**:
+
+- `crypt-write.yml` run **43645188580** (usbmem-crypt-write): `crypt write` (実カーネル dm-crypt・libbde・上位 FS) / `crypt mutation` (10 種すべて検出) / `crypt san` の 3 ジョブすべて成功。
+- host-tests run **43631253032** (usbmem-ci-full-cryptwrite、4 構成): plain / san / wsan / wrel すべて成功 (crypt_write・crypt_fs_write は ctest に含まれる。host-tests には libbde が無いので libbde 比較は省かれる)。
+- 途中の失敗 run: 43591625837 (wrel: ctest が sh で起動、修正済み)、43605943790 (wsan: 直列実行で 180 分の上限。サニタイザ構成の操作数を減らし、並列 ctest に変更して解消)、43618994009 (mutation 9/10: 下記)、43620706470・43628485883・43631250487・43633643835 (libbde の EOF / 開けない: 下記)。
+
+後から見つかった不具合 (すべて試験側。製品コードではない):
+
+- `CW_BL_NO_VH_MAP` (退避先への写しを外した変異) が検出されないことがあった。乱数操作が論理先頭 16 セクタにほとんど当たらないため。`cryptwrite_tool rand` が 1/6 の確率で論理先頭付近を狙うようにして、毎回検出される (43620706470 で 10/10)。
+- libbde の `bdemount` 出力が実行ごとに違うオフセットで EOF になる (cmp: EOF) 失敗。オフセットは seed・方式によらず実行ごとに一定で、再試行でも直らなかったので、負荷による揺らぎではなかった。原因は `plain12.bin` が `/dev/urandom` そのままで、libbde が論理先頭セクタを NTFS BPB として読みボリューム長を決めることだった。手書きの BPB は libbde に開けないと拒否されたので、先頭 16 セクタを本物の `mkntfs` の出力にし、`rand` に `--keep-boot` (論理先頭 512 バイトの内容は保ったまま、退避先への写しの経路だけ叩く) を加えた。EOF のときは 2 回まで再試行し、失敗時には libbde が示すボリューム長を出す (内容の食い違いは即失敗)。
 
 ローカルで見つかって直した不具合 (回帰テストあり):
 

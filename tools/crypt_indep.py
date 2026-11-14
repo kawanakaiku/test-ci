@@ -79,9 +79,9 @@ def layout(img, pwfile):
         iv_tweak = int(seg.get("iv_tweak", "0"))
     else:
         d = run([CS, "luksDump", "--disable-locks", img])
-        off = int([l for l in d.splitlines() if l.startswith("Payload offset")][0].split(":")[1]) * 512
-        cname = [l for l in d.splitlines() if l.startswith("Cipher name")][0].split(":")[1].strip()
-        cmode = [l for l in d.splitlines() if l.startswith("Cipher mode")][0].split(":")[1].strip()
+        off = int([l for l in d.splitlines() if l.startswith("Payload offset")][0].split(":", 1)[1]) * 512
+        cname = [l for l in d.splitlines() if l.startswith("Cipher name")][0].split(":", 1)[1].strip()
+        cmode = [l for l in d.splitlines() if l.startswith("Cipher mode")][0].split(":", 1)[1].strip()
         mode, ss, iv_tweak = cmode, 512, 0
         assert cname == "aes"
     return off, ss, mode, mk, iv_tweak

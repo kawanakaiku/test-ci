@@ -16,6 +16,7 @@ struct FatVolume::Impl {
 std::unique_ptr<FatVolume> FatVolume::mount(BlockDevicePtr dev, int* err) { return mount_impl(std::move(dev), 1, err); }
 std::unique_ptr<FatVolume> FatVolume::mount_rw(BlockDevicePtr dev, int* err) { return mount_impl(std::move(dev), 0, err); }
 std::unique_ptr<FatVolume> FatVolume::mount_impl(BlockDevicePtr dev, int ro, int* err) {
+  if (!ro && dev && dev->is_read_only()) ro = 1;  // 下のデバイス (暗号層など) が読み取り専用なら、mount_rw でも読み取り専用でマウントする (ext4 の writable_precheck と同じ)
   std::unique_ptr<FatVolume> vol(new FatVolume());
   vol->impl_.reset(new Impl());
   vol->impl_->bd = usbmem_bdev_wrap(&dev);

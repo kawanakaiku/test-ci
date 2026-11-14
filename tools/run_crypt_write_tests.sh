@@ -12,7 +12,7 @@
 #       (3) メタデータ 3 コピーとブートセクタが不変、メタデータ領域への書き込みは ReadOnly で拒否
 #   変換途中の BitLocker・非対応 IV の LUKS は、書き込みを要求しても読み取り専用で開き、イメージ不変 (norw)
 #   下位の書き込み / flush の失敗 → 読み取り専用に落ちる (failinj)、壊れたヘッダ + 書き込み → クラッシュ・ヘッダ破壊なし (fuzzw)
-# 使い方: run_crypt_write_tests.sh <usbmem_cryptwrite_tool> [作業ディレクトリ] 環境変数: USBMEM_CW_OPS (既定 500)、USBMEM_CW_SEEDS (既定 "1 2")、USBMEM_CW_FUZZ (既定 80)
+# 使い方: run_crypt_write_tests.sh <usbmem_cryptwrite_tool> [作業ディレクトリ] 環境変数: USBMEM_CW_ONLY (luks / bl)、 USBMEM_CW_OPS (既定 500)、USBMEM_CW_SEEDS (既定 "1 2")、USBMEM_CW_FUZZ (既定 80)
 # 必要なもの: cryptsetup, python3 (cryptography; BitLocker は numpy も)。無ければ SKIP (終了コード 77)。bdemount が無ければ libbde 比較を省く。
 set -u
 export PATH="$PATH:/sbin:/usr/sbin"
@@ -66,6 +66,7 @@ luks_case() {
   rm -f "$W/$name.dec" "$W/$name.dec0" "$W/$name.w.img" "$img" "$W/$name.model"
 }
 
+if [ "${USBMEM_CW_ONLY:-}" != bl ]; then   # USBMEM_CW_ONLY=luks|bl: 片方だけ (突然変異テストが使う)
 luks_case l1_xts512      1 aes-xts-plain64     512 sha256 512  pbkdf2   plain12.bin
 luks_case l1_xts256_sha1 1 aes-xts-plain64     256 sha1   512  pbkdf2   plain8.bin
 luks_case l1_cbc_essiv   1 aes-cbc-essiv:sha256 256 sha256 512 pbkdf2   plain8.bin
@@ -85,9 +86,11 @@ for mode in aes-xts-plain aes-cbc-plain; do
   else echo "note: cryptsetup cannot format $mode here; skipped"; fi
   rm -f "$img"
 done
+fi
 
 # ---------------- BitLocker (合成: bitlocker_synth.py)
-if python3 -c "import numpy, cryptography" 2>/dev/null; then
+if [ "${USBMEM_CW_ONLY:-}" = luks ]; then :
+elif python3 -c "import numpy, cryptography" 2>/dev/null; then
   PL=12582912
   P=(--protect 0:8192 --protect $PL:65536 --protect $((PL+131072)):131072)          # ブート領域 (物理セクタ 0..15)・FVE メタデータ 3 コピー
   H=(--hidden $PL:65536 --hidden $((PL+65536)):8192 --hidden $((PL+131072)):65536 --hidden $((PL+196608)):65536)  # 0 に見えて書き込み拒否

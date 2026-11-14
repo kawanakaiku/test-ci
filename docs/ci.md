@@ -132,6 +132,17 @@ nbdfuse_stop "$NBDFUSE_ROOT/c"
 
 次の段階: 大きなイメージを使う既存の試験 (host-tests の XFS / Btrfs の大きなフィクスチャ、`xfs-write.yml` など) をこの関数に載せ替える、実際の XFS / Btrfs のイメージを nbdkit に載せてアプリの NBD クライアントで読み書きする通し試験を足す。
 
+## 暗号ボリュームの書き込み (`crypt-write.yml`、`usbmem-crypt-write` ブランチ)
+
+暗号層の書き込み (docs/crypto-volumes.md 9 章) の独立検証。`host-tests.yml` (`usbmem-ci*`) の単体テストに加えて、sudo + loop + `cryptsetup open` が要るものをここで行う。トリガは workflow_dispatch と `usbmem-crypt-write` への push。
+
+- `crypt write`: `USBMEM_NTFS=ON USBMEM_NTFS_WRITE=ON` のビルド → 単体テスト → カーネル dm-crypt の事前確認 → `tools/run_crypt_write_tests.sh` (`USBMEM_KERNEL_DMCRYPT=1`: LUKS の書き込み結果を実カーネルの dm-crypt で復号して cmp。BitLocker は libbde と bitlocker_synth.py) → `tools/run_crypt_fs_tests.sh` (暗号層の上の ext4 / ext2 / NTFS / FAT。実カーネルの ext4 / vfat でも ro マウントして照合)。
+- `crypt mutation`: `tools/run_crypt_mutation_tests.sh` (安全機構を外した 10 種のビルドがすべて検出される)。
+- `crypt san`: ASan + UBSan のビルドで単体テストと `run_crypt_write_tests.sh` (ファジング・失敗注入)。
+- 作業ディレクトリは `/tmp` (`USBMEM_WORK_DIR`)。`/dev/shm` はユーザークォータがあるので使わない。FUSE は AppArmor の都合で `/tmp` の下にだけマウントする。
+- ローカルで `sync` が止まる PC 用の `LD_PRELOAD=/tmp/nosync.so` は、ここにも各スクリプトにも入れない (CI には不要)。
+- 結果 (最終ツリー): crypt-write.yml run 43647958462 (3 ジョブ成功)、host-tests run 43647956713 (usbmem-ci-full-cryptwrite、plain / san / wsan / wrel 成功)。libbde 比較は、試験の平文の先頭 16 セクタが本物の NTFS (mkntfs) でないと、実行ごとに違うオフセットで EOF になる (docs/crypto-volumes.md 9.8)。host-tests には libbde が無いので、その比較は crypt-write.yml だけで動く。
+
 ## 暗号ボリュームの「ディスク全体」の試験 (cryptodisk_*、2026-11-14)
 
 host-tests.yml の ctest に `cryptodisk_gen_fixture` / `cryptodisk_part` / `cryptodisk_whole` / `cryptodisk_nested` / `cryptodisk_errors` / `cryptodisk_high_offset` が入った (4 構成すべてで走る)。内容と結果は docs/crypto-volumes.md 6.5。CI 側の要点:

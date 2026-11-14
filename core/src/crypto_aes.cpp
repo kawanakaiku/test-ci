@@ -175,6 +175,18 @@ void aes_cbc_decrypt(const Aes& k, const uint8_t iv[16], const uint8_t* in, uint
   }
 }
 
+void aes_cbc_encrypt(const Aes& k, const uint8_t iv[16], const uint8_t* in, uint8_t* out, size_t len) {
+  // CBC 暗号化は直列 (前のブロックの暗号文が次の入力) なので 1 ブロックずつ。in == out 可。
+  uint8_t prev[16], x[16];
+  std::memcpy(prev, iv, 16);
+  for (size_t o = 0; o + 16 <= len; o += 16) {
+    for (int i = 0; i < 16; i++) x[i] = uint8_t(in[o + i] ^ prev[i]);
+    k.encrypt_block(x, prev);
+    std::memcpy(out + o, prev, 16);
+  }
+  secure_zero(x, sizeof x);
+}
+
 namespace {
 inline void xts_mul_alpha(uint8_t t[16]) {
   uint8_t carry = uint8_t(t[15] >> 7);

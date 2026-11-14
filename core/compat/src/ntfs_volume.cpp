@@ -26,6 +26,7 @@ int NtfsVolume::truncate(uint64_t ino, uint64_t size) { return usbmem_ntfs_trunc
 int NtfsVolume::sync() { return usbmem_ntfs_sync(impl_->v); }
 int64_t NtfsVolume::write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len) { return usbmem_ntfs_write_inplace(impl_->v, ino, off, buf, len); }
 std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr dev, int ro, int* err) {
+  if (!ro && dev && dev->is_read_only()) ro = 1;  // 下のデバイス (暗号層など) が読み取り専用なら、mount_rw でも読み取り専用でマウントする (ext4 の writable_precheck と同じ)
   std::unique_ptr<NtfsVolume> vol(new NtfsVolume());
   vol->impl_.reset(new NtfsVolume::Impl());
   vol->impl_->bd = usbmem_bdev_wrap(&dev);

@@ -13,7 +13,7 @@ mkfs の既定が新しい機能を立てるようになると、その FS は�
                 --strict を付けたときだけ失敗として扱う (付けなければ 0 で、報告だけ)
             3 = 検査できなかった (mkfs が無い、など)。--only で絞ったとき以外は失敗
 
-イメージは一時ディレクトリ (既定は /dev/shm、無ければ TMPDIR) の疎ファイルに作る。root は要らない。
+イメージは一時ディレクトリ (/dev/shm に 2 GiB 以上の空きがあればそこ、無ければ TMPDIR) の疎ファイルに作る。root は要らない。
 """
 import argparse, json, os, shutil, struct, subprocess, sys, tempfile
 
@@ -124,7 +124,11 @@ def main():
     args = ap.parse_args()
     matrix = json.load(open(args.matrix, encoding="utf-8"))
     want = [x for x in args.only.split(",") if x] or list(PROBES)
-    tmp_root = "/dev/shm" if os.path.isdir("/dev/shm") and os.access("/dev/shm", os.W_OK) else None
+    tmp_root = None  # 既定は TMPDIR / /tmp。メモリ上 (/dev/shm) に十分な空きがあるときだけ、そちらを使う
+    if os.path.isdir("/dev/shm") and os.access("/dev/shm", os.W_OK):
+        st = os.statvfs("/dev/shm")
+        if st.f_bavail * st.f_frsize >= 2 << 30:
+            tmp_root = "/dev/shm"
     report, rc = {}, 0
     with tempfile.TemporaryDirectory(prefix="mkfsdef.", dir=tmp_root) as wd:
         for fs in want:

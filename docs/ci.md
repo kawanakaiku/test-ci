@@ -142,3 +142,30 @@ host-tests.yml の ctest に `cryptodisk_gen_fixture` / `cryptodisk_part` / `cry
 - 実 Windows 製の BitLocker (`USBMEM_WINBL_DIR`) は CI に無いので、その構成は走らない。
 - **結果**: run 43590409180 (最初の push): plain / san / wrel は成功 (cryptodisk 6 件とも Passed。plain で合計約 1.5 分、san で約 15 分: 異常系 39 件が 677 秒)。**wsan は 180 分の `timeout-minutes` で打ち切り** (cryptodisk 6 件は全て Passed。打ち切られたのは別の試験 `xfs_write` の途中で、wsan は元々 2.5 時間超かかる)。そこで `USBMEM_CRYPTODISK_JOBS=3` (ケースを 3 並列) にして異常系を短縮した。run 43605628654 (並列化後): **plain / san / wsan / wrel の 4 ジョブすべて成功** (所要 144 分、wsan が最長)。
 
+
+## CI の完了待ちは `tools/ci/gh_wait.sh` で 1 本だけ (CPU 暴走の再発防止)
+
+`until [ "$(gh run view ID ...)" = completed ]; do sleep 20; done` のような待機ループを前景の Bash で何度も起動すると、ツールのタイムアウトで背景に回された古いループが終了せずに溜まる (2026-11-14 に 30 本超、同じ run を 4 本で待つ例も)。固まった `gh` が 1 個あたり CPU 約 30% を 10 分以上使い続け、PC がほぼフリーズした。
+
+- 待つときは `tools/ci/gh_wait.sh RUN_ID [REPO] [INTERVAL秒] [MAX秒]` を **run_in_background で 1 本だけ**起動する。同じ run の二重起動は、ロックで即終了 (終了コード 3)。間隔は 60 秒以上 (既定 120 秒)、上限は 4 時間 (終了コード 4)。`gh` は 1 回ごとに `timeout 30` と `nice -n 19` で包む。
+- 前景の Bash に、gh を呼ぶ `until` / `while` を書かない。状況確認は `gh run view ID --json status,conclusion` の単発 (連打しない)。
+- `gh run view --log` で巨大なログを何度も取らない (1 回だけ、ファイルに落として grep)。
+- 用が済んだ待機は止める。新しい run を push したら、古い run の待機は不要。
+
+## Host tests の構成選びと並列実行 (待ち時間の短縮、2026-11-14)
+
+Host tests (`host-tests.yml`) は、ctest が 1 本ずつ直列で、wsan が 139 分、san 66 分、wrel 34 分、plain 23 分かかっていた (4 構成を同時に走らせても、最長の wsan で全体が決まる)。次の 2 つで短くした。
+
+1. **push で動く構成は、ブランチ名で決まる** (`plan` ジョブ)。
+
+   | ブランチ名 | 動く構成 |
+   |---|---|
+   | `usbmem-ci-<名前>` (通常) | plain / wrel (軽い 2 構成) |
+   | `usbmem-ci-full-<名前>` | plain / san / wsan / wrel (全部) |
+   | `usbmem-ci-only-<構成>` (例 `usbmem-ci-only-wsan`) | その 1 構成だけ |
+   | `workflow_dispatch` | 入力 `modes` (空白区切り、既定は全部) |
+
+   **統合前の最終確認は、`usbmem-ci-full-*` で 4 構成すべてを通すこと** (通常の push では san / wsan が走らない)。
+2. **ctest を並列 (`-j4`、`CTEST_JOBS` で変更可)**。FIXTURES / RESOURCE_LOCK が宣言済みなので依存は守られる。並列で落ちたテストは `ctest --rerun-failed` で直列にやり直し、直列で通れば警告 (`::warning::`) と step summary に出して通す (並列で干渉するテストの目印)。
+
+実測 (run 43597804995、`usbmem-ci-only-wsan`): wsan の ctest は **139 分 → 72 分** (run 全体 74 分)、並列で落ちたテストは無し (警告なし)。

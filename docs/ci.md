@@ -131,3 +131,13 @@ nbdfuse_stop "$NBDFUSE_ROOT/c"
 確認 (`tools/ci/nbdfuse_smoke.sh`、`.github/workflows/nbdfuse-smoke.yml`、run 43588211176、2026-11-14): ubuntu-latest で 40 GiB / 100 GiB のイメージ、39 GiB 付近の読み書き、`mkfs.xfs` (agcount 4) が通り、nbdkit の常駐メモリは 6 MiB。手元 (tmpfs) でも 40 GiB で 9 MiB。ルート権限は要らない。マウントポイントは `NBDFUSE_ROOT` (既定 `/dev/shm/nbdfuse`) の下に作る。
 
 次の段階: 大きなイメージを使う既存の試験 (host-tests の XFS / Btrfs の大きなフィクスチャ、`xfs-write.yml` など) をこの関数に載せ替える、実際の XFS / Btrfs のイメージを nbdkit に載せてアプリの NBD クライアントで読み書きする通し試験を足す。
+
+## 暗号ボリュームの書き込み (`crypt-write.yml`、`usbmem-crypt-write` ブランチ)
+
+暗号層の書き込み (docs/crypto-volumes.md 9 章) の独立検証。`host-tests.yml` (`usbmem-ci*`) の単体テストに加えて、sudo + loop + `cryptsetup open` が要るものをここで行う。トリガは workflow_dispatch と `usbmem-crypt-write` への push。
+
+- `crypt write`: `USBMEM_NTFS=ON USBMEM_NTFS_WRITE=ON` のビルド → 単体テスト → カーネル dm-crypt の事前確認 → `tools/run_crypt_write_tests.sh` (`USBMEM_KERNEL_DMCRYPT=1`: LUKS の書き込み結果を実カーネルの dm-crypt で復号して cmp。BitLocker は libbde と bitlocker_synth.py) → `tools/run_crypt_fs_tests.sh` (暗号層の上の ext4 / ext2 / NTFS / FAT。実カーネルの ext4 / vfat でも ro マウントして照合)。
+- `crypt mutation`: `tools/run_crypt_mutation_tests.sh` (安全機構を外した 10 種のビルドがすべて検出される)。
+- `crypt san`: ASan + UBSan のビルドで単体テストと `run_crypt_write_tests.sh` (ファジング・失敗注入)。
+- 作業ディレクトリは `/tmp` (`USBMEM_WORK_DIR`)。`/dev/shm` はユーザークォータがあるので使わない。FUSE は AppArmor の都合で `/tmp` の下にだけマウントする。
+- ローカルで `sync` が止まる PC 用の `LD_PRELOAD=/tmp/nosync.so` は、ここにも各スクリプトにも入れない (CI には不要)。

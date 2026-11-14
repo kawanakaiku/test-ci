@@ -1,11 +1,11 @@
-# 暗号化ボリューム (BitLocker / LUKS1 / LUKS2) の読み取り — 設計・検証・制限
+# 暗号化ボリューム (BitLocker / LUKS1 / LUKS2) の読み取りと書き込み — 設計・検証・制限
 
-状態: 実装済み (読み取り専用)。UI なし (別担当)。`core/` の `BlockTransform` 層 + C API + JNI + Kotlin ラッパ。
+状態: 読み取りは実装・検証済み。**書き込みは実験的に実装 (既定は無効。9 章)**。UI なし (別担当)。`core/` の `BlockTransform` 層 + C API + JNI + Kotlin ラッパ。
 
 ```
 BlockDevice (生の USB / パーティション / イメージ)
    └─ open_crypto_volume()      core/include/usbmem/transform.h
-        └─ 復号済みの読み取り専用 BlockDevice ─→ probe_filesystem / mount_auto (NTFS・ext2/4・FAT …)
+        └─ 復号済みの BlockDevice (既定は読み取り専用。書き込みは 9 章の条件を全部満たしたときだけ) ─→ probe_filesystem / mount_auto (NTFS・ext2/4・FAT …)
 ```
 
 ## 1. 方針と実装の選択 (ライセンス・移植性の比較と決定)
@@ -26,7 +26,7 @@ libbde / cryptsetup / nbdkit / qemu-img は「正解を知っている別実装�
 
 ## 2. 共通層 (`transform.h` / `transform.cpp`)
 
-- 書き込みは常に `Errc::ReadOnly`。`flush` は何もしない。`is_read_only() == true`。
+- 書き込みは既定で `Errc::ReadOnly`、`flush` は何もしない、`is_read_only() == true`。書き込みを許すのは 9 章の条件 (ビルドフラグ `USBMEM_CRYPT_WRITE` + open 時の明示 `OpenOptions::writable` + 構成が対応 + 下位が書き込み可) を全部満たしたときだけ。
 - 復号済みキャッシュは 32 KiB チャンクの LRU (既定 32 個)。32 KiB 以上の読み出しはキャッシュを通さず直接復号。
 - 鍵・パスワードのコピー・キャッシュはすべて `crypto::Secret` (破棄でゼロ化) か `Aes` (`clear()`・デストラクタでラウンド鍵をゼロ化)。`close()` で鍵とキャッシュを先にゼロ化し、以後の I/O は `Closed`。
 - ログ・`describe()`・`VolumeInfo::note` に秘密を出さない。
@@ -158,7 +158,7 @@ J9260 (USB 2.0 級) の実機測定で、BitLocker 約 0.5 MB/s、LUKS2 約 4.5 
 - **暗号化途中の BitLocker**: 既定は拒否。`allow_partial_encryption` の経路は合成イメージで libbde と一致を確認したが、**実 Windows が途中で止めたイメージでは検証できていない** (手元の `bl_partial` は先頭セクタの状態が libbde でも開けない形)。
 - **LUKS2 の 4096 バイトセクタの IV**: 実カーネル (dm-crypt) での照合ができていない (root・カーネルモジュールが使えない環境)。cryptsetup の仕様どおり「IV = 512 バイト単位の番号」で実装し、cryptsetup 生成のヘッダ + 自前暗号データで往復するだけ。**ここは未検証の仮定**。LUKS1 は nbdkit / qemu-img でデータ層まで独立確認済み。
 - LUKS: serpent / twofish、dm-integrity、再暗号化途中、分離ヘッダ、複数 segment は拒否 (要件どおり明示的に拒否する)。`aes-xts-plain64` 以外の `adiantum` / `lmk` / `tcw` / `eboiv` 等も非対応。
-- 暗号化されたボリュームを**書き込む**機能はない (読み取り専用)。
+- 書き込み (9 章) は実験的で、既定のビルドでは無効。UI は未接続、実機 (USB) では未試験。9.7 に制限を列挙。
 - NTFS ドライバ (LinuxCompat 版 fs/ntfs, v1.1 ログ) は Windows 11 の NTFS ログ (LogFile 2.0) を「サポートしない」と警告するが、読み取りは成功し manifest は全件一致した (警告は読み取りには影響しないが、書き込みを有効にする将来は要確認)。
 - JVM 側の `ByteArray` はゼロ埋めするが、GC のコピーやスワップに残る可能性は排除できない。パスワードを `String` にしない設計で露出を減らしている。
 - 副産物: `main` の `core/compat/include/compat/ops.h` に `void *direct_IO;` の重複メンバがありビルドが通らなかったため、重複 1 行を削除した (本機能とは無関係の既存不具合)。
@@ -177,3 +177,86 @@ tools/run_crypto_volume_tests.sh build/t/usbmem_cryptovol_tests
 # 暗号方式差し替え (Windows 7/8 方式を含む) と libbde との全バイト比較
 tools/bitlocker_retarget_matrix.sh build/t/usbmem_cryptovol_tests <実 BitLocker イメージ> <パーティション先頭> <パスワード>
 ```
+
+書き込みの検証 (9 章。`USBMEM_CRYPT_WRITE=ON` かつ `USBMEM_NTFS=ON` `USBMEM_NTFS_WRITE=ON` のビルド。cryptsetup・python3 cryptography/numpy が要る。bdemount・fuse2fs・ntfs-3g・mkfs 類があれば追加で使う):
+
+```sh
+cmake -S core -B build/cw -G Ninja -DUSBMEM_NTFS=ON -DUSBMEM_NTFS_WRITE=ON && cmake --build build/cw --target usbmem_transform_tests usbmem_cryptwrite_tool usbmem_cryptfs_write_tests
+build/cw/usbmem_transform_tests                                              # 単体テスト (transform_write_*)
+tools/run_crypt_write_tests.sh build/cw/usbmem_cryptwrite_tool               # LUKS / BitLocker の乱数書き込み・失敗注入・ファジング (USBMEM_KERNEL_DMCRYPT=1 は sudo が要る CI 用)
+tools/run_crypt_fs_tests.sh build/cw/usbmem_cryptfs_write_tests              # 暗号層の上の ext4 / ext2 / NTFS / FAT
+tools/run_crypt_mutation_tests.sh /tmp/mut                                   # 突然変異 (10 種のビルド)
+```
+
+## 9. 書き込み (実験的。ビルドフラグ `USBMEM_CRYPT_WRITE` + open 時の明示が必要)
+
+「書き込みは本質的に暗号化」という見立てはほぼ正しい。ヘッダ・メタデータは変えず、論理セクタ範囲を暗号化して下位デバイスへ書くだけで済む。難所は暗号そのものではなく、(a) 部分セクタの読み出し-変更-書き込み、(b) ページキャッシュとの整合、(c) BitLocker の退避ヘッダ・メタデータ領域・変換途中、(d) 失敗・電源断の扱いで、いずれも下に記す。
+
+### 9.1 有効にする条件 (全部必要。1 つでも欠ければ読み取り専用で開く)
+
+1. ビルド: `-DUSBMEM_CRYPT_WRITE=ON` (既定は `USBMEM_NTFS_WRITE` の値。配布ビルドは OFF)。OFF のビルドでは `write_supported=false`、書き込み要求は読み取り専用で開く。
+2. open 時の明示: C API は `USBMEM_TRANSFORM_WRITABLE` (flags = 2)、Kotlin は `CryptoVolume.open(..., writable = true)` (既定 false)、C++ は `OpenOptions::writable`。既定 false。
+3. 構成が対応 (`VolumeInfo::write_supported`)。9.2 の表。
+4. 下位の `BlockDevice` が書き込み可 (`is_read_only() == false`)。
+
+(1)-(4) のどれかで書き込めないときは、エラーにせず**読み取り専用で開き**、`VolumeInfo::writable=false` と理由 `write_note` を返す (FS の `mount_rw` が読み取り専用に落ちるのと同じ流儀)。JSON (`usbmem_transform_open` の info) は `write_supported` / `writable` / `write_note` を持つ。UI は未接続。
+
+### 9.2 方式 × 書き込み可否
+
+| 形式 | 方式 | 書き込み | 根拠 / 理由 |
+|---|---|---|---|
+| LUKS1 / LUKS2 | aes-xts-plain64 (256/512 bit 鍵、論理セクタ 512 / 4096) | 可 | cryptsetup のマスターキー + Python cryptography、CI は実カーネル dm-crypt と一致 |
+| LUKS1 / LUKS2 | aes-cbc-plain64、aes-cbc-essiv:sha256 | 可 | 同上 |
+| LUKS1 | aes-xts-plain、aes-cbc-plain (32 ビット IV) | 不可 | 読み取りは対応だが書き込みの検証 (カーネルとの照合) をしていない。変更なし |
+| LUKS2 | dm-integrity / AEAD、再暗号化の途中、複数 segment、未対応の暗号 | 不可 | 読み取りも非対応 (Unsupported) |
+| BitLocker | XTS-AES-128/256、CBC-128/256 (Windows 8 以降 / 7) | 可 (論理セクタ 512 のみ) | libbde と Python (bitlocker_synth.py) でバイト一致 |
+| BitLocker | CBC + Elephant diffuser (0x8000 / 0x8001) | 可 (注意あり) | 暗号化方向を実装し、libbde と bitlocker_synth.py の両方とバイト一致。**実 Windows 7/8 のイメージでは未確認** (7 章と同じ制限) |
+| BitLocker | 変換途中 (暗号化 / 復号の途中) | 不可 | 境界が動き、未変換領域は平文のまま。`allow_partial_encryption` でも書き込まない |
+| BitLocker | 論理セクタ 4096 (4Kn)、TPM のみ、メタデータ不一致 | 不可 | 4Kn は検証なし。TPM のみは読み取りも非対応。メタデータ 3 コピーが全部読めて一致していないとき、退避位置が信用できない (壊れた BitLocker の上に書かない。fuzz で見つかった) |
+
+### 9.3 書き込み経路 (`DecryptingDevice::write_at`)
+
+- **書き込みはその場で下位へ (write-through)**。遅延書き込みはない。要求を 1 MiB 以下・暗号セクタ境界で切って処理する。
+- **部分セクタ**: 先頭・末尾が暗号セクタ (512 / 4096) に揃っていなければ、そのセクタを `read_plain` で復号して取り込み、新データを重ねて暗号化し、セクタ全体を書く (RMW)。読めなければ書かない。
+- **キャッシュとの整合**: 4 KiB ページの平文キャッシュと先読みはそのまま使う。書いた範囲は成功後にキャッシュを**書き換え**、失敗時は**捨てる**。`io_` (shared_mutex) で読み出し (共有) と書き込み・flush (排他) を分け、読み出しが古い平文をキャッシュに入れ直すのを防ぐ。32 KiB 以上の読み出し (直接復号) も同じ `io_` の下。
+- **flush**: 書き込み可なら下位の `flush()` へ素通し (FS のジャーナル順序・バリアは下位まで届く)。`close()` も最後に下位を flush する。
+- **失敗**: 下位の write / flush が失敗したら、そのエラーを返し、`is_read_only()` を true にして以後の書き込みを `ReadOnly` で拒否する (読み出しは続く)。`flush()` は最初のエラーを返し続ける。範囲外・禁止範囲 (BitLocker のメタデータ領域など) の書き込みは**何も書かずに** `ReadOnly` で拒否し、読み取り専用には落とさない (要求全体を先に検査)。
+- **電源断**: 暗号セクタ単位の書き込みは、下位の書き込み単位 (512 バイト) より大きいとき (LUKS2 の 4096 セクタを 512 バイト単位のデバイスに書く等) 途中で切れるとセクタ内が新旧混在し、復号すると**そのセクタ全体がゴミ**になる (暗号化後は 1 バイトの差が全体に拡散する)。FS のジャーナル・クラッシュ耐性は暗号層より上の性質だが、**暗号層の下でセクタが原子的でない**ぶん、電源断で壊れる範囲は平文より大きい (dm-crypt でも同じ性質)。実際の USB は多くが 4096 バイトで原子的に書くが、保証はない。
+- **鍵・平文**: マスターキー・暗号化の作業バッファ (`crypto::Secret`) は使用後ゼロ化、`close()` で鍵とキャッシュをゼロ化。ログ・`describe()`・`note`・`write_note` に秘密を出さない。
+
+### 9.4 LUKS / BitLocker の暗号化の細部
+
+- LUKS: 復号と同じ IV で暗号化する。IV = 512 バイト単位のセクタ番号 (論理セクタが 4096 でも 512 単位) + LUKS2 の `iv_tweak`。ヘッダ・keyslot は一切書かない。
+- BitLocker: XTS のトゥイーク / CBC の IV は**物理バイトオフセット**から作る。論理先頭 `vh_sectors` セクタは退避先 (`vh_off`) へ写す (読み出しと同じ写像)。メタデータ 3 コピー (各 0x10000) と退避先の物理領域は 0 に見えるが、**書き込みは拒否**する (`check_write_range`)。Elephant diffuser の暗号化は復号の逆: セクタ鍵と XOR → 逆 A (5 周、降順の引き算) → 逆 B (3 周) → CBC 暗号化。
+
+### 9.5 検証 (独立実装との突き合わせ)
+
+自前の暗号層で書いたイメージを、**自前ではない実装**で復号 / 暗号化し直して全バイト比較する。
+
+| 対象 | 独立実装 | 場所 |
+|---|---|---|
+| LUKS1/2 の乱数書き込み (9 構成) | `cryptsetup luksDump --dump-master-key` + Python `cryptography` で復号 → モデルと cmp。CI は実カーネルの dm-crypt (`sudo cryptsetup open` on loop) でも復号して cmp | tools/run_crypt_write_tests.sh、tools/crypt_indep.py |
+| BitLocker 6 方式 | `bitlocker_synth.py` (numpy / cryptography) でモデルを暗号化し直して全バイト一致 + libbde `bdemount` の復号結果 == モデル。メタデータ・ブートセクタ不変、メタデータ領域への書き込みは拒否 | 同上 |
+| 暗号層の上の ext4 / ext2 / NTFS / FAT | 書いた後の暗号イメージを独立実装で復号 (LUKS: python / 実カーネル、BitLocker: synth での暗号化し直し一致 + NTFS は libbde) → e2fsck -fn / ntfsfix -n / fsck.fat -n が clean、自前ドライバと独立 FUSE (fuse2fs / ntfs-3g) のツリーがモデルと一致。CI は実カーネルの ext4 / vfat でも ro マウントして照合 | tools/run_crypt_fs_tests.sh、core/compat/tests/test_cryptfs_write.cpp |
+| 部分セクタ・キャッシュ整合・失敗 | 単体テスト `transform_write_*` (位置依存 XOR 暗号 + 失敗注入デバイス)、`cryptwrite_tool failinj` (write 失敗 / flush 失敗 / 3 MiB 書き込みの 2 チャンク目で失敗 → エラーが返り、読み取り専用に落ち、以後下位へ書かない) | core/tests/test_transform.cpp、core/tests/cryptwrite_tool.cpp |
+| ファジング | 壊れたヘッダで writable open → 書き込み → 保護範囲 (ヘッダ・メタデータ) が 1 バイトも変わらない (`fuzzw`) | 同上 |
+| 突然変異 | 安全機構を 1 つ外した 10 種のビルドがすべて検出される (9.6) | tools/run_crypt_mutation_tests.sh |
+| 既定 | 書き込みフラグ未指定・非対応構成・変換途中・下位が読み取り専用 → 読み取り専用で開き、イメージ不変 (`norw` / `ro`) | 同上 |
+
+### 9.6 突然変異テスト
+
+`-DUSBMEM_MUTATE_<名前>` で安全機構を 1 つだけ外す (通常ビルドには入らない)。単体テストかツール (独立検証) のどちらかが失敗すれば「検出」。`CW_NO_CACHE_UPDATE` (書いた後のキャッシュ更新なし)、`CW_NO_RMW_HEAD` (先頭の部分セクタを読まない)、`CW_NO_FLUSH` (flush を下位へ渡さない)、`CW_NO_LATCH` (書き込み失敗で読み取り専用に落とさない)、`CW_ALWAYS_WRITABLE` (open 時の明示を無視)、`CW_LUKS_IV` (IV が 1 ずれる)、`CW_BL_NO_VH_MAP` (退避先へ写さない)、`CW_BL_NO_HIDDEN_CHECK` (メタデータ領域を拒否しない)、`CW_BL_PARTIAL` (変換途中にも書く)、`CW_DIFF_ORDER` (diffuser の逆変換の順序)。
+
+### 9.7 制限・注意 (正直に)
+
+- 実機 (USB) では未試験。UI は未接続 (core + C API + JNI + Kotlin の入口まで)。
+- 暗号層の上の FS の書き込みは、その FS 自身の書き込み対応 (ext4 / ext2 / NTFS / FAT / exFAT: `USBMEM_NTFS_WRITE`) に従う。下が読み取り専用の暗号層なら、ext2 / FAT / exFAT / NTFS / ext4 の `mount_rw` は読み取り専用でマウントする (ext4 は元からそうだった。他は今回追加)。XFS / Btrfs / F2FS は未確認 (F2FS は `is_read_only` を見る)。
+- 上の「電源断」のとおり、4096 セクタを 512 バイト単位の下位へ書くと、切れたセクタ全体が壊れる。
+- diffuser 付きの書き込みは実 Windows 7/8 のイメージでは未確認。
+- BitLocker の 4Kn、dm-integrity、TPM のみ、複数 segment は書き込めない (拒否)。
+- 書き込んだ後に Windows で開いたときの挙動 (BitLocker のメタデータ・TPM 検証値の更新が不要なことの確認) は未確認。書き込むのはデータ領域と退避ヘッダの暗号化セクタだけで、FVE メタデータ・ブートセクタは変えない設計。
+- 負荷時に libbde の `bdemount` の読み出しが途中で切れる (EOF) のを 1 度観測した (ビルド実行中のローカル。再実行で消え、CI の結果は 9.8)。
+
+### 9.8 結果
+
+(CI の実行 ID と結果は下に記録する。)

@@ -131,10 +131,16 @@ Status load_volume(BlockDevice& dev, Volume* v, std::string* why) {
     m->vh_off = le64(r + 56);
     m->method = le16(r + 64 + 36);
     if (!parse_entries(r + 112, m->raw.size() - 112, &m->entries)) { v->bad_copies++; continue; }
-    // 内容が同じコピーは 1 つにまとめる (パスワード誤りの再試行で KDF を無駄に回さない)
+    // ブロックヘッダのボリュームヘッダ退避位置が範囲外のコピーは壊れているとみなして飛ばす (残りのコピーで開く。
+    // 以前は先頭のコピーのヘッダだけが壊れていても、中身 (保護エントリ) が同じ 2 つ目以降が「重複」として捨てられ、Corrupt で開けなかった)
+    if (m->vh_sectors == 0 || m->vh_sectors > 1024 || m->vh_off % v->sector != 0 || m->vh_off < uint64_t(m->vh_sectors) * v->sector ||
+        !range_ok(dsize, m->vh_off, uint64_t(m->vh_sectors) * v->sector)) { v->bad_copies++; continue; }
+    // 内容が同じコピーは 1 つにまとめる (パスワード誤りの再試行で KDF を無駄に回さない)。ブロックヘッダの値 (サイズ・状態・退避位置) が違うものは別のコピーとして残す
     bool dup = false;
     for (auto& e : v->metas)
-      if (e->raw.size() == m->raw.size() && std::memcmp(e->raw.data() + 64, m->raw.data() + 64, m->raw.size() - 64) == 0) dup = true;
+      if (e->raw.size() == m->raw.size() && std::memcmp(e->raw.data() + 64, m->raw.data() + 64, m->raw.size() - 64) == 0 && e->enc_size == m->enc_size &&
+          e->vh_sectors == m->vh_sectors && e->vh_off == m->vh_off && e->cur_state == m->cur_state && e->next_state == m->next_state)
+        dup = true;
     if (!dup) v->metas.push_back(std::move(m));
   }
   if (v->metas.empty()) {

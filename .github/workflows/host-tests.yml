@@ -39,7 +39,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build g++ python3 e2fsprogs fuse2fs fuse3 mtools p7zip-full dosfstools exfatprogs exfat-fuse ntfs-3g \
             btrfs-progs xfsprogs f2fs-tools erofs-utils squashfs-tools zstd lzop lz4 xz-utils \
-            gdisk fdisk bc genisoimage xorriso cryptsetup-bin nbdkit libnbd-bin qemu-utils partclone gddrescue zlib1g-dev
+            gdisk fdisk bc genisoimage xorriso cryptsetup-bin nbdkit libnbd-bin qemu-utils partclone gddrescue zlib1g-dev \
+            python3-cryptography python3-numpy
           echo user_allow_other | sudo tee -a /etc/fuse.conf
 
       # runner の /dev/shm は tmpfs (7.9 GB) に usrquota が付き、ユーザーのクォータが約 6.3 GB で EDQUOT ("Disk quota exceeded") になる (remount,size=… では広がらない)。
@@ -82,6 +83,8 @@ jobs:
           ASAN_OPTIONS: verify_asan_link_order=0:detect_leaks=1
           # gen_erofs_fixture.py: Ubuntu の erofs-utils の fsck.erofs が展開できない (fragments の) イメージの独立検証を省く (警告を出す)。Android CI と同じ
           USBMEM_FIXTURE_LENIENT: "1"
+          # tools/run_cryptodisk_tests.sh: 道具 (cryptsetup / sgdisk / ntfs-3g / python3 cryptography・numpy) が無いとき SKIP ではなく失敗にする (CI での見逃し防止)
+          USBMEM_CRYPTODISK_REQUIRE: "1"
         run: |
           export PATH="$PATH:/sbin:/usr/sbin"
           re="${{ github.event.inputs.ctest_regex }}"

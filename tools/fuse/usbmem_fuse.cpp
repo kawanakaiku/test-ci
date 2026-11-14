@@ -455,12 +455,12 @@ void load_dir(uint64_t dir, std::vector<FsDirEntry>* out, int* rc) {
   *rc = g.vol->readdir(dir, &raw);
   out->clear();
   if (*rc) return;
-  uint64_t parent = dir;
-  g.vol->lookup(dir, "..", &parent);
-  out->push_back({".", dir, DT_DIR});
-  out->push_back({"..", parent, DT_DIR});
+  // "." と ".." は core の readdir が返すものを使う (無い FS だけ補う。".." の lookup はしない: ext4 のルートで ".." を引くと FS エラー扱い (journal abort) になった)
+  bool has_dot = false, has_dotdot = false;
+  for (auto& e : raw) { if (e.name == ".") has_dot = true; else if (e.name == "..") has_dotdot = true; }
+  if (!has_dot) out->push_back({".", dir, DT_DIR});
+  if (!has_dotdot) out->push_back({"..", dir, DT_DIR});
   for (auto& e : raw) {
-    if (e.name == "." || e.name == "..") continue;
     if (is_hidden_name(e.name)) continue;
     out->push_back(e);
   }

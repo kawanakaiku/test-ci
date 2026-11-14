@@ -133,19 +133,21 @@ rm -f "$W/big.img"
 
 # ---------- 3b. 大きなディレクトリ (ノード形式: leaf1 に収まらない。作成・削除・rename・縮小・全削除 + rmdir) ----------
 r=0; mk "$W/nd.img" 320M "" || r=$?
-python3 -I - "$W/nd.ops" <<'PY'
+python3 -I - "$W/nd.ops" "${USBMEM_XFS_NODE_N:-3000}" <<'PY'
 import sys
+N = int(sys.argv[2])      # ctest (ASan) では減らす。ノード形式にするには 1000 以上
 L = []
 nm = lambda i: "node_dir_entry_with_a_longish_name_%05d" % i
 L += ["mkdir /nd", "mkdir /nd2", "mkdir /nd3", "mkdir /nd4"]
-for i in range(3000):
+for i in range(N):
     L.append("create /nd/" + nm(i))
     if i % 7 == 0: L.append("write /nd/%s 0 %d %d" % (nm(i), 100 + i, i % 251))
-for i in range(0, 3000, 2): L.append("unlink /nd/" + nm(i))               # 途中のデータブロックが空になる
-for i in range(3000, 3600): L.append("create /nd/" + nm(i))                # 空きの再利用・伸長
-for i in range(1, 3000, 4): L.append("rename /nd/%s /nd/r_%s" % (nm(i), nm(i)))   # 同じディレクトリの中
-for i in range(3, 3000, 4): L.append("rename /nd/%s /nd2/m_%s" % (nm(i), nm(i)))  # 別のディレクトリへ
-for i in range(3000, 3600, 2): L.append("link /nd/h_%s /nd/%s" % (nm(i), nm(i + 1)))      # ハードリンク (名前を足す)
+for i in range(0, N, 2): L.append("unlink /nd/" + nm(i))               # 途中のデータブロックが空になる
+M = N + N // 5
+for i in range(N, M): L.append("create /nd/" + nm(i))                # 空きの再利用・伸長
+for i in range(1, N, 4): L.append("rename /nd/%s /nd/r_%s" % (nm(i), nm(i)))   # 同じディレクトリの中
+for i in range(3, N, 4): L.append("rename /nd/%s /nd2/m_%s" % (nm(i), nm(i)))  # 別のディレクトリへ
+for i in range(N, M - 1, 2): L.append("link /nd/h_%s /nd/%s" % (nm(i), nm(i + 1)))      # ハードリンク (名前を足す)
 for i in range(700): L.append("create /nd3/" + nm(i))                       # leaf1 → ノード → 縮小して葉 1 枚
 for i in range(5, 700): L.append("unlink /nd3/" + nm(i))
 for i in range(650): L.append("create /nd4/" + nm(i))                       # 全部消して rmdir (ノード形式の inode の解放)

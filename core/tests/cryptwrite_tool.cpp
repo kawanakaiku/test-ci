@@ -38,6 +38,7 @@ namespace {
 struct Range { uint64_t off, len; };
 struct Opts {
   std::vector<Range> protect, hidden;
+  bool keep_boot = false;  // --keep-boot: 論理先頭 512 バイト (NTFS ブートセクタ) の内容は変えない (libbde は BPB の総セクタ数でボリューム長を決めるため)
 };
 int g_fail = 0;
 bool g_allow_partial = false;  // --allow-partial: BitLocker の変換途中ボリュームを (読み取り専用で) 開く
@@ -154,6 +155,7 @@ int cmd_rand(const std::string& img, const std::string& cred, uint64_t seed, int
   const uint32_t sec = dev->logical_block_size();
   std::vector<uint8_t> model;
   if (!read_all(*dev, &model)) { std::fprintf(stderr, "initial read failed\n"); return 2; }
+  const std::vector<uint8_t> boot0(model.begin(), model.begin() + std::min<size_t>(512, model.size()));
   std::mt19937_64 rng(seed);
   auto rnd = [&](uint64_t n) { return n ? rng() % n : 0; };
   long ok_writes = 0, rejected = 0, reads = 0, flushes = 0;
@@ -193,6 +195,8 @@ int cmd_rand(const std::string& img, const std::string& cred, uint64_t seed, int
       case 1: std::fill(buf.begin(), buf.end(), 0xff); break;
       default: for (auto& x : buf) x = uint8_t(rng()); break;
     }
+    // 先頭 512 バイトに重なる部分は元の内容で上書きする (書き込み経路 = 退避先への写しは通るが、内容は変わらない)
+    if (op.keep_boot && off < 512) std::memcpy(buf.data(), boot0.data() + off, size_t(std::min<uint64_t>(len, 512 - off)));
     const bool in_hidden = hits(op.hidden, off, len);
     const auto base_writes = base->writes;
     st = dev->write_at(off, buf.data(), size_t(len));
@@ -450,6 +454,7 @@ int main(int argc, char** argv) {
       (a == "--protect" ? op.protect : op.hidden).push_back(r);
     } else if (a == "--writable") writable_flag = true;
     else if (a == "--allow-partial") g_allow_partial = true;
+    else if (a == "--keep-boot") op.keep_boot = true;
     else pos.push_back(a);
   }
   const std::string cmd = argv[1];

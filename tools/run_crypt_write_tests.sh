@@ -92,7 +92,7 @@ fi
 if [ "${USBMEM_CW_ONLY:-}" = luks ]; then :
 elif python3 -c "import numpy, cryptography" 2>/dev/null; then
   PL=12582912
-  P=(--protect 0:8192 --protect $PL:65536 --protect $((PL+131072)):131072)          # ブート領域 (物理セクタ 0..15)・FVE メタデータ 3 コピー
+  P=(--keep-boot --protect 0:8192 --protect $PL:65536 --protect $((PL+131072)):131072)          # ブート領域 (物理セクタ 0..15)・FVE メタデータ 3 コピー
   H=(--hidden $PL:65536 --hidden $((PL+65536)):8192 --hidden $((PL+131072)):65536 --hidden $((PL+196608)):65536)  # 0 に見えて書き込み拒否
   PWBL=synth-Password-1
   for m in 8004 8005 8002 8003 8000 8001; do

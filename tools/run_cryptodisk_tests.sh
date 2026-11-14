@@ -18,19 +18,32 @@ if [ ! -f "$D/cases.txt" ]; then
   python3 -I "$HERE/gen_cryptodisk_fixtures.py" "$D" >&2 || { echo "FAIL: fixture generation failed" >&2; exit 1; }
 fi
 [ "$G" = gen ] && { echo "fixtures ready in $D"; exit 0; }
-rc=0; n=0
+# 並列度: USBMEM_CRYPTODISK_JOBS (既定 1。sanitizer ビルドは 1 件が遅いので CI は 3)。結果は番号順に出す
+J=${USBMEM_CRYPTODISK_JOBS:-1}
+R=$(mktemp -d "${TMPDIR:-/tmp}/cryptodisk_run.XXXXXX") || exit 1
+trap 'rm -rf "$R"' EXIT
+n=0; running=0
 set -f
 while IFS="$(printf '\t')" read -r group name image args; do
   [ "$G" = all ] || [ "$G" = "$group" ] || continue
   n=$((n+1))
+  echo "$group/$name" > "$R/$n.name"
   # shellcheck disable=SC2086
-  out=$("$T" --scan "$image" $args 2>&1); r=$?
-  if [ $r -ne 0 ]; then
-    echo "FAIL $group/$name (exit $r)"; echo "$out" | tail -25 | sed 's/^/    /'; rc=1
-  else
-    echo "ok   $group/$name  $(echo "$out" | tail -1)"
-  fi
+  ( "$T" --scan "$image" $args > "$R/$n.out" 2>&1; echo $? > "$R/$n.rc" ) &
+  running=$((running+1))
+  if [ "$running" -ge "$J" ]; then wait; running=0; fi
 done < "$D/cases.txt"
+wait
 [ "$n" -gt 0 ] || { echo "no cases for group $G" >&2; exit 77; }
+rc=0; i=1
+while [ "$i" -le "$n" ]; do
+  r=$(cat "$R/$i.rc" 2>/dev/null || echo 255); nm=$(cat "$R/$i.name")
+  if [ "$r" -ne 0 ]; then
+    echo "FAIL $nm (exit $r)"; tail -25 "$R/$i.out" | sed 's/^/    /'; rc=1
+  else
+    echo "ok   $nm  $(tail -1 "$R/$i.out")"
+  fi
+  i=$((i+1))
+done
 echo "== $n cases in group $G, rc=$rc"
 exit $rc

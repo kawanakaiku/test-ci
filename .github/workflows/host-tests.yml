@@ -85,6 +85,8 @@ jobs:
           USBMEM_FIXTURE_LENIENT: "1"
           # tools/run_cryptodisk_tests.sh: 道具 (cryptsetup / sgdisk / ntfs-3g / python3 cryptography・numpy) が無いとき SKIP ではなく失敗にする (CI での見逃し防止)
           USBMEM_CRYPTODISK_REQUIRE: "1"
+          # sanitizer 構成では異常系 39 件が 11 分かかる (wsan は 180 分の上限に近い)。ケースを 3 並列で走らせる
+          USBMEM_CRYPTODISK_JOBS: "3"
         run: |
           export PATH="$PATH:/sbin:/usr/sbin"
           re="${{ github.event.inputs.ctest_regex }}"

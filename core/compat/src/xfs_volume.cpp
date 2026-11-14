@@ -701,6 +701,8 @@ struct XfsVolume::Impl {
 #include "xfs_write.inc"
 #include "xfs_write_alloc.inc"
 #include "xfs_write_ops.inc"
+#include "xfs_write_full.inc"
+#include "xfs_write_node.inc"
 #endif
 };
 
@@ -947,11 +949,21 @@ int64_t XfsVolume::write_inplace(uint64_t ino, uint64_t off, const void* buf, si
     int rc = m.run_op([&] { return m.write_file(ino, off, static_cast<const uint8_t*>(buf), len, true, &wr); });
     return rc < 0 ? rc : wr;)
 }
-int XfsVolume::unlink(uint64_t, const std::string&) { return impl_->rw ? -EOPNOTSUPP : -EROFS; }
-int XfsVolume::rmdir(uint64_t, const std::string&) { return impl_->rw ? -EOPNOTSUPP : -EROFS; }
-int XfsVolume::rename(uint64_t, const std::string&, uint64_t, const std::string&) { return impl_->rw ? -EOPNOTSUPP : -EROFS; }
-int XfsVolume::truncate(uint64_t, uint64_t) { return impl_->rw ? -EOPNOTSUPP : -EROFS; }
-int XfsVolume::link(uint64_t, const std::string&, uint64_t) { return impl_->rw ? -EOPNOTSUPP : -EROFS; }
+int XfsVolume::unlink(uint64_t dir, const std::string& name) {
+  XFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.remove_node(dir, name, false); });)
+}
+int XfsVolume::rmdir(uint64_t dir, const std::string& name) {
+  XFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.remove_node(dir, name, true); });)
+}
+int XfsVolume::rename(uint64_t od, const std::string& on, uint64_t nd, const std::string& nn) {
+  XFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.rename_node(od, on, nd, nn); });)
+}
+int XfsVolume::truncate(uint64_t ino, uint64_t size) {
+  XFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.truncate_file(ino, size); });)
+}
+int XfsVolume::link(uint64_t dir, const std::string& name, uint64_t target) {
+  XFS_GUARD(Impl& m = *impl_; return m.run_op([&] { return m.link_node(dir, name, target); });)
+}
 #else
 std::unique_ptr<XfsVolume> XfsVolume::mount_rw(BlockDevicePtr, int* err) {
   if (err) *err = EROFS;

@@ -11,13 +11,15 @@ import java.io.File
 import java.io.FileInputStream
 
 /**
- * XFS の書き込み (実験的。-PusbmemNtfsWrite=true のビルドだけ。CreateOnly の範囲: 新規作成・追記・mkdir・symlink) を Android 上で自前のエンジン (core/compat/src/xfs_write*.inc) 経由で行う。
+ * XFS の書き込み (実験的。-PusbmemNtfsWrite=true のビルドだけ。CreateOnly の範囲と、Full の操作 (unlink / rmdir / rename / truncate / link) の両方) を Android 上で自前のエンジン (core/compat/src/xfs_write*.inc) 経由で行う。
  * tools/run_android_xfs_write_test.sh から実行する。ホストが /data/local/tmp に置くもの:
  *   xfs_wr.img          書き込み対象のイメージ (mkfs.xfs -p で元ファイル入り。tools/gen_xfs_ops.py seed)
  *   xfs_wr_ops.txt      操作列 (tools/gen_xfs_ops.py ops ... createonly。usbmem_xfs_write_tests --ops / tools/ops_ref.py と同じ書式)
+ *   xfs_wrf.img / xfs_wrf_ops.txt   Full の操作を含む操作列 (gen_xfs_ops.py ops ... seeded) とそのイメージ。結果は cache/xfs_rwf_result.img
  *   xfs_rsv.img         書き込み拒否のイメージ (rmapbt=1: 読み取り専用に落ちること)
  * 結果イメージは cache/xfs_rw_result.img に残す。ホストが pull して xfs_repair -n で独立に検証し、同じ操作列を POSIX 操作として実行した結果とツリー全体を比べる。
- * XFS は Full を要求しても createOnly で開く (NativeBridge.xfsCreateOnlyOnly) ので、既存ファイルへの上書き・削除・rename はここでは行わない。
+ * アプリは XFS を Full を要求しても createOnly で開く (NativeBridge.xfsCreateOnlyOnly) ので、createonly の列では既存ファイルへの上書き・削除・rename は拒否されることを確かめる。
+ * Full の操作は mountReadWrite(xfsFull = true) で開いた別のテスト (fullOperationsLeaveCleanVolume) で行う。
  */
 class XfsWriteTest {
     private val inst = InstrumentationRegistry.getInstrumentation()
@@ -113,6 +115,46 @@ class XfsWriteTest {
         img.copyTo(result, overwrite = true)   // 閉じたあとのイメージ (コミット済み)
         img.delete()
         android.util.Log.i("usbmem", "xfs write test: $n ops done")
+    }
+
+    private fun mountRwFull(img: File): NtfsVolume {
+        val pfd = ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_WRITE)
+        try {
+            return NtfsVolume.mountReadWrite(pfd.detachFd(), createOnly = false, xfsFull = true)
+        } catch (ex: NativeException) {
+            assumeTrue("write support disabled in this build (errno ${ex.code})", ex.code != 30)
+            throw ex
+        }
+    }
+
+    /** Full の操作 (unlink / rmdir / rename / truncate / link) を含む操作列を実行する。結果イメージはホストが xfs_repair -n / POSIX 参照 / 実カーネルで検証する。 */
+    @Test
+    fun fullOperationsLeaveCleanVolume() {
+        val img = File(ctx.cacheDir, "xfs_wrf.img")
+        val ops = File(ctx.cacheDir, "xfs_wrf_ops.txt")
+        assumeTrue("fixture not pushed", shellCopy("/data/local/tmp/xfs_wrf_ops.txt", ops) && shellCopy("/data/local/tmp/xfs_wrf.img", img))
+        val result = File(ctx.cacheDir, "xfs_rwf_result.img")
+        result.delete()
+        val vol = mountRwFull(img)
+        var n = 0
+        try {
+            assertEquals("xfs", vol.fsName)
+            assertTrue("xfs must mount writable", vol.writable)
+            assertFalse("full mode requested", vol.createOnly)
+            for (line in ops.readLines()) {
+                try { runOp(vol, line) } catch (ex: Throwable) { throw AssertionError("op #$n failed: $line", ex) }
+                n++
+            }
+            vol.sync()
+            // Full の操作の結果を同じセッション内でも確かめる
+            assertEquals(100L, vol.stat("/big.bin").size)                 // truncate /big.bin 100
+            try { vol.stat("/mid.bin"); throw AssertionError("mid.bin was unlinked") } catch (ex: NativeException) { }
+            assertEquals(1L, vol.stat("/w/sub1/one_moved").size)          // rename /w/one.bin /w/sub1/one_moved (truncate 1)
+        } finally { vol.close() }
+        assertTrue(n > 1000)
+        img.copyTo(result, overwrite = true)
+        img.delete()
+        android.util.Log.i("usbmem", "xfs full write test: $n ops done")
     }
 
     /** rmapbt=1 のイメージは書き込み拒否 (読み取り専用で開ける。読み取りはでき、書き込みは EROFS=30、イメージは 1 バイトも変わらない)。 */

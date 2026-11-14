@@ -313,14 +313,51 @@ struct SectorCipher {
     crypto::secure_zero(d.data(), d.size() * 4);
     crypto::secure_zero(skey, sizeof skey);
   }
+
+  // in -> out (in == out 可)。phys は暗号化されたデータの、ボリューム先頭からのバイト位置 (セクタ境界)。decrypt_sector の逆変換。
+  void encrypt_sector(uint64_t phys, const uint8_t* in, uint8_t* out) const {
+    if (xts()) { crypto::aes_xts_encrypt(k1, k2, phys / sector, in, out, sector); return; }
+    uint8_t blk[16] = {0}, iv[16];
+    put_le64(blk, phys);
+    k1.encrypt_block(blk, iv);
+    if (!diffuser()) { crypto::aes_cbc_encrypt(k1, iv, in, out, sector); return; }
+    // Elephant diffuser (復号の逆): sector key を XOR → diffuser A を逆に (5 回、降順に減算) → diffuser B を逆に (3 回、降順に減算) → CBC 暗号化
+    const size_t n = sector / 4;
+    uint8_t skey[32];
+    uint8_t bk[16] = {0};
+    put_le64(bk, phys);
+    k2.encrypt_block(bk, skey);
+    bk[15] = 0x80;
+    k2.encrypt_block(bk, skey + 16);
+    std::vector<uint32_t> d(n);
+    for (size_t i = 0; i < n; i++) {
+      uint8_t w[4];
+      for (int k = 0; k < 4; k++) w[k] = uint8_t(in[4 * i + size_t(k)] ^ skey[(4 * i + size_t(k)) % 32]);
+      d[i] = le32(w);
+    }
+    static const int Rb[4] = {0, 10, 0, 25};
+    static const int Ra[4] = {9, 0, 13, 0};
+    auto rol = [](uint32_t x, int r) { return r ? (x << r) | (x >> (32 - r)) : x; };
+    for (int c = 0; c < 5; c++)
+      for (size_t i = n; i-- > 0;) d[i] = d[i] - (d[(i + n - 2) % n] ^ rol(d[(i + n - 5) % n], Ra[i % 4]));
+    for (int c = 0; c < 3; c++)
+      for (size_t i = n; i-- > 0;) d[i] = d[i] - (d[(i + 2) % n] ^ rol(d[(i + 5) % n], Rb[i % 4]));
+    Secret tmp(sector);
+    for (size_t i = 0; i < n; i++) for (int k = 0; k < 4; k++) tmp.data()[4 * i + size_t(k)] = uint8_t(d[i] >> (8 * k));
+    crypto::aes_cbc_encrypt(k1, iv, tmp.data(), out, sector);
+    crypto::secure_zero(d.data(), d.size() * 4);
+    crypto::secure_zero(skey, sizeof skey);
+  }
 };
 
 class BitLockerDevice final : public DecryptingDevice {
  public:
   BitLockerDevice(BlockDevicePtr base, std::unique_ptr<SectorCipher> c, uint64_t size, uint32_t cache_chunks, uint32_t vh_sectors, uint64_t vh_off,
-                  uint64_t plain_from, std::vector<uint64_t> hidden, std::string desc)
+                  uint64_t plain_from, std::vector<uint64_t> hidden, std::string desc, bool writable)
       : DecryptingDevice(std::move(base), size, c->sector, cache_chunks, std::move(desc)),
-        c_(std::move(c)), vh_sectors_(vh_sectors), vh_off_(vh_off), plain_from_(plain_from), hidden_(std::move(hidden)) {}
+        c_(std::move(c)), vh_sectors_(vh_sectors), vh_off_(vh_off), plain_from_(plain_from), hidden_(std::move(hidden)) {
+    set_writable(writable);
+  }
 
  protected:
   Status read_plain(uint64_t off, uint8_t* buf, size_t len, const IoOptions& opt) override {
@@ -356,6 +393,43 @@ class BitLockerDevice final : public DecryptingDevice {
       }
       pos += n; buf += n; left -= n;
     }
+    return Status::Ok();
+  }
+  // 書き込み: read_plain と同じ対応 (先頭 vh_sectors のセクタは退避先へ。物理位置を tweak/IV にして暗号化)。暗号化がまだ及んでいない領域
+  // (plain_from_ 以降) は書き込み可で開かない (open 側で拒否) ので、ここには来ない。
+  Status write_plain(uint64_t off, const uint8_t* buf, size_t len, const IoOptions& opt) override {
+    const uint32_t ss = c_->sector;
+    uint64_t pos = off;
+    size_t left = len;
+    const uint8_t* in = buf;
+    while (left) {
+      const uint64_t s = pos / ss;
+      uint64_t dst;
+      size_t n;
+      if (s < vh_sectors_) {
+        dst = vh_off_ + s * ss;
+        n = std::min<uint64_t>(left, (uint64_t(vh_sectors_) - s) * ss);
+      } else {
+        dst = pos;
+        n = left;
+      }
+      Secret enc(in, n);
+      for (size_t o = 0; o < n; o += ss) c_->encrypt_sector(dst + o, enc.data() + o, enc.data() + o);
+      Status st = base_->write_at(dst, enc.data(), n, opt);
+      if (!st) return st;
+      pos += n; in += n; left -= n;
+    }
+    return Status::Ok();
+  }
+  // 読み取りでは 0 に見せている領域 (FVE メタデータ 3 コピー + 退避済みボリュームヘッダ領域) には、何があっても書かない (メタデータや
+  // 退避した NTFS ブートセクタを壊すと、ボリュームごと開けなくなる)。ReadOnly を返し、下位へは何も書かない (デバイスは書き込み可のまま)。
+  Status check_write_range(uint64_t off, size_t len) const override {
+    const uint32_t ss = c_->sector;
+    const uint64_t hdr_end = uint64_t(vh_sectors_) * ss;  // 論理 [0, hdr_end) は退避先に写され、隠し領域の規則は掛からない
+    const uint64_t a = std::max<uint64_t>(off, hdr_end), b = off + len;
+    if (a >= b) return Status::Ok();
+    for (uint64_t h : hidden_) if (a < h + kHiddenSpan && h < b) return Status::Make(Errc::ReadOnly);
+    if (a < vh_off_ + hdr_end && vh_off_ < b) return Status::Make(Errc::ReadOnly);
     return Status::Ok();
   }
   void wipe_keys() override { c_->clear(); }
@@ -409,6 +483,15 @@ void fill_info(const Volume& v, VolumeInfo* info) {
   else if (info->tpm_only) info->note = "TPM のみで保護されています。このアプリでは解錠できません (回復パスワードがあれば入力してください)";
   else if (info->encryption_in_progress) info->note = "暗号化または復号が途中のボリュームです (変換が完了するまで開けません)";
   else if (v.bad_copies) info->note = "メタデータの一部のコピーが壊れています (残りのコピーで読めます)";
+  // 書き込みの可否 (構成だけで決まる分)。暗号化 / 復号が途中のボリュームは、未変換領域が平文のまま・変換の境界が動くため、書き込みを許さない。
+  info->write_note.clear();
+  info->write_supported = true;
+  if (!info->supported) { info->write_supported = false; info->write_note = "読み取りでも非対応の構成です"; }
+  else if (info->encryption_in_progress) { info->write_supported = false; info->write_note = "暗号化または復号が途中のボリュームは書き込めません (変換済みの境界が動くため)"; }
+#ifndef USBMEM_CRYPT_WRITE
+  info->write_supported = false;
+  info->write_note = "このビルドは暗号ボリュームの書き込みに対応していません (USBMEM_CRYPT_WRITE=OFF)";
+#endif
 }
 
 }  // namespace
@@ -570,7 +653,15 @@ Status bitlocker_open(BlockDevicePtr base, const Credentials& cred, const OpenOp
       if (info->encryption_in_progress) plain_from = m.enc_size;
       info->cipher = method_name(sc.method);
       std::string desc = std::string("bitlocker(") + method_name(sc.method) + ", " + base->describe() + ")";
-      *out = std::make_shared<BitLockerDevice>(base, std::move(scp), bsize, opt.cache_chunks, m.vh_sectors, m.vh_off, plain_from, hidden, std::move(desc));
+      bool writable = false;
+      if (opt.writable) {
+        if (!info->write_supported) { /* 理由は fill_info が write_note に入れてある */ }
+        else if (v.sector != 512) info->write_note = "セクタサイズ 512 以外 (4Kn など) の BitLocker は書き込みを検証していないため、読み取り専用です";
+        else if (base->is_read_only()) info->write_note = "下位デバイスが読み取り専用です";
+        else writable = true;
+      }
+      info->writable = writable;
+      *out = std::make_shared<BitLockerDevice>(base, std::move(scp), bsize, opt.cache_chunks, m.vh_sectors, m.vh_off, plain_from, hidden, std::move(desc), writable);
       return Status::Ok();
     }
   }

@@ -31,8 +31,11 @@ std::string info_json(const VolumeInfo& i) {
   auto b = [&](const char* k, bool v) { o += std::string(",\"") + k + "\":" + (v ? "true" : "false"); };
   b("supported", i.supported); b("password", i.can_password); b("recovery", i.can_recovery_key); b("key_file", i.can_key_file);
   b("no_secret", i.unlocked_without_secret); b("tpm_only", i.tpm_only); b("in_progress", i.encryption_in_progress);
+  b("write_supported", i.write_supported); b("writable", i.writable);
   o += ",\"note\":";
   json_str(o, i.note);
+  o += ",\"write_note\":";
+  json_str(o, i.write_note);
   o += "}";
   return o;
 }
@@ -72,6 +75,7 @@ int usbmem_transform_open(usbmem_device* h, int kind, const unsigned char* pw, s
     if (kf_len) cred.key_file.assign(kf, kf_len);
     OpenOptions opt;
     opt.allow_partial_encryption = (flags & USBMEM_TRANSFORM_ALLOW_PARTIAL) != 0;
+    opt.writable = (flags & USBMEM_TRANSFORM_WRITABLE) != 0;  // 明示したときだけ。ビルド / 構成 / 下位が不可なら読み取り専用で開く (info の writable / write_note)
     BlockDevicePtr d;
     VolumeInfo info;
     Status st = open_crypto_volume(h->dev, static_cast<CryptoKind>(kind), cred, opt, &d, &info);

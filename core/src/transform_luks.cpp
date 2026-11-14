@@ -107,6 +107,33 @@ struct CryptCipher {
       default: break;
     }
   }
+  // 暗号化 (書き込み用)。IV の作り方は復号と同じ (dm-crypt の cipher-mode-iv)。in == out 可。
+  void encrypt_sector(uint64_t iv_sector, const uint8_t* in, uint8_t* out) const {
+    switch (mode) {
+      case XtsPlain64: crypto::aes_xts_encrypt(k1, k2, iv_sector, in, out, sector); break;
+      case XtsPlain: crypto::aes_xts_encrypt(k1, k2, iv_sector & 0xffffffffu, in, out, sector); break;
+      case CbcPlain64:
+      case CbcPlain: {
+        uint8_t iv[16] = {0};
+        put_le64(iv, mode == CbcPlain ? (iv_sector & 0xffffffffu) : iv_sector);
+        crypto::aes_cbc_encrypt(k1, iv, in, out, sector);
+        break;
+      }
+      case CbcEssiv: {
+        uint8_t blk[16] = {0}, iv[16];
+        put_le64(blk, iv_sector);
+        k2.encrypt_block(blk, iv);
+        crypto::aes_cbc_encrypt(k1, iv, in, out, sector);
+        break;
+      }
+      default: break;
+    }
+  }
+  void encrypt_range(uint64_t first, uint8_t* buf, size_t len) const {
+    for (size_t o = 0; o < len; o += sector) encrypt_sector(first + o / 512, buf + o, buf + o);
+  }
+  // 書き込みに対応する方式か。32 ビット IV の plain 方式 (xts-plain / cbc-plain) は実カーネルでの照合をしていないので書かない。
+  static bool write_ok(Mode m) { return m == XtsPlain64 || m == CbcPlain64 || m == CbcEssiv; }
   // buf (len は sector の倍数) を、先頭の 512 単位セクタ番号 first から順に復号
   void decrypt_range(uint64_t first, uint8_t* buf, size_t len) const {
     for (size_t o = 0; o < len; o += sector) decrypt_sector(first + o / 512, buf + o, buf + o);
@@ -497,8 +524,11 @@ Status try_slot(BlockDevice& dev, const Luks& l, const Slot& s, const Secret& pa
 
 class LuksDevice final : public DecryptingDevice {
  public:
-  LuksDevice(BlockDevicePtr base, std::unique_ptr<CryptCipher> c, uint64_t data_off, uint64_t size, uint64_t iv_tweak, uint32_t cache_chunks, std::string desc)
-      : DecryptingDevice(std::move(base), size, c->sector, cache_chunks, std::move(desc)), c_(std::move(c)), data_off_(data_off), iv_tweak_(iv_tweak) {}
+  LuksDevice(BlockDevicePtr base, std::unique_ptr<CryptCipher> c, uint64_t data_off, uint64_t size, uint64_t iv_tweak, uint32_t cache_chunks, std::string desc,
+             bool writable)
+      : DecryptingDevice(std::move(base), size, c->sector, cache_chunks, std::move(desc)), c_(std::move(c)), data_off_(data_off), iv_tweak_(iv_tweak) {
+    set_writable(writable);
+  }
 
  protected:
   Status read_plain(uint64_t off, uint8_t* buf, size_t len, const IoOptions& opt) override {
@@ -506,6 +536,12 @@ class LuksDevice final : public DecryptingDevice {
     if (!st) return st;
     c_->decrypt_range(iv_tweak_ + off / 512, buf, len);
     return Status::Ok();
+  }
+  // 書き込み: ヘッダには触れない。データ領域 [data_off_, data_off_+size) の暗号化したセクタだけを下位へ書く。
+  Status write_plain(uint64_t off, const uint8_t* buf, size_t len, const IoOptions& opt) override {
+    crypto::Secret enc(buf, len);
+    c_->encrypt_range(iv_tweak_ + off / 512, enc.data(), len);
+    return base_->write_at(data_off_ + off, enc.data(), len, opt);
   }
   void wipe_keys() override { c_->clear(); }
 
@@ -523,6 +559,18 @@ void fill_info(const Luks& l, VolumeInfo* info) {
   info->can_password = true;
   info->can_key_file = true;
   info->note = l.unsupported;
+  info->write_note.clear();
+  if (!info->supported) { info->write_supported = false; info->write_note = "読み取りでも非対応の構成です"; return; }
+  info->write_supported = true;
+#ifndef USBMEM_CRYPT_WRITE
+  info->write_supported = false;
+  info->write_note = "このビルドは暗号ボリュームの書き込みに対応していません (USBMEM_CRYPT_WRITE=OFF)";
+#else
+  if (!CryptCipher::write_ok(l.mode)) {
+    info->write_supported = false;
+    info->write_note = "この IV 方式 (32 ビット plain) は書き込みを検証していないため、読み取り専用です";
+  }
+#endif
 }
 
 }  // namespace
@@ -585,7 +633,14 @@ Status luks_open(BlockDevicePtr base, const Credentials& cred, const OpenOptions
       if (l.data_size && size > avail) { inf->note = "デバイスがヘッダの記録より小さいです (切り詰め)"; return Status::Make(Errc::Corrupt); }
       if (size < l.sector) { inf->note = "データ領域が空です"; return Status::Make(Errc::Corrupt); }
       std::string desc = std::string("luks") + (l.version == 1 ? "1" : "2") + "(" + l.cipher_desc + ", " + base->describe() + ")";
-      *out = std::make_shared<LuksDevice>(base, std::move(cc), l.data_offset, size, l.iv_tweak, opt.cache_chunks, std::move(desc));
+      bool writable = false;
+      if (opt.writable) {
+        if (!inf->write_supported) { /* 理由は fill_info が write_note に入れてある */ }
+        else if (base->is_read_only()) inf->write_note = "下位デバイスが読み取り専用です";
+        else writable = true;
+      }
+      inf->writable = writable;
+      *out = std::make_shared<LuksDevice>(base, std::move(cc), l.data_offset, size, l.iv_tweak, opt.cache_chunks, std::move(desc), writable);
       return Status::Ok();
     }
   }

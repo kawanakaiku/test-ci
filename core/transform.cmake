@@ -5,6 +5,17 @@ add_library(usbmem_transform STATIC
   src/crypto_hash.cpp src/crypto_aes.cpp src/crypto_aes_hw.cpp src/crypto_sha_hw.cpp src/crypto_argon2.cpp
   src/transform.cpp src/transform_bitlocker.cpp src/transform_luks.cpp src/mini_json.cpp src/c_api_transform.cpp)
 target_include_directories(usbmem_transform PUBLIC include)
+# 暗号ボリュームの書き込み (docs/crypto-volumes.md「書き込み」)。既定は OFF (配布ビルドは読み取り専用のまま)。USBMEM_NTFS_WRITE=ON のビルド (FS の書き込み検証用) では
+# 既定で ON になり、上に載る FS の書き込み試験を暗号層越しに流せる。ON でも、open 時に OpenOptions::writable (C API: USBMEM_TRANSFORM_WRITABLE) を明示しないと書き込み可にならない。
+if(USBMEM_NTFS_WRITE)
+  set(_crypt_write_default ON)
+else()
+  set(_crypt_write_default OFF)
+endif()
+option(USBMEM_CRYPT_WRITE "暗号ボリューム (LUKS / BitLocker) の書き込み経路を有効にする (実験的)" ${_crypt_write_default})
+if(USBMEM_CRYPT_WRITE)
+  target_compile_definitions(usbmem_transform PUBLIC USBMEM_CRYPT_WRITE=1)
+endif()
 target_link_libraries(usbmem_transform PUBLIC usbmem_core)
 target_compile_options(usbmem_transform PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wno-sign-conversion)
 
@@ -13,6 +24,9 @@ if(USBMEM_BUILD_TESTS)
   target_include_directories(usbmem_transform_tests PRIVATE tests src)
   target_link_libraries(usbmem_transform_tests PRIVATE usbmem_transform)
   add_test(NAME crypto_unit COMMAND usbmem_transform_tests)
+  # 暗号ボリュームの書き込みの検証ツール (独立実装との突き合わせは tools/run_crypt_write_tests.sh。書き込み有効のビルドのみ意味を持つ)
+  add_executable(usbmem_cryptwrite_tool tests/cryptwrite_tool.cpp)
+  target_link_libraries(usbmem_cryptwrite_tool PRIVATE usbmem_transform)
   # 復号ボリュームの読み取り速度のマイクロベンチ (遅延つき模擬デバイス。ctest には入れない。docs/crypto-volumes.md 6.4)
   add_executable(usbmem_transform_bench tests/bench_transform.cpp)
   target_link_libraries(usbmem_transform_bench PRIVATE usbmem_transform)

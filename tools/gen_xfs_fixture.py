@@ -10,7 +10,7 @@ mkfs.xfs の組み合わせ: v5 (CRC あり) / v4 (CRC なし、ftype あり/な
 独立した検証: 作った各イメージを xfs_repair -n で検査 (クリーンであること)。ツリーは mkfs.xfs -p で書き込んだ元のディレクトリが正解 (mtime / nlink / 内容もここから)。
 xfs_db でディレクトリ / ファイルの inode 形式 (local / extents / btree)、ディレクトリ形式 (block / leaf / node) を確認して、期待どおりの構造が実際に作られたことを記録する (xfs_formats.txt)。
 ソケットは Python で bind して作る。キャラクタ/ブロックデバイスはルート権限なしでは作れないので、protofile 経由の小さなイメージ (special_proto) だけに入れる。"""
-import importlib.util, os, re, shutil, socket, subprocess, sys, tempfile
+import importlib.util, os, re, shutil, socket, stat, subprocess, sys, tempfile
 
 os.environ["PATH"] = os.environ.get("PATH", "") + ":/sbin:/usr/sbin"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -93,6 +93,41 @@ def dir_kind(img, path, bs):
     if leaf_blocks == 0: return "block"
     return "leaf" if leaf_blocks <= dirblocks else "node"
 
+def fill_subblock_holes(tree, bs):
+    """データを含む fs ブロックの中の穴 (ページ単位) をゼロで埋める (内容は変わらない。ブロック全体が穴の所は穴のまま)。
+    xfsprogs 6.18 の mkfs.xfs -p は、ブロックサイズが 4 KiB (= ページ) より大きいと、1 ブロックの中にデータと穴 (ページ単位) が混ざる疎ファイルの
+    内容を取り違えて書く (カーネルで loop マウントして元のファイルと cmp すると、穴より後ろのデータがずれる。xfs_repair は clean と言う)。
+    元のツリーでそういうブロックを作らないようにして、mkfs.xfs の不具合を避ける。XFS の穴はブロック単位なので、検証したい構造 (extent の並び) は変わらない。"""
+    if bs <= 4096: return
+    for dp, dns, fns in os.walk(tree):
+        for fn in fns:
+            path = os.path.join(dp, fn)
+            st = os.lstat(path)
+            if not stat.S_ISREG(st.st_mode) or st.st_size <= 4096 or st.st_blocks * 512 >= st.st_size: continue
+            fd = os.open(path, os.O_RDWR)
+            try:
+                ext = []; pos = 0
+                while pos < st.st_size:
+                    try: ds = os.lseek(fd, pos, os.SEEK_DATA)
+                    except OSError: break      # ENXIO: これより先にデータなし
+                    de = os.lseek(fd, ds, os.SEEK_HOLE)
+                    ext.append((ds, min(de, st.st_size))); pos = de
+                blocks = []
+                for ds, de in ext:
+                    for b in range(ds // bs, (de - 1) // bs + 1):
+                        if not blocks or blocks[-1] != b: blocks.append(b)
+                k0 = 0
+                for b in blocks:
+                    lo, hi = b * bs, min(b * bs + bs, st.st_size)
+                    while ext[k0][1] <= lo: k0 += 1      # 先頭に近い extent から (blocks は昇順)
+                    cur, k = lo, k0
+                    while k < len(ext) and ext[k][0] < hi:
+                        if ext[k][0] > cur: os.pwrite(fd, bytes(ext[k][0] - cur), cur)
+                        cur = max(cur, ext[k][1]); k += 1
+                    if cur < hi: os.pwrite(fd, bytes(hi - cur), cur)
+            finally: os.close(fd)
+            os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))   # mtime は manifest の期待値 (書いたことで変わらないように戻す)
+
 def make(outdir, name, args, bs, opt):
     sq.REFDIR[0] = outdir; sq.REFNAME[0] = name
     with tempfile.TemporaryDirectory(dir=outdir) as td:
@@ -145,6 +180,7 @@ def make(outdir, name, args, bs, opt):
         try: s.bind("special_sock")
         finally: os.chdir(cwd); s.close()
         man.append("S\tspecial_sock\ts")
+        fill_subblock_holes(tree, bs)
         img = os.path.join(outdir, name + ".img")
         if os.path.exists(img): os.remove(img)
         with open(img, "wb") as f: f.truncate(opt.get("size", IMG_SIZE))

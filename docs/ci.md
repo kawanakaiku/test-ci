@@ -88,6 +88,12 @@ Java は Temurin 17、Gradle は 9.0.0 (ラッパー)、NDK 30.0.16248370、CMak
 - テストは `assumeTrue` でフィクスチャが無いと黙って skip になる。`ci_android_tests.sh` は 0 件・rc 77・skip を失敗にして見逃しを防ぐが、新しいテストを足したら group_fs と生成/実行の分岐を足すこと。
 - Btrfs: 既定の AVD のヒープ上限は 192 MB で、旧テストは 206 MB のイメージを `readBytes()` で全部読んで OOM になった。テストをストリームの SHA-256 にして解決した (AVD 側の `vm.heapSize` や `adb root` での書き換えは効かなかった)。
 - 書き込み系スクリプト (`ext2_write` / `exfat_write` / `write`) の作業場所は、ローカルでは `/dev/shm`、CI では `$FIX/tmp` (`USBMEM_TMP`)。runner の `/dev/shm` では FUSE の後始末 (`rm -rf` の失敗が EXIT trap の終了コードを変える) で失敗した。
+- runner の `/dev/shm` で FUSE が使えない原因 (Android CI の「FUSE の後始末で失敗」と同じ): ubuntu 26.04 の AppArmor の `fusermount3` プロファイルが、FUSE のマウント / アンマウントを `/home`・`/mnt`・`/media`・`/tmp`・`/run/user/<uid>` の下に限る
+  (`/dev/shm`・`/var/tmp` は不可)。`fuse2fs` / `exfat-fuse` の mount は `fusermount3: mount failed: Permission denied`、root 権限の helper で mount された `ntfs-3g` の `fusermount3 -u` は `Operation not permitted` で落ちる。
+  host-tests.yml は `/etc/apparmor.d/local/fusermount3` に `/dev/shm` の mount / umount を足して `apparmor_parser -r` で読み直す (プロファイルを無効にはしない)。ホストのテストはフィクスチャも作業場所も `/dev/shm` 固定なので、スクリプト側を直すより環境を整える方が影響が小さい。
+- xfsprogs 6.18 (ubuntu 26.04) の `mkfs.xfs -p <dir>` は、ブロックサイズが 4 KiB より大きい (16 KiB / 64 KiB) と、1 ブロックの中にデータと穴 (ページ単位) が混ざる疎ファイルの内容を取り違えて書く。
+  `xfs_repair -n` は clean と言うが、カーネルで loop マウントして元のファイルと比べると違う (実カーネルの読みと本ドライバの読みは一致するので、ドライバの不具合ではない)。xfsprogs 7.2 では起きない。
+  `tools/gen_xfs_fixture.py` は 4 KiB より大きいブロックの変種で、データを含むブロックの中の穴をゼロで埋めてから (内容と mtime は変わらない。ブロック全体の穴は残す) `mkfs.xfs -p` に渡す。
 - runner の FUSE: `fusermount3` に `user_allow_other` が要る (`/etc/fuse.conf` に追記)。ホストツールのバージョンは `ubuntu-latest` (今は 26.04) の追従で変わる。
 - FAT の書き込みは host-tests.yml の wrel で `tools/run_fat_kernel_tests.sh` (sudo + loop の `mount -t vfat -o utf8=1`) を走らせ、カーネル vfat と双方向に突き合わせる。ctest が既存の環境要因で落ちても走る。`ctest_regex=fat_gen_fixture` の手動実行ならこのステップだけ走る (約 3 分)。
 - ビルドは arm64-v8a と x86_64 の両方が作られる (ABI を絞ると APK のパスが変わる)。ビルド時間は Gradle/SDK キャッシュで短縮している。

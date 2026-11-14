@@ -66,7 +66,7 @@ namespace {
 
 struct Cfg {
   std::string image, fstype = "auto";
-  bool ro = false, quiet_setattr = false, foreground = false, sync_ops = false;
+  bool ro = false, quiet_setattr = false, foreground = false, sync_ops = false, no_auto_sync = false;
   uint64_t offset = 0, size = 0;
   uid_t uid = 0;
   gid_t gid = 0;
@@ -78,12 +78,18 @@ struct State {
   std::unique_ptr<FsVolume> vol;
   uint64_t root = 0, total_bytes = 0;
   bool trace = false, closed = false;
-  std::unordered_map<uint64_t, int> opens;          // 実 ino -> 開いている数
+  // FUSE の nodeid は実 ino とは別に振る (1 = ルート)。実 ino は、消した後に別のオブジェクトへ再利用される (FAT / exFAT はディレクトリエントリの位置、ext / XFS / Btrfs / F2FS は解放した番号)。
+  // 同じ nodeid を再利用すると、カーネルがまだ持っている古い inode (誰かの cwd や開いたファイル) と型が食い違って EISDIR / ELOOP / EIO になる。
+  // そこで「消えた」オブジェクト (最後のリンクの unlink / rmdir / rename で上書きされた行き先) の対応を切り、同じ実 ino が次に現れたら新しい nodeid を振る。
+  struct Node { uint64_t real; uint64_t nlookup; };
+  std::unordered_map<uint64_t, Node> nodes;         // nodeid -> 実 ino (kDead = 消えた) と、カーネルが覚えている参照数
+  std::unordered_map<uint64_t, uint64_t> real2node; // 実 ino -> nodeid (生きているものだけ)
+  uint64_t next_node = 2;
+  std::unordered_map<uint64_t, int> opens;          // nodeid -> 開いている数
   struct Hidden { uint64_t dir; std::string name; };
-  std::unordered_map<uint64_t, Hidden> hidden;      // 実 ino -> 隠し名 (最後の close で unlink)
-  std::unordered_map<uint64_t, uint64_t> alias;     // FUSE に渡した ino -> 隠し名への rename で変わった実 ino
+  std::unordered_map<uint64_t, Hidden> hidden;      // nodeid -> 隠し名 (最後の close で unlink)
   struct DirOpen { int count; FsStat st; };
-  std::unordered_map<uint64_t, DirOpen> dir_opens;  // 開いているディレクトリ (実 ino) -> 開いた時点の stat。rename で上書き / rmdir された後の fstat に答えるため
+  std::unordered_map<uint64_t, DirOpen> dir_opens;  // 開いているディレクトリ (nodeid) -> 開いた時点の stat。rename で上書き / rmdir された後の fstat に答えるため
   uint64_t hidden_seq = 0, dirty_ops = 0, dirty_bytes = 0;
 };
 State g;
@@ -103,23 +109,59 @@ void trace(const char* fmt, ...) {
 
 int to_errno(int64_t rc) { return rc < 0 ? static_cast<int>(-rc) : static_cast<int>(rc); }
 
-// FUSE の ino は 1 がルート。実 ino のルートと 1 を入れ替える (全単射)。
-fuse_ino_t to_fuse(uint64_t real) {
-  if (real == g.root) return FUSE_ROOT_ID;
-  if (real == FUSE_ROOT_ID) return g.root;
-  return real;
-}
+constexpr uint64_t kDead = ~0ULL;
 uint64_t to_real(fuse_ino_t f) {
-  auto it = g.alias.find(f);
-  if (it != g.alias.end()) return it->second;
   if (f == FUSE_ROOT_ID) return g.root;
-  if (f == g.root) return FUSE_ROOT_ID;
-  return f;
+  auto it = g.nodes.find(f);
+  return it == g.nodes.end() ? kDead : it->second.real;
+}
+// 実 ino に対応する nodeid (無ければ新しく振る)。
+fuse_ino_t node_for(uint64_t real) {
+  if (real == g.root) return FUSE_ROOT_ID;
+  auto it = g.real2node.find(real);
+  if (it != g.real2node.end()) return it->second;
+  uint64_t n = g.next_node++;
+  g.nodes[n] = {real, 0};
+  g.real2node[real] = n;
+  return n;
+}
+// 実 ino のオブジェクトが消えた: 対応を切る。古い nodeid は「消えた」印を付けて残す (開いたディレクトリの fstat などのため)。
+void kill_real(uint64_t real) {
+  auto it = g.real2node.find(real);
+  if (it == g.real2node.end()) return;
+  auto n = g.nodes.find(it->second);
+  if (n != g.nodes.end()) n->second.real = kDead;
+  g.real2node.erase(it);
+}
+// 実 ino が変わった (FAT / exFAT の rename、隠し名への rename): nodeid の対応を付け替える。
+void remap_real(uint64_t from, uint64_t to) {
+  if (from == to) return;
+  auto it = g.real2node.find(from);
+  if (it == g.real2node.end()) return;
+  uint64_t n = it->second;
+  g.real2node.erase(it);
+  g.real2node[to] = n;
+  g.nodes[n].real = to;
+}
+bool node_busy(uint64_t n) {
+  auto o = g.opens.find(n);
+  return (o != g.opens.end() && o->second > 0) || g.hidden.count(n) || g.dir_opens.count(n);
+}
+void node_forget(uint64_t n, uint64_t count) {
+  if (n == FUSE_ROOT_ID) return;
+  auto it = g.nodes.find(n);
+  if (it == g.nodes.end()) return;
+  it->second.nlookup = it->second.nlookup > count ? it->second.nlookup - count : 0;
+  if (it->second.nlookup == 0 && !node_busy(n)) {
+    auto r = g.real2node.find(it->second.real);
+    if (r != g.real2node.end() && r->second == n) g.real2node.erase(r);
+    g.nodes.erase(it);
+  }
 }
 
 void fill_stat(uint64_t real, const FsStat& s, struct stat* st, bool unlinked = false) {
   memset(st, 0, sizeof *st);
-  st->st_ino = to_fuse(real);
+  st->st_ino = real;
   st->st_mode = s.mode;
   st->st_nlink = unlinked ? 0 : (s.nlink ? s.nlink : 1);
   st->st_size = static_cast<off_t>(s.size);
@@ -137,7 +179,7 @@ bool is_reg(const FsStat& s) { return (s.mode & S_IFMT) == S_IFREG; }
 void maybe_sync(uint64_t bytes) {
   g.dirty_ops++;
   g.dirty_bytes += bytes;
-  if (g.cfg.sync_ops || g.dirty_ops >= 512 || g.dirty_bytes >= (32u << 20)) {
+  if (g.cfg.sync_ops || (!g.cfg.no_auto_sync && (g.dirty_ops >= 512 || g.dirty_bytes >= (32u << 20)))) {
     int rc = g.vol->sync();
     trace("auto-sync -> %d", rc);
     g.dirty_ops = g.dirty_bytes = 0;
@@ -146,18 +188,39 @@ void maybe_sync(uint64_t bytes) {
 
 int fs_stat(uint64_t real, FsStat* s) {
   *s = FsStat{};
+  if (real == kDead) return -ENOENT;
   return g.vol->stat(real, s);
 }
 
-int reply_entry(fuse_req_t req, uint64_t real) {
+// 新しく作ったオブジェクトのときは is_new = true (同じ実 ino の古い対応が残っていたら切る)
+int reply_entry(fuse_req_t req, uint64_t real, bool is_new = false) {
   FsStat s;
   int rc = fs_stat(real, &s);
   if (rc) return fuse_reply_err(req, to_errno(rc));
+  if (is_new) kill_real(real);
   struct fuse_entry_param e;
   memset(&e, 0, sizeof e);
-  e.ino = to_fuse(real);
+  e.ino = node_for(real);
+  if (e.ino != FUSE_ROOT_ID) g.nodes[e.ino].nlookup++;
   fill_stat(real, s, &e.attr);
   return fuse_reply_entry(req, &e);
+}
+
+// 消えるか: dir/name の行き先が、このあと消える (ディレクトリ、または最後のリンク) なら実 ino を返す。無ければ kDead
+uint64_t will_die(uint64_t dir, const std::string& name) {
+  uint64_t child;
+  if (g.vol->lookup(dir, name, &child)) return kDead;
+  FsStat s;
+  if (fs_stat(child, &s)) return kDead;
+  if (!is_dir(s) && s.nlink > 1) return kDead;
+  return child;
+}
+
+// 消えたオブジェクト (kDead) への操作は ENOENT
+bool live(fuse_req_t req, uint64_t real) {
+  if (real != kDead) return true;
+  fuse_reply_err(req, ENOENT);
+  return false;
 }
 
 bool rw_ok(fuse_req_t req) {
@@ -178,22 +241,21 @@ int hide_if_open(uint64_t dir, const std::string& name, bool* hid) {
   FsStat s;
   if (fs_stat(child, &s)) return 0;
   if (is_dir(s) || s.nlink > 1) return 0;
-  auto it = g.opens.find(child);
+  auto rn = g.real2node.find(child);
+  if (rn == g.real2node.end()) return 0;
+  uint64_t node = rn->second;
+  auto it = g.opens.find(node);
   if (it == g.opens.end() || it->second <= 0) return 0;
-  if (g.hidden.count(child)) return 0;
+  if (g.hidden.count(node)) return 0;
   std::string hn = next_hidden_name();
   int rc = g.vol->rename(dir, name, dir, hn);
   if (rc) return rc;
   uint64_t now = child;
   if (g.vol->lookup(dir, hn, &now)) now = child;
-  if (now != child) {
-    g.opens[now] = g.opens[child];
-    g.opens.erase(child);
-    g.alias[to_fuse(child)] = now;   // カーネルが知っている ino (old) -> 今の実 ino
-  }
-  g.hidden[now] = {dir, hn};
+  remap_real(child, now);   // FAT / exFAT などは rename で実 ino が変わる
+  g.hidden[node] = {dir, hn};
   *hid = true;
-  trace("hidden %s (ino %llu -> %llu)", hn.c_str(), (unsigned long long)child, (unsigned long long)now);
+  trace("hidden %s (node %llu, ino %llu -> %llu)", hn.c_str(), (unsigned long long)node, (unsigned long long)child, (unsigned long long)now);
   return 0;
 }
 
@@ -233,15 +295,19 @@ void shutdown_volume() {
 void op_destroy(void*) { trace("destroy"); shutdown_volume(); trace("destroy done"); }
 
 void op_lookup(fuse_req_t req, fuse_ino_t parent, const char* name) {
-  uint64_t ino;
-  int rc = g.vol->lookup(to_real(parent), name, &ino);
+  uint64_t ino, pr = to_real(parent);
+  if (!live(req, pr)) return;
+  int rc = g.vol->lookup(pr, name, &ino);
   trace("lookup %llu/%s -> %d", (unsigned long long)parent, name, rc);
   if (rc) { fuse_reply_err(req, to_errno(rc)); return; }
   reply_entry(req, ino);
 }
 
-void op_forget(fuse_req_t req, fuse_ino_t, uint64_t) { fuse_reply_none(req); }
-void op_forget_multi(fuse_req_t req, size_t, struct fuse_forget_data*) { fuse_reply_none(req); }
+void op_forget(fuse_req_t req, fuse_ino_t ino, uint64_t n) { node_forget(ino, n); fuse_reply_none(req); }
+void op_forget_multi(fuse_req_t req, size_t count, struct fuse_forget_data* f) {
+  for (size_t i = 0; i < count; i++) node_forget(f[i].ino, f[i].nlookup);
+  fuse_reply_none(req);
+}
 
 void op_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info*) {
   FsStat s;
@@ -249,15 +315,15 @@ void op_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info*) {
   int rc = fs_stat(real, &s);
   trace("getattr %llu -> %d", (unsigned long long)ino, rc);
   if (rc) {
-    auto d = g.dir_opens.find(real);   // 開いたままのディレクトリが消された (rename で上書き / rmdir): 開いた時点の属性を nlink 0 で返す (Linux の通常の FS と同じ)
+    auto d = g.dir_opens.find(ino);   // 開いたままのディレクトリが消された (rename で上書き / rmdir): 開いた時点の属性を nlink 0 で返す (Linux の通常の FS と同じ)
     if (d == g.dir_opens.end()) { fuse_reply_err(req, to_errno(rc)); return; }
     struct stat st;
-    fill_stat(real, d->second.st, &st, true);
+    fill_stat(real == kDead ? 0 : real, d->second.st, &st, true);
     fuse_reply_attr(req, &st, 0.0);
     return;
   }
   struct stat st;
-  fill_stat(real, s, &st, g.hidden.count(real) != 0);   // 開いたまま unlink したファイル (隠し名) は nlink 0
+  fill_stat(real, s, &st, g.hidden.count(ino) != 0);   // 開いたまま unlink したファイル (隠し名) は nlink 0
   fuse_reply_attr(req, &st, 0.0);
 }
 
@@ -293,7 +359,9 @@ void op_setattr(fuse_req_t req, fuse_ino_t ino, struct stat* attr, int to_set, s
 
 void op_readlink(fuse_req_t req, fuse_ino_t ino) {
   std::string t;
-  int rc = g.vol->readlink(to_real(ino), &t);
+  uint64_t real = to_real(ino);
+  if (!live(req, real)) return;
+  int rc = g.vol->readlink(real, &t);
   trace("readlink %llu -> %d", (unsigned long long)ino, rc);
   if (rc) fuse_reply_err(req, to_errno(rc));
   else fuse_reply_readlink(req, t.c_str());
@@ -302,30 +370,35 @@ void op_readlink(fuse_req_t req, fuse_ino_t ino) {
 void op_mknod(fuse_req_t req, fuse_ino_t parent, const char* name, mode_t mode, dev_t) {
   if (!rw_ok(req)) return;
   if ((mode & S_IFMT) != S_IFREG) { fuse_reply_err(req, EOPNOTSUPP); return; }
-  uint64_t ino;
-  int rc = g.vol->create(to_real(parent), name, mode & 07777, &ino);
+  uint64_t ino, pr = to_real(parent);
+  if (!live(req, pr)) return;
+  int rc = g.vol->create(pr, name, mode & 07777, &ino);
   trace("mknod %s -> %d", name, rc);
   if (rc) { fuse_reply_err(req, to_errno(rc)); return; }
   maybe_sync(0);
-  reply_entry(req, ino);
+  reply_entry(req, ino, true);
 }
 
 void op_mkdir(fuse_req_t req, fuse_ino_t parent, const char* name, mode_t mode) {
   if (!rw_ok(req)) return;
-  uint64_t ino;
-  int rc = g.vol->mkdir(to_real(parent), name, mode & 07777, &ino);
+  uint64_t ino, pr = to_real(parent);
+  if (!live(req, pr)) return;
+  int rc = g.vol->mkdir(pr, name, mode & 07777, &ino);
   trace("mkdir %s -> %d", name, rc);
   if (rc) { fuse_reply_err(req, to_errno(rc)); return; }
   maybe_sync(0);
-  reply_entry(req, ino);
+  reply_entry(req, ino, true);
 }
 
 void op_unlink(fuse_req_t req, fuse_ino_t parent, const char* name) {
   if (!rw_ok(req)) return;
   uint64_t dir = to_real(parent);
+  if (!live(req, dir)) return;
   bool hid = false;
   int rc = hide_if_open(dir, name, &hid);
+  uint64_t dying = hid ? kDead : will_die(dir, name);
   if (!rc && !hid) rc = g.vol->unlink(dir, name);
+  if (!rc && dying != kDead) kill_real(dying);
   trace("unlink %s -> %d%s", name, rc, hid ? " (hidden)" : "");
   if (!rc) maybe_sync(0);
   fuse_reply_err(req, to_errno(rc));
@@ -333,7 +406,11 @@ void op_unlink(fuse_req_t req, fuse_ino_t parent, const char* name) {
 
 void op_rmdir(fuse_req_t req, fuse_ino_t parent, const char* name) {
   if (!rw_ok(req)) return;
-  int rc = g.vol->rmdir(to_real(parent), name);
+  uint64_t dir = to_real(parent);
+  if (!live(req, dir)) return;
+  uint64_t dying = will_die(dir, name);
+  int rc = g.vol->rmdir(dir, name);
+  if (!rc && dying != kDead) kill_real(dying);
   trace("rmdir %s -> %d", name, rc);
   if (!rc) maybe_sync(0);
   fuse_reply_err(req, to_errno(rc));
@@ -341,26 +418,37 @@ void op_rmdir(fuse_req_t req, fuse_ino_t parent, const char* name) {
 
 void op_symlink(fuse_req_t req, const char* link, fuse_ino_t parent, const char* name) {
   if (!rw_ok(req)) return;
-  uint64_t ino;
-  int rc = g.vol->symlink(to_real(parent), name, link, &ino);
+  uint64_t ino, pr = to_real(parent);
+  if (!live(req, pr)) return;
+  int rc = g.vol->symlink(pr, name, link, &ino);
   trace("symlink %s -> %d", name, rc);
   if (rc) { fuse_reply_err(req, to_errno(rc)); return; }
   maybe_sync(0);
-  reply_entry(req, ino);
+  reply_entry(req, ino, true);
 }
 
 void op_rename(fuse_req_t req, fuse_ino_t parent, const char* name, fuse_ino_t newparent, const char* newname, unsigned int flags) {
   if (!rw_ok(req)) return;
   if (flags & ~static_cast<unsigned>(RENAME_NOREPLACE)) { fuse_reply_err(req, EINVAL); return; }   // EXCHANGE / WHITEOUT は未対応
   uint64_t od = to_real(parent), nd = to_real(newparent);
+  if (!live(req, od) || !live(req, nd)) return;
   if (flags & RENAME_NOREPLACE) {
     uint64_t tmp;
     if (g.vol->lookup(nd, newname, &tmp) == 0) { fuse_reply_err(req, EEXIST); return; }
   }
   bool hid = false;
+  uint64_t src = kDead;
+  { uint64_t t; if (g.vol->lookup(od, name, &t) == 0) src = t; }
   int rc = hide_if_open(nd, newname, &hid);   // 開いたまま上書きされる行き先は隠す (rename が行き先の inode を解放するため)
+  uint64_t dying = hid ? kDead : will_die(nd, newname);
+  if (dying == src) dying = kDead;   // 同じ inode の別名への rename は何も消さない
   if (!rc) {
     rc = g.vol->rename(od, name, nd, newname);
+  }
+  if (!rc) {
+    if (dying != kDead) kill_real(dying);
+    uint64_t now;
+    if (src != kDead && g.vol->lookup(nd, newname, &now) == 0) remap_real(src, now);   // FAT / exFAT などは rename で実 ino が変わる
   }
   trace("rename %s -> %s -> %d", name, newname, rc);
   if (!rc) maybe_sync(0);
@@ -370,7 +458,9 @@ void op_rename(fuse_req_t req, fuse_ino_t parent, const char* name, fuse_ino_t n
 void op_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent, const char* newname) {
   if (!rw_ok(req)) return;
   uint64_t real = to_real(ino);
-  int rc = g.vol->link(to_real(newparent), newname, real);
+  uint64_t np = to_real(newparent);
+  if (!live(req, real) || !live(req, np)) return;
+  int rc = g.vol->link(np, newname, real);
   trace("link %s -> %d", newname, rc);
   if (rc) { fuse_reply_err(req, to_errno(rc)); return; }
   maybe_sync(0);
@@ -386,7 +476,7 @@ void op_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) {
   int rc = fs_stat(real, &s);
   if (rc) { fuse_reply_err(req, to_errno(rc)); return; }
   if (is_dir(s)) { fuse_reply_err(req, EISDIR); return; }
-  g.opens[real]++;
+  g.opens[ino]++;
   trace("open %llu flags=0x%x", (unsigned long long)ino, fi->flags);
   fi->fh = 0;
   fuse_reply_open(req, fi);
@@ -395,6 +485,7 @@ void op_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) {
 void op_create(fuse_req_t req, fuse_ino_t parent, const char* name, mode_t mode, struct fuse_file_info* fi) {
   if (!rw_ok(req)) return;
   uint64_t dir = to_real(parent), ino;
+  if (!live(req, dir)) return;
   int rc = g.vol->create(dir, name, mode & 07777, &ino);
   trace("create %s -> %d", name, rc);
   if (rc) { fuse_reply_err(req, to_errno(rc)); return; }
@@ -402,28 +493,32 @@ void op_create(fuse_req_t req, fuse_ino_t parent, const char* name, mode_t mode,
   FsStat s;
   rc = fs_stat(ino, &s);
   if (rc) { fuse_reply_err(req, to_errno(rc)); return; }
+  kill_real(ino);
   struct fuse_entry_param e;
   memset(&e, 0, sizeof e);
-  e.ino = to_fuse(ino);
+  e.ino = node_for(ino);
+  g.nodes[e.ino].nlookup++;
   fill_stat(ino, s, &e.attr);
-  g.opens[ino]++;
+  g.opens[e.ino]++;
   fi->fh = 0;
   fuse_reply_create(req, &e, fi);
 }
 
 void op_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info*) {
-  uint64_t real = to_real(ino);
-  auto it = g.opens.find(real);
+  auto it = g.opens.find(ino);
   if (it != g.opens.end() && --it->second <= 0) {
     g.opens.erase(it);
-    auto h = g.hidden.find(real);
+    auto h = g.hidden.find(ino);
     if (h != g.hidden.end()) {
       int rc = g.vol->unlink(h->second.dir, h->second.name);
       trace("release: unlink hidden %s -> %d", h->second.name.c_str(), rc);
+      uint64_t real = to_real(ino);
       g.hidden.erase(h);
-      g.alias.erase(ino);
+      if (real != kDead) kill_real(real);
       maybe_sync(0);
     }
+    auto nn = g.nodes.find(ino);
+    if (nn != g.nodes.end() && nn->second.nlookup == 0 && !node_busy(ino)) g.nodes.erase(nn);
   }
   fuse_reply_err(req, 0);
 }
@@ -439,7 +534,9 @@ void op_fsync(fuse_req_t req, fuse_ino_t, int, struct fuse_file_info*) {
 
 void op_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info*) {
   std::vector<char> buf(size);
-  int64_t n = g.vol->read(to_real(ino), static_cast<uint64_t>(off), buf.data(), size);
+  uint64_t real = to_real(ino);
+  if (!live(req, real)) return;
+  int64_t n = g.vol->read(real, static_cast<uint64_t>(off), buf.data(), size);
   trace("read %llu off=%lld len=%zu -> %lld", (unsigned long long)ino, (long long)off, size, (long long)n);
   if (n < 0) { fuse_reply_err(req, to_errno(n)); return; }
   fuse_reply_buf(req, buf.data(), static_cast<size_t>(n));
@@ -449,6 +546,7 @@ void op_write(fuse_req_t req, fuse_ino_t ino, const char* buf, size_t size, off_
   if (!rw_ok(req)) return;
   size_t done = 0;
   uint64_t real = to_real(ino);
+  if (!live(req, real)) return;
   while (done < size) {   // 短い書き込みは続ける (core は全量か負の errno を返す想定だが、念のため)
     int64_t n = g.vol->write(real, static_cast<uint64_t>(off) + done, buf + done, size - done);
     trace("write %llu off=%lld len=%zu -> %lld", (unsigned long long)ino, (long long)off + (long long)done, size - done, (long long)n);
@@ -464,7 +562,7 @@ void op_write(fuse_req_t req, fuse_ino_t ino, const char* buf, size_t size, off_
   fuse_reply_write(req, done);
 }
 
-struct DirHandle { std::vector<FsDirEntry> ents; uint64_t real = 0; };
+struct DirHandle { std::vector<FsDirEntry> ents; uint64_t node = 0; };
 
 void load_dir(uint64_t dir, std::vector<FsDirEntry>* out, int* rc) {
   std::vector<FsDirEntry> raw;
@@ -489,11 +587,11 @@ void op_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) {
   if (rc) { fuse_reply_err(req, to_errno(rc)); return; }
   if (!is_dir(s)) { fuse_reply_err(req, ENOTDIR); return; }
   auto* h = new DirHandle;
-  h->real = real;
+  h->node = ino;
   load_dir(real, &h->ents, &rc);
   trace("opendir %llu -> %d (%zu entries)", (unsigned long long)ino, rc, h->ents.size());
   if (rc) { delete h; fuse_reply_err(req, to_errno(rc)); return; }
-  auto& d = g.dir_opens[real];
+  auto& d = g.dir_opens[ino];
   d.count++;
   d.st = s;
   fi->fh = reinterpret_cast<uintptr_t>(h);
@@ -505,7 +603,9 @@ void op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
   if (!h) { fuse_reply_err(req, EBADF); return; }
   int rc = 0;
   if (off == 0) {   // rewinddir: 読み直す
-    load_dir(to_real(ino), &h->ents, &rc);
+    uint64_t dr = to_real(ino);
+    if (!live(req, dr)) return;
+    load_dir(dr, &h->ents, &rc);
     if (rc) { fuse_reply_err(req, to_errno(rc)); return; }
   }
   std::vector<char> buf(size);
@@ -514,7 +614,7 @@ void op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
     const FsDirEntry& e = h->ents[i];
     struct stat st;
     memset(&st, 0, sizeof st);
-    st.st_ino = to_fuse(e.ino);
+    st.st_ino = e.ino;
     unsigned dt = e.dtype;
     if (dt == 0 || dt == DT_UNKNOWN) {
       FsStat s;
@@ -532,7 +632,7 @@ void op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct f
 void op_releasedir(fuse_req_t req, fuse_ino_t, struct fuse_file_info* fi) {
   auto* h = reinterpret_cast<DirHandle*>(fi->fh);
   if (h) {
-    auto d = g.dir_opens.find(h->real);
+    auto d = g.dir_opens.find(h->node);
     if (d != g.dir_opens.end() && --d->second.count <= 0) g.dir_opens.erase(d);
   }
   delete h;
@@ -680,6 +780,7 @@ int main(int argc, char** argv) {
         if (o.compare(0, 7, "fstype=") == 0) c.fstype = o.substr(7);
         else if (o == "ro") { c.ro = true; fuse_opts.push_back(o); }
         else if (o == "rw") c.ro = false;
+        else if (o == "nosync_auto") c.no_auto_sync = true;   // 一定数の操作ごとの自動 sync を止める (調査用)
         else if (o == "sync" || o == "dirsync") c.sync_ops = true;   // 変更のたびに core の sync() を呼ぶ
         else if (o == "nosuid" || o == "nodev" || o == "noexec" || o == "suid" || o == "dev" || o == "exec" || o == "atime" || o == "noatime" || o == "relatime" ||
                  o == "strictatime" || o == "nodiratime" || o == "diratime" || o == "lazytime" || o == "defaults" || o == "async" || o == "user" || o == "nouser" ||

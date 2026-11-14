@@ -338,10 +338,17 @@ struct SectorCipher {
     static const int Rb[4] = {0, 10, 0, 25};
     static const int Ra[4] = {9, 0, 13, 0};
     auto rol = [](uint32_t x, int r) { return r ? (x << r) | (x >> (32 - r)) : x; };
+#ifdef USBMEM_MUTATE_CW_DIFF_ORDER
+    for (int c = 0; c < 3; c++)  // 突然変異: A と B の逆変換の順序が逆
+      for (size_t i = n; i-- > 0;) d[i] = d[i] - (d[(i + 2) % n] ^ rol(d[(i + 5) % n], Rb[i % 4]));
+    for (int c = 0; c < 5; c++)
+      for (size_t i = n; i-- > 0;) d[i] = d[i] - (d[(i + n - 2) % n] ^ rol(d[(i + n - 5) % n], Ra[i % 4]));
+#else
     for (int c = 0; c < 5; c++)
       for (size_t i = n; i-- > 0;) d[i] = d[i] - (d[(i + n - 2) % n] ^ rol(d[(i + n - 5) % n], Ra[i % 4]));
     for (int c = 0; c < 3; c++)
       for (size_t i = n; i-- > 0;) d[i] = d[i] - (d[(i + 2) % n] ^ rol(d[(i + 5) % n], Rb[i % 4]));
+#endif
     Secret tmp(sector);
     for (size_t i = 0; i < n; i++) for (int k = 0; k < 4; k++) tmp.data()[4 * i + size_t(k)] = uint8_t(d[i] >> (8 * k));
     crypto::aes_cbc_encrypt(k1, iv, tmp.data(), out, sector);
@@ -407,7 +414,11 @@ class BitLockerDevice final : public DecryptingDevice {
       uint64_t dst;
       size_t n;
       if (s < vh_sectors_) {
+#ifdef USBMEM_MUTATE_CW_BL_NO_VH_MAP
+        dst = pos;  // 突然変異: 先頭セクタ群を退避先へ写さず、物理先頭に書く (FVE ブートセクタを壊す)
+#else
         dst = vh_off_ + s * ss;
+#endif
         n = std::min<uint64_t>(left, (uint64_t(vh_sectors_) - s) * ss);
       } else {
         dst = pos;
@@ -425,6 +436,9 @@ class BitLockerDevice final : public DecryptingDevice {
   // 退避した NTFS ブートセクタを壊すと、ボリュームごと開けなくなる)。ReadOnly を返し、下位へは何も書かない (デバイスは書き込み可のまま)。
   Status check_write_range(uint64_t off, size_t len) const override {
     const uint32_t ss = c_->sector;
+#ifdef USBMEM_MUTATE_CW_BL_NO_HIDDEN_CHECK
+    return Status::Ok();  // 突然変異: メタデータ領域への書き込みを拒否しない
+#endif
     const uint64_t hdr_end = uint64_t(vh_sectors_) * ss;  // 論理 [0, hdr_end) は退避先に写され、隠し領域の規則は掛からない
     const uint64_t a = std::max<uint64_t>(off, hdr_end), b = off + len;
     if (a >= b) return Status::Ok();
@@ -464,6 +478,23 @@ ProtectorSummary summarize(const Meta& m) {
   return ps;
 }
 
+// 暗号化 / 復号が途中のボリュームは、未変換領域が平文のまま・変換の境界が動くため書き込みを許さない。
+inline bool in_progress_blocks_write(const VolumeInfo& info) {
+#ifdef USBMEM_MUTATE_CW_BL_PARTIAL
+  (void)info;
+  return false;  // 突然変異: 変換途中のボリュームも書き込み可にする
+#else
+  return info.encryption_in_progress;
+#endif
+}
+
+// 退避先 (ボリュームヘッダの退避領域) が FVE メタデータのブロックと重なる = 壊れたメタデータ。書き込みはメタデータを壊すので許さない。
+bool overlaps_metadata(const Volume& v, const Meta& m) {
+  const uint64_t a = m.vh_off, b = m.vh_off + uint64_t(m.vh_sectors) * v.sector;
+  for (uint64_t h : v.offsets) if (a < h + kHiddenSpan && h < b) return true;
+  return false;
+}
+
 void fill_info(const Volume& v, VolumeInfo* info) {
   const Meta& m = *v.metas[0];
   ProtectorSummary ps = summarize(m);
@@ -487,7 +518,14 @@ void fill_info(const Volume& v, VolumeInfo* info) {
   info->write_note.clear();
   info->write_supported = true;
   if (!info->supported) { info->write_supported = false; info->write_note = "読み取りでも非対応の構成です"; }
-  else if (info->encryption_in_progress) { info->write_supported = false; info->write_note = "暗号化または復号が途中のボリュームは書き込めません (変換済みの境界が動くため)"; }
+  else if (v.metas.size() != 1 || v.bad_copies != 0 || v.offsets.size() != 3) {
+    // 壊れた・食い違うメタデータでは、退避位置やメタデータ領域の位置を信用できない (書き込みが別の場所を壊しうる)。3 コピーが全部読めて内容が一致することを要求する
+    info->write_supported = false;
+    info->write_note = "メタデータ 3 コピーが全部読めて一致していないため、書き込めません (壊れた BitLocker の上に書かない)";
+  } else if (in_progress_blocks_write(*info)) {
+    info->write_supported = false;
+    info->write_note = "暗号化または復号が途中のボリュームは書き込めません (変換済みの境界が動くため)";
+  }
 #ifndef USBMEM_CRYPT_WRITE
   info->write_supported = false;
   info->write_note = "このビルドは暗号ボリュームの書き込みに対応していません (USBMEM_CRYPT_WRITE=OFF)";
@@ -654,8 +692,13 @@ Status bitlocker_open(BlockDevicePtr base, const Credentials& cred, const OpenOp
       info->cipher = method_name(sc.method);
       std::string desc = std::string("bitlocker(") + method_name(sc.method) + ", " + base->describe() + ")";
       bool writable = false;
+#ifdef USBMEM_MUTATE_CW_ALWAYS_WRITABLE
+      if (true) {  // 突然変異: open 時の明示 (opt.writable) を無視して、常に書き込み可にする
+#else
       if (opt.writable) {
+#endif
         if (!info->write_supported) { /* 理由は fill_info が write_note に入れてある */ }
+        else if (overlaps_metadata(v, m)) info->write_note = "ボリュームヘッダの退避位置がメタデータ領域と重なっているため、読み取り専用です";
         else if (v.sector != 512) info->write_note = "セクタサイズ 512 以外 (4Kn など) の BitLocker は書き込みを検証していないため、読み取り専用です";
         else if (base->is_read_only()) info->write_note = "下位デバイスが読み取り専用です";
         else writable = true;

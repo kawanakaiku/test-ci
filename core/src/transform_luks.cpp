@@ -540,7 +540,11 @@ class LuksDevice final : public DecryptingDevice {
   // 書き込み: ヘッダには触れない。データ領域 [data_off_, data_off_+size) の暗号化したセクタだけを下位へ書く。
   Status write_plain(uint64_t off, const uint8_t* buf, size_t len, const IoOptions& opt) override {
     crypto::Secret enc(buf, len);
+#ifdef USBMEM_MUTATE_CW_LUKS_IV
+    c_->encrypt_range(iv_tweak_ + off / 512 + 1, enc.data(), len);  // 突然変異: IV が 1 ずれる
+#else
     c_->encrypt_range(iv_tweak_ + off / 512, enc.data(), len);
+#endif
     return base_->write_at(data_off_ + off, enc.data(), len, opt);
   }
   void wipe_keys() override { c_->clear(); }
@@ -634,7 +638,11 @@ Status luks_open(BlockDevicePtr base, const Credentials& cred, const OpenOptions
       if (size < l.sector) { inf->note = "データ領域が空です"; return Status::Make(Errc::Corrupt); }
       std::string desc = std::string("luks") + (l.version == 1 ? "1" : "2") + "(" + l.cipher_desc + ", " + base->describe() + ")";
       bool writable = false;
+#ifdef USBMEM_MUTATE_CW_ALWAYS_WRITABLE
+      if (true) {  // 突然変異: open 時の明示 (opt.writable) を無視して、常に書き込み可にする
+#else
       if (opt.writable) {
+#endif
         if (!inf->write_supported) { /* 理由は fill_info が write_note に入れてある */ }
         else if (base->is_read_only()) inf->write_note = "下位デバイスが読み取り専用です";
         else writable = true;

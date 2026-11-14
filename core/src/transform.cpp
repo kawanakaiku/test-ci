@@ -56,7 +56,11 @@ Status DecryptingDevice::flush() {
   if (closed_) return Status::Make(Errc::Closed);
   std::unique_lock<std::shared_mutex> io(io_);  // 進行中の書き込みが下位へ渡り終わってから flush する
   if (write_failed_.load()) return Status::Make(Errc(fail_code_.load()));  // 失敗後は「確実に書けた」と言えない
+#ifdef USBMEM_MUTATE_CW_NO_FLUSH
+  Status st = Status::Ok();  // 突然変異: 下位の flush を呼ばない
+#else
   Status st = base_->flush();
+#endif
   if (!st) { fail_code_.store(int(st.code)); write_failed_.store(true); }
   return st;
 }
@@ -231,7 +235,11 @@ Status DecryptingDevice::write_at(uint64_t offset, const void* buf, size_t len, 
     crypto::Secret plain(size_t(a1 - a0));
     Status st = Status::Ok();
     bool head_loaded = false;
+#ifdef USBMEM_MUTATE_CW_NO_RMW_HEAD
+    if (a0 != pos) { head_loaded = true; }  // 突然変異: 先頭の部分セクタを読まずに 0 のまま暗号化する
+#else
     if (a0 != pos) { st = read_plain(a0, plain.data(), S, opt); head_loaded = true; }  // 先頭の部分セクタ
+#endif
     if (st && a1 != end && !(head_loaded && a1 - a0 == S)) st = read_plain(a1 - S, plain.data() + (a1 - a0 - S), S, opt);  // 末尾の部分セクタ
     if (!st) {
       if (wrote) { fail_code_.store(int(st.code)); write_failed_.store(true); }
@@ -240,13 +248,17 @@ Status DecryptingDevice::write_at(uint64_t offset, const void* buf, size_t len, 
     std::memcpy(plain.data() + (pos - a0), in + (pos - offset), size_t(end - pos));
     st = write_plain(a0, plain.data(), plain.size(), opt);
     if (!st) {
+#ifndef USBMEM_MUTATE_CW_NO_LATCH
       invalidate_pages(a0, plain.size());  // 下位の内容は新旧が混ざっているかもしれない
       fail_code_.store(int(st.code));
       write_failed_.store(true);
+#endif
       return st;
     }
     wrote = true;
+#ifndef USBMEM_MUTATE_CW_NO_CACHE_UPDATE
     update_cache_after_write(a0, plain.data(), plain.size());
+#endif
     pos = end;
   }
   return Status::Ok();

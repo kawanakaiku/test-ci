@@ -10,6 +10,7 @@
 //   verify <image> <cred> <model>                  復号デバイス全体がモデル (ファイル) と一致するか (読み取り専用で開く)
 //   ro     <image> <cred>                          既定 (writable 指定なし) では is_read_only()、書き込みは ReadOnly、イメージ不変
 //   norw   <image> <cred>                          writable を要求しても書き込み非対応の構成なら、読み取り専用で開き write_note がある・書き込みは ReadOnly・イメージ不変
+//   (共通) --allow-partial  BitLocker の変換途中ボリュームも開く (書き込みは不可のはず)
 //   info   <image> <cred> [--writable]             probe / open の結果 (write_supported / writable / write_note) を表示
 //   failinj <image> <cred> <seed>                  下位の書き込み / flush を途中で失敗させる: エラーを返し、以後の書き込みは ReadOnly (読み取りは続く)
 //   fuzzw  <image> <cred> <iters> <seed>           ヘッダを壊して書き込み可で開く。クラッシュ・ハングしない。開けたら書き込んでも保護範囲は不変
@@ -39,6 +40,7 @@ struct Opts {
   std::vector<Range> protect, hidden;
 };
 int g_fail = 0;
+bool g_allow_partial = false;  // --allow-partial: BitLocker の変換途中ボリュームを (読み取り専用で) 開く
 #define CHECK(c) do { if (!(c)) { std::fprintf(stderr, "CHECK failed %s:%d: %s\n", __FILE__, __LINE__, #c); g_fail++; } } while (0)
 
 std::vector<uint8_t> read_file(const std::string& p) {
@@ -106,6 +108,7 @@ Status open_vol(const std::shared_ptr<Probe>& base, const std::string& cred, boo
   if (!parse_cred(cred, &c)) return Status::Make(Errc::InvalidArgument);
   OpenOptions o;
   o.writable = writable;
+  o.allow_partial_encryption = g_allow_partial;
   return open_crypto_volume(base, CryptoKind::Auto, c, o, out, info);
 }
 
@@ -385,7 +388,12 @@ int cmd_fuzzw(const std::string& img, const std::string& cred, int iters, uint64
     int nmut = 1 + int(rng() % 6);
     const size_t hot = std::min<size_t>(m.size(), size_t(op.protect.empty() ? 65536 : op.protect[0].len + 4096));
     for (int k = 0; k < nmut; k++) {
-      size_t pos = (rng() % 3 == 0) ? size_t(rng() % m.size()) : size_t(rng() % hot);
+      size_t pos = (rng() % 4 == 0) ? size_t(rng() % m.size()) : size_t(rng() % hot);
+      if (!op.protect.empty() && rng() % 2) {  // 保護範囲 (ヘッダ / メタデータ) の中を重点的に壊す。実際に使われる先頭 4 KiB のあたりに寄せる
+        const Range& r = op.protect[rng() % op.protect.size()];
+        if (r.off < m.size()) pos = size_t(r.off + rng() % std::min<uint64_t>(r.len, rng() % 2 ? 1500 : 70000));
+        if (pos >= m.size()) pos = m.size() - 1;
+      }
       switch (rng() % 3) {
         case 0: m[pos] ^= uint8_t(1u << (rng() % 8)); break;
         case 1: m[pos] = uint8_t(rng()); break;
@@ -439,6 +447,7 @@ int main(int argc, char** argv) {
       if (!parse_range(argv[++i], &r)) { std::fprintf(stderr, "bad range\n"); return 64; }
       (a == "--protect" ? op.protect : op.hidden).push_back(r);
     } else if (a == "--writable") writable_flag = true;
+    else if (a == "--allow-partial") g_allow_partial = true;
     else pos.push_back(a);
   }
   const std::string cmd = argv[1];

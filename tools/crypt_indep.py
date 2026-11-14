@@ -104,7 +104,7 @@ def cmd_make(a):
     if a.ver == 2:
         cmd += ["--sector-size", str(a.sector)]
         if a.pbkdf.startswith("argon2"):
-            cmd += ["--pbkdf", a.pbkdf, "--pbkdf-memory", "32768", "--pbkdf-parallel", "2", "--pbkdf-force-iterations", "1"]
+            cmd += ["--pbkdf", a.pbkdf, "--pbkdf-memory", "32768", "--pbkdf-parallel", "2", "--pbkdf-force-iterations", "4"]
         else:
             cmd += ["--pbkdf", "pbkdf2", "--pbkdf-force-iterations", "1000"]
     else:

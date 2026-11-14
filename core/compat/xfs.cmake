@@ -42,7 +42,8 @@ if(USBMEM_BUILD_TESTS)
       set(XFS_TOOLS ${CMAKE_CURRENT_LIST_DIR}/../../tools)
       add_test(NAME xfs_write COMMAND sh ${XFS_TOOLS}/run_xfs_write_tests.sh $<TARGET_FILE:usbmem_xfs_write_tests> 1)
       add_test(NAME xfs_crash COMMAND sh ${XFS_TOOLS}/run_xfs_crash_tests.sh $<TARGET_FILE:usbmem_xfs_write_tests> 40)   # 軽量版。フル版は docs/xfs-write.md
-      set_tests_properties(xfs_write xfs_crash PROPERTIES TIMEOUT 3600 SKIP_RETURN_CODE 77 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+      # 作業場所は /tmp (ディスク)。/dev/shm は他の ctest (失敗した fixture の残骸など) と共有で、CI では quota 超過 (ENOSPC) になった
+      set_tests_properties(xfs_write xfs_crash PROPERTIES TIMEOUT 3600 SKIP_RETURN_CODE 77 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1;USBMEM_WORK_DIR=/tmp")
     endif()
   endif()
 endif()

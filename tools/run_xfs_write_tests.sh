@@ -129,6 +129,7 @@ if fsck_clean "$W/big.img" "many files"; then
   kq_add "$W/big.img" "$W/tr" "many files"
 fi
 kq_flush
+rm -f "$W/big.img"
 
 # ---------- 3b. 大きなディレクトリ (ノード形式: leaf1 に収まらない。作成・削除・rename・縮小・全削除 + rmdir) ----------
 r=0; mk "$W/nd.img" 320M "" || r=$?
@@ -160,6 +161,7 @@ if fsck_clean "$W/nd.img" "node dir"; then
   kq_add "$W/nd.img" "$W/tr" "node dir"
 fi
 kq_flush
+rm -f "$W/nd.img"
 
 # ---------- 4. 何も書かない / 書き込み拒否 / 満杯 ----------
 r=0; mk "$W/n.img" 320M "$W/seed" || r=$?

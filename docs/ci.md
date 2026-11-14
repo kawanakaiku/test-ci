@@ -132,6 +132,17 @@ nbdfuse_stop "$NBDFUSE_ROOT/c"
 
 次の段階: 大きなイメージを使う既存の試験 (host-tests の XFS / Btrfs の大きなフィクスチャ、`xfs-write.yml` など) をこの関数に載せ替える、実際の XFS / Btrfs のイメージを nbdkit に載せてアプリの NBD クライアントで読み書きする通し試験を足す。
 
+## 暗号ボリュームの「ディスク全体」の試験 (cryptodisk_*、2026-11-14)
+
+host-tests.yml の ctest に `cryptodisk_gen_fixture` / `cryptodisk_part` / `cryptodisk_whole` / `cryptodisk_nested` / `cryptodisk_errors` / `cryptodisk_high_offset` が入った (4 構成すべてで走る)。内容と結果は docs/crypto-volumes.md 6.5。CI 側の要点:
+- 道具: `cryptsetup-bin gdisk fdisk e2fsprogs ntfs-3g (FUSE) nbdkit libnbd-bin` は既にあり、`python3-cryptography python3-numpy` を apt に足した (LUKS のペイロード暗号化と `bitlocker_synth.py` が使う。無いと既存の `crypto_volume_fixtures` (LUKS 35 ケース) も黙って SKIP になっていたはずなので、そちらも効くようになる)。
+- `USBMEM_CRYPTODISK_REQUIRE=1` を ctest の step の env に渡し、道具が無いときは SKIP ではなく失敗にする。
+- フィクスチャ (約 430 MB) は `/dev/shm/usbmem_cryptodisk_$USER` (10 GB の tmpfs の step の後)。NTFS の中身を入れるための `ntfs-3g` の FUSE マウントは `_work` の下 (= `/dev/shm/**`) で、AppArmor の許可の対象。
+- 8 GiB の疎ディスクは `tools/ci/nbdfuse.sh` (nbdfuse_start/stop) で作る (`cryptodisk_high_offset`)。ファイルシステムには何も書かない。
+- 実 Windows 製の BitLocker (`USBMEM_WINBL_DIR`) は CI に無いので、その構成は走らない。
+- **結果**: run 43590409180 (最初の push): plain / san / wrel は成功 (cryptodisk 6 件とも Passed。plain で合計約 1.5 分、san で約 15 分: 異常系 39 件が 677 秒)。**wsan は 180 分の `timeout-minutes` で打ち切り** (cryptodisk 6 件は全て Passed。打ち切られたのは別の試験 `xfs_write` の途中で、wsan は元々 2.5 時間超かかる)。そこで `USBMEM_CRYPTODISK_JOBS=3` (ケースを 3 並列) にして異常系を短縮した。run 43605628654 (並列化後): **plain / san / wsan / wrel の 4 ジョブすべて成功** (所要 144 分、wsan が最長)。
+
+
 ## CI の完了待ちは `tools/ci/gh_wait.sh` で 1 本だけ (CPU 暴走の再発防止)
 
 `until [ "$(gh run view ID ...)" = completed ]; do sleep 20; done` のような待機ループを前景の Bash で何度も起動すると、ツールのタイムアウトで背景に回された古いループが終了せずに溜まる (2026-11-14 に 30 本超、同じ run を 4 本で待つ例も)。固まった `gh` が 1 個あたり CPU 約 30% を 10 分以上使い続け、PC がほぼフリーズした。
@@ -140,3 +151,21 @@ nbdfuse_stop "$NBDFUSE_ROOT/c"
 - 前景の Bash に、gh を呼ぶ `until` / `while` を書かない。状況確認は `gh run view ID --json status,conclusion` の単発 (連打しない)。
 - `gh run view --log` で巨大なログを何度も取らない (1 回だけ、ファイルに落として grep)。
 - 用が済んだ待機は止める。新しい run を push したら、古い run の待機は不要。
+
+## Host tests の構成選びと並列実行 (待ち時間の短縮、2026-11-14)
+
+Host tests (`host-tests.yml`) は、ctest が 1 本ずつ直列で、wsan が 139 分、san 66 分、wrel 34 分、plain 23 分かかっていた (4 構成を同時に走らせても、最長の wsan で全体が決まる)。次の 2 つで短くした。
+
+1. **push で動く構成は、ブランチ名で決まる** (`plan` ジョブ)。
+
+   | ブランチ名 | 動く構成 |
+   |---|---|
+   | `usbmem-ci-<名前>` (通常) | plain / wrel (軽い 2 構成) |
+   | `usbmem-ci-full-<名前>` | plain / san / wsan / wrel (全部) |
+   | `usbmem-ci-only-<構成>` (例 `usbmem-ci-only-wsan`) | その 1 構成だけ |
+   | `workflow_dispatch` | 入力 `modes` (空白区切り、既定は全部) |
+
+   **統合前の最終確認は、`usbmem-ci-full-*` で 4 構成すべてを通すこと** (通常の push では san / wsan が走らない)。
+2. **ctest を並列 (`-j4`、`CTEST_JOBS` で変更可)**。FIXTURES / RESOURCE_LOCK が宣言済みなので依存は守られる。並列で落ちたテストは `ctest --rerun-failed` で直列にやり直し、直列で通れば警告 (`::warning::`) と step summary に出して通す (並列で干渉するテストの目印)。
+
+実測 (run 43597804995、`usbmem-ci-only-wsan`): wsan の ctest は **139 分 → 72 分** (run 全体 74 分)、並列で落ちたテストは無し (警告なし)。

@@ -42,6 +42,6 @@ case $FS in ext*) dumpe2fs -h "$IMG" 2>&1 | grep -i "features\|state\|journal\|o
 $FSCK "$IMG"; rc=$?
 echo "fsck rc=$rc"
 [ $rc -eq 0 ] || { echo "SMOKE-FAIL: fsck $FS rc=$rc"; fail=1; }
-if [ $fail -ne 0 ] || grep -q "error" "$W/fuse.log"; then echo "--- usbmem_fuse log (head) ---"; head -150 "$W/fuse.log"; fi
+if [ $fail -ne 0 ] || grep -q "error" "$W/fuse.log"; then echo "--- usbmem_fuse log (head) ---"; head -5 "$W/fuse.log"; echo ...; tail -60 "$W/fuse.log"; fi
 rm -rf "$W"
 exit $fail

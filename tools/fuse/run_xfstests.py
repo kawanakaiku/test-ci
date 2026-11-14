@@ -206,6 +206,11 @@ def main():
             r["detail"] = det[:4000]
             r["procs"] = sh("pgrep -a usbmem_fuse; mount | grep -c fuse", shell=True).stdout[:500]
             r["full_tail"] = read_tail(full, 25)[-2500:]
+        # 後始末 (sync / 閉じる / fsck) をしているデーモンが終わるのを待つ。umount は戻っても、デーモンはまだ動いている
+        for _ in range(1200):
+            if sh("pgrep -f '[u]sbmem_fuse -o' >/dev/null", shell=True).returncode != 0:
+                break
+            time.sleep(0.1)
         # アンマウント時の fsck の失敗 (テストが pass でも記録する)
         newlog = read_tail(fsck_log, 100000).splitlines()[fsck_before:]
         if newlog:

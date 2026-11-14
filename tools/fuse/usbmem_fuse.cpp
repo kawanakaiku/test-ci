@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <time.h>
@@ -743,6 +744,20 @@ int main(int argc, char** argv) {
     return 1;
   };
 
+  // 同じイメージを使う前のプロセスが終わるのを待つ。umount(2) はカーネルが DESTROY を送っても、このデーモンの後始末 (sync / 閉じる / fsck) の完了を待たずに戻るので、
+  // 続けて mount すると、前のインスタンスの書き込み途中のイメージを新しいインスタンスが読んで壊す (ext2 の汚れ印、ext4 のジャーナル、fsck の誤検出)。
+  // 後始末が終わるまで (fsck を含む) 保持する flock で順番を付ける。
+  {
+    int lfd = open(c.image.c_str(), O_RDONLY | O_CLOEXEC);
+    if (lfd >= 0) {
+      int op = (c.ro ? LOCK_SH : LOCK_EX) | LOCK_NB;
+      int waited = 0;
+      while (flock(lfd, op) != 0 && errno == EWOULDBLOCK && waited < 120000) { usleep(10000); waited += 10; }
+      if (waited >= 120000) return die("the image " + c.image + " is still in use by another usbmem_fuse (waited 120 s)");
+      trace("lock: acquired %s after %d ms", c.image.c_str(), waited);
+      // lfd は開いたままにする (プロセス終了で解放)
+    }
+  }
   Status st = RawImageDevice::open_path(c.image, c.ro, 512, &g.dev);
   if (!st.ok()) return die("cannot open " + c.image + " (" + errc_name(st.code) + ", errno " + std::to_string(st.sys_errno) + ")");
   g.total_bytes = g.dev->size();

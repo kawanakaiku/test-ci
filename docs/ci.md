@@ -131,3 +131,12 @@ nbdfuse_stop "$NBDFUSE_ROOT/c"
 確認 (`tools/ci/nbdfuse_smoke.sh`、`.github/workflows/nbdfuse-smoke.yml`、run 43588211176、2026-11-14): ubuntu-latest で 40 GiB / 100 GiB のイメージ、39 GiB 付近の読み書き、`mkfs.xfs` (agcount 4) が通り、nbdkit の常駐メモリは 6 MiB。手元 (tmpfs) でも 40 GiB で 9 MiB。ルート権限は要らない。マウントポイントは `NBDFUSE_ROOT` (既定 `/dev/shm/nbdfuse`) の下に作る。
 
 次の段階: 大きなイメージを使う既存の試験 (host-tests の XFS / Btrfs の大きなフィクスチャ、`xfs-write.yml` など) をこの関数に載せ替える、実際の XFS / Btrfs のイメージを nbdkit に載せてアプリの NBD クライアントで読み書きする通し試験を足す。
+
+## CI の完了待ちは `tools/ci/gh_wait.sh` で 1 本だけ (CPU 暴走の再発防止)
+
+`until [ "$(gh run view ID ...)" = completed ]; do sleep 20; done` のような待機ループを前景の Bash で何度も起動すると、ツールのタイムアウトで背景に回された古いループが終了せずに溜まる (2026-11-14 に 30 本超、同じ run を 4 本で待つ例も)。固まった `gh` が 1 個あたり CPU 約 30% を 10 分以上使い続け、PC がほぼフリーズした。
+
+- 待つときは `tools/ci/gh_wait.sh RUN_ID [REPO] [INTERVAL秒] [MAX秒]` を **run_in_background で 1 本だけ**起動する。同じ run の二重起動は、ロックで即終了 (終了コード 3)。間隔は 60 秒以上 (既定 120 秒)、上限は 4 時間 (終了コード 4)。`gh` は 1 回ごとに `timeout 30` と `nice -n 19` で包む。
+- 前景の Bash に、gh を呼ぶ `until` / `while` を書かない。状況確認は `gh run view ID --json status,conclusion` の単発 (連打しない)。
+- `gh run view --log` で巨大なログを何度も取らない (1 回だけ、ファイルに落として grep)。
+- 用が済んだ待機は止める。新しい run を push したら、古い run の待機は不要。

@@ -147,6 +147,14 @@ TEST(msc_write_requires_opt_in_and_does_read_modify_write) {
   std::vector<uint8_t> back(1500);
   CHECK(r.dev->read_at(700, back.data(), back.size()).ok());
   CHECK(back == data);
+  {  // 書き込みを送ったセッションは、op_stats の末尾にコマンド別の所要時間 (" | 2a:合計ms/最大ms/遅い件数") が付く。読み取りだけなら付かない (上のテスト)
+    auto* mm = dynamic_cast<MscDevice*>(r.dev.get());
+    CHECK(mm != nullptr);
+    std::string st = mm->op_stats();
+    CHECK(st.find(" | ") != std::string::npos);
+    CHECK(st.find("2a:") != std::string::npos);
+    CHECK(st.find("28:") != std::string::npos);
+  }
   // 書き込み範囲外のバイトは元のまま (RMW が隣接データを壊さない)
   std::vector<uint8_t> edge(2);
   CHECK(r.dev->read_at(698, edge.data(), 2).ok());

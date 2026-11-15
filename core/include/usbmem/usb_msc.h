@@ -186,7 +186,8 @@ class MscDevice final : public BlockDevice {
   bool spun_down() const;
 
   ScsiSense last_sense() const { return last_sense_; }
-  /** 送った SCSI オペコードの集計 (例: "12x1 1ax1 25x1 28x4237")。読み取り専用で WRITE 系が 0 であることの実機での証拠。 */
+  /** 送った SCSI オペコードの集計 (例: "12x1 1ax1 25x1 28x4237")。読み取り専用で WRITE 系が 0 であることの実機での証拠。
+   *  書き込み系 / SYNCHRONIZE CACHE を送ったときだけ、末尾に " | 2a:合計ms/最大ms/500ms以上の件数 35:..." が付く。 */
   std::string op_stats() const;
   /** **読み取り**の転送サイズの調整 (速度計測・チューニング用。書き込みの設定は変えない)。0 = 変更しない。
    *  read_chunk = 1 回の USB 転送要求 (IN, 16KiB の倍数)、read_max_transfer = 1 SCSI READ コマンドあたり (ブロック長の倍数に丸める)。 */
@@ -239,6 +240,8 @@ class MscDevice final : public BlockDevice {
   void probe_media(const uint8_t* inq36);
   ScsiSense last_sense_;
   uint32_t op_counts_[256] = {0};
+  uint64_t op_us_[256] = {0}, op_max_us_[256] = {0};   // コマンドごとの所要時間 (合計 / 最大、マイクロ秒)
+  uint32_t op_slow_[256] = {0};                         // 500 ms 以上かかったコマンドの数
   std::string trace_;
   char phase_ = '-';
   Status exec_impl(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, void* data, size_t len, size_t* transferred, uint32_t timeout_ms, bool* check_condition);

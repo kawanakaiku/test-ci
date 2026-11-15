@@ -26,7 +26,18 @@ PW = {
     "cui_whole": "cui-whole-Pass1",
     "cui_bl": "cui-bl2-Pass1",
 }
-SMALL = 6  # 中の FS (MiB)
+SMALL = 6  # 中の NTFS (MiB)
+EXT4_MIB = 24  # 中の ext4 (MiB)。書き込み可で開けるよう、書き込みの試験 (gen_ext4_fixture.py の e4_def4k) と同じ機能で作る (内部ジャーナル・4K ブロック)
+
+
+def make_ext4_writable(path, size, tree, label):
+    with open(path, "wb") as f:
+        f.truncate(size)
+    gcf.run(["mke2fs", "-q", "-t", "ext4", "-b", "4096", "-I", "256", "-O", "has_journal,extent,flex_bg,metadata_csum,64bit,huge_file,dir_nlink,extra_isize",
+             "-F", "-L", label, "-E", "root_owner=0:0", "-d", tree, path])
+
+
+gcf.make_ext4 = make_ext4_writable
 
 
 def main():
@@ -35,11 +46,11 @@ def main():
     os.makedirs(out)
     b = gcf.Builder(out)
     # 1. GPT の中に LUKS2 / BitLocker
-    gpt = b.disk("gpt", [b.enc(b.fs("ext4", 5001, "CUI_LUKS", SMALL), "luks2-argon2id", PW["cui_gpt_luks"], 5001),
+    gpt = b.disk("gpt", [b.enc(b.fs("ext4", 5001, "CUI_LUKS", EXT4_MIB), "luks2-argon2id", PW["cui_gpt_luks"], 5001),
                          b.enc(b.fs("ntfs", 5002, "CUI_BL", SMALL), "bitlocker", PW["cui_gpt_bl"], 5002)])
     os.replace(gpt.path, os.path.join(out, "gpt.img"))
     # 2. 全体が LUKS2、その中に GPT
-    inner = b.disk("gpt", [b.fs("ext4", 5011, "CUI_W1", SMALL), b.fs("ntfs", 5012, "CUI_W2", SMALL)])
+    inner = b.disk("gpt", [b.fs("ext4", 5011, "CUI_W1", EXT4_MIB), b.fs("ntfs", 5012, "CUI_W2", SMALL)])
     whole = b.enc(inner, "luks2-pbkdf2", PW["cui_whole"], 5010)
     os.replace(whole.path, os.path.join(out, "whole.img"))
     # 3. 全体が BitLocker (パスワード + 回復キー + BEK)

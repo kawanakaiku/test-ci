@@ -5,7 +5,7 @@
 
 ## 先に結論
 - **実装した範囲**: V5 (CRC) ボリュームで **新規ファイル・ディレクトリ・シンボリックリンクの作成、ファイルへの追記・既存ブロックの上書き・穴あきファイル** (CreateOnly の範囲) と、**Full の操作: `unlink` / `rmdir` / `truncate` (縮小・拡張) / `rename` (同じディレクトリ・別のディレクトリ・上書き・ディレクトリごと) / `link`**。ノード形式のディレクトリ (1 ディレクトリが約 500 エントリを超えるもの) も書ける。
-- **アプリからは (まだ) 常に CreateOnly で開く** (`NativeBridge.xfsCreateOnlyOnly`)。Full の操作はコア (`XfsVolume`) に実装済みで、ホストと Android の計装テスト (`mountReadWrite(xfsFull = true)`) だけが使う。アプリで Full を出すかどうかは、実機 (XFS の USB) での Full 試験のあとに決める。
+- **アプリは XFS を、デバイスの書き込みモードに従って CreateOnly / Full で開く** (2026-11-16 から。それまでは常に CreateOnly)。Full の操作はコア (`XfsVolume`) に実装済みで、ホストと Android の計装テスト、実機 USB (C の p1、J9260) の Full 試験 (docs/real-usb-testset.md 10.5) で確認した。
 - **拒否する構成は従来どおり**: rmapbt / parent pointer / クォータ / ストライプ / V4 / 外部ログなどは読み取り専用で開く (下の表)。reflink で共有されうるブロックを持つファイルの削除・縮小は `EOPNOTSUPP` (参照カウントの木を持たないため)。
 - **方式**: ログ (ジャーナル) を正しく書く方式 (a)。コミットごとに変更したメタデータを XFS のログに書き、そのあと本来の場所に書く。電源断で途中までのとき、Linux カーネルが同じログを再生して整合する。ログを避ける方式 (b) は採らなかった (下記)。Full の操作は 1 操作 = 1 トランザクション (名前の削除・nlink・ブロックの解放・inode の解放まで 1 回のコミットに入る。カーネルの「unlinked list に載せてから解放」の 2 段階は踏まない)。
 - **書き込みを許す条件はホワイトリスト**: 満たさなければ読み取り専用で開く (イメージは 1 バイトも変わらない)。ログが dirty のボリュームは読み取り専用 (自前では再生しない。読み取りでは従来どおり dirty log を拒否)。
@@ -135,14 +135,13 @@ mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・
 `tools/run_xfs_mutation_tests.sh` は 9 種すべて (上の 7 種 + `REUSE_FREED` / `TAIL_ZERO_EARLY`) を検出できなければ失敗する。flush を省く 2 種 (`NO_FLUSH_LOG` / `NO_FLUSH_INPLACE`) は cache 方式の全カットポイント (stride 1、乱数の種を変えて最大 3 回) で試す。flush カットを入れる前は、この 2 種は検出できなかった (3150 試行で 0 件。順序の入れ替えが起きる窓がカットポイントに存在しなかったため。省いた flush は同値変異ではなく、テスト側の観測の穴だった)。
 
 ## 既知の限界・未実装
-- **アプリは XFS を常に CreateOnly で開く** (Full の操作はコアとテストだけ。実機 USB での Full 試験は未実施)。
 - **ノード形式のディレクトリ**: 変更のたびに索引を作り直す (大きなディレクトリへの連続追加は O(エントリ数) / 操作)。上限は約 20 万エントリ / 2016 データブロック (4 KiB)。移行後に leaf / block へ戻さない。da ノードは 1 レベルだけ (木の高さ 2 以上は作らない)。
 - **reflink 共有ブロック**: 参照カウント木を持たないので、reflink フラグのある inode (共有ブロックを持ちうる) の削除・縮小・上書きは `EOPNOTSUPP` (CoW は未実装)。
 - 解放した inode チャンク (64 個) 全体が空になっても、チャンクは返さない (inobt に空きのまま残る)。カーネルの動作とは違うが `xfs_repair -n` は clean。
 - 属性フォークがブロックを持つ inode (xattr / ACL が大きい) の削除は `EOPNOTSUPP`。xattr / ACL / プロジェクト ID は書かない (新規 inode には付けない)。
 - ログが dirty のボリュームの再生は未実装 (カーネルで再生してから使う)。
 - 4Kn デバイス、dirblklog > 0 (V5 でブロックサイズ < 4 KiB)、ストライプ、クォータ、rmapbt、外部ログ、リアルタイム、V4 は書き込み拒否。
-- 実機の USB での書き込みは CreateOnly のみ確認 (Full は未確認)。
+- 実機の USB での書き込みは、CreateOnly (2026-11-14) と Full (2026-11-16、C の p1、PC 側の `xfs_repair -n` clean + マニフェスト全件一致) を確認。reflink 共有ブロックを持つファイルや rmapbt / parent_pointer 付きのボリュームは対象外 (上記の制限のとおり)。
 - 既存ブロックの上書きはメタデータのコミットと原子的ではない。
 
 ## 実測結果
@@ -162,4 +161,4 @@ mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・
   - Android エミュレータ (CI run 43590439926 (最終コミット) と 43566699852、`btrfs-xfs` を含む 5 グループ全部 success): `XfsWriteTest` に Full の操作を含む新テスト `fullOperationsLeaveCleanVolume` を追加。
   - ホストテスト (CI run 43566699768): 失敗は基準 (`usbmem-ci-hosttests`、run 43560691106) と同じ既存の 13 / 22 テスト (`xfs_read` の 64 KiB ブロックの穴あきファイル、ntfs / erofs の fixture 等。本変更と無関係)。ただし `xfs_write` / `xfs_crash` は CI の /dev/shm の quota 超過 (`Disk quota exceeded`) で落ちたため、ctest の作業場所を /tmp にして大きな中間イメージを早めに消すよう直した (CI で再確認)。
   - 運用上の落とし穴: Data (NTFS) の書き戻しが止まっている環境では、全体同期 (`sync` / Python の `os.sync()`) が永遠に D 状態になる。`tools/xfs_vm/kreplay.py` は対象のマウントへの `syncfs` に変えた。
-- 未確認: 実機 USB での Full 操作 (アプリは XFS を CreateOnly でしか開かない)、V4 / rmapbt / realtime / 外部ログ / クォータ / ストライプ (すべて書き込み拒否)、reflink 共有ブロックの削除 (拒否)。
+- 未確認: V4 / rmapbt / realtime / 外部ログ / クォータ / ストライプ (すべて書き込み拒否)、reflink 共有ブロックの削除 (拒否)。

@@ -477,6 +477,18 @@ PC (`ssh home-notepc`) での独立検証 (読み取り専用): p2 は `btrfs ch
 
 同日に p2 を Full で開いて (CreateOnly 後の片付けを兼ねる) 32 MiB を測ると **19.1 秒 (約 1.7 MB/s)** だった。同じ日の CreateOnly (#1 0.93 秒) より遅い。つまり、速い / 遅いはモードではなく時刻・デバイスの状態で入れ替わる (2026-11-15 は CreateOnly が遅く Full が速かった)。試験後、C の p2 に usbmem_* の残りフォルダは無い。
 
+### 10.5 XFS の Full (C の p1、2026-11-16、J9260)
+
+アプリで XFS を Full で開けるようにした (`NativeBridge` の CreateOnly 固定を外した) APK (CI の `usbmem-ci-apk`) で、C の p1 (XFS、mkfs.xfs 7.2 の既定 + rmapbt=0・parent=0) の書き込み試験 (CreateOnly → Full) を行った。
+
+| ステージ | 結果 |
+|---|---|
+| 事前 (読み取り専用) / CreateOnly / CreateOnly 後の再オープン | pass |
+| Full | **pass**: 作成・書き込み (300 KB)・途中の上書き (4 KB)・縮小 (300 KB → 100 KB)・名前変更・別フォルダへの移動・小さいファイル 20 個・全削除・32 MiB の書き込みと照合・削除、専用フォルダの残りなし (2026-11-14 の古い専用フォルダも削除) |
+| Full 後の再オープン (全件照合 + 自前の fsck) | pass |
+
+PC (`ssh home-notepc`) での独立検証 (読み取り専用): `xfs_repair -n` (xfsprogs 7.2.0) は rc=0・異常の出力なし。`mount -o ro,nouuid` してマニフェスト全件一致 (ファイル 3029・ディレクトリ 43・シンボリックリンク 4・4.57 GiB)。`usbmem_*` の残りフォルダは無し。カーネルの ro マウントは "Ending clean mount" (ボリュームが 92% 使用中のため "ENOSPC reserving per-AG metadata pool, log recovery may fail" の警告も出たが、ログの再生は不要で正常に終わった)。
+
 ## 11. PC に戻した後 (fsck とマニフェスト照合)
 
 USB を PC に戻す (自動マウントさせず、`lsblk` で `/dev/sdX` を確認)。

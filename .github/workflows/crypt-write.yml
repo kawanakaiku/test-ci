@@ -1,0 +1,126 @@
+# 暗号ボリューム (LUKS / BitLocker) の書き込みの検証 (docs/crypto-volumes.md「書き込み」)。host-tests.yml の ctest (単体テスト) に加えて:
+#   - 自前の暗号層で書いたイメージを、実カーネルの dm-crypt (sudo + loop + cryptsetup open) と、cryptsetup のマスターキー + Python cryptography で復号してモデルと全バイト比較
+#   - BitLocker は libbde (bdemount) と bitlocker_synth.py (numpy / cryptography) での暗号化し直しと全バイト比較
+#   - 暗号層の上で ext4 / ext2 / NTFS / FAT を書き、復号結果を e2fsck / ntfsfix / fsck.fat と fuse2fs / ntfs-3g / 実カーネルの ext4・vfat で検査
+#   - 突然変異テスト (安全機構を 1 つ外したビルドが検出されること)、ASan + UBSan でのファジング・失敗注入
+# トリガ: workflow_dispatch、または usbmem-crypt-write ブランチへの push。
+name: Crypt write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['usbmem-crypt-write']
+
+concurrency:
+  group: crypt-write-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PKGS: cmake ninja-build g++ python3 python3-cryptography python3-numpy cryptsetup-bin libbde-utils fuse3 e2fsprogs fuse2fs ntfs-3g dosfstools zlib1g-dev
+
+jobs:
+  crypt-write:
+    name: crypt write (kernel dm-crypt, libbde, FS above)
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $PKGS
+          echo user_allow_other | sudo tee -a /etc/fuse.conf
+          sudo modprobe dm-crypt || true
+          sudo modprobe loop || true
+          uname -r
+          export PATH="$PATH:/sbin:/usr/sbin"
+          cryptsetup --version
+          bdemount -V 2>&1 | head -1 || true
+          grep -E "aes|xts|cbc" /proc/crypto | sort -u | head || true
+
+      - name: Build (write enabled, release)
+        run: |
+          cmake -S core -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSBMEM_NTFS=ON -DUSBMEM_NTFS_WRITE=ON -DUSBMEM_BUILD_TESTS=ON
+          cmake --build build --target usbmem_transform_tests usbmem_cryptwrite_tool usbmem_cryptfs_write_tests -j"$(nproc)"
+
+      - name: Unit tests
+        run: build/usbmem_transform_tests
+
+      - name: Kernel dm-crypt probe
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          truncate -s 32M /tmp/probe.img
+          echo -n probe-pass > /tmp/probe.pw
+          cryptsetup luksFormat --type luks2 --batch-mode --key-file /tmp/probe.pw --pbkdf pbkdf2 --pbkdf-force-iterations 1000 /tmp/probe.img
+          lo=$(sudo losetup -f --show /tmp/probe.img)
+          sudo cryptsetup open --key-file /tmp/probe.pw "$lo" probe
+          ls -l /dev/mapper/probe
+          sudo cryptsetup close probe
+          sudo losetup -d "$lo"
+
+      - name: LUKS / BitLocker random writes vs model (independent decryption incl. real kernel dm-crypt)
+        env:
+          USBMEM_KERNEL_DMCRYPT: "1"
+          USBMEM_CW_OPS: "800"
+          USBMEM_CW_SEEDS: "1 2 3"
+          USBMEM_CW_FUZZ: "300"
+          USBMEM_WORK_DIR: /tmp
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          bash tools/run_crypt_write_tests.sh build/usbmem_cryptwrite_tool
+
+      - name: FS above the crypt layer (ext4 / ext2 / NTFS / FAT, CreateOnly + Full)
+        env:
+          USBMEM_KERNEL_DMCRYPT: "1"
+          USBMEM_CFS_OPS: "250"
+          USBMEM_WORK_DIR: /tmp
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          bash tools/run_crypt_fs_tests.sh build/usbmem_cryptfs_write_tests
+
+  crypt-mutation:
+    name: crypt mutation (each removed safety mechanism must be detected)
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $PKGS
+      - name: Mutation tests
+        env:
+          USBMEM_JOBS: "4"
+          USBMEM_WORK_DIR: /tmp
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          bash tools/run_crypt_mutation_tests.sh /tmp/mut
+
+  crypt-san:
+    name: crypt write under ASan + UBSan (fuzz / failure injection)
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $PKGS
+      - name: Build (ASan + UBSan, write enabled)
+        run: |
+          cmake -S core -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DUSBMEM_SANITIZE=ON -DUSBMEM_NTFS=OFF -DUSBMEM_CRYPT_WRITE=ON -DUSBMEM_BUILD_TESTS=ON
+          cmake --build build --target usbmem_transform_tests usbmem_cryptwrite_tool -j"$(nproc)"
+      - name: Unit tests + tools
+        env:
+          USBMEM_CW_OPS: "150"
+          USBMEM_CW_SEEDS: "1"
+          USBMEM_CW_FUZZ: "150"
+          USBMEM_WORK_DIR: /tmp
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          build/usbmem_transform_tests
+          bash tools/run_crypt_write_tests.sh build/usbmem_cryptwrite_tool

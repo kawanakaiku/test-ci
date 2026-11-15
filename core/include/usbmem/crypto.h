@@ -111,9 +111,11 @@ class Aes {
 
 // CBC 復号 (len は 16 の倍数)。in == out 可。
 void aes_cbc_decrypt(const Aes& k, const uint8_t iv[16], const uint8_t* in, uint8_t* out, size_t len);
+// CBC 暗号化 (len は 16 の倍数)。in == out 可。暗号化ボリュームへの書き込み (docs/crypto-volumes.md 「書き込み」) が使う。
+void aes_cbc_encrypt(const Aes& k, const uint8_t iv[16], const uint8_t* in, uint8_t* out, size_t len);
 // XTS 復号 (IEEE 1619)。データ単位 = len バイト (16 の倍数)。tweak は 128 ビット LE のセクタ番号 (上位 64 ビットは 0)。in == out 可。
 void aes_xts_decrypt(const Aes& k1, const Aes& k2, uint64_t tweak, const uint8_t* in, uint8_t* out, size_t len);
-void aes_xts_encrypt(const Aes& k1, const Aes& k2, uint64_t tweak, const uint8_t* in, uint8_t* out, size_t len);  // テスト用
+void aes_xts_encrypt(const Aes& k1, const Aes& k2, uint64_t tweak, const uint8_t* in, uint8_t* out, size_t len);  // 書き込み (暗号化) とテスト用
 // CCM 復号 (ノンス 12 バイト、タグ 16 バイト、追加データなし)。タグ不一致は false (out は消す)。
 bool aes_ccm_decrypt(const Aes& k, const uint8_t nonce[12], const uint8_t* ct, size_t len, const uint8_t tag[16], uint8_t* out);
 

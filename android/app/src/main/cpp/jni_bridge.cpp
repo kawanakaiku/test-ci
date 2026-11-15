@@ -179,6 +179,17 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeDeviceSubRange(JN
   return reinterpret_cast<jlong>(out);
 }
 
+// 上の nativeDeviceSubRange の、読み取り専用かどうかを選べる版 (暗号ボリュームを書き込み可で解錠するとき、下位の切り出しも書き込み可にする)。
+// readOnly = false でも、親が読み取り専用なら切り出しも読み取り専用のまま (SubRangeDevice::is_read_only が親を見る)。
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeDeviceSubRangeMode(JNIEnv*, jclass, jlong handle, jlong offset, jlong length, jboolean readOnly) {
+  if (!handle || offset < 0 || length <= 0) return -22;
+  usbmem_device* out = nullptr;
+  int rc = usbmem_device_sub_range(reinterpret_cast<usbmem_device*>(handle), static_cast<unsigned long long>(offset),
+                                   static_cast<unsigned long long>(length), readOnly ? 1 : 0, &out);
+  if (rc != 0) return -static_cast<jlong>(rc);
+  return reinterpret_cast<jlong>(out);
+}
+
 JNIEXPORT void JNICALL Java_org_usbmem_app_NativeBridge_nativeClose(JNIEnv*, jclass, jlong handle) {
   usbmem_close(reinterpret_cast<usbmem_device*>(handle));
 }

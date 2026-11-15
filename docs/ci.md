@@ -7,8 +7,9 @@
 
 - トリガは `workflow_dispatch` (手動) と、`usbmem-ci` ブランチへの push だけ。他のブランチでは動かない。
   `workflow_dispatch` はワークフローが既定ブランチにあるリポジトリでしか手動実行できないので、既定ブランチに置かない運用 (テスト用の別リポジトリに `usbmem-ci` ブランチを push する) では push で起動する。
+- 1 グループだけ回したいとき (修正の繰り返し): `crypt-ui` だけはブランチ名を `usbmem-ci-only-crypt-ui` (`-only-crypt-ui` で終わる名前) にして push すると、そのグループだけが起動する (式に関数 `replace` が無いので汎用にはしていない)。`workflow_dispatch` の `groups` 入力なら任意のグループを 1 つ指定できる (ワークフローが既定ブランチにあるときだけ)。
 - 実行: `git push <リポジトリ> HEAD:refs/heads/usbmem-ci` → `gh run watch` / `gh run view --log-failed`。
-- ジョブは matrix で 5 グループに分かれ、`max-parallel: 4`・`fail-fast: false` (1 グループが落ちても他は最後まで走る)。
+- ジョブは matrix で 6 グループに分かれ、`max-parallel: 4`・`fail-fast: false` (1 グループが落ちても他は最後まで走る)。
   各ジョブが独立に「SDK/NDK 導入 → APK ビルド → フィクスチャ生成 → エミュレータ起動 → テスト」を行う。結果の表は各ジョブの Summary にも出る。
 - 失敗時のログ: artifact `logs-<グループ>` (`ci-logs/`: FS ごとのテスト出力 `run_<fs>.log`、フィクスチャ生成の出力 `gen_<fs>.log`、`logcat.txt` (adb logcat 全体)、`summary.md`)。
   テスト結果は `am instrument` の出力 (JUnit の XML ではない。Gradle の `connectedCheck` は使わない: テスト後にアンインストールされ、書き込みテストの結果イメージが消えるため)。
@@ -23,6 +24,7 @@
 | `btrfs-xfs` | `btrfs` (16 イメージ)、`btrfs_write` (書き込み: `run_android_btrfs_write_test.sh`)、`xfs`、`xfs_write` (書き込み: `run_android_xfs_write_test.sh`。CreateOnly の範囲 + Full の操作) | 約 8 分 (btrfs が約 80-100 秒) |
 | `squash-erofs` | `squashfs`、`erofs`、`f2fs` (`ext` イメージのみ) | 約 6 分 |
 | `nested-ntfs` | `nested`、`write` (NTFS 書き込み + SAF) | 約 5 分 |
+| `crypt-ui` | `crypt_ui` (`CryptoUiTest`: 暗号ボリュームの UI。実画面を操作して LUKS2 / BitLocker を解錠・書き込み・ロック。フィクスチャは `tools/gen_crypt_ui_fixture.py`。docs/crypto-volumes.md 10 章) | 3 件成功 (run 43660009210。全 6 グループ成功、18 分) |
 | `ro-misc` | `ext2_read`、`ext4_read`、`exfat_read`、`iso_read`、`ntfs_read`、`app_misc` | 約 6 分 |
 
 `ro-misc` は専用の `run_android_*_test.sh` が無いクラスを `ci_android_tests.sh` が直接 push して実行する (`am instrument -r` の結果を数え、失敗・スキップ (assumption 失敗 = フィクスチャ未送信) が 1 つでもあれば失敗にする)。
@@ -131,6 +133,17 @@ nbdfuse_stop "$NBDFUSE_ROOT/c"
 確認 (`tools/ci/nbdfuse_smoke.sh`、`.github/workflows/nbdfuse-smoke.yml`、run 43588211176、2026-11-14): ubuntu-latest で 40 GiB / 100 GiB のイメージ、39 GiB 付近の読み書き、`mkfs.xfs` (agcount 4) が通り、nbdkit の常駐メモリは 6 MiB。手元 (tmpfs) でも 40 GiB で 9 MiB。ルート権限は要らない。マウントポイントは `NBDFUSE_ROOT` (既定 `/dev/shm/nbdfuse`) の下に作る。
 
 次の段階: 大きなイメージを使う既存の試験 (host-tests の XFS / Btrfs の大きなフィクスチャ、`xfs-write.yml` など) をこの関数に載せ替える、実際の XFS / Btrfs のイメージを nbdkit に載せてアプリの NBD クライアントで読み書きする通し試験を足す。
+
+## 暗号ボリュームの書き込み (`crypt-write.yml`、`usbmem-crypt-write` ブランチ)
+
+暗号層の書き込み (docs/crypto-volumes.md 9 章) の独立検証。`host-tests.yml` (`usbmem-ci*`) の単体テストに加えて、sudo + loop + `cryptsetup open` が要るものをここで行う。トリガは workflow_dispatch と `usbmem-crypt-write` への push。
+
+- `crypt write`: `USBMEM_NTFS=ON USBMEM_NTFS_WRITE=ON` のビルド → 単体テスト → カーネル dm-crypt の事前確認 → `tools/run_crypt_write_tests.sh` (`USBMEM_KERNEL_DMCRYPT=1`: LUKS の書き込み結果を実カーネルの dm-crypt で復号して cmp。BitLocker は libbde と bitlocker_synth.py) → `tools/run_crypt_fs_tests.sh` (暗号層の上の ext4 / ext2 / NTFS / FAT。実カーネルの ext4 / vfat でも ro マウントして照合)。
+- `crypt mutation`: `tools/run_crypt_mutation_tests.sh` (安全機構を外した 10 種のビルドがすべて検出される)。
+- `crypt san`: ASan + UBSan のビルドで単体テストと `run_crypt_write_tests.sh` (ファジング・失敗注入)。
+- 作業ディレクトリは `/tmp` (`USBMEM_WORK_DIR`)。`/dev/shm` はユーザークォータがあるので使わない。FUSE は AppArmor の都合で `/tmp` の下にだけマウントする。
+- ローカルで `sync` が止まる PC 用の `LD_PRELOAD=/tmp/nosync.so` は、ここにも各スクリプトにも入れない (CI には不要)。
+- 結果 (最終ツリー): crypt-write.yml run 43647958462 (3 ジョブ成功)、host-tests run 43647956713 (usbmem-ci-full-cryptwrite、plain / san / wsan / wrel 成功)。libbde 比較は、試験の平文の先頭 16 セクタが本物の NTFS (mkntfs) でないと、実行ごとに違うオフセットで EOF になる (docs/crypto-volumes.md 9.8)。host-tests には libbde が無いので、その比較は crypt-write.yml だけで動く。
 
 ## 暗号ボリュームの「ディスク全体」の試験 (cryptodisk_*、2026-11-14)
 

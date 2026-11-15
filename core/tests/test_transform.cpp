@@ -3,6 +3,8 @@
 // JSON / base64 の上限、暗号ボリュームでないデバイスの扱い、C API の引数検査。暗号方式ごとの正しさは test_crypto.cpp と
 // compat/tests/test_cryptovol.cpp (実フィクスチャ) が受け持つ。
 #include <atomic>
+#include <cstring>
+#include <mutex>
 #include <random>
 #include <thread>
 
@@ -248,4 +250,329 @@ TEST(transform_decrypting_device_readahead) {
       CHECK(matches(d, d.size() - 4096, 4096));
     }
   }
+}
+
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+// 書き込み (docs/crypto-volumes.md「書き込み」): DecryptingDevice の共通部分 (RMW・キャッシュ整合・失敗で読み取り専用へ・flush の素通し・禁止範囲)。
+// 暗号方式そのものは cryptwrite_tool と tools/run_crypt_write_tests.sh (cryptsetup / Python cryptography / libbde との照合) が受け持つ。
+// ここでは 1 バイトごとに位置依存の鍵 (ks) で XOR する疑似暗号を使い、暗号文は下位 (MemoryDevice) に実際に書かれる。
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+namespace {
+
+uint8_t ks(uint64_t pos) { return uint8_t((pos * 197 + (pos >> 7) * 13 + 91) & 0xff); }
+
+// 下位の包み: 書き込み / flush の回数と失敗の注入、書き込みの粒度・順序の記録
+class FaultBase final : public BlockDevice {
+ public:
+  explicit FaultBase(uint64_t size) : mem_(std::make_shared<MemoryDevice>(std::vector<uint8_t>(size, 0))) {}
+  Status read_at(uint64_t o, void* b, size_t l, const IoOptions& io = {}) override { return mem_->read_at(o, b, l, io); }
+  Status write_at(uint64_t o, const void* b, size_t l, const IoOptions& io = {}) override {
+    std::lock_guard<std::mutex> g(mu);
+    writes++;
+    log.push_back({o, l});
+    if (fail_after >= 0 && writes > fail_after) return Status::Make(Errc::Io, 5);
+    return mem_->write_at(o, b, l, io);
+  }
+  Status flush() override { flushes++; return fail_flush ? Status::Make(Errc::Io, 5) : Status::Ok(); }
+  Status close() override { return Status::Ok(); }
+  uint64_t size() const override { return mem_->size(); }
+  uint32_t logical_block_size() const override { return 512; }
+  bool is_read_only() const override { return false; }
+  std::string describe() const override { return "faultbase"; }
+  std::vector<uint8_t>& raw() { return mem_->bytes(); }
+  std::mutex mu;
+  long writes = 0, flushes = 0, fail_after = -1;
+  bool fail_flush = false;
+  std::vector<std::pair<uint64_t, size_t>> log;
+
+ private:
+  std::shared_ptr<MemoryDevice> mem_;
+};
+
+// 疑似暗号デバイス。[0, forbid_len) の論理範囲は書き込み禁止 (BitLocker のメタデータ領域の模擬)。
+class XorDevice final : public DecryptingDevice {
+ public:
+  XorDevice(BlockDevicePtr base, uint64_t size, uint32_t sector, uint32_t cache, bool writable, uint64_t forbid_off = 0, uint64_t forbid_len = 0)
+      : DecryptingDevice(base, size, sector, cache, "xor"), forbid_off_(forbid_off), forbid_len_(forbid_len) {
+    set_writable(writable);
+  }
+  bool bad_align = false;
+  std::atomic<int> wiped{0};
+
+ protected:
+  Status read_plain(uint64_t off, uint8_t* buf, size_t len, const IoOptions& io) override {
+    if (off % sector_size() || len % sector_size() || !len) { bad_align = true; return Status::Make(Errc::InvalidArgument); }
+    Status st = base_->read_at(off, buf, len, io);
+    if (!st) return st;
+    for (size_t i = 0; i < len; i++) buf[i] ^= ks(off + i);
+    return Status::Ok();
+  }
+  Status write_plain(uint64_t off, const uint8_t* buf, size_t len, const IoOptions& io) override {
+    if (off % sector_size() || len % sector_size() || !len) { bad_align = true; return Status::Make(Errc::InvalidArgument); }
+    std::vector<uint8_t> e(buf, buf + len);
+    for (size_t i = 0; i < len; i++) e[i] ^= ks(off + i);
+    return base_->write_at(off, e.data(), len, io);
+  }
+  Status check_write_range(uint64_t off, size_t len) const override {
+    if (forbid_len_ && off < forbid_off_ + forbid_len_ && forbid_off_ < off + len) return Status::Make(Errc::ReadOnly);
+    return Status::Ok();
+  }
+  void wipe_keys() override { wiped++; }
+
+ private:
+  uint32_t sector_size() const { return logical_block_size(); }
+  uint64_t forbid_off_, forbid_len_;
+};
+
+struct WFix {
+  std::shared_ptr<FaultBase> base;
+  std::shared_ptr<XorDevice> dev;
+  std::vector<uint8_t> model;
+  WFix(uint64_t size, uint32_t sector, uint32_t cache = 0, bool writable = true, uint64_t fo = 0, uint64_t fl = 0) {
+    base = std::make_shared<FaultBase>(size);
+    std::mt19937_64 rng(size + sector);
+    model.resize(size - size % sector);
+    for (auto& b : model) b = uint8_t(rng());
+    for (size_t i = 0; i < model.size(); i++) base->raw()[i] = model[i] ^ ks(i);  // 暗号文を下位に置く
+    dev = std::make_shared<XorDevice>(base, size, sector, cache, writable, fo, fl);
+  }
+  bool read_matches(uint64_t off, size_t len) {
+    std::vector<uint8_t> b(len);
+    if (!dev->read_at(off, b.data(), len).ok()) return false;
+    return std::memcmp(b.data(), model.data() + off, len) == 0;
+  }
+  // 下位の暗号文を直接復号して、モデルと全体が一致するか (キャッシュを介さない照合)
+  bool raw_matches() {
+    for (size_t i = 0; i < model.size(); i++)
+      if (uint8_t(base->raw()[i] ^ ks(i)) != model[i]) return false;
+    return true;
+  }
+};
+
+}  // namespace
+
+#ifdef USBMEM_CRYPT_WRITE
+TEST(transform_write_random_vs_model) {
+  for (uint32_t sector : {512u, 4096u}) {
+    WFix f(3 * 1024 * 1024 + sector * 5, sector);
+    CHECK(!f.dev->is_read_only());
+    std::mt19937_64 rng(sector * 3 + 1);
+    const uint64_t S = f.dev->size();
+    for (int it = 0; it < 1500; it++) {
+      // 読み取りでキャッシュを温めてから書く (更新 / 無効化の確認)
+      if (rng() % 3 == 0) { uint64_t o = (rng() % (S / 4096)) * 4096; for (int k = 0; k < 8 && o + 4096 <= S; k++, o += 4096) CHECK(f.read_matches(o, 4096)); }
+      uint64_t len, off;
+      switch (rng() % 6) {
+        case 0: len = 1 + rng() % 7; break;
+        case 1: len = 1 + rng() % sector; break;
+        case 2: len = sector; break;
+        case 3: len = 4096 + rng() % 3 - 1; break;
+        case 4: len = 1 + rng() % 70000; break;
+        default: len = 1 + rng() % (2u << 20); break;  // 1 MiB の塊をまたぐ
+      }
+      len = std::min<uint64_t>(len, S);
+      off = rng() % (S - len + 1);
+      if (rng() % 5 == 0) off = S - len;  // 末尾
+      std::vector<uint8_t> d(len);
+      for (auto& x : d) x = uint8_t(rng());
+      Status st = f.dev->write_at(off, d.data(), len);
+      CHECK(st.ok());
+      std::memcpy(f.model.data() + off, d.data(), len);
+      CHECK(f.read_matches(off > 700 ? off - 700 : 0, size_t(std::min<uint64_t>(S - (off > 700 ? off - 700 : 0), len + 1400))));
+      if (rng() % 10 == 0) CHECK(f.read_matches((rng() % (S - 100000)), 100000));
+    }
+    CHECK(f.read_matches(0, size_t(S)));
+    CHECK(f.raw_matches());            // 下位には本当に暗号文が書かれている
+    CHECK(!f.dev->bad_align);          // 暗号化層へは常にセクタ境界・セクタ倍数で渡る (部分セクタは RMW)
+    for (auto& w : f.base->log) CHECK(w.first % sector == 0 && w.second % sector == 0 && w.second <= (1u << 20) + sector);
+    CHECK(f.dev->close().ok());
+    CHECK(f.base->flushes >= 1);       // close が最後の flush を下位へ渡す
+  }
+}
+
+// 一部のセクタだけを書いたとき、下位に書かれるのはそのセクタだけ (隣のセクタを書き換えない・書く前に読む)
+TEST(transform_write_partial_sector_rmw) {
+  WFix f(1 << 20, 4096);
+  uint8_t b[10];
+  std::memset(b, 0x5a, sizeof b);
+  CHECK(f.dev->write_at(4096 * 3 + 100, b, sizeof b).ok());
+  CHECK_EQ(f.base->log.size(), 1u);
+  CHECK_EQ(f.base->log[0].first, 4096u * 3);
+  CHECK_EQ(f.base->log[0].second, 4096u);
+  std::memcpy(f.model.data() + 4096 * 3 + 100, b, sizeof b);
+  CHECK(f.raw_matches());
+  // 2 つのセクタにまたがる小さい書き込み: 2 セクタを 1 回で
+  f.base->log.clear();
+  CHECK(f.dev->write_at(4096 * 5 - 3, b, sizeof b).ok());
+  CHECK_EQ(f.base->log.size(), 1u);
+  CHECK_EQ(f.base->log[0].first, 4096u * 4);
+  CHECK_EQ(f.base->log[0].second, 8192u);
+  std::memcpy(f.model.data() + 4096 * 5 - 3, b, sizeof b);
+  CHECK(f.raw_matches());
+  CHECK(f.read_matches(4096 * 4, 8192));
+  // 0 バイトは何もしない
+  const long w = f.base->writes;
+  CHECK(f.dev->write_at(77, b, 0).ok());
+  CHECK_EQ(f.base->writes, w);
+}
+
+// 読み取りで温めたキャッシュが、書き込み後に古い内容を返さない (突然変異: 書き込み後のキャッシュ更新を外すと、この試験が落ちる)
+TEST(transform_write_cache_coherence) {
+  WFix f(2 << 20, 512);
+  CHECK(f.read_matches(0, 1 << 20));  // 先頭 1 MiB をキャッシュ (先読み含む) に載せる…
+  for (uint64_t o = 0; o < (512u << 10); o += 4096) CHECK(f.read_matches(o, 4096));
+  std::vector<uint8_t> d(10000, 0xc3);
+  CHECK(f.dev->write_at(5000, d.data(), d.size()).ok());
+  std::memcpy(f.model.data() + 5000, d.data(), d.size());
+  CHECK(f.read_matches(4096, 4096));
+  CHECK(f.read_matches(8192, 4096));
+  CHECK(f.read_matches(0, 4096));
+  CHECK(f.read_matches(5000, 10000));
+  // 下位が失敗したとき、キャッシュの内容を信用しない (無効化): 失敗した書き込みの範囲は下位から読み直される
+  f.base->fail_after = f.base->writes;  // 以後の書き込みは失敗
+  std::vector<uint8_t> d2(4096, 0x11);
+  CHECK(!f.dev->write_at(8192, d2.data(), d2.size()).ok());
+  CHECK(f.dev->is_read_only());
+  CHECK(f.read_matches(8192, 4096));  // 下位の (書かれなかった) 内容 = モデルのまま
+}
+
+TEST(transform_write_failure_degrades_to_read_only) {
+  for (int mode = 0; mode < 3; mode++) {
+    WFix f(4 << 20, 512);
+    std::vector<uint8_t> d(4096, 0x77);
+    CHECK(f.dev->write_at(0, d.data(), d.size()).ok());
+    std::memcpy(f.model.data(), d.data(), d.size());
+    CHECK(!f.dev->is_read_only());
+    Status st;
+    if (mode == 0) { f.base->fail_after = f.base->writes; st = f.dev->write_at(8192, d.data(), d.size()); }
+    else if (mode == 1) { f.base->fail_flush = true; st = f.dev->flush(); }
+    else {  // 3 MiB の書き込みの 2 塊目で失敗: 先頭の塊だけが反映される (エラーが返る・以後は書けない)
+      f.base->fail_after = f.base->writes + 1;
+      std::vector<uint8_t> big(3 << 20, 0x42);
+      st = f.dev->write_at(0, big.data(), big.size());
+    }
+    CHECK(st.code == Errc::Io);
+    CHECK(f.dev->is_read_only());
+    const long w = f.base->writes;
+    CHECK(f.dev->write_at(0, d.data(), 512).code == Errc::ReadOnly);
+    CHECK_EQ(f.base->writes, w);        // 失敗後は下位に触れない
+    CHECK(!f.dev->flush().ok());        // flush も「書けた」とは言わない
+    std::vector<uint8_t> r(512);
+    CHECK(f.dev->read_at(0, r.data(), 512).ok());  // 読み取りは続けられる
+    CHECK(f.dev->close().ok());
+  }
+}
+
+TEST(transform_write_flush_reaches_base) {
+  WFix f(1 << 20, 512);
+  std::vector<uint8_t> d(100, 1);
+  CHECK(f.dev->write_at(1, d.data(), d.size()).ok());
+  CHECK_EQ(f.base->flushes, 0);       // 書き込みだけでは flush しない (FS が必要なときだけ flush する)
+  CHECK(f.dev->flush().ok());
+  CHECK_EQ(f.base->flushes, 1);       // flush は必ず下位へ
+  CHECK(f.dev->flush().ok());
+  CHECK_EQ(f.base->flushes, 2);
+  CHECK(f.dev->close().ok());
+  CHECK_EQ(f.base->flushes, 3);       // close は最後にもう一度
+  CHECK(f.dev->flush().code == Errc::Closed);
+  CHECK(f.dev->write_at(0, d.data(), 1).code == Errc::Closed);
+  CHECK_EQ(f.dev->wiped.load(), 1);
+}
+
+TEST(transform_write_range_and_forbidden) {
+  const uint64_t S = 1 << 20;
+  WFix f(S, 512, 0, true, 100000, 5000);  // 論理 [100000, 105000) は書き込み禁止
+  std::vector<uint8_t> d(2000, 9);
+  CHECK(f.dev->write_at(S - 1000, d.data(), 2000).code == Errc::OutOfRange);
+  CHECK(f.dev->write_at(S + 1, d.data(), 1).code == Errc::OutOfRange);
+  CHECK(f.dev->write_at(~uint64_t(0) - 3, d.data(), 100).code == Errc::OutOfRange);
+  CHECK(f.dev->write_at(S - 2000, d.data(), 2000).ok());
+  CHECK(f.dev->write_at(S, d.data(), 0).ok());
+  const long w = f.base->writes;
+  for (uint64_t off : {uint64_t(99000), uint64_t(100000), uint64_t(104999), uint64_t(100500)}) {  // 掛かるものは全部拒否 (要求の一部だけ書かない)
+    CHECK(f.dev->write_at(off, d.data(), 2000).code == Errc::ReadOnly);
+    CHECK_EQ(f.base->writes, w);
+    CHECK(!f.dev->is_read_only());  // 範囲の拒否で書き込み不可に落ちない
+  }
+  CHECK(f.dev->write_at(98000, d.data(), 2000).ok());   // 手前で終わる
+  CHECK(f.dev->write_at(105000, d.data(), 2000).ok());  // 後ろから始まる
+  std::memcpy(f.model.data() + S - 2000, d.data(), 2000);
+  std::memcpy(f.model.data() + 98000, d.data(), 2000);
+  std::memcpy(f.model.data() + 105000, d.data(), 2000);
+  CHECK(f.raw_matches());
+}
+
+// 書き込み可を指定しなければ (既定)、書き込みは ReadOnly で下位に何も書かない。is_read_only() も true
+TEST(transform_write_default_read_only) {
+  WFix f(1 << 20, 512, 0, false);
+  CHECK(f.dev->is_read_only());
+  std::vector<uint8_t> d(512, 3);
+  CHECK(f.dev->write_at(0, d.data(), 512).code == Errc::ReadOnly);
+  CHECK(f.dev->write_at(0, d.data(), 0).code == Errc::ReadOnly);
+  CHECK(f.dev->flush().ok());
+  CHECK_EQ(f.base->writes, 0);
+  CHECK_EQ(f.base->flushes, 0);  // 読み取り専用の flush は下位に触れない (従来どおり)
+  CHECK(f.raw_matches());
+}
+
+TEST(transform_write_threads) {
+  const uint64_t S = 4 << 20;
+  WFix f(S, 512);
+  const int T = 4;
+  const uint64_t part = S / T;
+  std::atomic<int> bad{0};
+  std::vector<std::thread> th;
+  std::vector<std::vector<uint8_t>> models(T);
+  for (int t = 0; t < T; t++) {
+    models[t].assign(f.model.begin() + long(t * part), f.model.begin() + long((t + 1) * part));
+    th.emplace_back([&, t] {
+      std::mt19937_64 rng(1000 + t);
+      std::vector<uint8_t> b;
+      for (int it = 0; it < 300; it++) {
+        // 自分の担当領域 [t*part, (t+1)*part) だけに書く。ほかのスレッドは同じキャッシュ・同じセクタ境界の近くを読み書きしている。
+        // (担当の境目の部分セクタ: 512 の倍数なので共有しない)
+        uint64_t len = 1 + rng() % 40000, off = rng() % (part - len + 1);
+        b.resize(len);
+        for (auto& x : b) x = uint8_t(rng());
+        if (!f.dev->write_at(t * part + off, b.data(), len).ok()) { bad++; continue; }
+        std::memcpy(models[t].data() + off, b.data(), len);
+        std::vector<uint8_t> r(part);
+        if (it % 5 == 0) {
+          if (!f.dev->read_at(t * part, r.data(), part).ok() || r != models[t]) bad++;
+        } else {
+          uint64_t l2 = 1 + rng() % 30000, o2 = rng() % (part - l2 + 1);
+          r.resize(l2);
+          if (!f.dev->read_at(t * part + o2, r.data(), l2).ok() || std::memcmp(r.data(), models[t].data() + o2, l2) != 0) bad++;
+        }
+      }
+    });
+  }
+  for (auto& x : th) x.join();
+  CHECK_EQ(bad.load(), 0);
+  for (int t = 0; t < T; t++) std::memcpy(f.model.data() + t * part, models[t].data(), part);
+  CHECK(f.read_matches(0, size_t(S)));
+  CHECK(f.raw_matches());
+}
+
+// 書き込み中に別スレッドが close しても落ちない
+TEST(transform_write_close_race) {
+  WFix f(2 << 20, 512);
+  std::thread wr([&] {
+    std::vector<uint8_t> b(30000, 5);
+    for (int i = 0; i < 300; i++) f.dev->write_at(uint64_t(i) * 4000, b.data(), b.size());
+  });
+  f.dev->close();
+  wr.join();
+  CHECK_EQ(f.dev->wiped.load(), 1);
+}
+#endif
+
+// OpenOptions の既定は読み取り専用 (書き込みは open 時に明示したときだけ)。ビルドが USBMEM_CRYPT_WRITE でなければ、明示しても書き込み可にならない
+// (実暗号方式での確認は tools/run_crypt_write_tests.sh の norw)。
+TEST(transform_write_option_default_read_only) {
+  OpenOptions o;
+  CHECK(!o.writable);
+  VolumeInfo v;
+  CHECK(!v.write_supported && !v.writable);
 }

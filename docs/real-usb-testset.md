@@ -414,6 +414,19 @@ python3 tools/make_real_usb_testset.py verify usbmem_testset_manifests/A/p1_ntfs
 
 `usbmem_cotest_*` / `usbmem_selftest_*` / `usbmem_speed_*` のフォルダが残っていないこと (残っていたら、このテストが作ったものなので消してよい)、`verify` が元のファイルの不一致 0 を返すことが合格条件。
 
+### 10.3 暗号ボリュームの書き込み (C の p4 / p5、2026-11-15、J9260)
+
+C の p4 (LUKS2・中は ext4、`usbmem-test-pass`) と p5 (BitLocker 風・中は NTFS、`synth-Password-1`) を、アプリと同じ `CryptoMount.unlock` で**書き込み可で解錠**して、中の FS に書き込み試験 (CreateOnly → Full) を行った。APK は GitHub Actions (`usbmem-ci-apk`、run 43705544753、コミット 4331ba4) で作り、`android/app/build/outputs/apk/{debug,androidTest/debug}/` に置いて `--no-build` で使った (CI の APK は署名が手元ビルドと違うので、入れ直しは `adb uninstall org.usbmem.app` が先に要る)。OS が自動マウントしていた FAT のボリュームは `sm unmount` で外した。
+
+| パーティション | 結果 | 備考 |
+|---|---|---|
+| p4 LUKS2 → ext4 | **pass** (全 5 ステージ、119 秒) | 32 MiB の書き込み 5.4 秒 |
+| p5 BitLocker → NTFS | **pass** (全 5 ステージ) | 32 MiB の書き込み 4.8 秒 |
+
+C を PC (`ssh home-notepc`) に戻して、独立に検証した (どちらも読み取り専用で開く):
+- p4: `cryptsetup open --readonly` → `e2fsck -fn` は rc=0 (clean)、`make_real_usb_testset.py verify` でマニフェスト全件一致 (ファイル 3029・ディレクトリ 43・リンク 4・1.07 GiB)。
+- p5: `bdemount -p` (libbde) で復号 → `ntfsfix -n` OK、ro マウントしてマニフェスト全件一致 (ファイル 3024・ディレクトリ 40・5.96 MiB)。ntfsfix -n は簡易な検査 (完全な NTFS fsck ではない)。
+
 ## 11. PC に戻した後 (fsck とマニフェスト照合)
 
 USB を PC に戻す (自動マウントさせず、`lsblk` で `/dev/sdX` を確認)。

@@ -194,6 +194,8 @@ if [ $r = 0 ]; then
 fi
 r=0; mk "$W/s.img" 320M "" || r=$?
 [ $r != 0 ] || { run_t "enospc" --enospc "$W/s.img"; fsck_clean "$W/s.img" "enospc" || true; }
+r=0; mk "$W/fg.img" 320M "" || r=$?
+[ $r != 0 ] || { run_t "frag (free space B+tree merges)" --frag "$W/fg.img"; fsck_clean "$W/fg.img" "frag" || true; }
 # 未再生のログ (電源断のあと): 書き込み・読み取りとも mount が失敗し、イメージは変わらない
 r=0; mk "$W/d.img" 320M "$W/seed" || r=$?
 if [ $r = 0 ]; then

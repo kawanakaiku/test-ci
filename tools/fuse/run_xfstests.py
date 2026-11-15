@@ -36,6 +36,37 @@ def sh(cmd, **kw):
     return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, **kw)
 
 
+# notrun の理由 → 分類 (正規表現は小文字化した理由に当てる)。
+#   saf_unusable   : SAF (Android の Storage Access Framework) 経由では使えない操作 (シンボリックリンク / ハードリンク / fallocate / 開いたままの ftruncate / 直接 I/O など)。core が対応しても
+#                    アプリからは届かないので、対応を急がない
+#   core_unsupported: 自前実装 (core の FS API) に無い操作 (権限・所有者・ACL・xattr・時刻の細かい制御・クォータ・SEEK_DATA / HOLE など)。FUSE アダプターは正直に ENOSYS / EOPNOTSUPP を返す
+#   environment    : 前提 (実デバイス・別のデバイス・カーネルの機能・ツール) が FUSE / この runner に無い
+NOTRUN_RULES = [
+    ("saf_unusable", r"symlink|hardlink|hard link|fallocate|falloc|punch|zero.?range|collapse|insert.?range|o_direct|direct.?io|dio|reflink|clone|dedupe|copy_file_range|mknod|fifo|device special|swap|exchange|whiteout"),
+    ("core_unsupported", r"xattr|attr|acl|chown|chmod|permission|setuid|uid|gid|quota|seek_data|seek_hole|fiemap|fsync|utimes|timestamp|atime|ctime|btime|birth|mtime|casefold|encrypt|verity|immutable|chattr|lsattr|project|idmap|fs-verity|ioctl|extent|sparse|hole"),
+    ("environment", r"scratch|logwrites|dm-|flakey|loop|device|kernel|require|not supported by|does not support|need|must|root|mount option|journal|log"),
+]
+
+
+def classify_notrun(reason):
+    r = reason.lower()
+    for cat, pat in NOTRUN_RULES:
+        if re.search(pat, r):
+            return cat
+    return "other"
+
+
+def load_expected(fsname):
+    """tools/fuse/xfstests_expected.json: {"<fs>" or "*": {"generic/NNN": {"cat": "...", "why": "..."}}}。cat は saf_unusable / core_unsupported / premise_mismatch / core_bug / adapter_bug。"""
+    path = os.path.join(HERE, "xfstests_expected.json")
+    if not os.path.exists(path):
+        return {}
+    d = json.load(open(path))
+    out = dict(d.get("*", {}))
+    out.update(d.get(fsname, {}))
+    return {k: v for k, v in out.items() if not k.startswith("_")}
+
+
 def mk_one(fsname, p, size):
     if os.path.exists(p):
         os.unlink(p)
@@ -228,29 +259,43 @@ def main():
             print("[%d/%d] %.0fs" % (i + 1, len(tests), time.time() - t_start), flush=True)
             json.dump(results, open(os.path.join(a.out, "results.json"), "w"), indent=1, ensure_ascii=False)
 
-    json.dump(results, open(os.path.join(a.out, "results.json"), "w"), indent=1, ensure_ascii=False)
     cnt = {}
     for r in results.values():
         cnt[r["status"]] = cnt.get(r["status"], 0) + 1
     fsck_fails = sum(1 for r in results.values() if r.get("fsck_fail"))
     lines = ["# xfstests on usbmem_fuse: fs=%s" % a.fs, "",
              "total %d: %s; tests with fsck failure after unmount: %d" % (len(results), ", ".join("%s=%d" % kv for kv in sorted(cnt.items())), fsck_fails), ""]
+    expected = load_expected(a.fs)
     for st in ("fail", "hang"):
         names = [t for t, r in results.items() if r["status"] == st]
         if names:
-            lines += ["## %s (%d)" % (st, len(names)), " ".join(names), ""]
+            exp = [t for t in names if t in expected]
+            unexp = [t for t in names if t not in expected]
+            lines += ["## %s (%d: expected %d, unexpected %d)" % (st, len(names), len(exp), len(unexp))]
+            if unexp:
+                lines += ["unexpected: " + " ".join(unexp)]
+            for cat in sorted({expected[t]["cat"] for t in exp}):
+                lines += ["expected (%s): " % cat + " ".join(t for t in exp if expected[t]["cat"] == cat)]
+            lines += [""]
+    fixed = [t for t, r in results.items() if r["status"] == "pass" and t in expected]
+    if fixed:
+        lines += ["## expected-failure list entries that now pass (%d)" % len(fixed), " ".join(fixed), ""]
     ff = [t for t, r in results.items() if r.get("fsck_fail")]
     if ff:
         lines += ["## fsck failed after unmount (%d)" % len(ff), " ".join(ff), ""]
     reasons = {}
+    bycat = {}
     for t, r in results.items():
         if r["status"] == "notrun":
-            k = re.sub(r"\d+", "N", r.get("reason", ""))[:100]
+            r["notrun_cat"] = classify_notrun(r.get("reason", ""))
+            bycat[r["notrun_cat"]] = bycat.get(r["notrun_cat"], 0) + 1
+            k = "[%s] %s" % (r["notrun_cat"], re.sub(r"\d+", "N", r.get("reason", ""))[:100])
             reasons.setdefault(k, []).append(t)
     if reasons:
-        lines.append("## notrun reasons")
+        lines.append("## notrun reasons (by category: %s)" % ", ".join("%s=%d" % kv for kv in sorted(bycat.items())))
         for k, v in sorted(reasons.items(), key=lambda kv: -len(kv[1])):
             lines.append("- (%d) %s" % (len(v), k))
+    json.dump(results, open(os.path.join(a.out, "results.json"), "w"), indent=1, ensure_ascii=False)
     open(os.path.join(a.out, "summary.md"), "w").write("\n".join(lines) + "\n")
     print("\n".join(lines))
     umount_all([test_mnt, scratch_mnt])

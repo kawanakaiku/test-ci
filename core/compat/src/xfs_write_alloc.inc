@@ -3,7 +3,7 @@
 //
 // B+木は 4 種類 (BT_BNO / BT_CNT / BT_INO / BT_FINO) を 1 つの汎用の挿入 / 削除で扱う (短いポインタ形式、V5 の 56 バイトのヘッダ)。
 //  - 挿入: 満杯なら半分に分割して親に登録 (根が割れたら高さが 1 増える)。キーが先頭に入るときは親のキーを更新する
-//  - 削除: ブロックが空になったら解放して親から外す (根が子 1 つだけになったら高さを 1 減らす)。空きブロックを使い回すための併合はしない (カーネルも読める形)
+//  - 削除: ブロックが空になったら解放して親から外す。最小レコード数 (最大 / 2) を割ったら同じ親の隣のブロックと併合 / 振り分け (bt_rebalance。xfs_repair が非根ブロックの最小数を要求する。xfstests generic/013 の後で発見)。根が子 1 つだけなら高さを 1 減らす
 //  - ブロックの確保 / 解放: 空き領域の木 (bnobt / cntbt) は AGFL から取り / に戻す。inode 木は空き領域から 1 ブロック確保 / に返す
 // 空き領域の操作の前には fix_freelist() で AGFL に (2 本の木の高さ + 1) ブロックを用意する (木の分割が AGFL を使い切らないように)。
 
@@ -334,6 +334,68 @@
     }
     pb16(p + 6, n - 1);
     if (idx == 0 && n > 1 && pos > 0) bt_fix_keys(k, path, pos, leaf ? bt_recp(k, b, 0) : bt_keyp(k, b, 0));
+    if (pos > 0 && n - 1 < (leaf ? bt_lmax(k) : bt_nmax(k)) / 2) return bt_rebalance(ag, k, path, pos);
+    return 0;
+  }
+  // 根でないブロック path[pos] が最小レコード数 (最大 / 2、xfs_repair が要求する) を割ったので、同じ親の隣のブロックと併合する (合計が最大に収まるとき) か、釣り合うように
+  // 振り分ける。併合で親のエントリが 1 つ減るので、親も同じ規則で再帰的に整える。
+  int bt_rebalance(uint32_t ag, int k, std::vector<Pe>& path, int pos) {
+    WBuf* parent = path[pos - 1].b;
+    const uint32_t pn = bt_nrecs(parent), ci = path[pos - 1].idx;
+    if (pn < 2 || ci >= pn) return 0;   // 親が根で子が 1 つだけ: bt_collapse が高さを減らす
+    const uint32_t li = ci + 1 < pn ? ci : ci - 1;   // 左の兄弟の親での位置 (右の隣があれば自分が左、なければ自分が右)
+    WBuf *L, *R;
+    int rc = bt_blk(ag, be32(bt_ptrp(k, parent, li)), &L); if (rc) return rc;
+    rc = bt_blk(ag, be32(bt_ptrp(k, parent, li + 1)), &R); if (rc) return rc;
+    const bool leaf = bt_level(L) == 0;
+    if (bt_level(R) != bt_level(L)) return -EUCLEAN;
+    const uint32_t nl = bt_nrecs(L), nr = bt_nrecs(R), t = nl + nr, mx = leaf ? bt_lmax(k) : bt_nmax(k);
+    const uint32_t kl = bt_keylen(k), rl = bt_reclen(k);
+    if (nl > mx || nr > mx) return -EUCLEAN;
+    if (t <= mx) {
+      // R を L の末尾へ全部移して R を解放する
+      bw(L);
+      if (leaf) std::memcpy(bt_recp(k, L, nl), bt_recp(k, R, 0), size_t(nr) * rl);
+      else {
+        std::memcpy(bt_keyp(k, L, nl), bt_keyp(k, R, 0), size_t(nr) * kl);
+        std::memcpy(bt_ptrp(k, L, nl), bt_ptrp(k, R, 0), size_t(nr) * 4);
+      }
+      pb16(L->d.data() + 6, t);
+      const uint32_t rsib = be32(R->d.data() + 12), rbno = be32(bt_ptrp(k, parent, li + 1)), lbno = be32(bt_ptrp(k, parent, li));
+      pb32(L->d.data() + 12, rsib);
+      if (rsib != kNullAgbno) { WBuf* x; rc = bt_blk(ag, rsib, &x); if (rc) return rc; pb32(bw(x) + 8, lbno); }
+      rc = bt_free_block(ag, k, rbno); if (rc) return rc;
+      return bt_blk_remove(ag, k, path, pos - 1, li + 1);
+    }
+    // 釣り合わせる: 合計の半分ずつ
+    const uint32_t tl = t / 2;
+    bw(L); bw(R);
+    if (tl > nl) {
+      const uint32_t d = tl - nl;   // R の先頭 d 個を L の末尾へ
+      if (leaf) {
+        std::memcpy(bt_recp(k, L, nl), bt_recp(k, R, 0), size_t(d) * rl);
+        std::memmove(bt_recp(k, R, 0), bt_recp(k, R, d), size_t(nr - d) * rl);
+      } else {
+        std::memcpy(bt_keyp(k, L, nl), bt_keyp(k, R, 0), size_t(d) * kl);
+        std::memcpy(bt_ptrp(k, L, nl), bt_ptrp(k, R, 0), size_t(d) * 4);
+        std::memmove(bt_keyp(k, R, 0), bt_keyp(k, R, d), size_t(nr - d) * kl);
+        std::memmove(bt_ptrp(k, R, 0), bt_ptrp(k, R, d), size_t(nr - d) * 4);
+      }
+    } else {
+      const uint32_t d = nl - tl;   // L の末尾 d 個を R の先頭へ
+      if (leaf) {
+        std::memmove(bt_recp(k, R, d), bt_recp(k, R, 0), size_t(nr) * rl);
+        std::memcpy(bt_recp(k, R, 0), bt_recp(k, L, tl), size_t(d) * rl);
+      } else {
+        std::memmove(bt_keyp(k, R, d), bt_keyp(k, R, 0), size_t(nr) * kl);
+        std::memmove(bt_ptrp(k, R, d), bt_ptrp(k, R, 0), size_t(nr) * 4);
+        std::memcpy(bt_keyp(k, R, 0), bt_keyp(k, L, tl), size_t(d) * kl);
+        std::memcpy(bt_ptrp(k, R, 0), bt_ptrp(k, L, tl), size_t(d) * 4);
+      }
+    }
+    pb16(L->d.data() + 6, tl); pb16(R->d.data() + 6, t - tl);
+    bw(parent);
+    std::memcpy(bt_keyp(k, parent, li + 1), leaf ? bt_recp(k, R, 0) : bt_keyp(k, R, 0), kl);   // 右の先頭のキーが変わった
     return 0;
   }
   // 根が子 1 つだけなら高さを減らす

@@ -552,11 +552,46 @@ static int fuzzw_run(const std::string& img, int n, unsigned seed) {
   return 0;
 }
 
+// ---- --frag: 小さなファイルを大量に作り、ばらばらの順に消して空き領域を細かく切る (空き領域の B+木 (bnobt / cntbt) の葉が分割され、削除で最小レコード数を割る)。
+//   併合しないと xfs_repair -n が "bad btree nrecs ... min=" で失敗していた (xfstests generic/013 の後で発見)。fsck は tools/run_xfs_write_tests.sh 側。
+static int frag_run(const std::string& img) {
+  BlockDevicePtr dev = open_rw(img); int err = 0; auto vol = XfsVolume::mount_rw(dev, &err);
+  if (!vol || !vol->writable()) { std::fprintf(stderr, "mount_rw failed\n"); return 1; }
+  std::vector<uint8_t> buf(60000, 0x5C);
+  uint32_t rng = 12345; auto rnd = [&]() { rng = rng * 1103515245u + 12345u; return (rng >> 8) & 0xFFFFFF; };
+  uint64_t d; CHECK(vol->mkdir(vol->root(), "fr", 0755, &d) == 0);
+  const int n = 6000;
+  auto nm = [](const char* p, int i) { return std::string(p) + std::to_string(i); };
+  for (int i = 0; i < n; i++) {
+    uint64_t t; if (vol->create(d, nm("f", i), 0644, &t)) { std::fprintf(stderr, "create f%d failed\n", i); g_fail++; break; }
+    size_t sz = 1 + rnd() % buf.size(); if (vol->write(t, 0, buf.data(), sz) != (int64_t)sz) { std::fprintf(stderr, "write f%d failed\n", i); g_fail++; break; }
+  }
+  std::vector<int> order(n); for (int i = 0; i < n; i++) order[i] = i;
+  for (int i = n - 1; i > 0; i--) std::swap(order[i], order[rnd() % (i + 1)]);
+  for (int i = 0; i < n * 7 / 10; i++) CHECK(vol->unlink(d, nm("f", order[i])) == 0);
+  for (int i = 0; i < n / 2; i++) {
+    uint64_t t; if (vol->create(d, nm("g", i), 0644, &t)) break;
+    size_t sz = 1 + rnd() % buf.size(); if (vol->write(t, 0, buf.data(), sz) != (int64_t)sz) break;
+  }
+  for (int i = n * 7 / 10; i < n; i++) CHECK(vol->unlink(d, nm("f", order[i])) == 0);
+  for (int i = 0; i < n / 2; i++) if (i % 3) CHECK(vol->unlink(d, nm("g", i)) == 0);
+  // 小さいディレクトリ (ショートフォーム) の中で名前の変更を繰り返す。エントリのオフセットが増え続けると xfs_repair が "offsets too high" と言う (generic/028 の後で発見)
+  uint64_t sd; CHECK(vol->mkdir(vol->root(), "sfren", 0755, &sd) == 0);
+  uint64_t sf0; CHECK(vol->create(sd, "keep", 0644, &sf0) == 0);
+  CHECK(vol->create(sd, "r0", 0644, &sf0) == 0);
+  for (int i = 1; i <= 3000; i++) CHECK(vol->rename(sd, "r" + std::to_string(i - 1), sd, "r" + std::to_string(i)) == 0);
+  CHECK(vol->sync() == 0);
+  vol.reset();
+  std::fprintf(stderr, "frag: %s\n", g_fail ? "FAIL" : "ok");
+  return g_fail ? 1 : 0;
+}
+
 int main(int argc, char** argv) {
   if (argc >= 4 && std::string(argv[1]) == "--ops") return ops_run(argv[2], argv[3]);
   if (argc >= 5 && std::string(argv[1]) == "--model") return model_run(argv[2], (unsigned)std::atoi(argv[3]), std::atoi(argv[4]), argc >= 6 ? argv[5] : "");
   if (argc >= 3 && std::string(argv[1]) == "--noop") return noop_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--refuse") return refuse_run(argv[2]);
+  if (argc >= 3 && std::string(argv[1]) == "--frag") return frag_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--enospc") return enospc_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--post") return post_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--norw") return norw_run(argv[2]);

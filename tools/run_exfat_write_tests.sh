@@ -105,6 +105,8 @@ mk_small; setflags "$W/s.img" 4; run_t "refuse MediaFailure" --refuse "$W/s.img"
 mk_small; setflags "$W/s.img" 6; run_t "refuse VolumeDirty+MediaFailure" --refuse "$W/s.img"
 mk_small 3M; run_t "enospc" --enospc "$W/s.img"
 fsck_clean "$W/s.img" "enospc" || true
+mk_small 16M; run_t "dirfull (entry sets end exactly at a cluster boundary)" --dirfull "$W/s.img"
+fsck_clean "$W/s.img" "dirfull" || true
 mk_small 16M; run_t "names" --names "$W/s.img"
 fsck_clean "$W/s.img" "names" || true
 mk_small 16M; run_t "clean unmount clears VolumeDirty" --clean "$W/s.img"

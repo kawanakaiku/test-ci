@@ -134,6 +134,9 @@ jobs:
           if [ $rc -ne 0 ]; then
             cp Testing/Temporary/LastTestsFailed.log "$RUNNER_TEMP/failed_parallel.log" 2>/dev/null
             echo "::warning::並列 (-j$jobs) で失敗したテストを直列でやり直す"
+            # タイムアウトなどで途中で止まったテストが /dev/shm に残した中間イメージを消す (残すと直列のやり直しが ENOSPC になる)
+            df -h /dev/shm | tail -1
+            find /dev/shm -maxdepth 1 -name 'usbmem_*' -exec rm -rf {} + 2>/dev/null
             ctest --rerun-failed --output-on-failure
             rc=$?
             if [ $rc -eq 0 ]; then

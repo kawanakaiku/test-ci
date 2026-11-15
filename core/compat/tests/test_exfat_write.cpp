@@ -393,8 +393,9 @@ static int enospc_run(const std::string& img) {
 static int dirfull_run(const std::string& img) {
   BlockDevicePtr dev = open_rw(img); int err = 0; auto vol = ExfatVolume::mount_rw(dev, &err);
   if (!vol || !vol->writable()) { std::fprintf(stderr, "mount_rw failed\n"); return 1; }
+  // 384 個: 4 KiB クラスタ (128 エントリ) × 9 でちょうど尽きる。4096 個: 伸長と rewind を何度も通る
+  for (int n : {384, 4096}) {
   uint64_t d; CHECK(vol->mkdir(vol->root(), "d", 0755, &d) == 0);
-  const int n = 384;
   auto name = [](int i) { std::string s(6, 'a'); for (int k = 5, v = i; k >= 0; k--, v /= 4) s[k] = (char)('a' + v % 4); return s; };
   for (int i = 0; i < n; i++) { uint64_t t; if (vol->create(d, name(i), 0644, &t) != 0) { std::fprintf(stderr, "create %d failed\n", i); g_fail++; break; } }
   // 作成の直後 (ヒントが最後の位置を指している) と、同期後の両方で、全部の名前を引ける
@@ -404,6 +405,16 @@ static int dirfull_run(const std::string& img) {
     int cnt = 0; for (auto& x : e) if (x.name != "." && x.name != "..") cnt++;
     CHECK(cnt == n);
     CHECK(vol->sync() == 0);
+  }
+  // 先頭から順に消す: 探索のヒントが末尾を指したまま先頭へ戻る (rewind) とき、残りのクラスタ数も戻さないと -EIO になっていた (generic/006 の rm)
+  for (int i = 0; i < n; i++) {
+    uint64_t t; int rc = vol->lookup(d, name(i), &t);
+    if (rc == 0) rc = vol->unlink(d, name(i));
+    if (rc != 0) { std::fprintf(stderr, "unlink %s -> %d\n", name(i).c_str(), rc); g_fail++; break; }
+    if (i % 512 == 511) CHECK(vol->sync() == 0);   // アダプタ (usbmem_fuse) は 512 操作ごとに同期する
+  }
+  CHECK(vol->rmdir(vol->root(), "d") == 0);
+  CHECK(vol->sync() == 0);
   }
   vol.reset();
   std::fprintf(stderr, "dirfull: %s\n", g_fail ? "FAIL" : "ok");

@@ -1192,6 +1192,7 @@ not_found:
 		rewind = 1;
 		dentry = 0;
 		clu.dir = p_dir->dir;
+		clu.size = p_dir->size;   /* usbmem: 先頭から探し直すので、残りのクラスタ数も戻す (さもないと NO_FAT_CHAIN のディレクトリで -EIO) */
 		goto rewind;
 	}
 

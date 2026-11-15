@@ -23,7 +23,10 @@ import java.security.MessageDigest
  *             速度の計測 (32 MiB)。閉じて、読み取り専用で再オープン → 全ファイル照合 + fsck + 残骸が無いことの確認。
  * 失敗したら、そのパーティションではそこで止める (後片付けは自動で試み、残骸があれば読み取り専用で一覧するだけ。手では消さない)。
  *
- * 安全: 書き込めるのは [WRITABLE_FS] だけ。許可リスト外の FS・needs_recovery の ext (復旧検証用の固定イメージ)・MBR の ext4 は、指定されても拒否する。
+ * 暗号ボリューム (パーティションの fs が luks / bitlocker): アプリの解錠 UI と同じ CryptoMount.unlock で解錠し (パスワードは -e usbmem.luksPass / bitlockerPass、既定は固定のテスト用)、
+ * 中の FS を書き込み可でマウントして、上と同じ段階を行う (外側の fsck は省く。中は解錠後の全件照合で確かめる)。docs/real-usb-testset.md
+ *
+ * 安全: 書き込めるのは [WRITABLE_FS] (と、その FS が入った LUKS / BitLocker) だけ。許可リスト外の FS・needs_recovery の ext (復旧検証用の固定イメージ)・MBR の ext4 は、指定されても拒否する。
  * instrument 引数 (usbmem.*): real=true write=true devices=<VID:PID 1 つ> part=<パーティション番号 1 つ> stage=createonly|full|both (既定 both) preverify=true|false
  */
 class RealUsbWriteTest {
@@ -32,6 +35,9 @@ class RealUsbWriteTest {
     private val args = RealUsb.Args(InstrumentationRegistry.getArguments())
 
     private var lun = 0
+    /** 暗号ボリューム (LUKS2 / BitLocker) のパーティションを試験するときのパスワード (docs/real-usb-testset.md の固定値。-e usbmem.luksPass / usbmem.bitlockerPass で変更可) */
+    private val luksPass get() = args.str("luksPass", "usbmem-test-pass")
+    private val bitlockerPass get() = args.str("bitlockerPass", "synth-Password-1")
 
     companion object {
         /** 書き込みを許す FS (パーティション表の fs 名)。FAT32 は書き込み未対応、XFS/squashfs/erofs/UDF/ISO は読み取り専用 FS。 */
@@ -77,7 +83,7 @@ class RealUsbWriteTest {
                     root.put("tableKind", pt.kind)
                     val p = pt.partitions.firstOrNull { it.index == partNo && !it.extendedContainer && !it.protective } ?: error("パーティション #$partNo がありません")
                     if (pt.kind == "mbr" && p.fs == "ext4") error("MBR の ext4 は復旧検証用の固定イメージ (needs_recovery) なので書き込みません")
-                    if (p.fs !in WRITABLE_FS) error("fs=${p.fs} は書き込み対象外です (対象: $WRITABLE_FS)")
+                    if (p.fs !in WRITABLE_FS && !CryptoMount.isCryptoFs(p.fs)) error("fs=${p.fs} は書き込み対象外です (対象: $WRITABLE_FS と暗号ボリューム luks / bitlocker)")
                     p
                 } finally { mgr.close(UsbSlotKey.of(dev.deviceName, lun)) }
             }
@@ -134,13 +140,14 @@ class RealUsbWriteTest {
         mgr.setWriteMode(UsbSlotKey.of(info.deviceName, lun), WriteMode.ReadOnly)
         val s = mgr.open(info, lun)
         try {
-            val chk = fsck(s, p)
+            // 暗号ボリュームは外側 (暗号文) を fsck しても意味が無い。中の FS は解錠後の全件照合で確かめる
+            val chk = if (CryptoMount.isCryptoFs(p.fs)) JSONObject().put("skipped", "encrypted") else fsck(s, p)
             j.put("fsck", chk)
             RealUsb.log("$tag fsck: ${chk}")
             if (chk.optBoolean("unclean")) problems.put("fsck: unclean (ダーティ/未クリーン)")
             if (chk.optBoolean("needsJournalRecovery")) problems.put("fsck: needs_recovery")
             if (chk.optInt("errors") > 0) problems.put("fsck: errors=${chk.optInt("errors")}")
-            val (mv, mj) = RealUsb.mountPartition(s, p, "", "")
+            val (mv, mj) = RealUsb.mountPartition(s, p, luksPass, bitlockerPass)
             j.put("mount", mj)
             if (mv == null) {
                 problems.put("RO マウント失敗: errno=${mj.optInt("errno")} ${mj.optString("errName")} ${mj.optString("message")}")
@@ -211,7 +218,7 @@ class RealUsbWriteTest {
         try {
             j.put("sessionWritable", s.writable)
             if (!s.writable) throw IllegalStateException("セッションが書き込み可で開かれていません")
-            val (mv, mj) = RealUsb.mountPartition(s, p, "", "", writable = true, createOnly = mode != WriteMode.Full)
+            val (mv, mj) = RealUsb.mountPartition(s, p, luksPass, bitlockerPass, writable = true, createOnly = mode != WriteMode.Full)
             j.put("mount", mj)
             if (mv == null) throw IllegalStateException("書き込みマウント失敗: errno=${mj.optInt("errno")} ${mj.optString("errName")} ${mj.optString("message")}")
             val v = mv.volume
@@ -225,7 +232,8 @@ class RealUsbWriteTest {
                 return r.first
             }
             try {
-                if (!v.writable) throw IllegalStateException("ボリュームが読み取り専用でマウントされました (ダーティ等で書き込みを拒否)")
+                if (!v.writable) throw IllegalStateException("ボリュームが読み取り専用でマウントされました (ダーティ等で書き込みを拒否${mj.optString("writeNote").let { if (it.isEmpty()) "" else ": $it" }})")
+                if (v.fsName !in WRITABLE_FS) throw IllegalStateException("中の FS (${v.fsName}) は書き込み対象外です")
                 if (v.createOnly != (mode != WriteMode.Full)) throw IllegalStateException("createOnly の状態が想定と違います")
                 if (mode == WriteMode.CreateOnly) createOnlySteps(v, coFolder, ::step)
                 else fullSteps(v, coFolder, speedFolder, stamp, steps, tag, ::step)

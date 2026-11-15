@@ -225,6 +225,7 @@ object RealUsb {
         val t0 = System.nanoTime()
         fun ms() = (System.nanoTime() - t0) / 1_000_000
         try {
+            if (CryptoMount.isCryptoFs(p.fs)) return mountCrypto(sess, p, luksPass, bitlockerPass, writable, createOnly, j, t0)
             val v = sess.mountNtfs(p.startBytes, p.sizeBytes, writable, createOnly, false)
             j.put("ok", true).put("fsName", v.fsName).put("noload", false).put("writable", v.writable).put("mountMs", ms())
             return MountedVolume(v, emptyList(), j) to j
@@ -241,66 +242,73 @@ object RealUsb {
                     return null to j
                 }
             }
-            // 暗号ボリュームか
-            var sub = 0L
+            // 暗号ボリュームか (パーティション表に fs=luks / bitlocker とあれば、上で既に mountCrypto へ進んでいる。ここは表で判別できなかったときの保険)
             try {
-                sub = sess.withHandle { h -> NativeBridge.nativeDeviceSubRange(h, p.startBytes, p.sizeBytes) }
-                if (!Handle.valid(sub)) { j.put("ok", false).put("errno", e.code).put("errName", errName(e.code)).put("message", e.message).put("mountMs", ms()); return null to j }
-                val info = try { CryptoVolume.probe(sub) } catch (x: CryptoException) { j.put("cryptoProbeError", "${x.code} ${errName(x.code)}"); null }
-                if (info == null) {
-                    NativeBridge.nativeClose(sub)
-                    // 一過性の失敗か確かめるため、読み取り専用なら 1 度だけ待って再試行する (結果は retry* に記録)。再試行で開けたら成功として返す
-                    if (!writable) {
-                        Thread.sleep(300)
-                        try {
-                            val v = sess.mountNtfs(p.startBytes, p.sizeBytes, false, true, false)
-                            warn("mount of partition #${p.index} failed once (errno ${e.code}) but succeeded on retry")
-                            j.put("ok", true).put("fsName", v.fsName).put("noload", false).put("writable", false).put("mountMs", ms())
-                                .put("retriedAfterErrno", e.code).put("retriedAfterErrName", errName(e.code))
-                            return MountedVolume(v, emptyList(), j) to j
-                        } catch (e3: NativeException) { j.put("retryErrno", e3.code) }
-                    }
-                    j.put("ok", false).put("errno", e.code).put("errName", errName(e.code)).put("message", e.message).put("mountMs", ms())
-                    return null to j
-                }
-                j.put("crypto", JSONObject().put("format", info.format).put("cipher", info.cipher).put("supported", info.supported).put("note", info.note))
-                val pw = when (info.kind) { CryptoKind.Luks -> luksPass; CryptoKind.BitLocker -> bitlockerPass; else -> "" }
-                if (pw.isEmpty()) {
-                    NativeBridge.nativeClose(sub)
-                    j.put("ok", false).put("errno", e.code).put("errName", errName(e.code)).put("message", "暗号ボリューム (${info.format}) だがパスワード未指定").put("mountMs", ms())
-                    return null to j
-                }
-                val dec = try { CryptoVolume.open(sub, info.kind, password = pw.toByteArray(Charsets.UTF_8)) } catch (x: CryptoException) {
-                    NativeBridge.nativeClose(sub)
-                    j.put("ok", false).put("errno", x.code).put("errName", errName(x.code)).put("message", "解錠失敗 (${info.format}): ${x.message}${x.info?.note?.let { " / $it" } ?: ""}").put("unlockFailed", true).put("mountMs", ms())
-                    return null to j
-                }
-                try {
-                    val err = IntArray(1)
-                    val pt = NativeBridge.nativeListPartitions(dec, err)?.let { PartitionTable.parse(String(it, Charsets.UTF_8)) }
-                    val len = pt?.partitions?.firstOrNull()?.sizeBytes?.takeIf { it > 0 } ?: pt?.diskBytes ?: 0L
-                    if (len <= 0) throw NativeException(err[0], "復号デバイスのサイズを取れません")
-                    var noload = false
-                    val v = try { NtfsVolume.mountDeviceRange(dec, 0, len, false) } catch (x: NativeException) {
-                        if (x.code == 117) { noload = true; NtfsVolume.mountDeviceRange(dec, 0, len, true) } else throw x
-                    }
-                    j.put("ok", true).put("fsName", v.fsName).put("noload", noload).put("writable", false).put("unlocked", info.format).put("mountMs", ms())
-                    val closers = listOf({ NativeBridge.nativeClose(dec) }, { NativeBridge.nativeClose(sub) })
-                    return MountedVolume(v, closers, j) to j
-                } catch (x: NativeException) {
-                    NativeBridge.nativeClose(dec); NativeBridge.nativeClose(sub)
-                    j.put("ok", false).put("errno", x.code).put("errName", errName(x.code)).put("message", "解錠後の FS マウントに失敗: ${x.message}").put("unlocked", info.format).put("mountMs", ms())
-                    return null to j
-                }
+                val r = mountCrypto(sess, p, luksPass, bitlockerPass, writable, createOnly, j, t0)
+                if (!j.optBoolean("notCrypto")) return r
             } catch (x: Throwable) {
-                if (Handle.valid(sub)) runCatching { NativeBridge.nativeClose(sub) }
                 j.put("ok", false).put("errno", e.code).put("errName", errName(e.code)).put("message", "${e.message} / 暗号判定で例外 ${x.javaClass.simpleName}: ${x.message}").put("mountMs", ms())
                 return null to j
             }
+            // 暗号ボリュームではなかった: 一過性の失敗か確かめるため、読み取り専用なら 1 度だけ待って再試行する (結果は retry* に記録)。再試行で開けたら成功として返す
+            if (!writable) {
+                Thread.sleep(300)
+                try {
+                    val v = sess.mountNtfs(p.startBytes, p.sizeBytes, false, true, false)
+                    warn("mount of partition #${p.index} failed once (errno ${e.code}) but succeeded on retry")
+                    j.put("ok", true).put("fsName", v.fsName).put("noload", false).put("writable", false).put("mountMs", ms())
+                        .put("retriedAfterErrno", e.code).put("retriedAfterErrName", errName(e.code))
+                    return MountedVolume(v, emptyList(), j) to j
+                } catch (e3: NativeException) { j.put("retryErrno", e3.code) }
+            }
+            j.put("ok", false).put("errno", e.code).put("errName", errName(e.code)).put("message", e.message).put("mountMs", ms())
+            return null to j
         } catch (e: Throwable) {
             j.put("ok", false).put("message", "${e.javaClass.simpleName}: ${e.message}").put("mountMs", ms())
             return null to j
         }
+    }
+
+    /**
+     * 暗号ボリューム (LUKS / BitLocker) のパーティション [p] を解錠して、中の FS をマウントする (アプリの解錠 UI と同じ [CryptoMount.unlock] を使う)。
+     * 暗号ボリュームの範囲は書き込み可 ([writable] のとき) で切り出し、中のパーティション表があれば**各パーティションの開始位置**でマウントする (開始位置 0 固定ではない)。
+     * [writable] = 書き込み可で開く要求 (core が拒否したら読み取り専用で開き、理由を json の writeNote に入れる)。暗号ボリュームでなければ json に notCrypto=true を入れて null を返す。
+     * 中に複数の FS があるときは最初の 1 つを返し (json の innerCount に総数)、残りは MountedVolume を閉じるときに一緒に閉じる。ext3/ext4 のジャーナル未再生 (noload) は暗号の中では未対応。
+     */
+    fun mountCrypto(sess: UsbSession, p: Partition, luksPass: String, bitlockerPass: String, writable: Boolean, createOnly: Boolean, j: JSONObject, t0: Long): Pair<MountedVolume?, JSONObject> {
+        fun ms() = (System.nanoTime() - t0) / 1_000_000
+        val info = try { sess.withHandle { h -> CryptoMount.probe(h, p.startBytes, p.sizeBytes) } } catch (x: CryptoException) {
+            j.put("cryptoProbeError", "${x.code} ${errName(x.code)}"); null
+        }
+        if (info == null) { j.put("notCrypto", true); return null to j }
+        j.put("crypto", JSONObject().put("format", info.format).put("cipher", info.cipher).put("supported", info.supported).put("note", info.note).put("writeSupported", info.writeSupported))
+        val pw = when (info.kind) { CryptoKind.Luks -> luksPass; CryptoKind.BitLocker -> bitlockerPass; else -> "" }
+        if (pw.isEmpty()) {
+            j.put("ok", false).put("errno", 0).put("errName", "").put("message", "暗号ボリューム (${info.format}) だがパスワード未指定").put("mountMs", ms())
+            return null to j
+        }
+        val cred = UnlockCredentials(password = pw.toByteArray(Charsets.UTF_8))
+        val gid = "realusb-${p.index}-${p.startBytes}"
+        val r = try {
+            sess.withHandle { h -> CryptoMount.unlock(h, sess.writable, p.startBytes, p.sizeBytes, cred, CryptoMount.Method.Password, writable, createOnly, gid) }
+        } catch (x: CryptoException) {
+            j.put("ok", false).put("errno", x.code).put("errName", errName(x.code)).put("message", "解錠失敗 (${info.format}): ${x.message}${x.info?.note?.let { " / $it" } ?: ""}").put("unlockFailed", true).put("mountMs", ms())
+            return null to j
+        } catch (x: NativeException) {
+            j.put("ok", false).put("errno", x.code).put("errName", errName(x.code)).put("message", "解錠後の FS マウントに失敗: ${x.message}").put("unlocked", info.format).put("mountMs", ms())
+            return null to j
+        }
+        val first = r.volumes.first()
+        val v = first.volume
+        // 閉じる順: 先頭の FS (MountedVolume.close が先に閉じる) → 他の FS → グループ (最後の 1 つが閉じたとき 復号済みデバイス → 切り出し の順に閉じる)
+        r.volumes.forEach { r.group.retain() }
+        val closers = ArrayList<() -> Unit>()
+        closers += { r.group.release() }
+        r.volumes.drop(1).forEach { o -> closers += { runCatching { o.volume.close() }; r.group.release() } }
+        j.put("ok", true).put("fsName", v.fsName).put("noload", false).put("writable", v.writable).put("unlocked", info.format).put("mountMs", ms())
+            .put("innerCount", r.volumes.size).put("innerStartBytes", first.startBytes).put("writeRequested", r.writeRequested).put("writeNote", r.writeNote)
+        if (r.skipped.isNotEmpty()) j.put("innerSkipped", JSONArray(r.skipped))
+        return MountedVolume(v, closers, j) to j
     }
 
     fun partitionJson(p: Partition) = JSONObject().apply {

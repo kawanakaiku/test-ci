@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       groups:
-        description: 'グループを 1 つだけ実行する (空 = 全部)。例: crypt-ui。ブランチ名で起動する push とは別に、手元の調整用'
+        description: 'グループを 1 つだけ実行する (空 = 全部)。例: crypt-ui。(既定ブランチにワークフローが無い運用では push のブランチ名 usbmem-ci-only-<グループ> を使う)'
         required: false
         default: ''
   push:
@@ -36,7 +36,7 @@ jobs:
       max-parallel: 4
       matrix:
         # グループの中身は tools/ci_android_tests.sh の group_fs() を参照
-        group: ${{ fromJSON(inputs.groups && format('["{0}"]', inputs.groups) || '["ext-fat","btrfs-xfs","squash-erofs","nested-ntfs","ro-misc","crypt-ui"]') }}
+        group: ${{ fromJSON(inputs.groups && format('["{0}"]', inputs.groups) || startsWith(github.ref_name, 'usbmem-ci-only-') && format('["{0}"]', replace(github.ref_name, 'usbmem-ci-only-', '')) || '["ext-fat","btrfs-xfs","squash-erofs","nested-ntfs","ro-misc","crypt-ui"]') }}
     steps:
       - uses: actions/checkout@v7
 

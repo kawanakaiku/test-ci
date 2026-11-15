@@ -2,6 +2,8 @@
 # 実機に挿した USB メモリ (tools/make_real_usb_testset.py で作った検証セット) を、Android アプリのプロセス内で
 # 読み取り専用にマウントし、各ボリュームのルートの MANIFEST.sha256 と全ファイルを照合する計装テスト (RealUsbVerifyTest) の実行スクリプト。
 # --write を付けると、書き込み試験 (RealUsbWriteTest。NTFS/exFAT/ext2/3/4 の 1 パーティションだけ。CreateOnly → Full) を行う。
+#   暗号ボリューム (パーティションの fs が luks / bitlocker。C の p4 / p5) も --part で指定できる: 解錠して (パスワードは下の --luks-pass / --bitlocker-pass、既定は使い捨ての固定値)、
+#   中の FS を書き込み可で開いて、書き込み → 閉じる → 読み取り専用で再解錠 → 全件照合まで行う。
 # docs/real-usb-testset.md の「Android 実機での自動検証」。
 #
 # adb のシリアルは必須 (--serial か環境変数 ANDROID_SERIAL)。明示したシリアルの端末にしか触れない (emulator-* でも実機でも同じ。省略時の既定は無い)。
@@ -11,6 +13,8 @@
 #   tools/run_android_real_usb_verify.sh --serial localhost:5565 [--devices 0930:6544[,VID:PID...]] [--mode sequential|parallel]
 #        [--only 1,2] [--skip-hash 02_big/big_4p5GiB.bin] [--tag NAME] [--perm 秒] [--no-build] [--no-install] [--out DIR]
 #   tools/run_android_real_usb_verify.sh --serial ... --write --devices 0930:6544 --part 1 [--lun N] [--stage createonly|full|both]
+#   暗号ボリュームの書き込み: ... --write --devices <C の VID:PID> --part 4 [--luks-pass usbmem-test-pass]   (LUKS2。BitLocker は --part 5 [--bitlocker-pass synth-Password-1])
+#   読み取りの照合 (--write なし) でも --luks-pass / --bitlocker-pass で暗号ボリュームのパスワードを変えられる。
 set -eu
 export PATH="$PATH:/sbin:/usr/sbin"
 SERIAL=${ANDROID_SERIAL:-}
@@ -31,8 +35,10 @@ while [ $# -gt 0 ]; do
     --part) PART=$2; shift 2;;
     --lun) LUN=$2; shift 2;;
     --stage) STAGE=$2; shift 2;;
+    --luks-pass) EXTRA="$EXTRA -e usbmem.luksPass $2"; shift 2;;
+    --bitlocker-pass) EXTRA="$EXTRA -e usbmem.bitlockerPass $2"; shift 2;;
     --extra) EXTRA="$EXTRA -e $2 $3"; shift 3;;   # 例: --extra usbmem.luksPass xxx
-    -h|--help) sed -n '2,16p' "$0"; exit 0;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0;;
     *) echo "unknown option: $1" >&2; exit 2;;
   esac
 done

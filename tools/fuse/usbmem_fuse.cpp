@@ -81,10 +81,11 @@ struct State {
   // FUSE の nodeid は実 ino とは別に振る (1 = ルート)。実 ino は、消した後に別のオブジェクトへ再利用される (FAT / exFAT はディレクトリエントリの位置、ext / XFS / Btrfs / F2FS は解放した番号)。
   // 同じ nodeid を再利用すると、カーネルがまだ持っている古い inode (誰かの cwd や開いたファイル) と型が食い違って EISDIR / ELOOP / EIO になる。
   // そこで「消えた」オブジェクト (最後のリンクの unlink / rmdir / rename で上書きされた行き先) の対応を切り、同じ実 ino が次に現れたら新しい nodeid を振る。
-  struct Node { uint64_t real; uint64_t nlookup; };
+  struct Node { uint64_t real; uint64_t nlookup; bool has_dead_st = false; FsStat dead_st{}; };   // dead_st: 消えたディレクトリの最後の属性 (誰かの cwd のまま getattr / chdir("..") されても nlink 0 で答える)
   std::unordered_map<uint64_t, Node> nodes;         // nodeid -> 実 ino (kDead = 消えた) と、カーネルが覚えている参照数
   std::unordered_map<uint64_t, uint64_t> real2node; // 実 ino -> nodeid (生きているものだけ)
   uint64_t next_node = 2;
+  std::unordered_map<uint64_t, FsStat> dying_st;    // will_die が控えた、これから消えるディレクトリの stat (kill_real が Node に移す)
   std::unordered_map<uint64_t, int> opens;          // nodeid -> 開いている数
   struct Hidden { uint64_t dir; std::string name; };
   std::unordered_map<uint64_t, Hidden> hidden;      // nodeid -> 隠し名 (最後の close で unlink)
@@ -121,7 +122,7 @@ fuse_ino_t node_for(uint64_t real) {
   auto it = g.real2node.find(real);
   if (it != g.real2node.end()) return it->second;
   uint64_t n = g.next_node++;
-  g.nodes[n] = {real, 0};
+  g.nodes[n] = State::Node{real, 0};
   g.real2node[real] = n;
   return n;
 }
@@ -130,7 +131,12 @@ void kill_real(uint64_t real) {
   auto it = g.real2node.find(real);
   if (it == g.real2node.end()) return;
   auto n = g.nodes.find(it->second);
-  if (n != g.nodes.end()) n->second.real = kDead;
+  if (n != g.nodes.end()) {
+    n->second.real = kDead;
+    auto d = g.dying_st.find(real);
+    if (d != g.dying_st.end()) { n->second.dead_st = d->second; n->second.has_dead_st = true; }
+  }
+  g.dying_st.erase(real);
   g.real2node.erase(it);
 }
 // 実 ino が変わった (FAT / exFAT の rename、隠し名への rename): nodeid の対応を付け替える。
@@ -213,6 +219,7 @@ uint64_t will_die(uint64_t dir, const std::string& name) {
   FsStat s;
   if (fs_stat(child, &s)) return kDead;
   if (!is_dir(s) && s.nlink > 1) return kDead;
+  if (is_dir(s)) g.dying_st[child] = s;
   return child;
 }
 
@@ -315,6 +322,13 @@ void op_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info*) {
   int rc = fs_stat(real, &s);
   trace("getattr %llu -> %d", (unsigned long long)ino, rc);
   if (rc) {
+    auto nd = g.nodes.find(ino);   // 消されたディレクトリが誰かの cwd のまま (Linux では chdir("..") も fstat も通る): 最後の属性を nlink 0 で返す
+    if (nd != g.nodes.end() && nd->second.has_dead_st) {
+      struct stat st;
+      fill_stat(0, nd->second.dead_st, &st, true);
+      fuse_reply_attr(req, &st, 0.0);
+      return;
+    }
     auto d = g.dir_opens.find(ino);   // 開いたままのディレクトリが消された (rename で上書き / rmdir): 開いた時点の属性を nlink 0 で返す (Linux の通常の FS と同じ)
     if (d == g.dir_opens.end()) { fuse_reply_err(req, to_errno(rc)); return; }
     struct stat st;

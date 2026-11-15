@@ -18,8 +18,8 @@ import java.io.FileInputStream
  *   xfs_wrf.img / xfs_wrf_ops.txt   Full の操作を含む操作列 (gen_xfs_ops.py ops ... seeded) とそのイメージ。結果は cache/xfs_rwf_result.img
  *   xfs_rsv.img         書き込み拒否のイメージ (rmapbt=1: 読み取り専用に落ちること)
  * 結果イメージは cache/xfs_rw_result.img に残す。ホストが pull して xfs_repair -n で独立に検証し、同じ操作列を POSIX 操作として実行した結果とツリー全体を比べる。
- * アプリは XFS を Full を要求しても createOnly で開く (NativeBridge.xfsCreateOnlyOnly) ので、createonly の列では既存ファイルへの上書き・削除・rename は拒否されることを確かめる。
- * Full の操作は mountReadWrite(xfsFull = true) で開いた別のテスト (fullOperationsLeaveCleanVolume) で行う。
+ * createonly の列は createOnly = true で開くので、既存ファイルへの上書き・削除・rename は拒否されることを確かめる。
+ * Full の操作は mountReadWrite(createOnly = false) で開いた別のテスト (fullOperationsLeaveCleanVolume) で行う。
  */
 class XfsWriteTest {
     private val inst = InstrumentationRegistry.getInstrumentation()
@@ -35,7 +35,7 @@ class XfsWriteTest {
     private fun mountRw(img: File): NtfsVolume {
         val pfd = ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_WRITE)
         try {
-            return NtfsVolume.mountReadWrite(pfd.detachFd(), createOnly = false)
+            return NtfsVolume.mountReadWrite(pfd.detachFd(), createOnly = true)
         } catch (ex: NativeException) {
             assumeTrue("write support disabled in this build (errno ${ex.code})", ex.code != 30)
             throw ex
@@ -120,7 +120,7 @@ class XfsWriteTest {
     private fun mountRwFull(img: File): NtfsVolume {
         val pfd = ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_WRITE)
         try {
-            return NtfsVolume.mountReadWrite(pfd.detachFd(), createOnly = false, xfsFull = true)
+            return NtfsVolume.mountReadWrite(pfd.detachFd(), createOnly = false)
         } catch (ex: NativeException) {
             assumeTrue("write support disabled in this build (errno ${ex.code})", ex.code != 30)
             throw ex

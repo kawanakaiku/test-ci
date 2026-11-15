@@ -273,18 +273,15 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
         fun mountDeviceRangeReadWrite(deviceHandle: Long, offset: Long, length: Long, createOnly: Boolean = true): NtfsVolume {
             val h = NativeBridge.nativeNtfsMountDeviceRw(deviceHandle, offset, length)
             if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs rw mount failed: errno ${-h}")
-            return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly || xfsCreateOnlyOnly(h))
+            return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly)
         }
 
-        /** アプリは XFS を常に createOnly で開く (docs/xfs-write.md: Full の操作 (削除・rename・縮小・link) はコアに実装済みだが、実機での確認が済むまでアプリからは出さない)。
-         *  [mountReadWrite] の xfsFull = true (計装テストだけ) なら Full で開く。 */
-        private fun xfsCreateOnlyOnly(h: Long): Boolean = String(NativeBridge.nativeFsName(h), Charsets.UTF_8) == "xfs"
 
         /** 書き込み可能で試みる (実験的)。ビルドで無効、またはボリュームがダーティ等で上流が読み取り専用に落とした場合は [writable] = false で返す。 */
-        fun mountReadWrite(detachedFd: Int, createOnly: Boolean = false, xfsFull: Boolean = false): NtfsVolume {
+        fun mountReadWrite(detachedFd: Int, createOnly: Boolean = false): NtfsVolume {
             val h = NativeBridge.nativeNtfsMountRw(detachedFd)
             if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs rw mount failed: errno ${-h}")
-            return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly || (!xfsFull && xfsCreateOnlyOnly(h)))
+            return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly)
         }
 
         fun mountReadOnly(detachedFd: Int, allowNoload: Boolean = false): NtfsVolume {

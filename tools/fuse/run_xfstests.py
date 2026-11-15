@@ -160,9 +160,8 @@ def main():
     with open("/etc/usbmem_fuse.env", "w") as f:
         f.write("USBMEM_FUSE_BIN=%s\n" % a.bin)
         f.write("USBMEM_FUSE_LOG=%s\n" % fuse_log)
-        if fsck:
-            f.write("USBMEM_FUSE_FSCK='%s >>%s.out 2>&1'\n" % (fsck, fsck_log))
-            f.write("USBMEM_FUSE_FSCK_LOG=%s\n" % fsck_log)
+        # fsck はデーモンの後始末ではなくドライバーが各テストの後で走らせる。fstests はテストの後に systemd のスコープを止める (スコープ内の全プロセスへ SIGTERM) ので、
+        # デーモンの子として走らせた fsck は "canceled" で殺される (シェル経由だとシグナルのブロックも引き継がれない)。
         if os.environ.get("USBMEM_FUSE_TRACE") == "1":
             f.write("USBMEM_FUSE_TRACE=1\n")
     shutil.copy(os.path.join(HERE, "mount.fuse.usbmem"), "/sbin/mount.fuse.usbmem")
@@ -249,6 +248,15 @@ def main():
             if sh("pgrep -f '[u]sbmem_fuse -o' >/dev/null", shell=True).returncode != 0:
                 break
             time.sleep(0.1)
+        # テストの後の fsck (テストが pass でも記録する)。デーモンが終わって (イメージが閉じて) から、TEST と SCRATCH の両方を調べる
+        if fsck:
+            for role, img in imgs.items():
+                if os.path.ismount(test_mnt if role == "test" else scratch_mnt):
+                    continue
+                fr = subprocess.run(["sh", "-c", fsck + " >>%s.out 2>&1" % fsck_log, "sh", img])
+                if fr.returncode != 0:
+                    with open(fsck_log, "a") as fl:
+                        fl.write("FSCK-FAIL %s (status 0x%x)\n" % (img, fr.returncode))
         # アンマウント時の fsck の失敗 (テストが pass でも記録する)
         newlog = read_tail(fsck_log, 100000).splitlines()[fsck_before:]
         if newlog:

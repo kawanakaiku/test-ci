@@ -61,7 +61,7 @@ jobs:
         run: |
           SMOKE='generic/001,generic/002,generic/005,generic/006,generic/007,generic/010,generic/011,generic/013,generic/023,generic/024,generic/035,generic/075,generic/091,generic/112'
           ALL='["ext4","ext2","fat","exfat","ntfs","xfs","btrfs","f2fs"]'
-          extra=''; custom=''; trace=0; fs='["ext4"]'; tests="$SMOKE"; group=quick; mopts='allow_other,default_permissions,quiet_setattr'; to=180
+          extra=''; custom=''; trace=0; fs='["ext4"]'; tests="$SMOKE"; group=quick; mopts='allow_other,default_permissions,quiet_setattr'; to=300
           if [ "$EVENT" = workflow_dispatch ]; then
             fs=$IN_FS; tests=$IN_TESTS; group=$IN_GROUP; mopts=$IN_MOUNT; to=$IN_TIMEOUT
           else

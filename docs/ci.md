@@ -7,7 +7,7 @@
 
 - トリガは `workflow_dispatch` (手動) と、`usbmem-ci` ブランチへの push だけ。他のブランチでは動かない。
   `workflow_dispatch` はワークフローが既定ブランチにあるリポジトリでしか手動実行できないので、既定ブランチに置かない運用 (テスト用の別リポジトリに `usbmem-ci` ブランチを push する) では push で起動する。
-- 1 グループだけ回したいとき (修正の繰り返し): ブランチ名を `usbmem-ci-only-<グループ>` にして push する (例 `usbmem-ci-only-crypt-ui`。`workflow_dispatch` の `groups` 入力でも同じ)。ほかのグループは起動しない。
+- 1 グループだけ回したいとき (修正の繰り返し): `crypt-ui` だけはブランチ名を `usbmem-ci-only-crypt-ui` (`-only-crypt-ui` で終わる名前) にして push すると、そのグループだけが起動する (式に関数 `replace` が無いので汎用にはしていない)。`workflow_dispatch` の `groups` 入力なら任意のグループを 1 つ指定できる (ワークフローが既定ブランチにあるときだけ)。
 - 実行: `git push <リポジトリ> HEAD:refs/heads/usbmem-ci` → `gh run watch` / `gh run view --log-failed`。
 - ジョブは matrix で 6 グループに分かれ、`max-parallel: 4`・`fail-fast: false` (1 グループが落ちても他は最後まで走る)。
   各ジョブが独立に「SDK/NDK 導入 → APK ビルド → フィクスチャ生成 → エミュレータ起動 → テスト」を行う。結果の表は各ジョブの Summary にも出る。

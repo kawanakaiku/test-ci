@@ -7,8 +7,9 @@
 
 - トリガは `workflow_dispatch` (手動) と、`usbmem-ci` ブランチへの push だけ。他のブランチでは動かない。
   `workflow_dispatch` はワークフローが既定ブランチにあるリポジトリでしか手動実行できないので、既定ブランチに置かない運用 (テスト用の別リポジトリに `usbmem-ci` ブランチを push する) では push で起動する。
+- 1 グループだけ回したいとき (修正の繰り返し): `crypt-ui` だけはブランチ名を `usbmem-ci-only-crypt-ui` (`-only-crypt-ui` で終わる名前) にして push すると、そのグループだけが起動する (式に関数 `replace` が無いので汎用にはしていない)。`workflow_dispatch` の `groups` 入力なら任意のグループを 1 つ指定できる (ワークフローが既定ブランチにあるときだけ)。
 - 実行: `git push <リポジトリ> HEAD:refs/heads/usbmem-ci` → `gh run watch` / `gh run view --log-failed`。
-- ジョブは matrix で 5 グループに分かれ、`max-parallel: 4`・`fail-fast: false` (1 グループが落ちても他は最後まで走る)。
+- ジョブは matrix で 6 グループに分かれ、`max-parallel: 4`・`fail-fast: false` (1 グループが落ちても他は最後まで走る)。
   各ジョブが独立に「SDK/NDK 導入 → APK ビルド → フィクスチャ生成 → エミュレータ起動 → テスト」を行う。結果の表は各ジョブの Summary にも出る。
 - 失敗時のログ: artifact `logs-<グループ>` (`ci-logs/`: FS ごとのテスト出力 `run_<fs>.log`、フィクスチャ生成の出力 `gen_<fs>.log`、`logcat.txt` (adb logcat 全体)、`summary.md`)。
   テスト結果は `am instrument` の出力 (JUnit の XML ではない。Gradle の `connectedCheck` は使わない: テスト後にアンインストールされ、書き込みテストの結果イメージが消えるため)。
@@ -23,6 +24,7 @@
 | `btrfs-xfs` | `btrfs` (16 イメージ)、`btrfs_write` (書き込み: `run_android_btrfs_write_test.sh`)、`xfs`、`xfs_write` (書き込み: `run_android_xfs_write_test.sh`。CreateOnly の範囲 + Full の操作) | 約 8 分 (btrfs が約 80-100 秒) |
 | `squash-erofs` | `squashfs`、`erofs`、`f2fs` (`ext` イメージのみ) | 約 6 分 |
 | `nested-ntfs` | `nested`、`write` (NTFS 書き込み + SAF) | 約 5 分 |
+| `crypt-ui` | `crypt_ui` (`CryptoUiTest`: 暗号ボリュームの UI。実画面を操作して LUKS2 / BitLocker を解錠・書き込み・ロック。フィクスチャは `tools/gen_crypt_ui_fixture.py`。docs/crypto-volumes.md 10 章) | 3 件成功 (run 43660009210。全 6 グループ成功、18 分) |
 | `ro-misc` | `ext2_read`、`ext4_read`、`exfat_read`、`iso_read`、`ntfs_read`、`app_misc` | 約 6 分 |
 
 `ro-misc` は専用の `run_android_*_test.sh` が無いクラスを `ci_android_tests.sh` が直接 push して実行する (`am instrument -r` の結果を数え、失敗・スキップ (assumption 失敗 = フィクスチャ未送信) が 1 つでもあれば失敗にする)。

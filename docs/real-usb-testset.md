@@ -350,7 +350,7 @@ tools/run_android_real_usb_verify.sh --serial <adb serial> [--devices 0930:6544[
 ```
 
 - 対象: 接続中の USB マスストレージ (`--devices` で VID:PID を絞る)。USB の許可が無ければ `--perm 秒` でダイアログを出して待つ (OK は手でタップ)。OS が自動マウントした USB は先に `adb shell sm unmount public:X,Y` で外す (アプリは OS のマウント中は開くのを拒否する)。
-- 動作: `UsbSessionManager.open` (読み取り専用) → `partitionTable()` → 各パーティションを FS 自動判定で読み取り専用マウント (`mountNtfs(.., writable=false)`。ジャーナル未再生の ext は EUCLEAN(117) の後に `allowNoload=true` で再試行 = UI の許可フロー相当) → ルートの `MANIFEST.sha256` を読み、全エントリのサイズ・SHA-256・symlink のリンク先・ハードリンクの同一 inode を照合し、余分なファイルを列挙 (失敗にはしない。`lost+found` など `verify_tree` の `IGNORED_EXTRA` はルート直下だけ無視)。LUKS2 / BitLocker は `CryptoVolume` でテスト用の固定パスワード (`usbmem-test-pass` / `synth-Password-1`) を試す (`nativeDeviceSubRange` でパーティションを切り出して渡す。`-e usbmem.luksPass` で変更可)。マウントに失敗したら errno と理由を記録して続行する。
+- 動作: `UsbSessionManager.open` (読み取り専用) → `partitionTable()` → 各パーティションを FS 自動判定で読み取り専用マウント (`mountNtfs(.., writable=false)`。ジャーナル未再生の ext は EUCLEAN(117) の後に `allowNoload=true` で再試行 = UI の許可フロー相当) → ルートの `MANIFEST.sha256` を読み、全エントリのサイズ・SHA-256・symlink のリンク先・ハードリンクの同一 inode を照合し、余分なファイルを列挙 (失敗にはしない。`lost+found` など `verify_tree` の `IGNORED_EXTRA` はルート直下だけ無視)。LUKS2 / BitLocker は `CryptoVolume` でテスト用の固定パスワード (`usbmem-test-pass` / `synth-Password-1`) を試す (`CryptoMount.unlock` が切り出して解錠し、中の FS を中のパーティションの開始位置でマウントする。`--luks-pass` / `--bitlocker-pass` (`-e usbmem.luksPass` / `bitlockerPass`) で変更可)。マウントに失敗したら errno と理由を記録して続行する。
 - `--mode sequential` は 1 本ずつ開いて読んで閉じる。`parallel` は全部開いてから、USB ごとのスレッドで同時に読む。
 - 結果: logcat のタグ `RealUsbVerify` (失敗と要約のみ詳しく、4.5 GiB のファイルは 512 MiB ごとに進捗) と、アプリの `files/real_usb_report_<tag>.json` (スクリプトが `run-as` で `real_usb_reports/<tag>.json` に回収し、要約表を表示する)。
 

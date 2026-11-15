@@ -34,6 +34,8 @@ object NativeBridge {
     @JvmStatic external fun nativeUsbOpStats(handle: Long): String
     /** 開いているデバイスの一区間を読み取り専用の別デバイスとして切り出す (暗号ボリュームの解錠用)。親は消費しない。閉じるのは nativeClose (親より先に)。 */
     @JvmStatic external fun nativeDeviceSubRange(handle: Long, offset: Long, length: Long): Long
+    /** [nativeDeviceSubRange] の、読み取り専用かを選べる版。readOnly = false でも、親が読み取り専用なら読み取り専用のまま。 */
+    @JvmStatic external fun nativeDeviceSubRangeMode(handle: Long, offset: Long, length: Long, readOnly: Boolean): Long
     @JvmStatic external fun nativeClose(handle: Long)
     @JvmStatic external fun nativeErrcName(code: Int): String
     @JvmStatic external fun nativeNtfsMount(fd: Int): Long

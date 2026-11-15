@@ -87,4 +87,8 @@ dependencies {
     testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
+    // 暗号ボリュームの UI 試験 (CryptoUiTest): 実画面 (Compose) を操作する。ファイル選択は espresso-intents で差し替える
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.espresso:espresso-intents:3.6.1")
 }

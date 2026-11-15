@@ -7,6 +7,7 @@
 #   btrfs-xfs      Btrfs (16 イメージ) / Btrfs 書き込み (btrfs check と btrfs restore で検証) / XFS (5 イメージ) / XFS 書き込み (xfs_repair -n と実カーネルで検証)
 #   squash-erofs   squashfs / erofs / F2FS (mkfs.f2fs + sload.f2fs で作る 1 イメージだけ。カーネル製 k_* は VM が要るので CI では扱わない) / F2FS 書き込み (f2fs_write: 結果を fsck.f2fs とカーネルのループマウントで検証)
 #   nested-ntfs    ネスト (ループバック) マウント / NTFS 書き込み (SAF)
+#   crypt-ui       暗号ボリュームの UI 試験 (CryptoUiTest: 画面を操作して LUKS2 / BitLocker を解錠・書き込み・ロック。tools/gen_crypt_ui_fixture.py)
 #   ro-misc        読み取りテスト (ext2 / ext4 / exFAT / ISO 9660 / NTFS) と アプリ側テスト (DocumentsProvider / リンク / raw イメージ / 転送チューニング)。専用スクリプトが無いので ci_android_tests.sh が直接 push して実行する
 # 環境変数: ANDROID_SERIAL (既定 emulator-5554。emulator-* 以外は拒否)、CI_FIX (フィクスチャ置き場。既定 ${RUNNER_TEMP:-/tmp}/usbmem_fix)、
 #          CI_LOG_DIR (ログ。既定 <リポジトリ>/ci-logs)。run は ビルド済みの APK (-PusbmemNtfsWrite=true のビルド) が android/app/build/outputs/apk にあること。
@@ -54,6 +55,7 @@ gen_fs() {
     ntfs_read)   bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
     app_misc)    py "$HERE/gen_ext2_fixture.py" "$FIX/ext2" && bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
     write) bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
+    crypt_ui)    py "$HERE/gen_crypt_ui_fixture.py" "$FIX/crypt_ui" ;;
     *) echo "unknown fs $1" >&2; return 2 ;;
   esac
 }
@@ -107,7 +109,7 @@ run_generic() {   # run_generic <クラス,...> <dir>:<prefix> ...
   local dp
   for dp in "$@"; do push_dir "${dp%%:*}" "${dp#*:}" || return 1; done
   instr_classes "$cls"; local r=$?
-  adbs shell 'rm -f /data/local/tmp/ext2_* /data/local/tmp/ext4_* /data/local/tmp/exfat_* /data/local/tmp/iso_* /data/local/tmp/ntfs_basic.*' >/dev/null
+  adbs shell 'rm -f /data/local/tmp/ext2_* /data/local/tmp/ext4_* /data/local/tmp/exfat_* /data/local/tmp/iso_* /data/local/tmp/ntfs_basic.* /data/local/tmp/cui_*' >/dev/null
   return $r
 }
 APP=org.usbmem.app
@@ -136,6 +138,7 @@ run_fs() {
     # LinkProviderTest は ext2_wr.img (= b1k.img のコピー) と ntfs_basic を使う
     app_misc)    mkdir -p "$FIX/misc" && cp "$FIX/ext2/b1k.img" "$FIX/misc/ext2_wr.img" \
                    && run_generic $APP.DocumentsProviderTest,$APP.LinkProviderTest,$APP.WriteSelfTestInstrumented,$APP.RawImageInstrumentedTest,$APP.TransferTuningTest "$FIX/ntfs:" "$FIX/misc:" ;;
+    crypt_ui)    run_generic $APP.CryptoUiTest "$FIX/crypt_ui:cui_" ;;
     *) echo "unknown fs $1" >&2; return 2 ;;
   esac
 }
@@ -146,6 +149,7 @@ group_fs() {
     btrfs-xfs)     echo "btrfs btrfs_write xfs xfs_write" ;;
     squash-erofs)  echo "squashfs erofs f2fs f2fs_write" ;;
     nested-ntfs)   echo "nested write" ;;
+    crypt-ui)      echo "crypt_ui" ;;
     ro-misc)       echo "ext2_read ext4_read exfat_read iso_read ntfs_read app_misc" ;;
     *) echo "unknown group $1" >&2; return 2 ;;
   esac

@@ -57,7 +57,7 @@ libbde / cryptsetup / nbdkit / qemu-img は「正解を知っている別実装�
 - JNI: `android/app/src/main/cpp/jni_transform.cpp` (`CryptoNative.nativeProbe / nativeOpen`)。資格情報は `byte[]` (UTF-8)、ネイティブ側のコピーは関数を出る時にゼロ化。
 - Kotlin: `CryptoVolume.kt` — `CryptoVolume.probe(handle): CryptoInfo?`、`CryptoVolume.open(handle, kind, password, recoveryKey, keyFile, allowPartialEncryption): Long`。渡された `ByteArray` は呼び出し後に `fill(0)`。失敗は `CryptoException(code)` (`authFailed` / `unsupported`)。得たハンドルを既存の `nativeNtfsMountDevice` 等へ渡す。
 - 既存の共有ファイルの変更は最小: `android/app/src/main/cpp/CMakeLists.txt` に `jni_transform.cpp` と `usbmem_transform` の追加 2 箇所、`core/CMakeLists.txt` に `include(transform.cmake)` 1 行。
-- **UI は未実装**。パスワード入力画面・Keystore 連携は別担当。
+- UI は 10 章 (パスワード入力・回復キー・BEK・書き込みの導線)。Keystore 連携は未実装 (下の設計メモ)。
 
 ### Android Keystore (設計メモのみ・未実装)
 資格情報の保存は**既定で行わない** (毎回入力)。利便性のために記憶させるなら: AndroidKeyStore に AES-256-GCM の鍵を `setUserAuthenticationRequired(true)` (生体/画面ロック) 付きで作り、パスフレーズをその鍵で暗号化してアプリ内ストレージに置く。ボリュームごとのキーは UUID (LUKS) / ボリューム GUID (BitLocker) で引く。VMK/マスターキー自体は保存しない (保存するのはパスフレーズだけ。盗まれてもデバイスと生体が無いと使えない)。`setIsStrongBoxBacked` は使えれば使う。復号後のキーを JVM に渡さない (C++ 内で完結) 設計は現状のまま維持する。
@@ -288,7 +288,7 @@ tools/run_crypt_mutation_tests.sh /tmp/mut                                   # �
 
 ### 9.7 制限・注意 (正直に)
 
-- 実機 (USB) では未試験。UI は未接続 (core + C API + JNI + Kotlin の入口まで)。
+- 実機 (USB) では未試験 (親が実施)。UI は 10 章。
 - 暗号層の上の FS の書き込みは、その FS 自身の書き込み対応 (ext4 / ext2 / NTFS / FAT / exFAT: `USBMEM_NTFS_WRITE`) に従う。下が読み取り専用の暗号層なら、ext2 / FAT / exFAT / NTFS / ext4 の `mount_rw` は読み取り専用でマウントする (ext4 は元からそうだった。他は今回追加)。XFS / Btrfs / F2FS は未確認 (F2FS は `is_read_only` を見る)。
 - 上の「電源断」のとおり、4096 セクタを 512 バイト単位の下位へ書くと、切れたセクタ全体が壊れる。
 - diffuser 付きの書き込みは実 Windows 7/8 のイメージでは未確認。
@@ -321,3 +321,53 @@ GitHub Actions `crypt-write.yml` (usbmem-crypt-write、ubuntu-latest) run **4359
 - ext2 / FAT / exFAT / NTFS の `mount_rw` は下のデバイスが読み取り専用でも書き込み可でマウントしていた (書き込みはデバイス側で拒否されるだけ)。ext4 と同じく読み取り専用でマウントするようにした (`test_cryptfs_write ro`)。
 - `tools/crypt_indep.py` が LUKS1 の `cbc-essiv:sha256` の暗号モードを `:` で切って読み違えていた (検証ツール側の不具合)。
 - ctest の `crypt_write` / `crypt_fs_write` を `sh` (dash) で起動していて、配列を使うスクリプトが構文エラーになった (host-tests の wrel で検出)。bash で起動する。
+
+## 10. UI (解錠・マウント・書き込み・ロック)
+
+暗号ボリューム (LUKS1/2・BitLocker) を、通常のボリュームと同じ「公開 (SAF)」の流れで扱う画面。層は **UI (`ui/UnlockDialog.kt`、`UsbScreen` / `ImageScreen`) → `MainActivity` の操作 → `CryptoMount` (解錠とマウント) → `CryptoVolume` (JNI)**。
+
+### 10.1 画面の流れ
+
+- **パーティション一覧** (USB 画面・イメージ画面): パーティション表の fs が `luks` / `bitlocker` の行に「暗号化」のチップと **「解錠してマウント」** ボタンが出る (ディスク全体が暗号ボリュームのときもその 1 行に出る)。押すと、解錠せずに `CryptoVolume.probe` だけで種類と使える解錠方法 (パスワード / 回復キー / BEK) を調べ、解錠ダイアログを開く。
+- **解錠ダイアログ**: 方式の選択 (使えるものだけ。パスワード / 回復キー / BEK ファイル)。パスワードと回復キーはマスク表示 (パスワードは「表示 / 隠す」で切り替え)。回復キーは数字 48 桁 (ハイフン・空白は任意) でないと送れない。BEK は SAF のファイル選択で選ぶ (内容は送信の直前に読み、画面の状態には載せない)。
+- **書き込みの切り替え (既定は切 = 読み取り専用)**: 「書き込み可で開く (実験的)」。入れると確認ダイアログ (「暗号ボリュームの書き込みは実験的です。…」) を経る。USB を読み取り専用で開いているとき、または core が書き込みに対応しない構成 (`write_supported=false`) のときは切り替えを無効にして理由を出す。
+- **認証失敗**: ダイアログを閉じずに、方式ごとの文言 (「パスワードが違います。もう一度入力してください。」「回復キーが違います…」「この BEK ファイルでは解錠できません…」「入力の形式が正しくありません…」) を赤い帯で出し、入力欄を空にして再入力させる。非対応の方式・TPM のみは、ダイアログに理由を出して解錠の操作を無効にする。
+- **解錠後**: 中のファイルシステムを、通常のボリュームと同じ経路 (`VolumeRegistry` → `NtfsDocumentsProvider`) で公開する。ファイルアプリのルート名は「<イメージ名 or USB 名> #<番号>」、ルートの説明に「暗号化 LUKS2」などが付く。USB 画面ではパーティションの行に公開中の状態と「ロック (アンマウント)」、イメージ画面では「解錠済みの暗号ボリューム」カードに一覧とロックが出る。
+- **ロック**: 中の FS をアンマウント (書き込みを確定) → 復号済みデバイス (鍵とキャッシュをゼロ化して解放) → 切り出し → 元の順に閉じ、SAF のルートが消える。中に複数の FS があるとき (全体が暗号 + 中に GPT) は、どれか 1 つのロックで同じ解錠の兄弟も一緒に閉じる (`VolumeRegistry.takeOut` と `CryptoGroup` の参照カウント)。USB を閉じる・抜くと自動でロックされる (`removeByDevice`)。**資格情報は記憶しない**: 再起動・ロックのあとは毎回入力する。
+
+### 10.2 マウントの仕組み (入れ子)
+
+`CryptoMount.unlock(parent, parentWritable, start, size, cred, method, wantWrite, createOnly, groupId, extraClose)`:
+
+1. `nativeDeviceSubRangeMode(parent, start, size, readOnly)` で暗号パーティションを切り出す (JNI 追加。書き込み可で開くときだけ `readOnly=false`。従来の `nativeDeviceSubRange` は読み取り専用のまま)。
+2. `CryptoVolume.probe` → `openWithInfo(writable = wantWrite && parentWritable)`。core が書き込みを拒否した (非対応の方式・メタデータの食い違い・下位が読み取り専用) ときは解錠自体は成功のまま読み取り専用で開き、理由 (`write_note`) を `UnlockedCrypto.writeNote` に入れる。画面は「読み取り専用で解錠しました」の黄色い通知にその理由を添える。
+3. 復号済みデバイスの中のパーティション表を読み、表が無ければ全体を 1 つの FS として、あれば**各パーティションの開始位置と長さ**で (`mountDeviceRange` / `mountDeviceRangeReadWrite`) マウントする。NTFS / exFAT / ext / FAT / btrfs / xfs / f2fs など通常のボリュームと同じ FS が対象。マウントできない中のパーティションは読み飛ばして通知に残す。1 つもマウントできなければ失敗 (`ENOTSUP` なら「対応していません」)。
+4. 下位のハンドルの持ち主は `CryptoGroup` (参照カウント): 最後の FS が閉じたとき 復号済みデバイス → 切り出し → (イメージなら) 元の fd の順に閉じる。解錠が途中で失敗しても全部閉じる。
+
+イメージ (SAF の URI) は、解錠のたびに `openFileDescriptor("r" / "rw")` で開き直す。「書き込み可」を要求して "rw" で開けなければ読み取り専用で開く (通知に理由)。USB は開いているセッションのハンドルから切り出す (`UsbSession.withHandle`。書き込み可の判定は `sess.writable`、「新規作成のみ」か「すべて許可」かは USB の書き込みモードに従う)。
+
+### 10.3 秘密の扱い
+
+- 資格情報は `ByteArray` (UTF-8) にして `UnlockCredentials` で持ち、`CryptoMount.unlock` が成功・失敗とも最後にゼロ埋めする (`CryptoVolume.open` も呼び出しの最後に埋める。BEK の読み取りバッファもゼロ埋め)。ネイティブ側のコピーは関数を出るときにゼロ化済み (5 章)。
+- **残る弱点 (正直に)**: Compose の `TextField` の値は JVM の `String` で、ゼロ埋めできない (GC まで残る)。対策は、`remember` (Activity の状態保存・`rememberSaveable` には載せない) で持ち、送信した瞬間に欄を空にして参照を捨てること。
+- ログ・例外メッセージ・SharedPreferences・クラッシュレポートに資格情報を出さない (失敗のログは例外の種類とコードだけ)。`allowBackup=false`。ロック後の再解錠でも前回の入力は残らない。ボリュームの登録は永続化しない (`VolumeRegistry.addCryptoVolume`)。
+- 試験 (`CryptoUiTest`) は、操作のあとで logcat と `shared_prefs` に使い捨てのパスワードが無いことを確かめる。
+
+### 10.4 試験
+
+- エミュレータ (GitHub Actions `android-emulator.yml` の `crypt-ui` グループ。`android/app/src/androidTest/.../CryptoUiTest.kt`): 実画面を Compose の試験 (`ui-test-junit4`) で操作し、ファイル選択だけ `espresso-intents` で差し替える。フィクスチャは `tools/gen_crypt_ui_fixture.py`。
+  - GPT イメージ (LUKS2 argon2id → ext4 / BitLocker → NTFS): 間違ったパスワード → エラー表示・再入力 → 読み取り専用で解錠 (SAF で一覧・内容・書き込み不可を確認) → ロック → **書き込み可で解錠** (確認ダイアログ) → SAF で新規ファイル・フォルダを書く → ロック → 開き直して内容を検証 → BitLocker も解錠。パスワード欄のマスク / 表示切り替えも確かめる。
+  - 全体が LUKS2 で中が GPT (ext4 + NTFS): 2 つの FS が中のパーティションの開始位置でマウントされ、片方のロックで両方が閉じる。
+  - 全体が BitLocker (パスワード + 回復キー + BEK): 回復キーの形式検査・認証失敗・ハイフン無しの入力での解錠、BEK ファイルでの解錠、パスワードでの解錠。
+- 実機の試験補助 (`RealUsbCommon.mountCrypto`): 同じ `CryptoMount.unlock` を使う。以前は解錠後に開始位置 0 ・最初のパーティションの長さでマウントしていた (中に GPT があると誤る) のを、中のパーティションの開始位置でマウントし、書き込み可でも開けるようにした。使い方は docs/real-usb-testset.md。
+
+- 結果: `crypt-ui` グループ 3 件 (`OK (3 tests)`) 成功 — 単独実行 43658951168、全 6 グループの実行 43660009210 (Android emulator tests。同じ commit の Host tests 4 構成も成功: 43660009260)。途中で見つかった不具合: (a) `VolumeRegistry.Entry` の引数の取り違え (コンパイルエラー)、(b) 試験用の中の ext4 を既定の mke2fs (小さいイメージ) で作ると、書き込みのホワイトリスト外で読み取り専用に落ちた (フィクスチャを 4K ブロック・内部ジャーナルにして解決。アプリ側は想定どおり読み取り専用で開き、`write_note` を通知に出していた)。
+- 書き込みのエミュレータ試験は LUKS2 → ext4 だけ。BitLocker (合成) → NTFS の書き込みは、core の試験 (host) と実機の試験補助で確かめる。
+
+### 10.5 制限・未了
+
+- 資格情報の記憶 (Android Keystore) は未実装 (「記憶しない」のみ)。設計は 5 章末尾のメモ。docs/TODO.md に別項目。
+- 暗号の中の ext3/ext4 のジャーナル未再生 (EUCLEAN) を確認して noload で開く導線は未対応 (通常のボリュームの「読み取り専用で開く」確認ダイアログに相当するものが無い。拒否の通知が出る)。
+- イメージの中のイメージ (入れ子マウント) の暗号ボリュームの解錠は未対応 (そのイメージは「RAW イメージを開く」の経路を通らない)。
+- ディスクイメージ画面の「NTFS イメージをマウント」で、ディスク全体が暗号のイメージを直接渡す導線は無い。「RAW イメージを開く」で調べ、パーティション行の「解錠してマウント」を使う。
+- 実機 USB での UI 操作・書き込みは未確認 (実機の試験補助は親が実機で実行する)。

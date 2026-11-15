@@ -10,6 +10,12 @@ import androidx.activity.enableEdgeToEdge
 import org.usbmem.app.ui.AppModel
 import org.usbmem.app.ui.AppScaffold
 import org.usbmem.app.ui.AppTheme
+import org.usbmem.app.ui.CryptoProbeResult
+import org.usbmem.app.ui.CryptoUnlockResult
+import org.usbmem.app.ui.CryptoVolumeRow
+import org.usbmem.app.ui.UnlockInput
+import org.usbmem.app.ui.UnlockPrompt
+import org.usbmem.app.ui.UnlockTarget
 import org.usbmem.app.ui.DiagnosticsActions
 import org.usbmem.app.ui.ImageActions
 import org.usbmem.app.ui.ImageResult
@@ -617,7 +623,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         // 読み取り専用 ("r") で開く。fd の所有権はネイティブ側へ渡す。
         val pfd = contentResolver.openFileDescriptor(uri, "r") ?: return ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_image_open_failed)))
         val fd = pfd.detachFd()
-        RawImage.openReadOnly(fd).use { img -> ImageResult(label = uri.lastPathSegment ?: "image", table = img.partitionTable()) }
+        RawImage.openReadOnly(fd).use { img -> ImageResult(label = uri.lastPathSegment ?: "image", table = img.partitionTable(), uri = uri) }
     } catch (e: NativeException) {
         ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_image_open_failed), e.message ?: "native error"))
     } catch (e: Exception) {
@@ -641,6 +647,186 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         ImageResult(notice = fsRefusalNotice(e) ?: Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.message), noloadUri = if (e.code == 117 && !allowNoload) uri else null)
     } catch (e: Exception) {
         ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.javaClass.simpleName))
+    }
+
+    // ---- 暗号ボリューム (LUKS1/2・BitLocker): 解錠して、中のファイルシステムを通常のボリュームと同じ流れで公開する。docs/crypto-volumes.md 10 章
+    // 資格情報はダイアログから ByteArray で届き、CryptoMount.unlock が使い終えるとゼロ埋めする。ログ・SharedPreferences・登録簿には何も残さない (登録簿は再起動で消え、解錠し直す)。
+
+    private class CryptoOutcome(val notice: Notice?, val retryError: String?, val pubs: List<PublishedVolume> = emptyList())
+
+    /** BEK ファイル (数十バイト) を読む。失敗は null。中身は呼び出し側が解錠後に消す。 */
+    private fun readKeyFile(u: Uri?): ByteArray? = try {
+        if (u == null) null else contentResolver.openInputStream(u)?.use { ins ->
+            val buf = ByteArray(1 shl 16)
+            var n = 0
+            while (n < buf.size) { val k = ins.read(buf, n, buf.size - n); if (k < 0) break; n += k }
+            buf.copyOf(n).also { buf.fill(0) }
+        }
+    } catch (_: Exception) { null }
+
+    private fun cryptoModeText(v: NtfsVolume, createOnly: Boolean): String =
+        if (!v.writable) getString(R.string.mode_read_only) else getString(if (createOnly) R.string.mode_create_only else R.string.mode_full)
+
+    private fun cryptoSuccessNotice(r: UnlockedCrypto, label: String): Notice {
+        android.util.Log.i("usbmem", "crypto unlocked: writeRequested=${r.writeRequested} writable=${r.writable} note=${r.writeNote} fs=${r.volumes.map { it.volume.fsName }}")   // 資格情報は含まない
+        val skipped = if (r.skipped.isEmpty()) "" else "\n" + getString(R.string.crypto_notice_skipped, r.skipped.joinToString(", "))
+        return when {
+            r.writeRequested && r.writable -> Notice(Severity.Warning, getString(R.string.crypto_notice_unlocked_write, label), getString(R.string.crypto_notice_unlocked_write_detail) + skipped)
+            r.writeRequested -> Notice(Severity.Warning, getString(R.string.crypto_notice_write_fallback, label), getString(R.string.crypto_notice_write_fallback_detail, r.writeNote.ifBlank { "-" }) + skipped)
+            else -> Notice(Severity.Success, getString(R.string.crypto_notice_unlocked, label), getString(R.string.crypto_notice_unlocked_detail) + skipped)
+        }
+    }
+
+    private fun cryptoFailure(e: Throwable, method: CryptoMount.Method): CryptoOutcome {
+        android.util.Log.w("usbmem", "crypto unlock failed: ${e.javaClass.simpleName} code=${(e as? CryptoException)?.code ?: (e as? NativeException)?.code}")   // 資格情報・メッセージ本文は出さない
+        if (e is CryptoException) {
+            if (e.authFailed) return CryptoOutcome(null, getString(when (method) { CryptoMount.Method.Password -> R.string.unlock_err_password; CryptoMount.Method.RecoveryKey -> R.string.unlock_err_recovery; CryptoMount.Method.KeyFile -> R.string.unlock_err_keyfile }))
+            if (e.code == 1) return CryptoOutcome(null, getString(R.string.unlock_err_format))   // InvalidArgument: 回復キーの形式など
+            if (e.unsupported) return CryptoOutcome(Notice(Severity.Warning, getString(R.string.crypto_notice_unsupported), e.info?.note?.ifBlank { null }), null)
+            return CryptoOutcome(Notice(Severity.Error, getString(R.string.crypto_notice_failed), e.message), null)
+        }
+        if (e is NativeException) return CryptoOutcome(fsRefusalNotice(e) ?: Notice(Severity.Error, getString(R.string.crypto_notice_inner_failed), e.message), null)
+        return CryptoOutcome(Notice(Severity.Error, getString(R.string.crypto_notice_failed), e.javaClass.simpleName), null)
+    }
+
+    /**
+     * 解錠 → 登録 (SAF に公開) の共通部分。[open] が [CryptoMount.unlock] を呼ぶ (失敗したとき下位のハンドルは unlock が閉じる)。
+     * [stillValid] が false に変わっていたら (解錠中に USB が抜かれた等)、登録を取り消す。
+     */
+    private fun runUnlock(
+        label: String, start: Long, gid: String, keyBase: String, deviceName: String?, createOnly: Boolean, input: UnlockInput,
+        stillValid: () -> Boolean, open: (UnlockCredentials) -> UnlockedCrypto,
+    ): CryptoOutcome {
+        val cred = input.cred
+        try {
+            if (VolumeRegistry.cryptoEntries().any { it.crypto?.groupId == gid }) return CryptoOutcome(Notice(Severity.Warning, getString(R.string.crypto_already_unlocked)), null)
+            if (input.method == CryptoMount.Method.KeyFile) {
+                cred.keyFile = readKeyFile(input.keyFileUri)
+                if (cred.keyFile == null) return CryptoOutcome(null, getString(R.string.unlock_err_keyfile_read))
+            }
+            val r = try { open(cred) } catch (e: Exception) { return cryptoFailure(e, input.method) }
+            val info = r.info
+            val meta = CryptoMeta(info?.let { CryptoMount.displayFormat(it) } ?: "", info?.cipher ?: "", r.writable, gid)
+            val pubs = ArrayList<PublishedVolume>()
+            val keys = ArrayList<String>()
+            try {
+                for (inner in r.volumes) {
+                    val vk = "$keyBase#${inner.startBytes}"
+                    val lbl = label + inner.suffix
+                    VolumeRegistry.addCryptoVolume(lbl, vk, inner.volume, r.group, meta, deviceName)
+                    keys += vk
+                    val v = inner.volume
+                    pubs += PublishedVolume(
+                        lbl, cryptoModeText(v, createOnly), v.writable, fullWrite = v.writable && !createOnly,
+                        canLink = v.writable && (v.fsName == "ext2" || v.fsName == "ext4" || v.fsName == "btrfs" || v.fsName == "f2fs" || v.fsName == "xfs"),
+                        volumeKey = vk, startBytes = start, crypto = true,
+                    )
+                }
+            } catch (t: Throwable) {
+                keys.forEach { runCatching { VolumeRegistry.removeByKey(it) } }
+                r.volumes.drop(keys.size).forEach { runCatching { it.volume.close() } }
+                r.group.closeNow()
+                return cryptoFailure(t, input.method)
+            }
+            if (!stillValid()) { keys.forEach { runCatching { VolumeRegistry.removeByKey(it) } }; return CryptoOutcome(Notice(Severity.Warning, getString(R.string.notice_usb_closed_while_opening)), null) }
+            notifyRoots()
+            return CryptoOutcome(cryptoSuccessNotice(r, label), null, pubs)
+        } finally {
+            cred.wipe()
+        }
+    }
+
+    // ---- UsbActions (暗号ボリューム)
+    override fun requestUnlock(key: String, startBytes: Long, sizeBytes: Long, label: String) {
+        val sess = sessions.session(key) ?: return
+        val d = state(key) ?: return
+        d.busy = getString(R.string.crypto_busy_probe)
+        d.notice = null
+        Thread {
+            var prompt: UnlockPrompt? = null
+            var notice: Notice? = null
+            try {
+                val info = sess.withHandle { CryptoMount.probe(it, startBytes, sizeBytes) }
+                if (info == null) notice = Notice(Severity.Warning, getString(R.string.crypto_not_encrypted))
+                else prompt = UnlockPrompt.of(info, startBytes, sizeBytes, label)
+            } catch (e: Exception) {
+                notice = Notice(Severity.Error, getString(R.string.crypto_open_failed), e.message ?: e.javaClass.simpleName)
+            }
+            val p = prompt; val n = notice
+            ui { state(key)?.let { it.busy = null; it.notice = n; if (p != null) it.unlockTarget = UnlockTarget(startBytes, sizeBytes, p) } }
+        }.start()
+    }
+
+    override fun unlockPartition(key: String, input: UnlockInput) {
+        val sess = sessions.session(key)
+        val d = state(key)
+        val t = d?.unlockTarget
+        if (sess == null || d == null || t == null) { input.cred.wipe(); return }
+        d.unlocking = true
+        val createOnly = sessions.writeMode(key) != WriteMode.Full
+        Thread {
+            val out = runUnlock(
+                t.prompt.label, t.startBytes, gid = "crypt:usb:$key@${t.startBytes}", keyBase = VolumeRegistry.usbKey(key, t.startBytes), deviceName = key,
+                createOnly = createOnly, input = input, stillValid = { sessions.session(key) === sess },
+            ) { cred ->
+                val groupId = "crypt:usb:$key@${t.startBytes}"
+                sess.withHandle { h -> CryptoMount.unlock(h, sess.writable, t.startBytes, t.sizeBytes, cred, input.method, input.write, createOnly, groupId) }
+            }
+            ui {
+                val st = state(key)
+                if (st != null) {
+                    st.unlocking = false
+                    if (out.retryError != null) st.unlockTarget = st.unlockTarget?.let { it.copy(prompt = it.prompt.copy(error = out.retryError)) }
+                    else {
+                        st.unlockTarget = null
+                        st.notice = out.notice
+                        if (out.pubs.isNotEmpty() && st.open) st.published = st.published.filter { p -> out.pubs.none { it.volumeKey == p.volumeKey } } + out.pubs
+                    }
+                }
+            }
+        }.start()
+    }
+
+    override fun cancelUnlock(key: String) { state(key)?.let { if (!it.unlocking) it.unlockTarget = null } }
+
+    // ---- ImageActions (暗号ボリューム。IO スレッドから呼ばれる)
+    private fun openImageBase(uri: Uri, write: Boolean): Pair<Long, Boolean> {
+        var rw = false
+        var pfd: android.os.ParcelFileDescriptor? = null
+        if (write) { try { pfd = contentResolver.openFileDescriptor(uri, "rw"); rw = pfd != null } catch (_: Exception) { pfd = null } }
+        if (pfd == null) pfd = contentResolver.openFileDescriptor(uri, "r") ?: throw java.io.FileNotFoundException("image")
+        val h = NativeBridge.nativeOpenFd(pfd.detachFd(), !rw)
+        if (!Handle.valid(h)) throw NativeException((-h).toInt(), "open failed: ${NativeBridge.nativeErrcName((-h).toInt())}")
+        return h to rw
+    }
+
+    override fun probeCrypto(uri: Uri, startBytes: Long, sizeBytes: Long, label: String): CryptoProbeResult = try {
+        val (base, _) = openImageBase(uri, false)
+        try {
+            val info = CryptoMount.probe(base, startBytes, sizeBytes)
+            if (info == null) CryptoProbeResult(notice = Notice(Severity.Warning, getString(R.string.crypto_not_encrypted)))
+            else CryptoProbeResult(prompt = UnlockPrompt.of(info, startBytes, sizeBytes, label))
+        } finally { NativeBridge.nativeClose(base) }
+    } catch (e: Exception) {
+        CryptoProbeResult(notice = Notice(Severity.Error, getString(R.string.crypto_open_failed), e.message ?: e.javaClass.simpleName))
+    }
+
+    override fun unlockImage(uri: Uri, startBytes: Long, sizeBytes: Long, label: String, input: UnlockInput): CryptoUnlockResult {
+        val gid = "crypt:img:$uri@$startBytes"
+        val out = runUnlock(label, startBytes, gid, keyBase = gid, deviceName = null, createOnly = false, input = input, stillValid = { true }) { cred ->
+            val (base, rw) = openImageBase(uri, input.write)
+            CryptoMount.unlock(base, rw, startBytes, sizeBytes, cred, input.method, input.write, createOnly = false, groupId = gid, extraClose = { NativeBridge.nativeClose(base) })
+        }
+        return CryptoUnlockResult(out.notice, out.retryError)
+    }
+
+    override fun cryptoVolumes(): List<CryptoVolumeRow> = VolumeRegistry.cryptoEntries().map {
+        CryptoVolumeRow(it.id, it.label, it.volume.fsName, it.crypto?.format ?: "", it.volume.writable)
+    }
+
+    override fun lockCrypto(id: String) {
+        try { VolumeRegistry.remove(this, id) } catch (e: Exception) { android.util.Log.w("usbmem", "lock failed: ${e.javaClass.simpleName}") }
+        notifyRoots()
     }
 
     // ---- NestedActions: マウント済みのボリュームの中のイメージを、読み取り専用でマウントする (ループバック。docs/nested-mount.md)

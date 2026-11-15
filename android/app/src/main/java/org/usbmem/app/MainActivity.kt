@@ -668,6 +668,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         if (!v.writable) getString(R.string.mode_read_only) else getString(if (createOnly) R.string.mode_create_only else R.string.mode_full)
 
     private fun cryptoSuccessNotice(r: UnlockedCrypto, label: String): Notice {
+        android.util.Log.i("usbmem", "crypto unlocked: writeRequested=${r.writeRequested} writable=${r.writable} note=${r.writeNote} fs=${r.volumes.map { it.volume.fsName }}")   // 資格情報は含まない
         val skipped = if (r.skipped.isEmpty()) "" else "\n" + getString(R.string.crypto_notice_skipped, r.skipped.joinToString(", "))
         return when {
             r.writeRequested && r.writable -> Notice(Severity.Warning, getString(R.string.crypto_notice_unlocked_write, label), getString(R.string.crypto_notice_unlocked_write_detail) + skipped)

@@ -100,12 +100,14 @@ def main():
     ap.add_argument("--tests", default="", help="カンマ区切りのテスト名 (指定すると --group は使わない)")
     ap.add_argument("--exclude", default="", help="除外するテスト名 (カンマ区切り)")
     ap.add_argument("--timeout", type=int, default=300, help="1 件あたりの秒数")
-    ap.add_argument("--size", default="1G")
+    ap.add_argument("--size", default="", help="イメージの大きさ。既定は 1G、疎ファイルを持てない FAT / exFAT は 6G (fsstress の穴のあるファイルが実際に領域を食うため。generic/013 で ENOSPC になる)")
     ap.add_argument("--mount-opts", default="allow_other,default_permissions", help="usbmem_fuse の -o (quiet_setattr など)")
     ap.add_argument("--no-remkfs", action="store_true", help="テストごとにイメージを作り直さない (既定は作り直す。FSTYP=fuse の fstests は mkfs をしないので、前のテストの残りや破損が次へ持ち越される)")
     ap.add_argument("--max-seconds", type=int, default=0, help="全体の上限 (0 = 無制限)。超えたら残りは skipped-by-budget")
     a = ap.parse_args()
 
+    if not a.size:
+        a.size = "6G" if a.fs in ("fat", "exfat") else "1G"
     size = int(re.fullmatch(r"(\d+)([KMG]?)", a.size).group(1)) * {"": 1, "K": 1 << 10, "M": 1 << 20, "G": 1 << 30}[re.fullmatch(r"(\d+)([KMG]?)", a.size).group(2)]
     os.makedirs(a.out, exist_ok=True)
     os.makedirs(a.work, exist_ok=True)

@@ -1,0 +1,97 @@
+{
+ "_doc": "期待失敗リスト。cat = saf_unusable (SAF 経由では使えない操作) / core_unsupported (core が持たない機能) / adapter_limit (FUSE アダプターでは実現できない) / premise_mismatch (fstests の前提とこの試験環境・FS の性質が合わない) / core_bug / adapter_bug (直すべきもの。直ったら一覧から消す)。docs/xfstests.md の「結果」を参照",
+ "*": {
+  "generic/003": {
+   "cat": "core_unsupported",
+   "why": "core は atime / ctime を返さない (mtime と同じ値を見せる)。atime の更新規則 (relatime) を調べるテスト"
+  },
+  "generic/087": {
+   "cat": "core_unsupported",
+   "why": "chmod / setuid / setgid (core に権限の変更 API が無い)"
+  },
+  "generic/120": {
+   "cat": "core_unsupported",
+   "why": "atime の更新 (noatime / relatime) を見る。core に atime が無い"
+  },
+  "generic/221": {
+   "cat": "core_unsupported",
+   "why": "ctime / mtime の更新規則 (core は ctime を持たない)"
+  },
+  "generic/236": {
+   "cat": "core_unsupported",
+   "why": "link による ctime の更新 (core は ctime を持たない)"
+  },
+  "generic/258": {
+   "cat": "core_unsupported",
+   "why": "負の時刻 (1970 年より前) の mtime を core が保持しない"
+  },
+  "generic/755": {
+   "cat": "core_unsupported",
+   "why": "unlink で対象の ctime が変わること (core は ctime を持たない)"
+  },
+  "generic/426": {
+   "cat": "adapter_limit",
+   "why": "open_by_handle_at: FUSE の nodeid は永続しない (アダプターが振る) ので ESTALE。core にも inode 番号から開くファイルハンドルは無い"
+  },
+  "generic/467": {
+   "cat": "adapter_limit",
+   "why": "open_by_handle_at (同上)"
+  },
+  "generic/477": {
+   "cat": "adapter_limit",
+   "why": "open_by_handle_at、再マウントをまたぐハンドル (同上)"
+  },
+  "generic/756": {
+   "cat": "adapter_limit",
+   "why": "open_by_handle_at (同上)"
+  },
+  "generic/777": {
+   "cat": "adapter_limit",
+   "why": "open_by_handle_at、再マウントをまたぐハンドル (同上)"
+  },
+  "generic/732": {
+   "cat": "premise_mismatch",
+   "why": "同じイメージを 2 か所へマウントして同じスーパーブロックを共有させる前提。アダプターは同じイメージを二重に開かない (排他ロック)"
+  },
+  "generic/634": {
+   "cat": "premise_mismatch",
+   "why": "touch が 'Dec 31 23:59:59 UTC 2147483647' を解釈できない (この環境の coreutils の日付の書式)。FS と無関係"
+  },
+  "generic/798": {
+   "cat": "premise_mismatch",
+   "why": "ページキャッシュの Dirty 数を mincore / cachestat で見る。FUSE は書き込みを即座にデーモンへ送るので dirty ページが残らない"
+  }
+ },
+ "fat": {
+  "generic/088": {
+   "cat": "core_unsupported",
+   "why": "実行ビットの有無で access(X_OK) が変わる前提。FAT は権限ビットを持たない (全ファイル 0755 に見える)"
+  },
+  "generic/309": {
+   "cat": "premise_mismatch",
+   "why": "FAT の時刻の粒度は 2 秒。ディレクトリの mtime / ctime が 1 秒以内の更新で変わる前提"
+  },
+  "generic/313": {
+   "cat": "premise_mismatch",
+   "why": "同上 (truncate での mtime / ctime の更新)"
+  },
+  "generic/346": {
+   "cat": "premise_mismatch",
+   "why": "疎ファイルが無い FAT では、巨大な穴の作成がゼロ埋めの書き込みになり 180 秒の制限を超える (holetest)"
+  },
+  "generic/394": {
+   "cat": "premise_mismatch",
+   "why": "1 GiB への truncate が FAT ではゼロ埋めの書き込みになり 180 秒の制限を超える"
+  }
+ },
+ "exfat": {
+  "generic/088": {
+   "cat": "core_unsupported",
+   "why": "実行ビットの有無で access(X_OK) が変わる前提。exFAT は権限ビットを持たない"
+  },
+  "generic/490": {
+   "cat": "core_unsupported",
+   "why": "lseek(SEEK_DATA / SEEK_HOLE): アダプターは常に全体をデータとして返す (core に穴の問い合わせが無い)"
+  }
+ }
+}

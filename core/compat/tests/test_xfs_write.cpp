@@ -575,6 +575,11 @@ static int frag_run(const std::string& img) {
   }
   for (int i = n * 7 / 10; i < n; i++) CHECK(vol->unlink(d, nm("f", order[i])) == 0);
   for (int i = 0; i < n / 2; i++) if (i % 3) CHECK(vol->unlink(d, nm("g", i)) == 0);
+  // 小さいディレクトリ (ショートフォーム) の中で名前の変更を繰り返す。エントリのオフセットが増え続けると xfs_repair が "offsets too high" と言う (generic/028 の後で発見)
+  uint64_t sd; CHECK(vol->mkdir(vol->root(), "sfren", 0755, &sd) == 0);
+  uint64_t sf0; CHECK(vol->create(sd, "keep", 0644, &sf0) == 0);
+  CHECK(vol->create(sd, "r0", 0644, &sf0) == 0);
+  for (int i = 1; i <= 3000; i++) CHECK(vol->rename(sd, "r" + std::to_string(i - 1), sd, "r" + std::to_string(i)) == 0);
   CHECK(vol->sync() == 0);
   vol.reset();
   std::fprintf(stderr, "frag: %s\n", g_fail ? "FAIL" : "ok");

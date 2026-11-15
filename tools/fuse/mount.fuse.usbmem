@@ -13,5 +13,12 @@ while [ $# -gt 0 ]; do
     *) shift ;;
   esac
 done
+# remount (xfstests の _scratch_remount ro / rw): デーモンは同じイメージを二重に開けないので、新しく起動せず、カーネル側の ro / rw だけを切り替える (mount -i = ヘルパーを呼ばない)。
+# デーモンは書き込み可のままだが、ro の間はカーネルが書き込みを止める。FUSE にデーモン側の再マウントの手段は無い (docs/xfstests.md)。
+case ",$opts," in
+  *,remount,*)
+    ro=rw; case ",$opts," in *,ro,*) ro=ro ;; esac
+    exec mount -i -o "remount,$ro" "$mnt" ;;
+esac
 export USBMEM_FUSE_FSCK USBMEM_FUSE_FSCK_LOG USBMEM_FUSE_LOG USBMEM_FUSE_TRACE
 exec "$BIN" ${opts:+-o "$opts"} "$dev" "$mnt"

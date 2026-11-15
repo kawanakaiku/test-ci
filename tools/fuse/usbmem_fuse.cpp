@@ -272,6 +272,13 @@ void op_init(void*, struct fuse_conn_info* conn) { (void)conn; }
 void shutdown_volume() {
   if (g.closed) return;
   g.closed = true;
+  // 後始末 (sync / クローズ / fsck) の間は終了シグナルを止める。fstests は systemd のスコープでテストを動かし、テストの後に systemctl stop (= スコープ内の全プロセスへ SIGTERM)
+  // をするので、umount の後で後始末をしているデーモンと、その fsck (e2fsck は "canceled" で終わる) が殺される。ブロックしたマスクは fsck の子にも引き継がれる。
+  {
+    sigset_t ss; sigemptyset(&ss);
+    sigaddset(&ss, SIGTERM); sigaddset(&ss, SIGINT); sigaddset(&ss, SIGHUP); sigaddset(&ss, SIGQUIT);
+    sigprocmask(SIG_BLOCK, &ss, nullptr);
+  }
   trace("shutdown: begin");
   if (g.vol) {
     int rc = g.vol->sync();
@@ -490,6 +497,14 @@ void op_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) {
   int rc = fs_stat(real, &s);
   if (rc) { fuse_reply_err(req, to_errno(rc)); return; }
   if (is_dir(s)) { fuse_reply_err(req, EISDIR); return; }
+  // libfuse3 は FUSE_CAP_ATOMIC_O_TRUNC を既定で有効にするので、O_TRUNC 付きの open はカーネルが setattr(size=0) を送らず、ここで切り詰める責任がある
+  // (以前はこれを落としていて、`> file` で既存の内容が残った。mmap-rw-fault = generic/647, 729 で発見)。
+  if ((fi->flags & O_TRUNC) && is_reg(s) && s.size != 0) {
+    rc = g.vol->truncate(real, 0);
+    trace("  open O_TRUNC truncate -> %d", rc);
+    if (rc) { fuse_reply_err(req, to_errno(rc)); return; }
+    maybe_sync(0);
+  }
   g.opens[ino]++;
   trace("open %llu flags=0x%x", (unsigned long long)ino, fi->flags);
   fi->fh = 0;

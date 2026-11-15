@@ -444,9 +444,17 @@
     uint8_t* ip;
     if (d->format == kFmtLocal) {
       SfDir sf; rc = sf_decode(d, &sf); if (rc) return rc;
-      uint32_t next = 0x60;
-      for (auto& e : sf.ents) next = std::max(next, e.off + ent_sz(e.name.size()));
-      sf.ents.push_back({name, ino, ft, next});
+      // 追加位置はカーネル (xfs_dir2_sf_addname_pick) と同じ: 仮想のデータブロック上で、エントリ間の隙間のうち入る最も低い所、無ければ最後のエントリの後ろ。
+      // 常に最後の後ろへ足すと、名前の変更・削除を繰り返す間にオフセットが増え続け、xfs_repair が "offsets too high" と判定する (generic/028)。
+      // エントリはオフセット順に並べる (カーネルもこの順で読む)。
+      std::stable_sort(sf.ents.begin(), sf.ents.end(), [](const DEnt& a, const DEnt& b) { return a.off < b.off; });
+      uint32_t at = 0x60;
+      size_t pos = 0;
+      for (; pos < sf.ents.size(); pos++) {
+        if (sf.ents[pos].off >= at + sz) break;                       // この手前の隙間に入る
+        at = std::max<uint32_t>(at, sf.ents[pos].off + ent_sz(sf.ents[pos].name.size()));
+      }
+      sf.ents.insert(sf.ents.begin() + static_cast<std::ptrdiff_t>(pos), DEnt{name, ino, ft, at});
       return dir_sf_store(dino, sf);
     }
     rc = load_extents(d); if (rc) return rc;

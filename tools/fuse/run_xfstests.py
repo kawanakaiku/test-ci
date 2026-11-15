@@ -42,9 +42,14 @@ def sh(cmd, **kw):
 #   core_unsupported: 自前実装 (core の FS API) に無い操作 (権限・所有者・ACL・xattr・時刻の細かい制御・クォータ・SEEK_DATA / HOLE など)。FUSE アダプターは正直に ENOSYS / EOPNOTSUPP を返す
 #   environment    : 前提 (実デバイス・別のデバイス・カーネルの機能・ツール) が FUSE / この runner に無い
 NOTRUN_RULES = [
-    ("saf_unusable", r"symlink|hardlink|hard link|fallocate|falloc|punch|zero.?range|collapse|insert.?range|o_direct|direct.?io|dio|reflink|clone|dedupe|copy_file_range|mknod|fifo|device special|swap|exchange|whiteout"),
-    ("core_unsupported", r"xattr|attr|acl|chown|chmod|permission|setuid|uid|gid|quota|seek_data|seek_hole|fiemap|fsync|utimes|timestamp|atime|ctime|btime|birth|mtime|casefold|encrypt|verity|immutable|chattr|lsattr|project|idmap|fs-verity|ioctl|extent|sparse|hole"),
-    ("environment", r"scratch|logwrites|dm-|flakey|loop|device|kernel|require|not supported by|does not support|need|must|root|mount option|journal|log"),
+    # fstests の環境・前提の都合 (ブロックデバイスが要る / ツールが無い / カーネルの機能)。自前実装とは関係ない
+    ("environment", r"valid block disk|local device|not installed|utility required|does not support shutdown|does not support freezing|logwrites|logdev|scratch device|device too small|scratch_mkfs_sized|"
+                    r"dax|fitrim|fstrim|kernel doesn't support|logical block size|sector size|extsize|delayed allocation|huge file|free on|fcntl setdeleg|write atomic|"
+                    r"xfs_io (fzero|label|shutdown)|creation time not supported"),
+    # SAF (Android のストレージアクセスフレームワーク) では使えない操作 / FUSE ではカーネルに任せられない操作
+    ("saf_unusable", r"reflink|dedupe|falloc|fpunch|punch|fcollapse|finsert|exchange|swap|mknod|mkfifo|fifo|o_tmpfile|dio alignment|startupdate|defragmentation|renameat"),
+    # core が持っていない機能 (権限・所有者・時刻の細部・xattr・ACL・暗号・クォータ・chattr 系・疎ファイルの探索)
+    ("core_unsupported", r"chmod|chown|attr namespace|acl|encryption|casefold|quota|chattr|lsattr|sparse|fiemap|timestamp|verity|idmapped|project|inlinecrypt|unrestricted byte streams|sector size"),
 ]
 
 
@@ -57,7 +62,7 @@ def classify_notrun(reason):
 
 
 def load_expected(fsname):
-    """tools/fuse/xfstests_expected.json: {"<fs>" or "*": {"generic/NNN": {"cat": "...", "why": "..."}}}。cat は saf_unusable / core_unsupported / premise_mismatch / core_bug / adapter_bug。"""
+    """tools/fuse/xfstests_expected.json: {"<fs>" or "*": {"generic/NNN": {"cat": "...", "why": "..."}}}。cat は saf_unusable / core_unsupported / adapter_limit / premise_mismatch / core_bug / adapter_bug。"""
     path = os.path.join(HERE, "xfstests_expected.json")
     if not os.path.exists(path):
         return {}

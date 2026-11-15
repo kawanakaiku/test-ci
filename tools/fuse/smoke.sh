@@ -33,6 +33,8 @@ chk test "$(readlink "$MNT/d/sym")" = b
 chk ln "$MNT/d/b" "$MNT/d/hard"
 chk truncate -s 1000 "$MNT/big"
 chk test "$(stat -c %s "$MNT/big")" = 1000
+chk sh -c "echo longlonglong > $MNT/d/b; echo x > $MNT/d/b"   # O_TRUNC 付きの open で切り詰められること (以前は落としていた)
+chk test "$(stat -c %s "$MNT/d/b")" = 2
 chk rm "$MNT/d/b"
 ls -la "$MNT" "$MNT/d"
 df "$MNT" | cat

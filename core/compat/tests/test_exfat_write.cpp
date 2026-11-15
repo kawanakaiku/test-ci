@@ -4,6 +4,7 @@
 //   --model <img> <seed> <nops> [dump] 乱数で操作列を作り、メモリ上のモデルと突き合わせる (途中・unmount 後の再マウント後にも全体比較)。dump に tools/ops_ref.py --tree と同じ書式でモデルを書く
 //   --noop <img>                      rw マウントして何もせず unmount: イメージが 1 バイトも変わらないこと
 //   --refuse <img>                    rw を要求したが書き込み不可のイメージ (汚れている/MediaFailure/FAT 2 面): マウントは成功し writable()==false、書き込みは -EROFS、イメージ不変
+//   --dirfull <img>                   エントリセットがクラスタ境界ちょうどで尽きるディレクトリで、全部の名前を引ける / 列挙できること
 //   --enospc <img>                    満杯・ディレクトリの伸長不能で安全に失敗し、削除で回復すること
 //   --names <img>                     名前の規則 (大文字小文字を区別しない / 禁止文字 / 長さ / UTF-16 サロゲート / 大文字小文字だけの rename)
 //   --clean <img>                     書いた後にクリーンに unmount すると VolumeDirty が消えていること (ブートセクタ検査)
@@ -386,6 +387,29 @@ static int enospc_run(const std::string& img) {
   return g_fail ? 1 : 0;
 }
 
+// ---- --dirfull: ディレクトリのエントリセットがクラスタの境界ちょうどで尽きる (4 KiB クラスタ = 128 エントリ。6 文字の名前は 3 エントリなので 384 個 = 9 クラスタぴったり)。
+//   上流の exfat_find_dir_entry は、ヒント (前回の探索位置) から再開するとき残りのクラスタ数を直さず、NO_FAT_CHAIN のディレクトリの末尾を 1 クラスタ越えて読んで
+//   -EIO ("failed to test cluster bit") になっていた (xfstests generic/006 で発見。third_party/exfat/fs-exfat/dir.c に最小の修正)。
+static int dirfull_run(const std::string& img) {
+  BlockDevicePtr dev = open_rw(img); int err = 0; auto vol = ExfatVolume::mount_rw(dev, &err);
+  if (!vol || !vol->writable()) { std::fprintf(stderr, "mount_rw failed\n"); return 1; }
+  uint64_t d; CHECK(vol->mkdir(vol->root(), "d", 0755, &d) == 0);
+  const int n = 384;
+  auto name = [](int i) { std::string s(6, 'a'); for (int k = 5, v = i; k >= 0; k--, v /= 4) s[k] = (char)('a' + v % 4); return s; };
+  for (int i = 0; i < n; i++) { uint64_t t; if (vol->create(d, name(i), 0644, &t) != 0) { std::fprintf(stderr, "create %d failed\n", i); g_fail++; break; } }
+  // 作成の直後 (ヒントが最後の位置を指している) と、同期後の両方で、全部の名前を引ける
+  for (int round = 0; round < 2; round++) {
+    for (int i = 0; i < n; i++) { uint64_t t; int rc = vol->lookup(d, name(i), &t); if (rc != 0) { std::fprintf(stderr, "lookup %s -> %d (round %d)\n", name(i).c_str(), rc, round); g_fail++; break; } }
+    std::vector<FsDirEntry> e; int rc = vol->readdir(d, &e); CHECK(rc == 0);
+    int cnt = 0; for (auto& x : e) if (x.name != "." && x.name != "..") cnt++;
+    CHECK(cnt == n);
+    CHECK(vol->sync() == 0);
+  }
+  vol.reset();
+  std::fprintf(stderr, "dirfull: %s\n", g_fail ? "FAIL" : "ok");
+  return g_fail ? 1 : 0;
+}
+
 // ---- --names
 static int names_run(const std::string& img) {
   BlockDevicePtr dev = open_rw(img); int err = 0; auto vol = ExfatVolume::mount_rw(dev, &err);
@@ -443,6 +467,7 @@ int main(int argc, char** argv) {
   if (argc >= 3 && std::string(argv[1]) == "--noop") return noop_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--refuse") return refuse_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--enospc") return enospc_run(argv[2]);
+  if (argc >= 3 && std::string(argv[1]) == "--dirfull") return dirfull_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--names") return names_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--clean") return clean_run(argv[2]);
   std::fprintf(stderr, "usage: see header\n");

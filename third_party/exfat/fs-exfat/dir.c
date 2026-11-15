@@ -1044,6 +1044,15 @@ int exfat_find_dir_entry(struct super_block *sb, struct exfat_inode_info *ei,
 		clu.dir = hint_stat->clu;
 		dentry = hint_stat->eidx;
 		end_eidx = dentry;
+		/*
+		 * usbmem: with a hint, the chain starts in the middle, so the remaining size must
+		 * shrink too. Otherwise a NO_FAT_CHAIN directory that is exactly full (the last entry
+		 * set ends at the cluster boundary) walks one cluster past its end and
+		 * exfat_find_location() fails with -EIO ("failed to test cluster bit").
+		 */
+		if (clu.flags == ALLOC_NO_FAT_CHAIN && clu.dir >= p_dir->dir &&
+		    clu.dir - p_dir->dir < p_dir->size)
+			clu.size = p_dir->size - (clu.dir - p_dir->dir);
 	}
 
 	exfat_reset_empty_hint(&ei->hint_femp);

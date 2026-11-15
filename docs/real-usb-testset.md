@@ -427,6 +427,19 @@ C を PC (`ssh home-notepc`) に戻して、独立に検証した (どちらも�
 - p4: `cryptsetup open --readonly` → `e2fsck -fn` は rc=0 (clean)、`make_real_usb_testset.py verify` でマニフェスト全件一致 (ファイル 3029・ディレクトリ 43・リンク 4・1.07 GiB)。
 - p5: `bdemount -p` (libbde) で復号 → `ntfsfix -n` OK、ro マウントしてマニフェスト全件一致 (ファイル 3024・ディレクトリ 40・5.96 MiB)。ntfsfix -n は簡易な検査 (完全な NTFS fsck ではない)。
 
+### 10.4 Btrfs / F2FS の書き込み (C の p2 / p3、2026-11-15、J9260)
+
+10.3 と同じ APK で、C の p2 (Btrfs) と p3 (F2FS) の書き込み試験 (CreateOnly → Full) を行った。
+
+| パーティション | 結果 | 32 MiB の書き込み |
+|---|---|---|
+| p2 Btrfs | **pass** (全 5 ステージ) | CreateOnly 39.7 秒、Full 7.4 秒 |
+| p3 F2FS | **pass** (全 5 ステージ) | CreateOnly 41.1 秒、Full 7.3 秒 |
+
+PC (`ssh home-notepc`) での独立検証 (読み取り専用): p2 は `btrfs check --readonly` が "no error found"、ro マウントしてマニフェスト全件一致 (ファイル 3029・4.57 GiB)。p3 は `fsck.f2fs --dry-run` が rc=0 (全項目 Ok)、ro マウントしてマニフェスト全件一致 (1.07 GiB)。`usbmem_*` の残りフォルダは無し。
+
+注意: CreateOnly の 32 MiB 書き込みが約 40 秒 (約 0.8 MB/s) で、Full の約 7 秒より遅い (Btrfs / F2FS とも)。-O0 が原因だった以前の遅さ (読み取り、docs/crypto-volumes.md 6.4) は -O2 で解消済みで、この APK は -O2。CreateOnly の書き込み経路 (新規ファイルの確保・同期の頻度) に別の原因があると見ている。TODO に調査項目を立てた。
+
 ## 11. PC に戻した後 (fsck とマニフェスト照合)
 
 USB を PC に戻す (自動マウントさせず、`lsblk` で `/dev/sdX` を確認)。

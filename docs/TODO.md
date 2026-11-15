@@ -83,6 +83,8 @@
 - [ ] 次: squashfs/erofs (進行中)、ntfs3 (NTFS の第二のバックエンドとして選択可能に)。見積もり (tools/fs_compat_probe.py): ntfs3 は 33k 行で iomap/folio 前提 (gcc エラー 618 件)。
 - [x] ISO 9660 (fs/isofs: レベル 1〜3 / Joliet / Rock Ridge・relocation・シンボリックリンク。zisofs は EOPNOTSUPP で拒否) と UDF (fs/udf: 1.02〜2.01・Sparable・疎/断片化/ハードリンク/シンボリックリンク・ISO+UDF ブリッジは UDF 優先で開けなければ ISO) を読み取り専用で追加。docs/isofs-port.md / docs/udf-port.md。ホスト4構成 + AVD 通過、実機未確認。
 - [ ] UDF の VAT / Metadata パーティション: 上流は読むが、ファイルの入った盤のフィクスチャを作れず未検証 (空の UDF 2.50 VAT のみ)。ISO: zisofs の展開・4 GiB 超・マルチセッション・実機の光学ドライブ。
+- [ ] **CIFS / SMB (ネットワーク共有) の対応 (2026-11-16 追加、USB ストレージとは別軸)**: カーネルの cifs.ko を LinuxCompat に載せるのは現実的でない (カーネルのソケット・キーリング・暗号 API・netfs に依存する)。方式の候補は、(1) ユーザー空間の SMB クライアントライブラリ (libsmb2 (LGPL-2.1)、jcifs-ng (LGPL、Java)) を使って、ボリューム API (`VolumeOps`) の実装を 1 つ足し、SAF のプロバイダと UI は USB と共通にする、(2) 下の FUSE プログラム層 (smbnetfs など)。認証情報 (パスワード) の扱いは暗号ボリュームの規則 (メモリに残さない・ログに出さない) に従う。順番・方式はユーザーと相談してから。
+- [ ] **FUSE プログラムを載せる層 (第 3 の方式) の検討 (2026-11-16 追加)**: ユーザー空間の FS 実装 (ntfs-3g、wimlib の wimmount、squashfuse、fuse-ext2、dislocker など) を、無改変で動かすための層。FUSE のカーネルとの通信 (/dev/fuse) の代わりに、プロセス内の libfuse 互換の層 (`fuse_mount` / `fuse_new` / `fuse_loop` を差し替え) で fuse_operations を直接呼び、`VolumeOps` に変換して SAF へ出す。xfstests 用に作った `tools/fuse/usbmem_fuse.cpp` (core → FUSE) の**逆向き**で、操作の対応表はほぼ使い回せる。検討点: ライセンス (GPL 系の取り込み方)、block デバイスの I/O を USB の fd に差し替える方法 (open / pread / ioctl の差し替え)、グローバル状態と exit() を持つ main をどう隔離するか (別プロセス or .so の別名前空間)、wimmount は書き込みで作業ディレクトリが要るか (一時コピーしない方針との関係)、性能 (余計なコピー)、ntfs-3g は独立した参照実装として NTFS の書き込みの突き合わせにも使える。まず小さな試作 (ntfs-3g の読み取り専用) で、層の大きさと性能を測る。
 
 ## 開発要件書ロードマップ (2026-11-12 追加。順番は私 (Claude) に一任。要件書の章番号を併記)
 並列に進められるものは worktree 付きの fork で同時に進める。各項目は「ホスト (PC) テスト → AVD → 実機は最後」。破壊的操作は必ず確認ダイアログ + 事前バックアップ。

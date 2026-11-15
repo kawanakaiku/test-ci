@@ -249,27 +249,43 @@ class RealUsbWriteTest {
             steps.put(stepJson("準備", false, 0, "${e.javaClass.simpleName}: ${e.message}"))
             RealUsb.warn("$tag aborted: ${e.message}")
         } finally {
+            // opStats は close の前に取る (close 後はハンドルが無効で空文字になる)。書き込み / SYNCHRONIZE CACHE のコマンド別の所要時間 (合計ms/最大ms/500ms以上の件数) も入る
+            runCatching { j.put("opStats", s.opStats()) }
+            RealUsb.log("$tag opStats: ${j.optString("opStats")}")
             val c0 = System.nanoTime()
             runCatching { mgr.close(UsbSlotKey.of(info.deviceName, lun)) }
             j.put("sessionCloseMs", (System.nanoTime() - c0) / 1_000_000)
-            runCatching { j.put("opStats", s.opStats()) }
         }
         j.put("pass", allOk && !cleanupFailed).put("ms", (System.nanoTime() - t0) / 1_000_000)
         return j
     }
 
-    private fun writeBig(v: NtfsVolume, path: String, bytes: Long, seed: Int): Long {
+    /** 書き込みの内訳 (ms): 1 MiB ごとの write の最小 / 中央値 / 95 パーセンタイル / 最大、最後の sync、全体。 */
+    private class BigWrite(val totalMs: Long, val syncMs: Long, val lat: List<Long>) {
+        fun summary(): String {
+            val a = lat.sorted()
+            fun q(f: Double) = if (a.isEmpty()) 0 else a[minOf(a.size - 1, (a.size * f).toInt())]
+            return "write/MiB ms min=${a.firstOrNull() ?: 0} p50=${q(0.5)} p95=${q(0.95)} max=${a.lastOrNull() ?: 0} sync=${syncMs} total=${totalMs}"
+        }
+    }
+
+    private fun writeBig(v: NtfsVolume, path: String, bytes: Long, seed: Int): BigWrite {
         val chunk = pattern(1 shl 20, seed)
         var off = 0L
+        val lat = ArrayList<Long>()
         val t0 = System.nanoTime()
         while (off < bytes) {
             val n = minOf(chunk.size.toLong(), bytes - off).toInt()
+            val a = System.nanoTime()
             val w = v.write(path, off, chunk, n)
+            lat += (System.nanoTime() - a) / 1_000_000
             if (w <= 0) throw IllegalStateException("short write at $off")
             off += w
         }
+        val s0 = System.nanoTime()
         v.sync()
-        return (System.nanoTime() - t0) / 1_000_000
+        val now = System.nanoTime()
+        return BigWrite((now - t0) / 1_000_000, (now - s0) / 1_000_000, lat)
     }
 
     private fun readBigCheck(v: NtfsVolume, path: String, bytes: Long, seed: Int): Pair<Boolean, Long> {
@@ -285,18 +301,28 @@ class RealUsbWriteTest {
         return (off == bytes) to (System.nanoTime() - t0) / 1_000_000
     }
 
+    /** 32 MiB の書き込み速度。-e usbmem.speedRepeat N (既定 1) で、新しいファイルへ N 回繰り返す (2 回目以降は別の領域に書かれる)。
+     *  1 回目だけ遅いならデバイス / 領域の状態、毎回遅いなら FS の書き方、という切り分けに使う (docs/real-usb-testset.md 10.4)。 */
     private fun speedSteps(v: NtfsVolume, folder: String, step: (String, () -> String?) -> Boolean, mbs: Int = 32) {
         val bytes = mbs.toLong() shl 20
-        val path = "/$folder/speed.bin"
-        step("速度計測: ${mbs} MiB を書く") {
-            v.create("/$folder", "speed.bin", false)
-            val ms = writeBig(v, path, bytes, 11)
-            RealUsb.log("write %.1f MB/s".format(bytes / 1e6 / (ms / 1000.0)))   // step は null = 成功。速度はログにだけ出す
-            null
-        }
-        step("速度計測: ${mbs} MiB を読み戻して照合") {
-            val (ok, ms) = readBigCheck(v, path, bytes, 11)
-            if (!ok) "mismatch" else null.also { RealUsb.log("read-back %.1f MB/s".format(bytes / 1e6 / (ms / 1000.0))) }
+        val repeat = (args.str("speedRepeat", "1").toIntOrNull() ?: 1).coerceIn(1, 8)
+        for (k in 1..repeat) {
+            val file = if (k == 1) "speed.bin" else "speed$k.bin"
+            val path = "/$folder/$file"
+            val label = if (repeat > 1) " (#$k)" else ""
+            step("速度計測: ${mbs} MiB を書く$label") {
+                val c0 = System.nanoTime()
+                v.create("/$folder", file, false)
+                val createMs = (System.nanoTime() - c0) / 1_000_000
+                val r = writeBig(v, path, bytes, 11)
+                // step は null = 成功。速度と内訳はログにだけ出す (create は sync を含む。MB/s は write + sync だけの値)
+                RealUsb.log("write%s %.1f MB/s: create+sync=%d ms, %s".format(label, bytes / 1e6 / (r.totalMs / 1000.0), createMs, r.summary()))
+                null
+            }
+            step("速度計測: ${mbs} MiB を読み戻して照合$label") {
+                val (ok, ms) = readBigCheck(v, path, bytes, 11)
+                if (!ok) "mismatch" else null.also { RealUsb.log("read-back%s %.1f MB/s".format(label, bytes / 1e6 / (ms / 1000.0))) }
+            }
         }
     }
 

@@ -438,7 +438,28 @@ C を PC (`ssh home-notepc`) に戻して、独立に検証した (どちらも�
 
 PC (`ssh home-notepc`) での独立検証 (読み取り専用): p2 は `btrfs check --readonly` が "no error found"、ro マウントしてマニフェスト全件一致 (ファイル 3029・4.57 GiB)。p3 は `fsck.f2fs --dry-run` が rc=0 (全項目 Ok)、ro マウントしてマニフェスト全件一致 (1.07 GiB)。`usbmem_*` の残りフォルダは無し。
 
-注意: CreateOnly の 32 MiB 書き込みが約 40 秒 (約 0.8 MB/s) で、Full の約 7 秒より遅い (Btrfs / F2FS とも)。-O0 が原因だった以前の遅さ (読み取り、docs/crypto-volumes.md 6.4) は -O2 で解消済みで、この APK は -O2。CreateOnly の書き込み経路 (新規ファイルの確保・同期の頻度) に別の原因があると見ている。TODO に調査項目を立てた。
+注意: CreateOnly の 32 MiB 書き込みが約 40 秒 (約 0.8 MB/s) で、Full の約 7 秒より遅い (Btrfs / F2FS とも)。-O0 が原因だった以前の遅さ (読み取り、docs/crypto-volumes.md 6.4) は -O2 で解消済みで、この APK は -O2。
+
+#### 10.4.1 CreateOnly の書き込みが遅い件の調査 (2026-11-16)
+
+**結論 (確定): FS の実装は原因ではない。** **結論 (仮説): USB メモリ側の状態。** 根拠と、確定のための次の実機試験を分けて書く。
+
+確定していること:
+- アプリ層・ネイティブ層は CreateOnly と Full を区別しない (`NtfsVolume.createOnly` は Kotlin のパス判定だけ。`MscDevice` への書き込みも同じ 64 KiB の WRITE(10) 連続)。
+- **ホストで I/O の形を数えた** (`core/compat/tests/bench_write_io.cpp` = `usbmem_bench_write_io <f2fs|btrfs> <img> co full`。実機の RealUsbWriteTest と同じ操作列 (フォルダ → 300 KB → 小ファイル 10 個 → create + 1 MiB × 32 の write + sync) を、ステージごとに再マウントして実行し、ブロックデバイス層で回数・大きさ・非連続・flush を数える)。512 MiB の空の FS で、**CreateOnly 相当と Full 相当は同じ**: Btrfs は 1 MiB × 32 の書き込み + sync で 20〜24 回の小さい書き込みと flush 2 回、F2FS は 1 MiB 単位の書き込み 35 回 + sync で 38 回と flush 2 回。どちらも CPU 時間は 32 MiB で 20〜30 ms (ビルドは -O2)。空き領域の走査や、初回だけ小さい I/O が増える、といったことは無い。
+- Btrfs は、Full 相当のステージが **CreateOnly 相当と同じ物理位置**へ書く (前のステージのフォルダを消して commit した後の領域を再利用する)。F2FS は約 0.3 MiB ずれた、ほぼ同じ範囲。
+- 実機のログの比較 (J9260、C の USB メモリ、32 MiB 書き込みのステップ全体の時間): XFS CreateOnly 5.0 秒、LUKS2 (ext4) CreateOnly 5.4 秒 / Full 7.9 秒、BitLocker (NTFS) CreateOnly 4.8 秒 / Full 4.7 秒、**Btrfs CreateOnly 39.7 秒 / Full 7.4 秒、F2FS CreateOnly 41.1 秒 / Full 7.3 秒**。同じ APK・同じ USB メモリで、外れているのは p2 / p3 の CreateOnly だけ。
+- ログの読み方の注意: `write N MB/s` の行は create (sync 込み) を含まない。Btrfs の Full は書き込みが 38.3 MB/s (0.87 秒) で、ステップの残り約 6.5 秒は `create` + sync の中だった (F2FS / LUKS2 の Full は書き込み自体が 4.3〜4.6 MB/s)。つまり「約 7 秒」は書き込みの速度ではなく、このデバイスが 1 回の試験の中で止まる時間のようなもので、どの手順に現れるかが FS やステージで動く。
+- 以前の実機レポートの `opStats` が空だったのは、`mgr.close` の**後**に取っていたため (ハンドルが無効で空文字)。直した。
+
+仮説 (未確定): USB フラッシュは、(a) 書いた領域の履歴 (初めて上書きする領域が遅い / 2 回目は速い) や、(b) 内部のガベージコレクション・書き込みキャッシュの吐き出しで、数秒〜数十秒止まることがある。p2 / p3 の CreateOnly はたまたまそれに当たった。Btrfs で 2 回目 (Full) が同じ位置への書き込みで速かったことは (a) と矛盾しないが、F2FS の Full (ほぼ同じ範囲) は速くなかったので (a) だけでは足りない。
+
+次の実機試験 (切り分け用。計測を足した APK を CI の `usbmem-ci-apk*` で作る):
+1. 同じ p2 (または p3) の CreateOnly を **`--extra usbmem.speedRepeat 3`** で実行する。ログの `write (#k) ...: create+sync=… write/MiB ms min/p50/p95/max sync=…` で、(1) 1 回目だけ遅く 2・3 回目は速い → 領域またはデバイスの初回の状態、(2) 3 回とも遅い → 位置 (パーティションの物理位置) か FS の書き方、(3) 遅さが 1 MiB ごとに一様 (p50 が大きい) か、数回だけ飛び抜けて遅い (max が大きく p50 は小さい) かが分かる。
+2. `--stage full` を**最初に**実行して (CreateOnly の前に) 遅いか見る。Full を先に実行して遅ければモードではなく「パーティションの最初の大きな書き込み」の問題。
+3. レポートの `opStats` (と logcat の `opStats:`) の `| 2a:合計ms/最大ms/500ms以上の件数 35:… 28:…` で、時間が WRITE (2a) と SYNCHRONIZE CACHE (35) のどちらに偏っているか、遅いコマンドが何個あるかを見る。WRITE の最大が 10 秒近い (io_timeout の 10 秒) なら、デバイスの停止 (再試行・リセット) の可能性も確認する。
+4. p1 の XFS を同じ日に同じ手順 (`speedRepeat 3`) で測り、その日のこの USB メモリの基準を取る (熱や空き状況で日によって違う可能性)。
+
 
 ## 11. PC に戻した後 (fsck とマニフェスト照合)
 

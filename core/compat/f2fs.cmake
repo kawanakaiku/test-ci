@@ -34,6 +34,9 @@ if(USBMEM_BUILD_TESTS)
     # F2FS 書き込み (チェックポイント)。USBMEM_NTFS_WRITE=ON のビルドだけ (docs/f2fs-write.md)。fsck.f2fs が無ければ SKIP (終了コード 77)
     if(USBMEM_NTFS_WRITE)
       add_executable(usbmem_f2fs_write_tests tests/test_f2fs_write.cpp)
+      # 書き込みの I/O 形 (回数・大きさ・flush) を段階ごとに数えるベンチ (docs/real-usb-testset.md 10.4)。F2FS / Btrfs 両対応
+      add_executable(usbmem_bench_write_io tests/bench_write_io.cpp)
+      target_link_libraries(usbmem_bench_write_io PRIVATE usbmem_f2fs usbmem_btrfs usbmem_core)
       target_link_libraries(usbmem_f2fs_write_tests PRIVATE usbmem_f2fs usbmem_core)
       add_test(NAME f2fs_write COMMAND sh ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_f2fs_write_tests.sh $<TARGET_FILE:usbmem_f2fs_write_tests> ${F2FS_FIX_DIR} 1)
       add_test(NAME f2fs_crash COMMAND sh ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_f2fs_crash_tests.sh $<TARGET_FILE:usbmem_f2fs_write_tests> 8)   # 軽量版。フル版は docs/f2fs-write.md

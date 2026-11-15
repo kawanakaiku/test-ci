@@ -141,6 +141,16 @@ Status MscDevice::exec_impl(const uint8_t* cdb, uint8_t cdb_len, UsbDir dir, voi
   // ATA PASS-THROUGH の IDENTIFY DEVICE (probe_media() の中だけ)。詳細は scsi_cdb_allowed_read_only。
   if (read_only_ && !scsi_cdb_allowed_read_only(cdb, cdb_len, allow_start_stop_, allow_ata_identify_)) return Status::Make(Errc::ReadOnly);
   op_counts_[cdb[0]]++;
+  // コマンドごとの所要時間 (CBW 送信 → CSW 受信。バスのロック待ちは含まない)。op_stats() が書き込み系・SYNCHRONIZE CACHE の合計 / 最大 / 遅い件数を出す
+  struct Timer {
+    MscDevice* d; uint8_t op; std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+    ~Timer() {
+      uint64_t us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count());
+      d->op_us_[op] += us;
+      if (us > d->op_max_us_[op]) d->op_max_us_[op] = us;
+      if (us >= 500000) d->op_slow_[op]++;
+    }
+  } op_timer{this, cdb[0]};
   uint8_t cbw[kCbwLen] = {0};
   uint32_t tag = bus_->tag_++;
   put32le(cbw, kCbwSig); put32le(cbw + 4, tag); put32le(cbw + 8, static_cast<uint32_t>(len));
@@ -216,6 +226,19 @@ void MscDevice::tune(size_t read_chunk, uint32_t read_max_transfer) {
 std::string MscDevice::op_stats() const {
   std::string o;
   for (int i = 0; i < 256; i++) if (op_counts_[i]) { char b[24]; snprintf(b, sizeof b, "%s%02xx%u", o.empty() ? "" : " ", i, op_counts_[i]); o += b; }
+  // 書き込み (2A / 8A) か SYNCHRONIZE CACHE (35) を送ったセッションだけ、所要時間も付ける (読み取り専用の出力は変えない)。
+  // 書式: " | 2a:合計ms/最大ms/500ms以上の件数 ..."。書き込みの遅さが「コマンド 1 つ 1 つが遅い」のか「flush で待たされる」のか、特定のコマンドだけ飛び抜けて遅いのかを切り分ける (docs/real-usb-testset.md 10.4)
+  if (op_counts_[0x2A] || op_counts_[0x8A] || op_counts_[0x35]) {
+    static const uint8_t kOps[] = {0x28, 0x88, 0x2A, 0x8A, 0x35};
+    std::string t;
+    for (uint8_t op : kOps) if (op_counts_[op]) {
+      char b[64];
+      snprintf(b, sizeof b, "%s%02x:%llu/%llu/%u", t.empty() ? "" : " ", op, static_cast<unsigned long long>(op_us_[op] / 1000),
+               static_cast<unsigned long long>(op_max_us_[op] / 1000), op_slow_[op]);
+      t += b;
+    }
+    o += " | " + t;
+  }
   return o;
 }
 

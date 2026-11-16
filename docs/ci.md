@@ -24,7 +24,7 @@
 | `btrfs-xfs` | `btrfs` (16 イメージ)、`btrfs_write` (書き込み: `run_android_btrfs_write_test.sh`)、`xfs`、`xfs_write` (書き込み: `run_android_xfs_write_test.sh`。CreateOnly の範囲 + Full の操作) | 約 8 分 (btrfs が約 80-100 秒) |
 | `squash-erofs` | `squashfs`、`erofs`、`f2fs` (`ext` イメージのみ) | 約 6 分 |
 | `nested-ntfs` | `nested`、`write` (NTFS 書き込み + SAF) | 約 5 分 |
-| `crypt-ui` | `crypt_ui` (`CryptoUiTest`: 暗号ボリュームの UI。実画面を操作して LUKS2 / BitLocker を解錠・書き込み・ロック、中の ext4 のジャーナル未再生の「読み取り専用で開く」確認、パスワードの記憶 (`vault_*` 4 件。本物の AndroidKeyStore の鍵 + 偽の認証)。このグループのジョブは `VaultTest` (JVM 単体試験) も Gradle で実行する。フィクスチャは `tools/gen_crypt_ui_fixture.py`。docs/crypto-volumes.md 10 章) | 6 件成功 (run 43917601086。単独実行 15 分。3 件は ジャーナル未再生の確認フロー)。以前: 3 件 (run 43660009210。全 6 グループ成功、18 分) |
+| `crypt-ui` | `crypt_ui` (`CryptoUiTest`: 暗号ボリュームの UI。実画面を操作して LUKS2 / BitLocker を解錠・書き込み・ロック、中の ext4 のジャーナル未再生の「読み取り専用で開く」確認、パスワードの記憶 (`vault_*` 4 件。本物の AndroidKeyStore の鍵 + 偽の認証)。このグループのジョブは `VaultTest` (JVM 単体試験) も Gradle で実行する。フィクスチャは `tools/gen_crypt_ui_fixture.py`。docs/crypto-volumes.md 10 章) | 10 件成功 (run 43935001413、コミット 5204d16、約 9 分。パスワードの記憶 `vault_*` 4 件 + `VaultTest` の JVM 単体試験も成功)。以前: 6 件 (run 43917601086。単独実行 15 分。3 件は ジャーナル未再生の確認フロー)。以前: 3 件 (run 43660009210。全 6 グループ成功、18 分) |
 | `ro-misc` | `ext2_read`、`ext4_read`、`exfat_read`、`iso_read`、`ntfs_read`、`app_misc` | 約 6 分 |
 
 `ro-misc` は専用の `run_android_*_test.sh` が無いクラスを `ci_android_tests.sh` が直接 push して実行する (`am instrument -r` の結果を数え、失敗・スキップ (assumption 失敗 = フィクスチャ未送信) が 1 つでもあれば失敗にする)。

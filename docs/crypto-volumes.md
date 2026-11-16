@@ -409,6 +409,7 @@ GitHub Actions `crypt-write.yml` (usbmem-crypt-write、ubuntu-latest) run **4359
   - `vault_cancelFallsBackToPassword`: 保存の認証の取り消しでは解錠は成功して何も保存されない / 取り出しの認証の取り消し・失敗では、ダイアログが開いたまま記憶は残り、パスワードで解錠できる。
   - `vault_invalidatedKeyDiscardsMemoryAndFallsBack`: (4) 鍵の無効化 (復号用 Cipher の例外) と、Keystore の鍵そのものの消失の両方で、暗号文と鍵を破棄して通常入力にフォールバックし、パスワードで解錠できる。
   - `vault_perVolumeLuksAndBitlocker`: 同じイメージの LUKS2 (UUID) と BitLocker (ボリューム GUID) の記憶は別々 (LUKS2 を記憶しても BitLocker には出ない)。どちらも記憶経由で解錠できる。
+- 結果 (2026-11-17、パスワードの記憶): `crypt-ui` グループ 10 件 (`OK (10 tests)`: 既存 6 件 + `vault_*` 4 件) 成功、同じジョブの JVM 単体試験 `VaultTest` も成功 — Android emulator tests run 43935001413 (コミット 5204d16、約 9 分、1 回目で成功)。同じ push の Host tests は plan ジョブがブランチ名 (`usbmem-ci-only-crypt-ui`) で落ちる既知の挙動で、ホスト側の ctest は走っていない (core の変更は `volume_id` の追加だけで、Android のビルドでコンパイルされ、試験で LUKS UUID / BitLocker GUID が取れていることを確認した)。
 - 書き込みのエミュレータ試験は LUKS2 → ext4 だけ。BitLocker (合成) → NTFS の書き込みは、core の試験 (host) と実機の試験補助で確かめる。
 
 ### 10.5 制限・未了

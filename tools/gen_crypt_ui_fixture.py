@@ -6,7 +6,9 @@
   whole.img  ディスク全体が LUKS2 (pbkdf2) で、その中に GPT (ext4 seed 5011 / NTFS seed 5012)。表の無い暗号ボリューム + 中の表の試験
   bl.img     ディスク全体が BitLocker (合成)。保護はパスワード + 回復キー + BEK ファイル。中は NTFS (seed 5021)
   bl.ref_recovery  回復キー (48 桁をハイフン区切りにしたもの)。bl.ref_bek  BEK ファイル
-  pw.ref_creds     パスワード (KEY=VALUE。cui_gpt_luks / cui_gpt_bl / cui_whole / cui_bl)。試験が読む
+  nl.img     ディスク全体が LUKS2 (pbkdf2) で、中の ext4 (seed 5031) に `needs_recovery` が立っている (ジャーナル未再生 = EUCLEAN。「読み取り専用で開く」確認フローの試験)
+  nlmix.img  ディスク全体が LUKS2 (pbkdf2) で、中に GPT: #1 = ext4 (seed 5041, needs_recovery) / #2 = NTFS (seed 5042)。一部だけ保留になる構成
+  pw.ref_creds     パスワード (KEY=VALUE。cui_gpt_luks / cui_gpt_bl / cui_whole / cui_bl / cui_nl / cui_nlmix)。試験が読む
 中身のファイルツリーは gen_cryptodisk_fixtures.make_tree と同じ (seed.txt = "volume seed <seed>\\n" など)。
 """
 import importlib.util
@@ -25,6 +27,8 @@ PW = {
     "cui_gpt_bl": "cui-bl-Pass1",
     "cui_whole": "cui-whole-Pass1",
     "cui_bl": "cui-bl2-Pass1",
+    "cui_nl": "cui-nl-Pass1",
+    "cui_nlmix": "cui-nlmix-Pass1",
 }
 SMALL = 6  # 中の NTFS (MiB)
 EXT4_MIB = 24  # 中の ext4 (MiB)。書き込み可で開けるよう、書き込みの試験 (gen_ext4_fixture.py の e4_def4k) と同じ機能で作る (内部ジャーナル・4K ブロック)
@@ -38,6 +42,18 @@ def make_ext4_writable(path, size, tree, label):
 
 
 gcf.make_ext4 = make_ext4_writable
+
+
+def set_needs_recovery(node):
+    """中の ext4 に needs_recovery (incompat の recover) を立てる = ジャーナル未再生に見せる (中身はクリーンなので noload でも読める)。"""
+    exe = shutil.which("debugfs") or next((c for c in ("/sbin/debugfs", "/usr/sbin/debugfs") if os.path.exists(c)), None)
+    if not exe:
+        raise SystemExit("debugfs not found")
+    gcf.run([exe, "-w", "-R", "feature needs_recovery", node.path])
+    out = gcf.run(["dumpe2fs", "-h", node.path]) if shutil.which("dumpe2fs") else "needs_recovery"
+    if "needs_recovery" not in out:
+        raise SystemExit("needs_recovery not set")
+    return node
 
 
 def main():
@@ -64,6 +80,12 @@ def main():
     rec = [l.split("=", 1)[1] for l in open(meta).read().splitlines() if l.startswith("recovery=")][0]
     open(os.path.join(out, "bl.ref_recovery"), "w").write(rec + "\n")
     os.replace(img + ".bek", os.path.join(out, "bl.ref_bek"))
+    # 4. ジャーナル未再生 (needs_recovery) の ext4 を中に持つ LUKS2: 全体が 1 つの FS / 中に GPT (ext4 未再生 + NTFS)
+    nl = b.enc(set_needs_recovery(b.fs("ext4", 5031, "CUI_NL", EXT4_MIB)), "luks2-pbkdf2", PW["cui_nl"], 5030)
+    os.replace(nl.path, os.path.join(out, "nl.img"))
+    inner = b.disk("gpt", [set_needs_recovery(b.fs("ext4", 5041, "CUI_NM1", EXT4_MIB)), b.fs("ntfs", 5042, "CUI_NM2", SMALL)])
+    nlmix = b.enc(inner, "luks2-pbkdf2", PW["cui_nlmix"], 5040)
+    os.replace(nlmix.path, os.path.join(out, "nlmix.img"))
     with open(os.path.join(out, "pw.ref_creds"), "w") as f:
         for k, v in PW.items():
             f.write("%s=%s\n" % (k, v))

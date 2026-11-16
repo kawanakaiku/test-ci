@@ -54,6 +54,10 @@ interface UsbActions : LinkActions {
     /** 解錠ダイアログの入力で解錠して、中のファイルシステムをマウント・公開する。 */
     fun unlockPartition(key: String, input: UnlockInput)
     fun cancelUnlock(key: String)
+    /** 解錠した中のジャーナル未再生の FS を、確認のうえ読み取り専用 (noload) で開く。 */
+    fun confirmCryptoNoload(key: String, id: String)
+    /** キャンセル: 保留していた復号済みデバイスを閉じる (= ロック。鍵を消す)。 */
+    fun cancelCryptoNoload(key: String, id: String)
     /** 公開中のボリューム 1 つだけをアンマウントする (USB は開いたまま)。 */
     fun unpublish(key: String, volumeKey: String)
     fun closeUsb(key: String)
@@ -197,6 +201,16 @@ private fun DeviceCard(d: UsbDeviceState, a: UsbActions, canRelease: Boolean = f
             confirmLabel = stringResource(R.string.noload_dialog_confirm),
             onConfirm = { a.publishPartitionNoload(d.key, p.startBytes, p.sizeBytes, p.label) },
             onDismiss = { a.cancelNoload(d.key) },
+        )
+    }
+    d.cryptoNoload?.let { p ->
+        ConfirmDialog(
+            title = stringResource(R.string.noload_dialog_title),
+            text = stringResource(R.string.noload_dialog_text) + "\n\n" + stringResource(R.string.crypto_noload_dialog_extra, p.label) +
+                (if (p.writeRequested) "\n\n" + stringResource(R.string.crypto_noload_dialog_write_note) else ""),
+            confirmLabel = stringResource(R.string.noload_dialog_confirm),
+            onConfirm = { a.confirmCryptoNoload(d.key, p.id) },
+            onDismiss = { a.cancelCryptoNoload(d.key, p.id) },
         )
     }
     d.unlockTarget?.let { t ->

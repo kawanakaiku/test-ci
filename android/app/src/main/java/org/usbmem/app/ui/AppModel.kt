@@ -57,6 +57,7 @@ class UsbDeviceState(val key: String) {
     var busy by mutableStateOf<String?>(null)                // このデバイスの処理中の説明 (null = なし)
     var notice by mutableStateOf<Notice?>(null)
     var noloadPrompt by mutableStateOf<NoloadPrompt?>(null)   // 非 null のとき、確認ダイアログを出す
+    var cryptoNoload by mutableStateOf<CryptoNoloadPrompt?>(null)   // 非 null のとき、暗号ボリュームの「読み取り専用で開く」確認ダイアログを出す (保留は VolumeRegistry が持つ)
     var unlockTarget by mutableStateOf<UnlockTarget?>(null)   // 非 null のとき、暗号ボリュームの解錠ダイアログを出す (資格情報は含まない)
     var unlocking by mutableStateOf(false)                    // 解錠中 (ダイアログの入力を無効にする)
 
@@ -71,7 +72,7 @@ class UsbDeviceState(val key: String) {
     fun resetAfterClose() {
         open = false; writable = false; table = null; published = emptyList(); diskStopped = false; diskIdleStopped = false
         mediaKind = MediaKindInfo.UNKNOWN; spinDownUnlocked = false
-        busy = null; noloadPrompt = null; unlockTarget = null; unlocking = false; ops = ""; tuneLog = ""; tuningSaved = null; selfTestLog = ""; selfTestPassed = null
+        busy = null; noloadPrompt = null; cryptoNoload = null; unlockTarget = null; unlocking = false; ops = ""; tuneLog = ""; tuningSaved = null; selfTestLog = ""; selfTestPassed = null
     }
 }
 

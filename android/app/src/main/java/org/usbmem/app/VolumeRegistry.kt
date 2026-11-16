@@ -23,7 +23,19 @@ object VolumeRegistry {
                 /** 暗号ボリュームを解錠した中の FS のとき、その情報 (非 null なら、閉じる = ロック。同じ解錠から出た兄弟も一緒に閉じる) */
                 val crypto: CryptoMeta? = null)
 
+    /**
+     * 解錠は成功したが、中の FS のジャーナルが未再生 (EUCLEAN) で、ユーザーの「読み取り専用で開く」確認を待っているもの (暗号ボリューム)。
+     * 持つのは復号済みデバイスのハンドル ([recovery]) だけ。資格情報は解錠の直後に消してある。画面が作り直されても (回転) 登録簿に残り、
+     * 確認 ([takePendingCrypto] → マウント)・キャンセル ([discardPendingCrypto])・USB を閉じる ([removeByDevice])・アプリの終了 ([discardAllPendingCrypto]) のどれかで必ず手放す。
+     * [id] = [CryptoMeta.groupId]。
+     */
+    class PendingCrypto(
+        val id: String, val label: String, val keyBase: String, val startBytes: Long, val deviceName: String?, val createOnly: Boolean,
+        val format: String, val cipher: String, val writeRequested: Boolean, val recovery: PendingRecovery,
+    )
+
     private val volumes = LinkedHashMap<String, Entry>()
+    private val pendingCrypto = LinkedHashMap<String, PendingCrypto>()
     private var restored = false
     private const val PREFS = "volumes"
     /** このアプリ自身の DocumentsProvider の authority (NtfsDocumentsProvider と同じ) */
@@ -113,6 +125,37 @@ object VolumeRegistry {
         return Entry(id, label, volume, deviceName = deviceName, closer = group::release, crypto = meta).also { volumes[id] = it }
     }
 
+    /** 確認待ちの暗号ボリュームを登録する。同じ [PendingCrypto.id] が既にあれば、そちらは手放す (解錠のやり直し)。 */
+    fun addPendingCrypto(p: PendingCrypto) {
+        val old = synchronized(this) { pendingCrypto.put(p.id, p) }
+        old?.recovery?.release()
+    }
+
+    @Synchronized
+    fun pendingCryptoList(): List<PendingCrypto> = pendingCrypto.values.toList()
+
+    /** 確認が取れたので、保留を登録簿から取り出す (以後の手放しは呼び出し側の責任)。無ければ null (USB が閉じられた等)。 */
+    @Synchronized
+    fun takePendingCrypto(id: String): PendingCrypto? = pendingCrypto.remove(id)
+
+    /** キャンセル: 保留を捨てる = 復号済みデバイスを閉じて鍵をゼロ化する (= ロック)。 */
+    fun discardPendingCrypto(id: String) {
+        val p = synchronized(this) { pendingCrypto.remove(id) }
+        p?.recovery?.release()
+    }
+
+    /** そのデバイスの保留を全部捨てる (USB を閉じる・抜かれたとき)。 */
+    fun discardPendingByDevice(deviceName: String) {
+        val ps = synchronized(this) { pendingCrypto.values.filter { it.deviceName == deviceName }.also { l -> l.forEach { pendingCrypto.remove(it.id) } } }
+        ps.forEach { it.recovery.release() }
+    }
+
+    /** 保留を全部捨てる (アプリの終了)。 */
+    fun discardAllPendingCrypto() {
+        val ps = synchronized(this) { pendingCrypto.values.toList().also { pendingCrypto.clear() } }
+        ps.forEach { it.recovery.release() }
+    }
+
     /** 解錠した暗号ボリューム (中の FS) の一覧。同じ解錠 ([CryptoMeta.groupId]) の兄弟は 1 つにまとめず、全部返す。 */
     @Synchronized
     fun cryptoEntries(): List<Entry> = volumes.values.filter { it.crypto != null }
@@ -162,6 +205,7 @@ object VolumeRegistry {
      * USB を抜いた/閉じたときの後始末。閉じる処理 (書き込みの確定) はロックの外なので、他のデバイスの SAF アクセスを止めない。
      */
     fun removeByDevice(deviceName: String): Int {
+        discardPendingByDevice(deviceName)   // 確認待ちの暗号ボリュームも (鍵を残さない)
         val victims = synchronized(this) {
             volumes.values.filter { it.deviceName == deviceName }.toList().flatMap { e -> if (volumes.remove(e.id) != null) takeOut(e) else emptyList() }
         }

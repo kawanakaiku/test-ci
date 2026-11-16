@@ -10,6 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import org.usbmem.app.ui.AppModel
 import org.usbmem.app.ui.AppScaffold
 import org.usbmem.app.ui.AppTheme
+import org.usbmem.app.ui.CryptoNoloadPrompt
 import org.usbmem.app.ui.CryptoProbeResult
 import org.usbmem.app.ui.CryptoUnlockResult
 import org.usbmem.app.ui.CryptoVolumeRow
@@ -652,7 +653,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     // ---- 暗号ボリューム (LUKS1/2・BitLocker): 解錠して、中のファイルシステムを通常のボリュームと同じ流れで公開する。docs/crypto-volumes.md 10 章
     // 資格情報はダイアログから ByteArray で届き、CryptoMount.unlock が使い終えるとゼロ埋めする。ログ・SharedPreferences・登録簿には何も残さない (登録簿は再起動で消え、解錠し直す)。
 
-    private class CryptoOutcome(val notice: Notice?, val retryError: String?, val pubs: List<PublishedVolume> = emptyList())
+    private class CryptoOutcome(val notice: Notice?, val retryError: String?, val pubs: List<PublishedVolume> = emptyList(), val noload: CryptoNoloadPrompt? = null)
 
     /** BEK ファイル (数十バイト) を読む。失敗は null。中身は呼び出し側が解錠後に消す。 */
     private fun readKeyFile(u: Uri?): ByteArray? = try {
@@ -665,7 +666,8 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     } catch (_: Exception) { null }
 
     private fun cryptoModeText(v: NtfsVolume, createOnly: Boolean): String =
-        if (!v.writable) getString(R.string.mode_read_only) else getString(if (createOnly) R.string.mode_create_only else R.string.mode_full)
+        if (v.journalIgnored) getString(R.string.mode_read_only_journal_ignored)
+        else if (!v.writable) getString(R.string.mode_read_only) else getString(if (createOnly) R.string.mode_create_only else R.string.mode_full)
 
     private fun cryptoSuccessNotice(r: UnlockedCrypto, label: String): Notice {
         android.util.Log.i("usbmem", "crypto unlocked: writeRequested=${r.writeRequested} writable=${r.writable} note=${r.writeNote} fs=${r.volumes.map { it.volume.fsName }}")   // 資格情報は含まない
@@ -689,6 +691,27 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         return CryptoOutcome(Notice(Severity.Error, getString(R.string.crypto_notice_failed), e.javaClass.simpleName), null)
     }
 
+    /** マウント済みの中の FS を登録簿へ登録して、画面用の公開情報にする。登録できたキーは [keys] に足す (途中で例外なら、呼び出し側が取り消す)。 */
+    private fun registerCryptoInner(
+        inners: List<UnlockedCrypto.Inner>, group: CryptoGroup, meta: CryptoMeta, label: String, keyBase: String, deviceName: String?, createOnly: Boolean, start: Long,
+        keys: MutableList<String>,
+    ): List<PublishedVolume> {
+        val pubs = ArrayList<PublishedVolume>()
+        for (inner in inners) {
+            val vk = "$keyBase#${inner.startBytes}"
+            val lbl = label + inner.suffix
+            VolumeRegistry.addCryptoVolume(lbl, vk, inner.volume, group, meta, deviceName)
+            keys += vk
+            val v = inner.volume
+            pubs += PublishedVolume(
+                lbl, cryptoModeText(v, createOnly), v.writable, fullWrite = v.writable && !createOnly,
+                canLink = v.writable && (v.fsName == "ext2" || v.fsName == "ext4" || v.fsName == "btrfs" || v.fsName == "f2fs" || v.fsName == "xfs"),
+                volumeKey = vk, startBytes = start, crypto = true,
+            )
+        }
+        return pubs
+    }
+
     /**
      * 解錠 → 登録 (SAF に公開) の共通部分。[open] が [CryptoMount.unlock] を呼ぶ (失敗したとき下位のハンドルは unlock が閉じる)。
      * [stillValid] が false に変わっていたら (解錠中に USB が抜かれた等)、登録を取り消す。
@@ -704,33 +727,33 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 cred.keyFile = readKeyFile(input.keyFileUri)
                 if (cred.keyFile == null) return CryptoOutcome(null, getString(R.string.unlock_err_keyfile_read))
             }
+            VolumeRegistry.discardPendingCrypto(gid)   // 同じボリュームの確認待ちが残っていれば、解錠のやり直しなので手放す
             val r = try { open(cred) } catch (e: Exception) { return cryptoFailure(e, input.method) }
             val info = r.info
-            val meta = CryptoMeta(info?.let { CryptoMount.displayFormat(it) } ?: "", info?.cipher ?: "", r.writable, gid)
-            val pubs = ArrayList<PublishedVolume>()
+            val format = info?.let { CryptoMount.displayFormat(it) } ?: ""
+            val cipher = info?.cipher ?: ""
+            val meta = CryptoMeta(format, cipher, r.writable, gid)
+            // 中の FS がジャーナル未再生 (EUCLEAN) なら、復号済みデバイスだけ保留して確認を待つ (資格情報はもう消えている)。docs/crypto-volumes.md 10 章
+            val rec = r.recovery
+            if (rec != null) VolumeRegistry.addPendingCrypto(VolumeRegistry.PendingCrypto(gid, label, keyBase, start, deviceName, createOnly, format, cipher, r.writeRequested, rec))
             val keys = ArrayList<String>()
-            try {
-                for (inner in r.volumes) {
-                    val vk = "$keyBase#${inner.startBytes}"
-                    val lbl = label + inner.suffix
-                    VolumeRegistry.addCryptoVolume(lbl, vk, inner.volume, r.group, meta, deviceName)
-                    keys += vk
-                    val v = inner.volume
-                    pubs += PublishedVolume(
-                        lbl, cryptoModeText(v, createOnly), v.writable, fullWrite = v.writable && !createOnly,
-                        canLink = v.writable && (v.fsName == "ext2" || v.fsName == "ext4" || v.fsName == "btrfs" || v.fsName == "f2fs" || v.fsName == "xfs"),
-                        volumeKey = vk, startBytes = start, crypto = true,
-                    )
-                }
+            val pubs = try {
+                registerCryptoInner(r.volumes, r.group, meta, label, keyBase, deviceName, createOnly, start, keys)
             } catch (t: Throwable) {
                 keys.forEach { runCatching { VolumeRegistry.removeByKey(it) } }
                 r.volumes.drop(keys.size).forEach { runCatching { it.volume.close() } }
+                VolumeRegistry.discardPendingCrypto(gid)
                 r.group.closeNow()
                 return cryptoFailure(t, input.method)
             }
-            if (!stillValid()) { keys.forEach { runCatching { VolumeRegistry.removeByKey(it) } }; return CryptoOutcome(Notice(Severity.Warning, getString(R.string.notice_usb_closed_while_opening)), null) }
+            if (!stillValid()) {
+                keys.forEach { runCatching { VolumeRegistry.removeByKey(it) } }
+                VolumeRegistry.discardPendingCrypto(gid)
+                return CryptoOutcome(Notice(Severity.Warning, getString(R.string.notice_usb_closed_while_opening)), null)
+            }
             notifyRoots()
-            return CryptoOutcome(cryptoSuccessNotice(r, label), null, pubs)
+            val prompt = if (rec != null) CryptoNoloadPrompt(gid, label, r.writeRequested) else null
+            return CryptoOutcome(if (r.volumes.isEmpty()) null else cryptoSuccessNotice(r, label), null, pubs, prompt)
         } finally {
             cred.wipe()
         }
@@ -780,6 +803,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                     else {
                         st.unlockTarget = null
                         st.notice = out.notice
+                        st.cryptoNoload = out.noload
                         if (out.pubs.isNotEmpty() && st.open) st.published = st.published.filter { p -> out.pubs.none { it.volumeKey == p.volumeKey } } + out.pubs
                     }
                 }
@@ -788,6 +812,68 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     }
 
     override fun cancelUnlock(key: String) { state(key)?.let { if (!it.unlocking) it.unlockTarget = null } }
+
+    /**
+     * 確認 (「読み取り専用で開く」) を受けて、保留していた中の FS を noload で (読み取り専用に) マウントして公開する。保留が無ければ (USB が閉じられた等) 通知だけ。
+     * どの結果でも保留は手放す (成功時は、登録した FS が復号済みデバイスの持ち主を引き継ぐ)。USB (UI) とイメージ (IO スレッド) の共通部分。
+     */
+    private fun runCryptoNoload(id: String, stillValid: () -> Boolean): CryptoOutcome {
+        val p = VolumeRegistry.takePendingCrypto(id) ?: return CryptoOutcome(Notice(Severity.Warning, getString(R.string.crypto_noload_gone)), null)
+        val rec = p.recovery
+        val keys = ArrayList<String>()
+        try {
+            val m = try { rec.mountNoload() } catch (e: NativeException) {
+                android.util.Log.w("usbmem", "crypto noload mount failed: code=${e.code}")
+                return CryptoOutcome(fsRefusalNotice(e) ?: Notice(Severity.Error, getString(R.string.crypto_notice_inner_failed), e.message), null)
+            } catch (e: Exception) {
+                return CryptoOutcome(Notice(Severity.Error, getString(R.string.crypto_notice_inner_failed), e.javaClass.simpleName), null)
+            }
+            val meta = CryptoMeta(p.format, p.cipher, false, p.id)   // noload は常に読み取り専用
+            val pubs = try {
+                registerCryptoInner(m.volumes, rec.group, meta, p.label, p.keyBase, p.deviceName, p.createOnly, p.startBytes, keys)
+            } catch (t: Throwable) {
+                keys.forEach { runCatching { VolumeRegistry.removeByKey(it) } }
+                m.volumes.drop(keys.size).forEach { runCatching { it.volume.close() } }
+                return CryptoOutcome(Notice(Severity.Error, getString(R.string.crypto_notice_inner_failed), t.javaClass.simpleName), null)
+            }
+            if (!stillValid()) { keys.forEach { runCatching { VolumeRegistry.removeByKey(it) } }; return CryptoOutcome(Notice(Severity.Warning, getString(R.string.notice_usb_closed_while_opening)), null) }
+            notifyRoots()
+            android.util.Log.i("usbmem", "crypto noload mounted: fs=${m.volumes.map { it.volume.fsName }} skipped=${m.skipped}")
+            val skipped = if (m.skipped.isEmpty()) "" else "\n" + getString(R.string.crypto_notice_skipped, m.skipped.joinToString(", "))
+            return CryptoOutcome(Notice(Severity.Warning, getString(R.string.notice_journal_ignored), getString(R.string.notice_journal_ignored_detail) + skipped), null, pubs)
+        } finally {
+            rec.release()   // 登録できていれば、登録した FS が group を保持している。できなかったときはここで鍵ごと閉じる
+        }
+    }
+
+    override fun confirmCryptoNoload(key: String, id: String) {
+        val d = state(key) ?: return
+        val sess = sessions.session(key)
+        d.cryptoNoload = null
+        d.busy = getString(R.string.busy_mounting_read_only)
+        d.notice = null
+        Thread {
+            val out = runCryptoNoload(id) { sessions.session(key) === sess }
+            ui {
+                val st = state(key)
+                if (st != null) {
+                    st.busy = null
+                    st.notice = out.notice
+                    if (out.pubs.isNotEmpty() && st.open) st.published = st.published.filter { p -> out.pubs.none { it.volumeKey == p.volumeKey } } + out.pubs
+                }
+            }
+        }.start()
+    }
+
+    override fun cancelCryptoNoload(key: String, id: String) {
+        val d = state(key) ?: return
+        d.cryptoNoload = null
+        d.busy = getString(R.string.busy_closing_usb)
+        Thread {
+            VolumeRegistry.discardPendingCrypto(id)   // 復号済みデバイスを閉じる = ロック (公開したものは無い)
+            ui { state(key)?.let { it.busy = null; it.notice = Notice(Severity.Info, getString(R.string.crypto_noload_cancelled)) } }
+        }.start()
+    }
 
     // ---- ImageActions (暗号ボリューム。IO スレッドから呼ばれる)
     private fun openImageBase(uri: Uri, write: Boolean): Pair<Long, Boolean> {
@@ -817,8 +903,15 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             val (base, rw) = openImageBase(uri, input.write)
             CryptoMount.unlock(base, rw, startBytes, sizeBytes, cred, input.method, input.write, createOnly = false, groupId = gid, extraClose = { NativeBridge.nativeClose(base) })
         }
-        return CryptoUnlockResult(out.notice, out.retryError)
+        return CryptoUnlockResult(out.notice, out.retryError, out.noload)
     }
+
+    override fun pendingCryptoNoload(): List<CryptoNoloadPrompt> =
+        VolumeRegistry.pendingCryptoList().filter { it.deviceName == null }.map { CryptoNoloadPrompt(it.id, it.label, it.writeRequested) }
+
+    override fun confirmCryptoNoload(id: String): CryptoUnlockResult = runCryptoNoload(id) { true }.let { CryptoUnlockResult(it.notice, null) }
+
+    override fun cancelCryptoNoload(id: String) = VolumeRegistry.discardPendingCrypto(id)
 
     override fun cryptoVolumes(): List<CryptoVolumeRow> = VolumeRegistry.cryptoEntries().map {
         CryptoVolumeRow(it.id, it.label, it.volume.fsName, it.crypto?.format ?: "", it.volume.writable)
@@ -895,7 +988,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
 
     override fun onDestroy() {
         // 終了するとき (戻るボタンなど) だけ、全部のデバイスを閉じる。システムによる作り直しでは、セッションはプロセスが持っているので閉じない
-        if (isFinishing) sessions.closeAll()
+        if (isFinishing) { sessions.closeAll(); VolumeRegistry.discardAllPendingCrypto() }   // 確認待ちの暗号ボリュームの鍵も消す (画面の回転・再作成では残し、ダイアログを出し直す)
         sessions.removeListener(sessionListener)
         super.onDestroy()
     }

@@ -489,6 +489,8 @@ PC (`ssh home-notepc`) での独立検証 (読み取り専用): p2 は `btrfs ch
 
 PC (`ssh home-notepc`) での独立検証 (読み取り専用): `xfs_repair -n` (xfsprogs 7.2.0) は rc=0・異常の出力なし。`mount -o ro,nouuid` してマニフェスト全件一致 (ファイル 3029・ディレクトリ 43・シンボリックリンク 4・4.57 GiB)。`usbmem_*` の残りフォルダは無し。カーネルの ro マウントは "Ending clean mount" (ボリュームが 92% 使用中のため "ENOSPC reserving per-AG metadata pool, log recovery may fail" の警告も出たが、ログの再生は不要で正常に終わった)。
 
+UI の実機確認 (2026-11-17、J9260、同じ APK): アプリの画面から、USB DISK (C) の書き込みモードを「すべて許可」にする (「変更・削除も許可しますか？」の確認ダイアログ) → 「開く」(USB の許可ダイアログ) → パーティション一覧 (#1 p1_xfs / #2 p2_btrfs / #3 p3_f2fs …) の「マウント (変更・削除も可)」→ p1 (XFS) が「書き込み可 (変更・削除も可)」になり (logcat: `sessionWritable=true volumeWritable=true createOnly=false`)、システムのファイル選択画面 (SAF) の保存先に「USB DISK [2-6] #1 / XFS (読み書き・実験的)」が出て、ルートの中身 (00_sizes … 07_sparse、MANIFEST.sha256、README.txt) が見えた。OS が C のボリュームを 2 個マウントしていると、カードに警告が出る (`sm unmount` で外せる)。メイン画面で戻るキーを押して Activity を終えると、公開中のボリュームを含む全デバイスが閉じられる (`MainActivity.onDestroy` の `closeAll`、設計どおり)。
+
 ## 11. PC に戻した後 (fsck とマニフェスト照合)
 
 USB を PC に戻す (自動マウントさせず、`lsblk` で `/dev/sdX` を確認)。

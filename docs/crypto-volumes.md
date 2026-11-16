@@ -374,6 +374,7 @@ GitHub Actions `crypt-write.yml` (usbmem-crypt-write、ubuntu-latest) run **4359
 - 実機の試験補助 (`RealUsbCommon.mountCrypto`): 同じ `CryptoMount.unlock` を使う。以前は解錠後に開始位置 0 ・最初のパーティションの長さでマウントしていた (中に GPT があると誤る) のを、中のパーティションの開始位置でマウントし、書き込み可でも開けるようにした。使い方は docs/real-usb-testset.md。
 
 - 結果: `crypt-ui` グループ 3 件 (`OK (3 tests)`) 成功 — 単独実行 43658951168、全 6 グループの実行 43660009210 (Android emulator tests。同じ commit の Host tests 4 構成も成功: 43660009260)。途中で見つかった不具合: (a) `VolumeRegistry.Entry` の引数の取り違え (コンパイルエラー)、(b) 試験用の中の ext4 を既定の mke2fs (小さいイメージ) で作ると、書き込みのホワイトリスト外で読み取り専用に落ちた (フィクスチャを 4K ブロック・内部ジャーナルにして解決。アプリ側は想定どおり読み取り専用で開き、`write_note` を通知に出していた)。
+- 結果 (2026-11-17、ジャーナル未再生の確認フロー): `crypt-ui` グループ 6 件 (`OK (6 tests)`: 既存 3 件 + `journalNeedsRecovery_*` 3 件) 成功 — 単独実行 43917601086 (15 分、1 回目で成功)。
 - 書き込みのエミュレータ試験は LUKS2 → ext4 だけ。BitLocker (合成) → NTFS の書き込みは、core の試験 (host) と実機の試験補助で確かめる。
 
 ### 10.5 制限・未了

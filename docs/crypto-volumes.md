@@ -57,10 +57,38 @@ libbde / cryptsetup / nbdkit / qemu-img は「正解を知っている別実装�
 - JNI: `android/app/src/main/cpp/jni_transform.cpp` (`CryptoNative.nativeProbe / nativeOpen`)。資格情報は `byte[]` (UTF-8)、ネイティブ側のコピーは関数を出る時にゼロ化。
 - Kotlin: `CryptoVolume.kt` — `CryptoVolume.probe(handle): CryptoInfo?`、`CryptoVolume.open(handle, kind, password, recoveryKey, keyFile, allowPartialEncryption): Long`。渡された `ByteArray` は呼び出し後に `fill(0)`。失敗は `CryptoException(code)` (`authFailed` / `unsupported`)。得たハンドルを既存の `nativeNtfsMountDevice` 等へ渡す。
 - 既存の共有ファイルの変更は最小: `android/app/src/main/cpp/CMakeLists.txt` に `jni_transform.cpp` と `usbmem_transform` の追加 2 箇所、`core/CMakeLists.txt` に `include(transform.cmake)` 1 行。
-- UI は 10 章 (パスワード入力・回復キー・BEK・書き込みの導線)。Keystore 連携は未実装 (下の設計メモ)。
+- UI は 10 章 (パスワード入力・回復キー・BEK・書き込みの導線)。パスワードの記憶 (Android Keystore) は下の節 (2026-11-17 実装、オプトイン)。
 
-### Android Keystore (設計メモのみ・未実装)
-資格情報の保存は**既定で行わない** (毎回入力)。利便性のために記憶させるなら: AndroidKeyStore に AES-256-GCM の鍵を `setUserAuthenticationRequired(true)` (生体/画面ロック) 付きで作り、パスフレーズをその鍵で暗号化してアプリ内ストレージに置く。ボリュームごとのキーは UUID (LUKS) / ボリューム GUID (BitLocker) で引く。VMK/マスターキー自体は保存しない (保存するのはパスフレーズだけ。盗まれてもデバイスと生体が無いと使えない)。`setIsStrongBoxBacked` は使えれば使う。復号後のキーを JVM に渡さない (C++ 内で完結) 設計は現状のまま維持する。
+### Android Keystore (パスワードの記憶: オプトイン。2026-11-17 実装)
+既定は**記憶しない** (毎回入力)。解錠ダイアログの「このボリュームのパスワードを記憶する」を選んだときだけ、解錠に**成功したあとで**パスワード (パスフレーズ) を保存する。次回からは同じダイアログの「生体認証 / 画面ロックで解錠」で入力なしに解錠できる。
+
+**何をどこに保存するか**
+- 保存するのは**パスワード (パスフレーズ) だけ**。回復キー・BEK ファイルは対象外 (パスワード方式のときだけ「記憶する」を出す)。復号後のキー (VMK / FVEK / マスターキー) は保存しない (JVM にも渡さない設計のまま)。
+- 鍵: AndroidKeyStore の AES-256-GCM を**ボリュームごとに別名**で作る (`usbmem.vault.<ID のハッシュ>`)。`setUserAuthenticationRequired(true)` + `setUserAuthenticationParameters(0, BIOMETRIC_STRONG | DEVICE_CREDENTIAL)` (操作ごとに認証、生体または画面ロック。API 30+)、`setInvalidatedByBiometricEnrollment(true)` (生体の登録が変わると無効化)。端末が対応していれば `setIsStrongBoxBacked(true)`、使えなければ (`StrongBoxUnavailableException` など) 通常の Keystore で作り直す。鍵は端末の外に出ない。
+- ボリューム ID: core の `VolumeInfo.volume_id` (LUKS = ヘッダの UUID (LUKS1/2 とも offset 168)、BitLocker = FVE メタデータヘッダのボリューム GUID (ブロックヘッダ 64 バイトの後 +16)) を JNI の JSON `volume_id` → `CryptoInfo.volumeId` で受け、`"<Luks|BitLocker>:<ID>"` を鍵にする (`SecretVault.idOf`)。ID が取れないボリュームは記憶の対象外 (チェックを出さない)。ID 自体は秘密ではないが、別名・保存先の名前には SHA-256 の先頭 128 ビットだけを使う。
+- 暗号文: SharedPreferences `usbmem_vault` (アプリ専用領域。`allowBackup=false`) に Base64 で `[version=1][ivLen][iv][ciphertext+tag]` (`VaultBlob`)。ボリューム ID を GCM の AAD に結びつけ、別のボリュームの暗号文に差し替えても復号できない。平文のパスワードは永続化しない。
+
+**いつゼロ消去するか**
+- ダイアログの入力欄は送信で空にする (String は消せない弱点は 10.3 のとおり)。`UnlockCredentials` は `CryptoMount.unlock` が最後に消す。記憶のために取っておくパスワードのコピー (`runUnlock` の `toRemember`) と、記憶から取り出したバイト列 (`cred.password`) は、`finally` でゼロ埋めする (成功・失敗・取り消しのどれでも)。誤ったパスワードは、解錠に失敗した時点で保存の段に進まないので保存されない。
+- 取り出し (`recall`) の平文は `cred.password` として unlock に渡り、`CryptoVolume.open` の後に消える。ログ・例外・通知に出さない。
+
+**いつ記憶を破棄するか** (`SecretVault`、通常のパスワード入力に戻る。ダイアログは開いたまま)
+- 鍵が無効化された (`KeyPermanentlyInvalidatedException` = 生体登録の変更など) / 鍵が無い (画面ロックの解除・別端末への復元) / 暗号文が壊れている・改ざんされている (形式不正・GCM のタグ不一致): 暗号文と鍵を捨て、「使えなくなっていたので削除した」と表示。
+- 取り出したパスワードで解錠が認証失敗 (ボリュームのパスワードを変えた): 記憶を捨てる。
+- 認証の取り消し・ロックアウトなどの失敗は、記憶を**捨てない** (もう一度認証できる)。保存のときの取り消し・失敗は何も残さない (解錠自体は成功のまま)。
+- ユーザーが「記憶を削除」を押したとき (ダイアログ内)。
+
+**BiometricPrompt の方式 (framework の `android.hardware.biometrics.BiometricPrompt` を使い、`androidx.biometric` は足さない)**
+- 理由: (1) 依存を増やさない (Compose の `ComponentActivity` のまま。androidx.biometric は `FragmentActivity` を要求する)。(2) `CryptoObject` + 画面ロック (`DEVICE_CREDENTIAL`) の併用は、androidx.biometric でも **API 30+ でしか使えない** (API 28-29 は生体のみ)。つまり androidx を足しても得られるのは API 23-29 の「生体のみ」だけで、その価値より依存と Activity 基底クラスの変更のコストが大きいと判断した。
+- 帰結: **API 30 (Android 11) 未満では記憶の機能を出さない** (`minSdk` 26 は変えない。`VaultProvider.canAuthenticate` が API 30+ かつ `BiometricManager.canAuthenticate(BIOMETRIC_STRONG | DEVICE_CREDENTIAL)` 成功のときだけ)。画面ロックも生体も未設定の端末でも出さない。
+- `BiometricUserAuth` は、認証待ちをブロッキングにして (呼び出しは IO スレッド。メインスレッドなら拒否)、結果を `AuthResult` で返す。最大 5 分で打ち切る。
+- 試験容易性: 鍵の発行 (`VaultKeys`)・認証 (`UserAuth`)・保存先 (`VaultStore`) を小さなインターフェイスにした。本番は `AndroidKeystoreKeys(requireAuth = true)` + `BiometricUserAuth` + `PrefsVaultStore`、計装試験は同じ `AndroidKeystoreKeys(requireAuth = false)` (本物の Keystore、認証なし) + 偽の `UserAuth`、JVM 試験はソフトの AES-GCM 鍵。差し替えは `VaultProvider.override`。
+
+**検証できていること / できていないこと**
+- JVM 単体試験 (`VaultTest`、Host tests ではなく Gradle の unit test): 暗号文の形式、保存・取り出し、ボリュームごとの鍵、取り消し・失敗で何も残らない、鍵の無効化 / 鍵の消失 / 暗号文の改ざん・破損 / 別ボリュームへの差し替えでの破棄、`forget` の冪等、ボリューム ID の組み立てと JSON の読み取り。
+- emulator の計装試験 (`CryptoUiTest.vault_*`、10.4): 本物の AndroidKeyStore の AES-GCM 鍵での (1) 記憶して解錠 → 次回は入力なしで解錠、(2) 忘れる → 暗号文と鍵が消えて通常入力に戻る、(3) 誤ったパスワードでは保存されない、(4) 鍵の無効化 (復号用 Cipher が `KeyInvalidatedException`) と鍵の消失で破棄・フォールバック、認証の取り消し / 失敗でパスワード入力に戻る、LUKS の UUID と BitLocker のボリューム GUID がボリュームごとに別の記憶になること。
+- **未検証 (実機で確認が要る)**: 実際の `BiometricPrompt` の画面 (生体・画面ロックの入力、取り消し、ロックアウト)。`setUserAuthenticationRequired(true)` + 操作ごとの認証の鍵が、`CryptoObject` の認証で実際に使えること (emulator の試験は認証なしの鍵)。`DEVICE_CREDENTIAL` と `CryptoObject` の併用の端末差。StrongBox の端末での鍵の作成。生体登録の変更で本物の `KeyPermanentlyInvalidatedException` が出ること (試験は同じ破棄の経路を模擬している)。保存のときの認証 1 回 + 解錠のときの認証 1 回という操作感。API 30 未満・画面ロック未設定の端末でチェックが出ないこと。
+- 残る弱点: 解錠中の短い間、パスワードは `ByteArray` (消す) と、入力欄の `String` (消せない。10.3) として存在する。記憶した端末が画面ロックを突破されると、画面ロックで解錠できる (生体のみにはしていない。BIOMETRIC_STRONG | DEVICE_CREDENTIAL の選択)。
 
 ## 6. 検証結果
 
@@ -363,6 +391,7 @@ GitHub Actions `crypt-write.yml` (usbmem-crypt-write、ubuntu-latest) run **4359
 - **残る弱点 (正直に)**: Compose の `TextField` の値は JVM の `String` で、ゼロ埋めできない (GC まで残る)。対策は、`remember` (Activity の状態保存・`rememberSaveable` には載せない) で持ち、送信した瞬間に欄を空にして参照を捨てること。
 - ログ・例外メッセージ・SharedPreferences・クラッシュレポートに資格情報を出さない (失敗のログは例外の種類とコードだけ)。`allowBackup=false`。ロック後の再解錠でも前回の入力は残らない。ボリュームの登録は永続化しない (`VolumeRegistry.addCryptoVolume`)。
 - 試験 (`CryptoUiTest`) は、操作のあとで logcat と `shared_prefs` に使い捨てのパスワードが無いことを確かめる。
+- パスワードの記憶 (オプトイン) を選んだときだけ、暗号文 (AES-256-GCM、鍵は Android Keystore) を SharedPreferences `usbmem_vault` に置く。平文は置かない (5 章「Android Keystore」)。`shared_prefs` の確認は、記憶の試験でも同じ。
 
 ### 10.4 試験
 
@@ -375,11 +404,16 @@ GitHub Actions `crypt-write.yml` (usbmem-crypt-write、ubuntu-latest) run **4359
 
 - 結果: `crypt-ui` グループ 3 件 (`OK (3 tests)`) 成功 — 単独実行 43658951168、全 6 グループの実行 43660009210 (Android emulator tests。同じ commit の Host tests 4 構成も成功: 43660009260)。途中で見つかった不具合: (a) `VolumeRegistry.Entry` の引数の取り違え (コンパイルエラー)、(b) 試験用の中の ext4 を既定の mke2fs (小さいイメージ) で作ると、書き込みのホワイトリスト外で読み取り専用に落ちた (フィクスチャを 4K ブロック・内部ジャーナルにして解決。アプリ側は想定どおり読み取り専用で開き、`write_note` を通知に出していた)。
 - 結果 (2026-11-17、ジャーナル未再生の確認フロー): `crypt-ui` グループ 6 件 (`OK (6 tests)`: 既存 3 件 + `journalNeedsRecovery_*` 3 件) 成功 — 単独実行 43917601086 (15 分、1 回目で成功)。
+- パスワードの記憶 (`CryptoUiTest.vault_*` 4 件。実際の生体認証は emulator で使えないので、本物の AndroidKeyStore の鍵 (認証なし) + 偽の `UserAuth`。5 章「Android Keystore」):
+  - `vault_rememberUnlockForget`: 既定は記憶のチェックが切 → (3) 誤ったパスワードでは (チェックしても) 暗号文も鍵も作られず認証も呼ばれない → チェックのまま正しいパスワードで解錠すると 1 件保存 (認証 1 回、暗号文に平文なし) → ロック → (1) 次回は「生体認証 / 画面ロックで解錠」でパスワードを入れずに解錠できる (中の 2 パーティションとも) → (2) 「記憶を削除」で暗号文・鍵が消え、パスワード入力とチェックに戻る。
+  - `vault_cancelFallsBackToPassword`: 保存の認証の取り消しでは解錠は成功して何も保存されない / 取り出しの認証の取り消し・失敗では、ダイアログが開いたまま記憶は残り、パスワードで解錠できる。
+  - `vault_invalidatedKeyDiscardsMemoryAndFallsBack`: (4) 鍵の無効化 (復号用 Cipher の例外) と、Keystore の鍵そのものの消失の両方で、暗号文と鍵を破棄して通常入力にフォールバックし、パスワードで解錠できる。
+  - `vault_perVolumeLuksAndBitlocker`: 同じイメージの LUKS2 (UUID) と BitLocker (ボリューム GUID) の記憶は別々 (LUKS2 を記憶しても BitLocker には出ない)。どちらも記憶経由で解錠できる。
 - 書き込みのエミュレータ試験は LUKS2 → ext4 だけ。BitLocker (合成) → NTFS の書き込みは、core の試験 (host) と実機の試験補助で確かめる。
 
 ### 10.5 制限・未了
 
-- 資格情報の記憶 (Android Keystore) は未実装 (「記憶しない」のみ)。設計は 5 章末尾のメモ。docs/TODO.md に別項目。
+- パスワードの記憶 (Android Keystore、オプトイン) は 5 章末尾のとおり実装した (2026-11-17)。対象はパスワードだけ (回復キー・BEK は記憶しない)。**実際の BiometricPrompt の画面と、認証必須の鍵の実機での動作は未検証**。API 30 未満は記憶の機能を出さない。
 - 暗号の中のジャーナル未再生 (EUCLEAN) の確認フローは 10.2.1 のとおり実装した (2026-11-17)。ext3/ext4 以外 (Btrfs の tree-log / F2FS の roll-forward / XFS のログ) も core が 117 を返すものは同じ経路に乗る (試験は ext4 だけ)。入れ子 (イメージの中のイメージ) は暗号自体が未対応なので対象外。
 - イメージの中のイメージ (入れ子マウント) の暗号ボリュームの解錠は未対応 (そのイメージは「RAW イメージを開く」の経路を通らない)。
 - ディスクイメージ画面の「NTFS イメージをマウント」で、ディスク全体が暗号のイメージを直接渡す導線は無い。「RAW イメージを開く」で調べ、パーティション行の「解錠してマウント」を使う。

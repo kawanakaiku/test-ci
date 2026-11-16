@@ -491,6 +491,12 @@ PC (`ssh home-notepc`) での独立検証 (読み取り専用): `xfs_repair -n` 
 
 UI の実機確認 (2026-11-17、J9260、同じ APK): アプリの画面から、USB DISK (C) の書き込みモードを「すべて許可」にする (「変更・削除も許可しますか？」の確認ダイアログ) → 「開く」(USB の許可ダイアログ) → パーティション一覧 (#1 p1_xfs / #2 p2_btrfs / #3 p3_f2fs …) の「マウント (変更・削除も可)」→ p1 (XFS) が「書き込み可 (変更・削除も可)」になり (logcat: `sessionWritable=true volumeWritable=true createOnly=false`)、システムのファイル選択画面 (SAF) の保存先に「USB DISK [2-6] #1 / XFS (読み書き・実験的)」が出て、ルートの中身 (00_sizes … 07_sparse、MANIFEST.sha256、README.txt) が見えた。OS が C のボリュームを 2 個マウントしていると、カードに警告が出る (`sm unmount` で外せる)。メイン画面で戻るキーを押して Activity を終えると、公開中のボリュームを含む全デバイスが閉じられる (`MainActivity.onDestroy` の `closeAll`、設計どおり)。
 
+UI の実機確認 その 2 (2026-11-17、J9260、同じ APK、C の p2 / p3 / p4): アプリの画面から次を確認した。
+- **p3 F2FS、p2 Btrfs**: 「マウント (変更・削除も可)」→ 「書き込み可 (変更・削除も可)」(logcat: `volumeWritable=true createOnly=false`)。システムのファイル選択画面 (SAF) の保存先に「USB DISK [2-6] #3 / F2FS (読み書き・実験的)」「#2 / BTRFS (読み書き・実験的)」が出て、ルートの中身 (00_sizes … 07_sparse、MANIFEST.sha256、README.txt) が見えた。
+- **p4 LUKS2**: 「解錠してマウント」→ 解錠ダイアログ (LUKS2・aes-xts-plain64、パスワード / BEK ファイルの切り替え、「書き込み可で開く (実験的)」)。**誤ったパスワード**は「パスワードが違います。もう一度入力してください。」で拒否され (logcat: `crypto unlock failed: CryptoException code=12`)、入力欄は空に戻る。書き込みトグルを入れると「暗号ボリュームの書き込み (実験的)」の警告 (「書き込みを有効にする」) が出る。**正しいパスワード + 書き込み可**で解錠でき (logcat: `crypto unlocked: writeRequested=true writable=true fs=[ext4]`)、カードに「書き込み可 (変更・削除も可)」「ロック (アンマウント)」が出て、SAF の保存先に「USB DISK [2-6] #4 / EXT4 (読み書き・実験的) · 暗号化 LUKS2」が出て、中身 (lost+found を含む) が見えた。
+- 最後にメイン画面で戻るキーを押して Activity を終えると、公開中のボリューム (暗号を含む) がすべて閉じられ、SAF のルートが空になった。この確認ではファイルの書き込みはしていない (マウントと閲覧だけ)。
+- 未確認: BitLocker (p5) の解錠 UI、BEK ファイル、回復キー (48 桁) の入力。
+
 ## 11. PC に戻した後 (fsck とマニフェスト照合)
 
 USB を PC に戻す (自動マウントさせず、`lsblk` で `/dev/sdX` を確認)。

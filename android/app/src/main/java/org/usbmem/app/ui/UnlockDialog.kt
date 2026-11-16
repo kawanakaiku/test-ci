@@ -76,7 +76,13 @@ class UnlockInput(val cred: UnlockCredentials, val method: CryptoMount.Method, v
 data class CryptoProbeResult(val prompt: UnlockPrompt? = null, val notice: Notice? = null)
 
 /** 解錠の結果。[retryError] があれば、ダイアログを開いたまま、その文言を出して再入力させる (認証失敗など)。なければ [notice] を見せてダイアログを閉じる。 */
-data class CryptoUnlockResult(val notice: Notice? = null, val retryError: String? = null)
+data class CryptoUnlockResult(val notice: Notice? = null, val retryError: String? = null, val noload: CryptoNoloadPrompt? = null)
+
+/**
+ * 解錠はできたが、中の ext3/ext4 などのジャーナルが未再生 (EUCLEAN) で、「読み取り専用で開く」確認を待っているボリューム (資格情報は含まない)。
+ * [id] = 確認・キャンセルに渡す識別子 (VolumeRegistry の保留)。[writeRequested] = 書き込み可での解錠を選んでいた (読み取り専用でしか開けないことを文言で示す)。
+ */
+data class CryptoNoloadPrompt(val id: String, val label: String, val writeRequested: Boolean)
 
 /** 解錠済みの暗号ボリューム (中の FS) 1 つ。[id] = VolumeRegistry の id (ロックの操作に渡す)。 */
 data class CryptoVolumeRow(val id: String, val label: String, val fsName: String, val format: String, val writable: Boolean)

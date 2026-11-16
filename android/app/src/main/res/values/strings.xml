@@ -262,6 +262,10 @@
     <string name="diag_device_header">%1$s の診断</string>
 
     <!-- 暗号ボリューム (LUKS1/2・BitLocker)。docs/crypto-volumes.md 10 章 -->
+    <string name="crypto_noload_dialog_extra">暗号ボリューム「%1$s」の解錠はできました。「読み取り専用で開く」を選ぶと、中のファイルを読み取り専用で公開します。キャンセルすると、このボリュームは開きません (ほかに開けたものが無ければ、ロックして鍵を消します)。</string>
+    <string name="crypto_noload_dialog_write_note">書き込み可での解錠を選びましたが、ジャーナルが未再生のボリュームは書き込み可では開きません。読み取り専用で開きます。</string>
+    <string name="crypto_noload_cancelled">読み取り専用で開くのをやめました。ジャーナルが未再生のボリュームは公開していません。</string>
+    <string name="crypto_noload_gone">確認を待っていたボリュームは、すでにロックされています (USB が閉じられたなど)。もう一度解錠してください。</string>
     <string name="crypto_chip_encrypted">暗号化</string>
     <string name="crypto_chip_unlocked">解錠済み %1$s</string>
     <string name="crypto_unlock_button">解錠してマウント</string>

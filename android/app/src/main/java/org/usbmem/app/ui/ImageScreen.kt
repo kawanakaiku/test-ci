@@ -51,6 +51,12 @@ interface ImageActions : NestedActions {
     fun probeCrypto(uri: Uri, startBytes: Long, sizeBytes: Long, label: String): CryptoProbeResult
     /** 解錠して、中のファイルシステムをマウント・公開する。[UnlockInput.cred] は呼び出しの最後に消す。 */
     fun unlockImage(uri: Uri, startBytes: Long, sizeBytes: Long, label: String, input: UnlockInput): CryptoUnlockResult
+    /** 解錠したが中のジャーナルが未再生で、「読み取り専用で開く」確認を待っているイメージ由来のボリューム (画面が作り直されたあとに、ダイアログを出し直すのに使う) */
+    fun pendingCryptoNoload(): List<CryptoNoloadPrompt>
+    /** 確認のうえ、読み取り専用 (noload) で開く。 */
+    fun confirmCryptoNoload(id: String): CryptoUnlockResult
+    /** キャンセル: 保留していた復号済みデバイスを閉じる (= ロック。鍵を消す)。 */
+    fun cancelCryptoNoload(id: String)
     /** 解錠済みの暗号ボリューム (USB から解錠したものも含む) */
     fun cryptoVolumes(): List<CryptoVolumeRow>
     /** ロック: 中のファイルシステムをアンマウントして、鍵を消す。 */
@@ -71,7 +77,11 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
     var unlocking by remember { mutableStateOf(false) }
     var cryptoRows by remember { mutableStateOf<List<CryptoVolumeRow>>(emptyList()) }
     fun refreshCrypto() { scope.launch { cryptoRows = withContext(Dispatchers.IO) { a.cryptoVolumes() } } }
-    LaunchedEffect(Unit) { cryptoRows = withContext(Dispatchers.IO) { a.cryptoVolumes() } }
+    var cryptoNoload by remember { mutableStateOf<CryptoNoloadPrompt?>(null) }   // 保留は VolumeRegistry が持つ。画面が作り直されても、下の LaunchedEffect で出し直す
+    LaunchedEffect(Unit) {
+        cryptoRows = withContext(Dispatchers.IO) { a.cryptoVolumes() }
+        cryptoNoload = withContext(Dispatchers.IO) { a.pendingCryptoNoload() }.firstOrNull()
+    }
     fun askUnlock(uri: Uri, p: org.usbmem.app.Partition, label: String) {
         scope.launch {
             busy = true
@@ -129,6 +139,30 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
                 onDismiss = { result = result.copy(noloadUri = null) },
             )
         }
+        cryptoNoload?.let { p ->
+            ConfirmDialog(
+                title = stringResource(R.string.noload_dialog_title),
+                text = stringResource(R.string.noload_dialog_text) + "\n\n" + stringResource(R.string.crypto_noload_dialog_extra, p.label) +
+                    (if (p.writeRequested) "\n\n" + stringResource(R.string.crypto_noload_dialog_write_note) else ""),
+                confirmLabel = stringResource(R.string.noload_dialog_confirm),
+                onConfirm = {
+                    cryptoNoload = null
+                    scope.launch {
+                        busy = true
+                        val r = withContext(Dispatchers.IO) { a.confirmCryptoNoload(p.id) }
+                        busy = false
+                        result = result.copy(notice = r.notice); refreshCrypto()
+                    }
+                },
+                onDismiss = {
+                    cryptoNoload = null
+                    scope.launch {
+                        busy = true; withContext(Dispatchers.IO) { a.cancelCryptoNoload(p.id) }; busy = false
+                        result = result.copy(notice = Notice(Severity.Info, appCtx.getString(R.string.crypto_noload_cancelled)))
+                    }
+                },
+            )
+        }
         unlockTarget?.let { (uri, label, t) ->
             UnlockDialog(
                 t.prompt, writeAvailable = true, writeInitial = false, busy = unlocking,
@@ -139,7 +173,7 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
                         val r = withContext(Dispatchers.IO) { a.unlockImage(uri, t.startBytes, t.sizeBytes, label, input) }
                         unlocking = false
                         if (r.retryError != null) unlockTarget = Triple(uri, label, t.copy(prompt = t.prompt.copy(error = r.retryError)))
-                        else { unlockTarget = null; result = result.copy(notice = r.notice); refreshCrypto() }
+                        else { unlockTarget = null; result = result.copy(notice = r.notice); cryptoNoload = r.noload; refreshCrypto() }
                     }
                 },
             )

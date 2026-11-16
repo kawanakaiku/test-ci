@@ -27,13 +27,57 @@ class UnlockCredentials(var password: ByteArray? = null, var recoveryKey: ByteAr
  */
 class CryptoGroup(val id: String, private val closers: List<() -> Unit>) {
     private var refs = 0
+    private var closed = false   // 下位のハンドルは 1 度だけ閉じる (release と closeNow が両方呼ばれても二重に閉じない)
     @Synchronized fun retain() { refs++ }
     @Synchronized fun release() {
         refs--
-        if (refs == 0) closers.forEach { runCatching { it() } }
+        if (refs == 0) closeAll()
     }
     /** FS を 1 つもマウントできなかったとき (retain していない) の後始末。 */
-    @Synchronized fun closeNow() { if (refs == 0) closers.forEach { runCatching { it() } } }
+    @Synchronized fun closeNow() { if (refs == 0) closeAll() }
+    private fun closeAll() { if (!closed) { closed = true; closers.forEach { runCatching { it() } } } }
+}
+
+/** [CryptoMount.unlock] が中の FS を 1 つも開けず、ジャーナル未再生 (EUCLEAN=117) で保留したものの範囲 (復号済みデバイス上の位置)。 */
+class InnerRange(val start: Long, val size: Long, val suffix: String)
+
+/**
+ * 解錠は成功したが、中の ext3/ext4 (将来は Btrfs / F2FS / XFS) がジャーナル未再生 (EUCLEAN) で開けなかった FS を、**ユーザーの確認が出るまで保留**するもの。
+ * 保持するのは復号済みデバイスのハンドル ([group] が持ち主。この保留が [CryptoGroup.retain] している) だけで、**資格情報 (パスワード等) は保持しない**
+ * ([CryptoMount.unlock] が解錠の直後にゼロ埋め済み)。確認 → [mountNoload] で読み取り専用 (noload) にマウント、キャンセル・破棄 → [release] で鍵ごと閉じる。
+ * 保留は [VolumeRegistry] が登録簿に持ち、USB を閉じる・アプリの終了・同じボリュームの解錠のやり直しで [release] される。
+ */
+class PendingRecovery internal constructor(val group: CryptoGroup, private val dec: Long, val ranges: List<InnerRange>) {
+    private var released = false
+
+    class Mounted(val volumes: List<UnlockedCrypto.Inner>, val skipped: List<String>)
+
+    /**
+     * 保留していた FS を、ジャーナルを再生せずに**読み取り専用**でマウントする (書き込みは一切しない)。1 つも開けなければ例外 (この場合は保留も [release] 済み)。
+     * 成功したときは保留の参照が残る: 呼び出し側が [VolumeRegistry.addCryptoVolume] で登録 (= retain) したあとに [release] すること。
+     */
+    @Synchronized
+    fun mountNoload(): Mounted {
+        check(!released) { "recovery already released" }
+        val mounted = ArrayList<UnlockedCrypto.Inner>()
+        val skipped = ArrayList<String>()
+        var firstError: NativeException? = null
+        for (r in ranges) {
+            try {
+                mounted += UnlockedCrypto.Inner(NtfsVolume.mountDeviceRange(dec, r.start, r.size, allowNoload = true), r.suffix, r.start)
+            } catch (e: NativeException) {
+                if (firstError == null) firstError = e
+                skipped += "${r.suffix.ifEmpty { "-" }}: errno ${e.code}"
+            }
+        }
+        if (mounted.isEmpty()) { releaseLocked(); throw firstError ?: NativeException(95, "no mountable filesystem inside the encrypted volume") }
+        return Mounted(mounted.toList(), skipped)
+    }
+
+    /** 保留を手放す (1 回だけ有効)。他に参照が無ければ、復号済みデバイス → 切り出し → 元の順に閉じ、鍵をゼロ化する。 */
+    @Synchronized fun release() = releaseLocked()
+
+    private fun releaseLocked() { if (!released) { released = true; group.release() } }
 }
 
 /** [VolumeRegistry.Entry] に付く、暗号ボリュームの情報 (画面と SAF のルートの説明用。秘密は含まない)。[groupId] = 同じ解錠から出たボリュームの組。 */
@@ -50,6 +94,8 @@ class UnlockedCrypto(
     val writeRequested: Boolean,
     /** マウントしなかった中のパーティションの理由 (人に見せてよい。秘密を含まない) */
     val skipped: List<String>,
+    /** ジャーナル未再生で保留した FS (確認のうえ読み取り専用で開く)。無ければ null。非 null のとき、呼び出し側は必ず [PendingRecovery.release] か [PendingRecovery.mountNoload] の後の release をすること */
+    val recovery: PendingRecovery? = null,
 ) {
     class Inner(val volume: NtfsVolume, val suffix: String, val startBytes: Long)
     val writable: Boolean get() = volumes.any { it.volume.writable }
@@ -88,6 +134,10 @@ object CryptoMount {
      * @param extraClose 復号済みデバイスと切り出しを閉じた後に呼ぶ後始末 (元のイメージのハンドルを閉じるなど)。**失敗したときも呼ばれる**
      *   (この関数が例外を投げたら、呼び出し側は何も閉じなくてよい)。成功したときは [UnlockedCrypto.group] が最後の FS を閉じたときに呼ぶ。
      * 失敗は [CryptoException] (認証失敗は authFailed) か [NativeException] (中の FS のマウント失敗など)。
+     *
+     * 中の FS が**ジャーナル未再生 (EUCLEAN=117)** のときは失敗にせず、その範囲を [UnlockedCrypto.recovery] に保留して返す (ほかの FS は普通にマウントする。
+     * 1 つも開けた FS が無くても例外にしない)。呼び出し側はユーザーに「読み取り専用で開く」確認を取り、[PendingRecovery.mountNoload] か [PendingRecovery.release] をすること。
+     * 書き込み可を要求していても、保留した FS は書き込み可では開かない (noload は読み取り専用のみ)。
      */
     fun unlock(
         parent: Long, parentWritable: Boolean, start: Long, size: Long, cred: UnlockCredentials, method: Method,
@@ -117,6 +167,7 @@ object CryptoMount {
                 else -> ""
             }
             val skipped = ArrayList<String>()
+            val recoveryRanges = ArrayList<InnerRange>()
             var firstError: NativeException? = null
             for (r in innerRanges(dec)) {
                 try {
@@ -124,16 +175,18 @@ object CryptoMount {
                     if (coreRw && !v.writable && note.isEmpty()) note = "中のファイルシステム (${v.fsName}) は書き込みに対応していない、または未処理の異常があるため、読み取り専用で開きました"
                     mounted += UnlockedCrypto.Inner(v, r.suffix, r.start)
                 } catch (e: NativeException) {
+                    if (e.code == 117) { recoveryRanges += r; continue }   // ジャーナル未再生: 確認すれば読み取り専用で開ける (保留)
                     if (firstError == null) firstError = e
                     skipped += "${r.suffix.ifEmpty { "-" }}: errno ${e.code}"
                 }
             }
-            if (mounted.isEmpty()) throw firstError ?: NativeException(95, "no mountable filesystem inside the encrypted volume")
+            if (mounted.isEmpty() && recoveryRanges.isEmpty()) throw firstError ?: NativeException(95, "no mountable filesystem inside the encrypted volume")
             // 成功: 下位のハンドルの持ち主はグループ (最後の FS が閉じたとき、復号済みデバイス → 切り出し → 元の順に閉じる)
             val d = dec; val sb = sub
             val group = CryptoGroup(groupId, listOfNotNull<() -> Unit>({ NativeBridge.nativeClose(d) }, { NativeBridge.nativeClose(sb) }, extraClose))
+            val pending = if (recoveryRanges.isEmpty()) null else PendingRecovery(group, d, recoveryRanges.toList()).also { group.retain() }
             dec = 0; sub = 0
-            return UnlockedCrypto(group, info, mounted.toList(), note, wantWrite, skipped)
+            return UnlockedCrypto(group, info, mounted.toList(), note, wantWrite, skipped, pending)
         } catch (t: Throwable) {
             for (m in mounted) runCatching { m.volume.close() }
             if (dec != 0L) runCatching { NativeBridge.nativeClose(dec) }
@@ -144,8 +197,6 @@ object CryptoMount {
             cred.wipe()
         }
     }
-
-    private class InnerRange(val start: Long, val size: Long, val suffix: String)
 
     /** 復号済みデバイス [dec] の中の、マウントする範囲。表が無く全体が 1 つの FS なら全体。表があれば、マウントできる FS の各パーティション (開始位置はパーティションのもの)。 */
     private fun innerRanges(dec: Long): List<InnerRange> {

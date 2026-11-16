@@ -86,6 +86,7 @@ class CryptoUiTest {
     @After fun tearDown() {
         Intents.release()
         // 解錠したまま残らないように (他の試験・次の試験へ持ち越さない)
+        VolumeRegistry.discardAllPendingCrypto()
         VolumeRegistry.cryptoEntries().map { it.id }.distinct().forEach { runCatching { VolumeRegistry.remove(ctx, it) } }
     }
 
@@ -321,6 +322,100 @@ class CryptoUiTest {
         waitRoot(title)
         clickTag("crypto_lock")
         waitRootGone(title)
+        assertNoSecretLeak()
+    }
+    // ---- ジャーナル未再生 (needs_recovery) の ext4 を中に持つ暗号ボリューム: 「読み取り専用で開く」確認フロー (docs/crypto-volumes.md 10 章)
+
+    private fun unlockWithPassword(key: String) {
+        clickTag("crypto_unlock_button", 0)
+        waitTag("unlock_dialog")
+        typePasswordAndSubmit(pw.getValue(key))
+        waitUnlocked()
+    }
+
+    private fun waitNoloadDialog() { waitText(s(R.string.noload_dialog_title)) }
+
+    /** 解錠 → 確認ダイアログ (まだ何も公開されていない) → 「読み取り専用で開く」→ 読める・書き込み不可・ジャーナル無視 → ロック。 */
+    @Test
+    fun journalNeedsRecovery_confirmOpensReadOnly() {
+        openImage(fixture("nl.img"))
+        val title = "nl.img"
+        unlockWithPassword("cui_nl")
+        waitNoloadDialog()
+        rule.onNodeWithText(s(R.string.noload_dialog_text), substring = true).assertExists()
+        // 確認するまでは何も公開されない。保留 (復号済みデバイスのハンドル) だけが残り、解錠済みの一覧には出ない
+        assertEquals(null, rootIdByTitle(title))
+        assertEquals(1, VolumeRegistry.pendingCryptoList().size)
+        assertTrue(VolumeRegistry.cryptoEntries().isEmpty())
+        clickText(s(R.string.noload_dialog_confirm))
+        val id = waitRoot(title)
+        assertEquals("読み取り専用のはず", 0, rootFlags(id) and Root.FLAG_SUPPORTS_CREATE)
+        assertEquals("volume seed 5031\n", readAll(id, "/seed.txt").toString(Charsets.UTF_8))
+        assertTrue("dir" in names(id, "/"))
+        val e = VolumeRegistry.cryptoEntries().single()
+        assertTrue("ジャーナルを無視して開いた印", e.volume.journalIgnored)
+        assertFalse("書き込み不可", e.volume.writable)
+        assertTrue(VolumeRegistry.pendingCryptoList().isEmpty())
+        waitTag("crypto_lock")
+        clickTag("crypto_lock")
+        waitRootGone(title)
+        assertTrue(VolumeRegistry.cryptoEntries().isEmpty())
+        assertNoSecretLeak()
+    }
+
+    /** 確認ダイアログは画面の作り直し (回転相当) で出し直され、キャンセルすると公開されたものは無く、保留も消える (そのあと同じボリュームを解錠し直せる)。 */
+    @Test
+    fun journalNeedsRecovery_cancelLocksAndRecreateKeepsDialog() {
+        openImage(fixture("nl.img"))
+        val title = "nl.img"
+        unlockWithPassword("cui_nl")
+        waitNoloadDialog()
+        assertEquals(1, VolumeRegistry.pendingCryptoList().size)
+
+        // 画面の作り直し: 保留は登録簿にあるので、イメージ画面を開き直すとダイアログが戻る (鍵のハンドルは漏れも消えもしない)
+        rule.activityRule.scenario.recreate()
+        clickText(s(R.string.tab_image))
+        waitNoloadDialog()
+        assertEquals(1, VolumeRegistry.pendingCryptoList().size)
+
+        // キャンセル: 何も公開せず、保留 (復号済みデバイス) を閉じる
+        clickText(s(R.string.common_cancel))
+        rule.waitUntil(30_000) { VolumeRegistry.pendingCryptoList().isEmpty() }
+        waitText(s(R.string.crypto_noload_cancelled))
+        assertEquals(null, rootIdByTitle(title))
+        assertTrue(VolumeRegistry.cryptoEntries().isEmpty())
+
+        // 状態が残っていない: もう一度開いて解錠すると、また確認が出て、今度は確認して開ける
+        openImage(fixture("nl.img"))
+        unlockWithPassword("cui_nl")
+        waitNoloadDialog()
+        clickText(s(R.string.noload_dialog_confirm))
+        val id = waitRoot(title)
+        assertEquals("volume seed 5031\n", readAll(id, "/seed.txt").toString(Charsets.UTF_8))
+        clickTag("crypto_lock")
+        waitRootGone(title)
+        assertNoSecretLeak()
+    }
+
+    /** 中が GPT で、一部 (NTFS) は普通に開き、ジャーナル未再生の ext4 だけが確認待ちになる。確認すると両方が読め、ロックは両方を閉じる。 */
+    @Test
+    fun journalNeedsRecovery_mixedInnerPartitions() {
+        openImage(fixture("nlmix.img"))
+        unlockWithPassword("cui_nlmix")
+        waitNoloadDialog()
+        val ntfs = waitRoot("nlmix.img #2")   // 普通に開けた分は、確認を待たずに公開される
+        assertEquals("volume seed 5042\n", readAll(ntfs, "/seed.txt").toString(Charsets.UTF_8))
+        assertEquals(null, rootIdByTitle("nlmix.img #1"))
+        assertEquals(1, VolumeRegistry.pendingCryptoList().size)
+        clickText(s(R.string.noload_dialog_confirm))
+        val ext4 = waitRoot("nlmix.img #1")
+        assertEquals("volume seed 5041\n", readAll(ext4, "/seed.txt").toString(Charsets.UTF_8))
+        assertEquals(0, rootFlags(ext4) and Root.FLAG_SUPPORTS_CREATE)
+        assertTrue(VolumeRegistry.pendingCryptoList().isEmpty())
+        clickTag("crypto_lock", 0)
+        waitRootGone("nlmix.img #1")
+        waitRootGone("nlmix.img #2")
+        assertTrue(VolumeRegistry.cryptoEntries().isEmpty())
         assertNoSecretLeak()
     }
 }

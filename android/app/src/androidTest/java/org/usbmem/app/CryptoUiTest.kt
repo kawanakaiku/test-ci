@@ -14,6 +14,8 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -37,7 +39,9 @@ import org.junit.Rule
 import org.junit.Test
 import java.io.File
 import java.io.FileInputStream
+import java.security.KeyStore
 import java.security.MessageDigest
+import javax.crypto.Cipher
 
 /**
  * 暗号ボリューム (LUKS2 / BitLocker) の UI を、実画面 (Compose) の操作で通す試験。docs/crypto-volumes.md 10 章。
@@ -85,6 +89,8 @@ class CryptoUiTest {
 
     @After fun tearDown() {
         Intents.release()
+        VaultProvider.override = null
+        cleanVaultState()
         // 解錠したまま残らないように (他の試験・次の試験へ持ち越さない)
         VolumeRegistry.discardAllPendingCrypto()
         VolumeRegistry.cryptoEntries().map { it.id }.distinct().forEach { runCatching { VolumeRegistry.remove(ctx, it) } }
@@ -416,6 +422,281 @@ class CryptoUiTest {
         waitRootGone("nlmix.img #1")
         waitRootGone("nlmix.img #2")
         assertTrue(VolumeRegistry.cryptoEntries().isEmpty())
+        assertNoSecretLeak()
+    }
+
+    // ---- パスワードの記憶 (SecretVault。docs/crypto-volumes.md「Android Keystore」)
+    // emulator では実際の生体認証が使えないので、鍵は本物の AndroidKeyStore (認証なし = requireAuth=false)、認証 (BiometricPrompt の代わり) だけを差し替える。
+    // BiometricPrompt の画面と「使うたびに認証」の鍵の挙動は、この試験では確かめられない (実機で確認)。
+
+    private class TestAuth : UserAuth {
+        @Volatile var mode = 0   // 0 = 認証 OK / 1 = 取り消し / 2 = 失敗
+        @Volatile var calls = 0
+        override fun authenticate(cipher: Cipher, title: String, subtitle: String): AuthResult {
+            calls++
+            return when (mode) { 0 -> AuthResult.Ok(cipher); 1 -> AuthResult.Cancelled; else -> AuthResult.Failed("test lockout") }
+        }
+    }
+
+    /** 本物の Keystore 鍵。[invalidated] = true で、鍵が無効化されたとき (KeyPermanentlyInvalidatedException 相当) の復号の失敗を起こす。 */
+    private class TestKeys(real: VaultKeys) : VaultKeys by real {
+        private val inner = real
+        @Volatile var invalidated = false
+        override fun decryptCipher(alias: String, iv: ByteArray): Cipher {
+            if (invalidated) throw KeyInvalidatedException("test: invalidated")
+            return inner.decryptCipher(alias, iv)
+        }
+    }
+
+    private val vaultPrefsName = "usbmem_vault_test"
+    private lateinit var vAuth: TestAuth
+    private lateinit var vKeys: TestKeys
+    private lateinit var vStore: PrefsVaultStore
+
+    private fun vaultAliases(): List<String> {
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        return ks.aliases().toList().filter { it.startsWith("usbmem.vault.") }
+    }
+    private fun cleanVaultState() {
+        runCatching {
+            val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            ks.aliases().toList().filter { it.startsWith("usbmem.vault.") }.forEach { ks.deleteEntry(it) }
+        }
+        ctx.getSharedPreferences(vaultPrefsName, 0).edit().clear().commit()
+    }
+    private fun installVault() {
+        cleanVaultState()
+        vAuth = TestAuth()
+        vKeys = TestKeys(AndroidKeystoreKeys(requireAuth = false))
+        vStore = PrefsVaultStore(ctx, vaultPrefsName)
+        VaultProvider.override = SecretVault(vKeys, vAuth, vStore)
+    }
+    private fun openUnlockDialog(index: Int = 0) { clickTag("crypto_unlock_button", index); waitTag("unlock_dialog") }
+    private fun assertNoRememberOffered() {
+        rule.onAllNodesWithTag("unlock_remember").assertCountEquals(0)
+        rule.onAllNodesWithTag("unlock_remembered").assertCountEquals(0)
+    }
+    /** 「記憶する」にチェックを入れて、パスワードで解錠する (成功すると、保存のあとでダイアログが閉じる)。 */
+    private fun unlockAndRemember(key: String) {
+        openUnlockDialog()
+        tag("unlock_remember").assertIsOff()    // 既定は記憶しない
+        clickTag("unlock_remember")
+        tag("unlock_remember").assertIsOn()
+        typePasswordAndSubmit(pw.getValue(key))
+        waitUnlocked()
+    }
+
+    /** (3) 誤ったパスワードでは保存されない → (1) 正しいパスワードで記憶 → 次回は入力なしで (記憶経由で) 解錠 → (2) 忘れると通常の入力に戻る。 */
+    @Test
+    fun vault_rememberUnlockForget() {
+        installVault()
+        openImage(fixture("whole.img"))
+
+        // 既定は記憶しない: チェックは切。パスワードを入れても、チェックしなければ何も保存されない
+        openUnlockDialog()
+        tag("unlock_remember").assertIsOff()
+        rule.onAllNodesWithTag("unlock_remembered").assertCountEquals(0)
+        // (3) 誤ったパスワード + 記憶にチェック: 認証失敗で、何も保存されない (鍵も作られない)
+        clickTag("unlock_remember")
+        tag("unlock_password").performTextReplacement("definitely-wrong-password")
+        tag("unlock_submit").assertIsEnabled().performClick()
+        waitTag("unlock_error")
+        rule.onNodeWithText(s(R.string.unlock_err_password)).assertExists()
+        assertTrue(vStore.slots().toString(), vStore.slots().isEmpty())
+        assertTrue(vaultAliases().isEmpty())
+        assertEquals(0, vAuth.calls)
+        // チェックのまま正しいパスワード → 解錠でき、記憶が 1 件だけ保存される
+        typePasswordAndSubmit(pw.getValue("cui_whole"))
+        waitUnlocked()
+        val a = waitRoot("whole.img #1")
+        assertEquals("volume seed 5011\n", readAll(a, "/seed.txt").toString(Charsets.UTF_8))
+        assertEquals(1, vStore.slots().size)
+        assertEquals(1, vaultAliases().size)
+        assertEquals("保存の認証は 1 回", 1, vAuth.calls)
+        // 暗号文に平文のパスワードは含まれない
+        val blob = vStore.get(vStore.slots().single())!!
+        assertFalse(String(blob, Charsets.ISO_8859_1).contains(pw.getValue("cui_whole")))
+        clickTag("crypto_lock", 0)
+        waitRootGone("whole.img #1")
+
+        // (1) 次回: 記憶済みの表示。記憶経由 (認証 → 取り出し) で、パスワードを入れずに解錠できる
+        openUnlockDialog()
+        waitTag("unlock_remembered")
+        rule.onAllNodesWithTag("unlock_remember").assertCountEquals(0)    // 記憶済みなら、記憶のチェックは出さない
+        clickTag("unlock_remembered")
+        waitUnlocked()
+        val b = waitRoot("whole.img #1")
+        assertEquals("volume seed 5011\n", readAll(b, "/seed.txt").toString(Charsets.UTF_8))
+        assertEquals("volume seed 5012\n", readAll(waitRoot("whole.img #2"), "/seed.txt").toString(Charsets.UTF_8))
+        assertEquals("取り出しの認証は 1 回 (計 2 回)", 2, vAuth.calls)
+        assertEquals(1, vStore.slots().size)    // 取り出しても記憶は残る
+        clickTag("crypto_lock", 0)
+        waitRootGone("whole.img #1")
+
+        // (2) 忘れる: ダイアログの「記憶を削除」で、暗号文も鍵も消え、通常のパスワード入力 (と記憶のチェック) に戻る
+        openUnlockDialog()
+        waitTag("unlock_forget")
+        clickTag("unlock_forget")
+        waitGone("unlock_remembered")
+        waitTag("unlock_remember")
+        tag("unlock_remember").assertIsOff()
+        assertTrue(vStore.slots().isEmpty())
+        assertTrue(vaultAliases().isEmpty())
+        // 忘れたあとも、パスワードを入力すれば解錠できる (チェックしないので、また保存はされない)
+        typePasswordAndSubmit(pw.getValue("cui_whole"))
+        waitUnlocked()
+        waitRoot("whole.img #1")
+        assertTrue(vStore.slots().isEmpty())
+        assertEquals(2, vAuth.calls)
+        clickTag("crypto_lock", 0)
+        waitRootGone("whole.img #1")
+        assertNoSecretLeak()
+    }
+
+    /** 記憶経由の認証を取り消したら、ダイアログは開いたまま通常のパスワード入力に戻れる (記憶は残る)。保存のときの取り消しでは何も保存しないが、解錠は成功する。 */
+    @Test
+    fun vault_cancelFallsBackToPassword() {
+        installVault()
+        openImage(fixture("whole.img"))
+
+        // 保存の認証を取り消す: 解錠は成功し、記憶は保存されない
+        vAuth.mode = 1
+        unlockAndRemember("cui_whole")
+        waitRoot("whole.img #1")
+        assertTrue(vStore.slots().isEmpty())
+        assertTrue(vaultAliases().isEmpty())
+        clickTag("crypto_lock", 0)
+        waitRootGone("whole.img #1")
+
+        // 保存できた状態にして、取り出しの認証を取り消す
+        vAuth.mode = 0
+        unlockAndRemember("cui_whole")
+        waitRoot("whole.img #1")
+        assertEquals(1, vStore.slots().size)
+        clickTag("crypto_lock", 0)
+        waitRootGone("whole.img #1")
+
+        vAuth.mode = 1
+        openUnlockDialog()
+        clickTag("unlock_remembered")
+        waitTag("unlock_error")
+        rule.onNodeWithText(s(R.string.vault_recall_cancelled)).assertExists()
+        tag("unlock_dialog").assertExists()
+        assertEquals(null, rootIdByTitle("whole.img #1"))
+        assertEquals("取り消しでは記憶を捨てない", 1, vStore.slots().size)
+        tag("unlock_remembered").assertExists()
+        // 認証の失敗 (ロックアウトなど) も同じ: パスワード入力に戻れる
+        vAuth.mode = 2
+        clickTag("unlock_remembered")
+        rule.waitUntil(30_000) { rule.onAllNodesWithText(ctx.getString(R.string.vault_recall_failed, "test lockout")).fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(1, vStore.slots().size)
+        // パスワードを入れれば解錠できる
+        typePasswordAndSubmit(pw.getValue("cui_whole"))
+        waitUnlocked()
+        waitRoot("whole.img #1")
+        clickTag("crypto_lock", 0)
+        waitRootGone("whole.img #1")
+        assertNoSecretLeak()
+    }
+
+    /** (4) 鍵が無効化された (生体登録の変更など) / 鍵が消えた: 記憶を破棄して通常のパスワード入力にフォールバックする。 */
+    @Test
+    fun vault_invalidatedKeyDiscardsMemoryAndFallsBack() {
+        installVault()
+        openImage(fixture("whole.img"))
+
+        // (a) KeyPermanentlyInvalidatedException 相当 (復号用 Cipher の用意で無効化が分かる)
+        unlockAndRemember("cui_whole")
+        waitRoot("whole.img #1")
+        assertEquals(1, vStore.slots().size)
+        clickTag("crypto_lock", 0)
+        waitRootGone("whole.img #1")
+        vKeys.invalidated = true
+        openUnlockDialog()
+        clickTag("unlock_remembered")
+        waitTag("unlock_error")
+        rule.onNodeWithText(s(R.string.vault_recall_invalidated)).assertExists()
+        waitGone("unlock_remembered")                      // 記憶済みの表示が消える
+        assertTrue(vStore.slots().isEmpty())               // 暗号文は破棄済み
+        assertTrue(vaultAliases().isEmpty())               // 鍵も消した
+        waitTag("unlock_remember")                         // 通常の入力 (記憶のチェック) に戻る
+        vKeys.invalidated = false
+        typePasswordAndSubmit(pw.getValue("cui_whole"))    // パスワードで解錠できる (記憶なし)
+        waitUnlocked()
+        waitRoot("whole.img #1")
+        assertTrue(vStore.slots().isEmpty())
+        clickTag("crypto_lock", 0)
+        waitRootGone("whole.img #1")
+
+        // (b) Keystore の鍵そのものが消えた (別の端末への復元・画面ロックの解除): 暗号文だけが残っている状態も、同じく破棄してフォールバック
+        unlockAndRemember("cui_whole")
+        waitRoot("whole.img #1")
+        assertEquals(1, vStore.slots().size)
+        clickTag("crypto_lock", 0)
+        waitRootGone("whole.img #1")
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        vaultAliases().forEach { ks.deleteEntry(it) }
+        assertTrue(vaultAliases().isEmpty())
+        assertEquals(1, vStore.slots().size)
+        openUnlockDialog()
+        clickTag("unlock_remembered")
+        waitTag("unlock_error")
+        rule.onNodeWithText(s(R.string.vault_recall_invalidated)).assertExists()
+        waitGone("unlock_remembered")
+        assertTrue(vStore.slots().isEmpty())
+        typePasswordAndSubmit(pw.getValue("cui_whole"))
+        waitUnlocked()
+        waitRoot("whole.img #1")
+        clickTag("crypto_lock", 0)
+        waitRootGone("whole.img #1")
+        assertNoSecretLeak()
+    }
+
+    /** 記憶はボリュームごと: LUKS2 を記憶しても、同じイメージの BitLocker には出ない。BitLocker (ボリューム GUID) も記憶・解錠できる。 */
+    @Test
+    fun vault_perVolumeLuksAndBitlocker() {
+        installVault()
+        openImage(fixture("gpt.img"))
+        waitTag("crypto_unlock_button", 2)
+
+        unlockAndRemember("cui_gpt_luks")
+        waitRoot("gpt.img #1")
+        assertEquals(1, vStore.slots().size)
+        clickTag("crypto_lock")
+        waitRootGone("gpt.img #1")
+
+        // 2 つ目 (BitLocker) には、記憶済みの表示は出ない (鍵は別)
+        openUnlockDialog(1)
+        rule.onAllNodesWithTag("unlock_remembered").assertCountEquals(0)
+        tag("unlock_remember").assertIsOff()
+        clickTag("unlock_remember")
+        typePasswordAndSubmit(pw.getValue("cui_gpt_bl"))
+        waitUnlocked()
+        waitRoot("gpt.img #2")
+        assertEquals("ボリュームごとに別の暗号文・別の鍵", 2, vStore.slots().size)
+        assertEquals(2, vaultAliases().size)
+        clickTag("crypto_lock")
+        waitRootGone("gpt.img #2")
+
+        // BitLocker を記憶経由で解錠
+        vAuth.calls = 0
+        openUnlockDialog(1)
+        waitTag("unlock_remembered")
+        clickTag("unlock_remembered")
+        waitUnlocked()
+        assertEquals("volume seed 5002\n", readAll(waitRoot("gpt.img #2"), "/seed.txt").toString(Charsets.UTF_8))
+        assertEquals(1, vAuth.calls)
+        clickTag("crypto_lock")
+        waitRootGone("gpt.img #2")
+
+        // LUKS2 も記憶経由で解錠できる
+        openUnlockDialog(0)
+        waitTag("unlock_remembered")
+        clickTag("unlock_remembered")
+        waitUnlocked()
+        assertEquals("volume seed 5001\n", readAll(waitRoot("gpt.img #1"), "/seed.txt").toString(Charsets.UTF_8))
+        clickTag("crypto_lock")
+        waitRootGone("gpt.img #1")
         assertNoSecretLeak()
     }
 }

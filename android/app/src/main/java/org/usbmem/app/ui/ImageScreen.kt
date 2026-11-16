@@ -53,6 +53,8 @@ interface ImageActions : NestedActions {
     fun unlockImage(uri: Uri, startBytes: Long, sizeBytes: Long, label: String, input: UnlockInput): CryptoUnlockResult
     /** 解錠したが中のジャーナルが未再生で、「読み取り専用で開く」確認を待っているイメージ由来のボリューム (画面が作り直されたあとに、ダイアログを出し直すのに使う) */
     fun pendingCryptoNoload(): List<CryptoNoloadPrompt>
+    /** 解錠ダイアログの「記憶を削除」: [volumeId] のパスワードの記憶を消す (IO スレッドから呼ばれる)。 */
+    fun forgetRemembered(volumeId: String)
     /** 確認のうえ、読み取り専用 (noload) で開く。 */
     fun confirmCryptoNoload(id: String): CryptoUnlockResult
     /** キャンセル: 保留していた復号済みデバイスを閉じる (= ロック。鍵を消す)。 */
@@ -167,12 +169,18 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
             UnlockDialog(
                 t.prompt, writeAvailable = true, writeInitial = false, busy = unlocking,
                 onCancel = { unlockTarget = null },
+                onForget = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { a.forgetRemembered(t.prompt.volumeId) }
+                        unlockTarget = unlockTarget?.let { (u, l, tt) -> Triple(u, l, tt.copy(prompt = tt.prompt.copy(remembered = false))) }
+                    }
+                },
                 onSubmit = { input ->
                     scope.launch {
                         unlocking = true
                         val r = withContext(Dispatchers.IO) { a.unlockImage(uri, t.startBytes, t.sizeBytes, label, input) }
                         unlocking = false
-                        if (r.retryError != null) unlockTarget = Triple(uri, label, t.copy(prompt = t.prompt.copy(error = r.retryError)))
+                        if (r.retryError != null) unlockTarget = Triple(uri, label, t.copy(prompt = t.prompt.copy(error = r.retryError, remembered = r.rememberedNow ?: t.prompt.remembered)))
                         else { unlockTarget = null; result = result.copy(notice = r.notice); cryptoNoload = r.noload; refreshCrypto() }
                     }
                 },

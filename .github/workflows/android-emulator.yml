@@ -101,6 +101,12 @@ jobs:
           ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true
           find app/build/outputs/apk -name '*.apk' -exec ls -l {} +
 
+      # JVM 単体試験 (パスワードの記憶 SecretVault。Android / Keystore に依存しない部分)。他の単体試験は CI で動かしていないので、この 1 クラスだけ
+      - name: JVM unit tests (VaultTest)
+        if: matrix.group == 'crypt-ui'
+        working-directory: android
+        run: ./gradlew --no-daemon :app:testDebugUnitTest --tests 'org.usbmem.app.VaultTest' -PusbmemNtfsWrite=true
+
       - name: Generate fixtures
         run: tools/ci_android_tests.sh gen ${{ matrix.group }}
 

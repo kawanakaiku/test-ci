@@ -501,11 +501,32 @@ bool overlaps_metadata(const Volume& v, const Meta& m) {
   return false;
 }
 
+// FVE メタデータヘッダ (ブロックヘッダ 64 バイトの後) のボリューム識別子 GUID (オフセット 16、16 バイト) を、標準の 8-4-4-4-12 の文字列にする。読めなければ空。
+std::string volume_guid(const Meta& m) {
+  if (m.raw.size() < 64 + 32) return std::string();
+  const uint8_t* g = m.raw.data() + 64 + 16;
+  bool any = false;
+  for (int i = 0; i < 16; i++) if (g[i]) any = true;
+  if (!any) return std::string();
+  static const char* kHex = "0123456789abcdef";
+  // Windows の GUID は先頭 3 フィールドがリトルエンディアン
+  static const int kOrder[16] = {3, 2, 1, 0, 5, 4, 7, 6, 8, 9, 10, 11, 12, 13, 14, 15};
+  std::string out;
+  for (int i = 0; i < 16; i++) {
+    if (i == 4 || i == 6 || i == 8 || i == 10) out += '-';
+    const uint8_t b = g[kOrder[i]];
+    out += kHex[b >> 4];
+    out += kHex[b & 15];
+  }
+  return out;
+}
+
 void fill_info(const Volume& v, VolumeInfo* info) {
   const Meta& m = *v.metas[0];
   ProtectorSummary ps = summarize(m);
   info->kind = CryptoKind::BitLocker;
   info->format = "BitLocker (Windows 7+)";
+  info->volume_id = volume_guid(m);
   info->cipher = method_name(m.method);
   info->can_password = ps.password;
   info->can_recovery_key = ps.recovery;

@@ -54,6 +54,8 @@ interface UsbActions : LinkActions {
     /** 解錠ダイアログの入力で解錠して、中のファイルシステムをマウント・公開する。 */
     fun unlockPartition(key: String, input: UnlockInput)
     fun cancelUnlock(key: String)
+    /** 解錠ダイアログの「記憶を削除」: [volumeId] のパスワードの記憶を消して、ダイアログを「記憶なし」の状態にする。 */
+    fun forgetRemembered(key: String, volumeId: String)
     /** 解錠した中のジャーナル未再生の FS を、確認のうえ読み取り専用 (noload) で開く。 */
     fun confirmCryptoNoload(key: String, id: String)
     /** キャンセル: 保留していた復号済みデバイスを閉じる (= ロック。鍵を消す)。 */
@@ -217,6 +219,7 @@ private fun DeviceCard(d: UsbDeviceState, a: UsbActions, canRelease: Boolean = f
         UnlockDialog(
             t.prompt, writeAvailable = d.writable, writeInitial = false, busy = d.unlocking,
             onSubmit = { a.unlockPartition(d.key, it) }, onCancel = { a.cancelUnlock(d.key) },
+            onForget = { a.forgetRemembered(d.key, t.prompt.volumeId) },
         )
     }
     linkFor?.let { pub ->

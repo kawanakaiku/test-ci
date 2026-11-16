@@ -558,6 +558,7 @@ class LuksDevice final : public DecryptingDevice {
 void fill_info(const Luks& l, VolumeInfo* info) {
   info->kind = CryptoKind::Luks;
   info->format = l.version == 1 ? "LUKS1" : "LUKS2";
+  info->volume_id = l.uuid;
   info->cipher = l.cipher_desc;
   info->supported = l.unsupported.empty() && l.mode != CryptCipher::None;
   info->can_password = true;

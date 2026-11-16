@@ -12,7 +12,7 @@ import org.json.JSONObject
  * そのハンドルを既存の NativeBridge.nativeNtfsMountDevice (他の FS も同様) に渡す。
  *
  * 資格情報は **ByteArray** (UTF-8) で扱い、String にしない (String は JVM ヒープに残り消せない)。open は渡された配列を
- * 呼び出し後にゼロで埋める。Android Keystore による資格情報の保存は設計メモのみで未実装 (docs/crypto-volumes.md「Keystore」節)。
+ * 呼び出し後にゼロで埋める。パスワードの記憶 (Android Keystore) は [SecretVault] (docs/crypto-volumes.md「Android Keystore」節)。
  */
 object CryptoNative {
     init {
@@ -46,6 +46,8 @@ data class CryptoInfo(
     val writable: Boolean = false,
     /** 書き込み不可の理由 (人に見せてよい。秘密を含まない)。 */
     val writeNote: String = "",
+    /** ボリュームの識別子 (LUKS: ヘッダの UUID / BitLocker: FVE メタデータのボリューム GUID)。無ければ空。秘密ではない。パスワード記憶 ([SecretVault]) の鍵の名前に使う。 */
+    val volumeId: String = "",
 ) {
     companion object {
         fun parse(json: ByteArray): CryptoInfo {
@@ -57,6 +59,7 @@ data class CryptoInfo(
                 unlockedWithoutSecret = o.optBoolean("no_secret"), tpmOnly = o.optBoolean("tpm_only"),
                 encryptionInProgress = o.optBoolean("in_progress"), note = o.optString("note"),
                 writeSupported = o.optBoolean("write_supported"), writable = o.optBoolean("writable"), writeNote = o.optString("write_note"),
+                volumeId = o.optString("volume_id"),
             )
         }
     }

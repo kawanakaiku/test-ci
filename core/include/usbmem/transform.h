@@ -69,6 +69,7 @@ struct VolumeInfo {
   bool write_supported = false;        // この構成 (ビルド・暗号方式・状態) なら書き込み可で開ける (資格情報・下位デバイスの書き込み可否は別)
   bool writable = false;               // open の結果: 返したデバイスは書き込み可 (is_read_only() == false)
   std::string write_note;              // 書き込み不可の理由 (要求したのに不可だったとき / probe で write_supported が false のとき)
+  std::string volume_id;               // ボリュームを識別する ID (LUKS: ヘッダの UUID / BitLocker: FVE メタデータのボリューム GUID)。無ければ空。秘密ではない (パスワード記憶の鍵の名前に使う)
 };
 
 // 暗号ボリュームかを判定し VolumeInfo を埋める。暗号ボリュームでなければ Unsupported (info->kind == Auto)。

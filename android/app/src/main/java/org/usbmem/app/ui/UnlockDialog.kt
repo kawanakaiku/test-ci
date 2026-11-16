@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import org.usbmem.app.CryptoInfo
 import org.usbmem.app.CryptoMount
 import org.usbmem.app.R
+import org.usbmem.app.SecretVault
 import org.usbmem.app.UnlockCredentials
 
 /**
@@ -56,27 +58,49 @@ data class UnlockPrompt(
     val writeSupported: Boolean,
     val writeNote: String,
     val error: String? = null,
+    /** パスワードの記憶 ([SecretVault]) の鍵になるボリューム ID。空 = 識別子が取れない (記憶の対象外)。秘密ではない。 */
+    val volumeId: String = "",
+    /** このボリュームのパスワードを記憶できる (この端末が対応・パスワードで解錠できる・識別子がある) */
+    val canRemember: Boolean = false,
+    /** すでに記憶している (生体認証 / 画面ロックで解錠できる) */
+    val remembered: Boolean = false,
 ) {
     companion object {
-        fun of(info: CryptoInfo, startBytes: Long, sizeBytes: Long, label: String): UnlockPrompt = UnlockPrompt(
-            startBytes, sizeBytes, label, CryptoMount.displayFormat(info), info.cipher,
-            info.canPassword, info.canRecoveryKey, info.canKeyFile, info.unlockedWithoutSecret,
-            usable = info.supported && !info.tpmOnly, note = info.note, writeSupported = info.writeSupported, writeNote = info.writeNote,
-        )
+        /** [vault] = パスワードの記憶。null なら記憶の機能を出さない。 */
+        fun of(info: CryptoInfo, startBytes: Long, sizeBytes: Long, label: String, vault: SecretVault? = null): UnlockPrompt {
+            val usable = info.supported && !info.tpmOnly
+            val vid = SecretVault.idOf(info)
+            val can = vault != null && usable && info.canPassword && vid.isNotEmpty() && vault.isSupported()
+            return UnlockPrompt(
+                startBytes, sizeBytes, label, CryptoMount.displayFormat(info), info.cipher,
+                info.canPassword, info.canRecoveryKey, info.canKeyFile, info.unlockedWithoutSecret,
+                usable = usable, note = info.note, writeSupported = info.writeSupported, writeNote = info.writeNote,
+                volumeId = vid, canRemember = can, remembered = can && vault!!.has(vid),
+            )
+        }
     }
 }
 
 /**
  * ダイアログが集めた入力。[cred] のバイト列は、受け取った側が使い終えたらゼロ埋めする ([CryptoMount.unlock] が最後に埋める)。
  * [keyFileUri] = BEK ファイル (中身は解錠の直前に読む。UI の状態には載せない)。[write] = 書き込み可で開く要求。
+ * パスワードの記憶: [vaultId] = 記憶の鍵 ([UnlockPrompt.volumeId])。[remember] = 解錠に成功したあと、このパスワードを記憶する (パスワード方式のときだけ)。
+ * [useRemembered] = 入力ではなく、記憶したパスワードを (生体認証 / 画面ロックのあとで) 使って解錠する ([cred] は空)。
  */
-class UnlockInput(val cred: UnlockCredentials, val method: CryptoMount.Method, val keyFileUri: Uri?, val write: Boolean)
+class UnlockInput(
+    val cred: UnlockCredentials, val method: CryptoMount.Method, val keyFileUri: Uri?, val write: Boolean,
+    val vaultId: String = "", val remember: Boolean = false, val useRemembered: Boolean = false,
+)
 
 /** 暗号ボリュームを調べた結果。[prompt] があれば解錠ダイアログを出す。なければ [notice] (暗号ではない・開けない) を見せる。 */
 data class CryptoProbeResult(val prompt: UnlockPrompt? = null, val notice: Notice? = null)
 
 /** 解錠の結果。[retryError] があれば、ダイアログを開いたまま、その文言を出して再入力させる (認証失敗など)。なければ [notice] を見せてダイアログを閉じる。 */
-data class CryptoUnlockResult(val notice: Notice? = null, val retryError: String? = null, val noload: CryptoNoloadPrompt? = null)
+data class CryptoUnlockResult(
+    val notice: Notice? = null, val retryError: String? = null, val noload: CryptoNoloadPrompt? = null,
+    /** 非 null = 解錠のあとの「記憶している」状態 (記憶を捨てた・保存したとき)。null = 変化なし */
+    val rememberedNow: Boolean? = null,
+)
 
 /**
  * 解錠はできたが、中の ext3/ext4 などのジャーナルが未再生 (EUCLEAN) で、「読み取り専用で開く」確認を待っているボリューム (資格情報は含まない)。
@@ -109,6 +133,8 @@ internal fun normalizeRecoveryKey(s: String): String {
 fun UnlockDialog(
     prompt: UnlockPrompt, writeAvailable: Boolean, writeInitial: Boolean, busy: Boolean,
     onSubmit: (UnlockInput) -> Unit, onCancel: () -> Unit,
+    /** 記憶したパスワードを忘れる (記憶を削除する)。呼び出し側が [UnlockPrompt.remembered] を false にして出し直す */
+    onForget: () -> Unit = {},
 ) {
     val methods = buildList {
         if (prompt.canPassword) add(CryptoMount.Method.Password)
@@ -123,6 +149,7 @@ fun UnlockDialog(
     val writePossible = writeAvailable && prompt.writeSupported
     var write by remember { mutableStateOf(writePossible && writeInitial) }
     var confirmWrite by remember { mutableStateOf(false) }
+    var rememberIt by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> if (uri != null) keyFileUri = uri }
 
     val recoveryOk = recovery.count { it in '0'..'9' } == 48
@@ -139,10 +166,18 @@ fun UnlockDialog(
             CryptoMount.Method.RecoveryKey -> if (recovery.isNotEmpty()) c.recoveryKey = normalizeRecoveryKey(recovery).toByteArray(Charsets.UTF_8)
             CryptoMount.Method.KeyFile -> {}
         }
-        val input = UnlockInput(c, method, if (method == CryptoMount.Method.KeyFile) keyFileUri else null, write && writePossible)
+        val input = UnlockInput(
+            c, method, if (method == CryptoMount.Method.KeyFile) keyFileUri else null, write && writePossible,
+            vaultId = prompt.volumeId, remember = rememberIt && prompt.canRemember && !prompt.remembered && method == CryptoMount.Method.Password && password.isNotEmpty(),
+        )
         // 送信したら、入力欄の文字列への参照を捨てる (失敗して再入力になっても、前回の内容は残さない)
         password = ""; recovery = ""; showPassword = false
         onSubmit(input)
+    }
+
+    /** 記憶したパスワードで解錠する (入力は使わない。生体認証 / 画面ロックは受け取った側が求める)。 */
+    fun submitRemembered() {
+        onSubmit(UnlockInput(UnlockCredentials(), CryptoMount.Method.Password, null, write && writePossible, vaultId = prompt.volumeId, useRemembered = true))
     }
 
     AlertDialog(
@@ -156,6 +191,17 @@ fun UnlockDialog(
                 if (!prompt.usable) Banner(Notice(Severity.Warning, stringResource(R.string.unlock_unusable, prompt.note)))
                 prompt.error?.let { Banner(Notice(Severity.Error, it), Modifier.testTag("unlock_error")) }
                 if (prompt.usable && prompt.noSecret) Text(stringResource(R.string.unlock_no_secret), style = MaterialTheme.typography.bodyMedium)
+                if (prompt.usable && prompt.canRemember && prompt.remembered) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(stringResource(R.string.unlock_remembered_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedButton(onClick = { submitRemembered() }, enabled = !busy, modifier = Modifier.weight(1f).testTag("unlock_remembered")) {
+                                Text(stringResource(R.string.unlock_remembered_button))
+                            }
+                            TextButton(onClick = onForget, enabled = !busy, modifier = Modifier.testTag("unlock_forget")) { Text(stringResource(R.string.unlock_forget)) }
+                        }
+                    }
+                }
                 if (prompt.usable && methods.size > 1) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         methods.forEach { m ->
@@ -178,6 +224,16 @@ fun UnlockDialog(
                         )
                         TextButton(onClick = { showPassword = !showPassword }, enabled = !busy, modifier = Modifier.testTag("unlock_show_toggle")) {
                             Text(stringResource(if (showPassword) R.string.unlock_hide else R.string.unlock_show))
+                        }
+                        // パスワードの記憶 (既定はオフ。解錠に成功したあとにだけ保存する)
+                        if (prompt.canRemember && !prompt.remembered) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = rememberIt, onCheckedChange = { rememberIt = it }, enabled = !busy, modifier = Modifier.testTag("unlock_remember"))
+                                Column(Modifier.weight(1f)) {
+                                    Text(stringResource(R.string.unlock_remember_label), style = MaterialTheme.typography.bodyMedium)
+                                    Text(stringResource(R.string.unlock_remember_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
                         }
                     }
                     CryptoMount.Method.RecoveryKey -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

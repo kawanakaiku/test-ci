@@ -653,7 +653,13 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     // ---- 暗号ボリューム (LUKS1/2・BitLocker): 解錠して、中のファイルシステムを通常のボリュームと同じ流れで公開する。docs/crypto-volumes.md 10 章
     // 資格情報はダイアログから ByteArray で届き、CryptoMount.unlock が使い終えるとゼロ埋めする。ログ・SharedPreferences・登録簿には何も残さない (登録簿は再起動で消え、解錠し直す)。
 
-    private class CryptoOutcome(val notice: Notice?, val retryError: String?, val pubs: List<PublishedVolume> = emptyList(), val noload: CryptoNoloadPrompt? = null)
+    private class CryptoOutcome(
+        val notice: Notice?, val retryError: String?, val pubs: List<PublishedVolume> = emptyList(), val noload: CryptoNoloadPrompt? = null,
+        /** 非 null = 解錠のあとの「パスワードを記憶している」状態 (記憶を捨てた / 保存した)。null = 変化なし */
+        val rememberedNow: Boolean? = null,
+    )
+
+    private val vault: SecretVault get() = VaultProvider.get(this)
 
     /** BEK ファイル (数十バイト) を読む。失敗は null。中身は呼び出し側が解錠後に消す。 */
     private fun readKeyFile(u: Uri?): ByteArray? = try {
@@ -721,14 +727,33 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         stillValid: () -> Boolean, open: (UnlockCredentials) -> UnlockedCrypto,
     ): CryptoOutcome {
         val cred = input.cred
+        var toRemember: ByteArray? = null   // 解錠に成功したあとで記憶するパスワードのコピー (cred は unlock が消すので別に持つ。使い終えたらゼロ埋め)
         try {
             if (VolumeRegistry.cryptoEntries().any { it.crypto?.groupId == gid }) return CryptoOutcome(Notice(Severity.Warning, getString(R.string.crypto_already_unlocked)), null)
             if (input.method == CryptoMount.Method.KeyFile) {
                 cred.keyFile = readKeyFile(input.keyFileUri)
                 if (cred.keyFile == null) return CryptoOutcome(null, getString(R.string.unlock_err_keyfile_read))
             }
+            if (input.useRemembered) {
+                // 記憶したパスワードを、生体認証 / 画面ロックのあとで取り出す。取り消し・失敗・無効化は、通常のパスワード入力に戻す (ダイアログは開いたまま)
+                when (val rr = vault.recall(input.vaultId, getString(R.string.vault_prompt_unlock_title), label)) {
+                    is RecallResult.Secret -> { cred.password = rr.bytes }
+                    is RecallResult.Cancelled -> return CryptoOutcome(null, getString(R.string.vault_recall_cancelled))
+                    is RecallResult.Invalidated, is RecallResult.NotRemembered -> return CryptoOutcome(null, getString(R.string.vault_recall_invalidated), rememberedNow = false)
+                    is RecallResult.Failed -> return CryptoOutcome(null, getString(R.string.vault_recall_failed, rr.message))
+                }
+            } else if (input.remember && input.method == CryptoMount.Method.Password && input.vaultId.isNotEmpty()) {
+                toRemember = cred.password?.copyOf()
+            }
             VolumeRegistry.discardPendingCrypto(gid)   // 同じボリュームの確認待ちが残っていれば、解錠のやり直しなので手放す
-            val r = try { open(cred) } catch (e: Exception) { return cryptoFailure(e, input.method) }
+            val r = try { open(cred) } catch (e: Exception) {
+                if (input.useRemembered && e is CryptoException && e.authFailed) {
+                    // 記憶していたパスワードがもう合わない (ボリュームのパスワードが変わった): 記憶を捨てて、入力に戻す
+                    vault.forget(input.vaultId)
+                    return CryptoOutcome(null, getString(R.string.vault_recall_stale), rememberedNow = false)
+                }
+                return cryptoFailure(e, input.method)
+            }
             val info = r.info
             val format = info?.let { CryptoMount.displayFormat(it) } ?: ""
             val cipher = info?.cipher ?: ""
@@ -753,8 +778,26 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             }
             notifyRoots()
             val prompt = if (rec != null) CryptoNoloadPrompt(gid, label, r.writeRequested) else null
-            return CryptoOutcome(if (r.volumes.isEmpty()) null else cryptoSuccessNotice(r, label), null, pubs, prompt)
+            // パスワードの記憶: 解錠に成功した (= パスワードが正しい) あとだけ保存する。認証の取り消し・失敗でも、解錠そのものは成功のまま
+            var savedNow: Boolean? = null
+            var saveMsg: String? = null
+            val secret = toRemember
+            if (secret != null) {
+                when (val sr = vault.remember(input.vaultId, secret, getString(R.string.vault_prompt_save_title), label)) {
+                    is RememberResult.Saved -> { savedNow = true; saveMsg = getString(R.string.vault_saved) }
+                    is RememberResult.Cancelled -> saveMsg = getString(R.string.vault_save_cancelled)
+                    is RememberResult.Failed -> saveMsg = getString(R.string.vault_save_failed, sr.message)
+                }
+            }
+            val base = if (r.volumes.isEmpty()) null else cryptoSuccessNotice(r, label)
+            val notice = when {
+                saveMsg == null -> base
+                base == null -> Notice(Severity.Info, saveMsg)
+                else -> base.copy(detail = listOfNotNull(base.detail, saveMsg).joinToString("\n"))
+            }
+            return CryptoOutcome(notice, null, pubs, prompt, rememberedNow = savedNow)
         } finally {
+            toRemember?.fill(0)
             cred.wipe()
         }
     }
@@ -771,7 +814,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             try {
                 val info = sess.withHandle { CryptoMount.probe(it, startBytes, sizeBytes) }
                 if (info == null) notice = Notice(Severity.Warning, getString(R.string.crypto_not_encrypted))
-                else prompt = UnlockPrompt.of(info, startBytes, sizeBytes, label)
+                else prompt = UnlockPrompt.of(info, startBytes, sizeBytes, label, vault)
             } catch (e: Exception) {
                 notice = Notice(Severity.Error, getString(R.string.crypto_open_failed), e.message ?: e.javaClass.simpleName)
             }
@@ -799,7 +842,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 val st = state(key)
                 if (st != null) {
                     st.unlocking = false
-                    if (out.retryError != null) st.unlockTarget = st.unlockTarget?.let { it.copy(prompt = it.prompt.copy(error = out.retryError)) }
+                    if (out.retryError != null) st.unlockTarget = st.unlockTarget?.let { it.copy(prompt = it.prompt.copy(error = out.retryError, remembered = out.rememberedNow ?: it.prompt.remembered)) }
                     else {
                         st.unlockTarget = null
                         st.notice = out.notice
@@ -812,6 +855,14 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     }
 
     override fun cancelUnlock(key: String) { state(key)?.let { if (!it.unlocking) it.unlockTarget = null } }
+
+    override fun forgetRemembered(key: String, volumeId: String) {
+        if (volumeId.isEmpty()) return
+        Thread {
+            vault.forget(volumeId)
+            ui { state(key)?.let { st -> st.unlockTarget = st.unlockTarget?.let { it.copy(prompt = it.prompt.copy(remembered = false)) } } }
+        }.start()
+    }
 
     /**
      * 確認 (「読み取り専用で開く」) を受けて、保留していた中の FS を noload で (読み取り専用に) マウントして公開する。保留が無ければ (USB が閉じられた等) 通知だけ。
@@ -891,7 +942,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         try {
             val info = CryptoMount.probe(base, startBytes, sizeBytes)
             if (info == null) CryptoProbeResult(notice = Notice(Severity.Warning, getString(R.string.crypto_not_encrypted)))
-            else CryptoProbeResult(prompt = UnlockPrompt.of(info, startBytes, sizeBytes, label))
+            else CryptoProbeResult(prompt = UnlockPrompt.of(info, startBytes, sizeBytes, label, vault))
         } finally { NativeBridge.nativeClose(base) }
     } catch (e: Exception) {
         CryptoProbeResult(notice = Notice(Severity.Error, getString(R.string.crypto_open_failed), e.message ?: e.javaClass.simpleName))
@@ -903,8 +954,10 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             val (base, rw) = openImageBase(uri, input.write)
             CryptoMount.unlock(base, rw, startBytes, sizeBytes, cred, input.method, input.write, createOnly = false, groupId = gid, extraClose = { NativeBridge.nativeClose(base) })
         }
-        return CryptoUnlockResult(out.notice, out.retryError, out.noload)
+        return CryptoUnlockResult(out.notice, out.retryError, out.noload, out.rememberedNow)
     }
+
+    override fun forgetRemembered(volumeId: String) { if (volumeId.isNotEmpty()) vault.forget(volumeId) }
 
     override fun pendingCryptoNoload(): List<CryptoNoloadPrompt> =
         VolumeRegistry.pendingCryptoList().filter { it.deviceName == null }.map { CryptoNoloadPrompt(it.id, it.label, it.writeRequested) }
@@ -990,12 +1043,14 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         // 終了するとき (戻るボタンなど) だけ、全部のデバイスを閉じる。システムによる作り直しでは、セッションはプロセスが持っているので閉じない
         if (isFinishing) { sessions.closeAll(); VolumeRegistry.discardAllPendingCrypto() }   // 確認待ちの暗号ボリュームの鍵も消す (画面の回転・再作成では残し、ダイアログを出し直す)
         sessions.removeListener(sessionListener)
+        VaultProvider.detach(this)
         super.onDestroy()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        VaultProvider.attach(this)   // パスワードの記憶 (生体認証 / 画面ロック) の画面を出す先
         sessions.addListener(sessionListener)
         setContent { AppTheme { AppScaffold(model, this, this, this) } }
     }

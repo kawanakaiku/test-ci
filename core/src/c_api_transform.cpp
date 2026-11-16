@@ -36,6 +36,8 @@ std::string info_json(const VolumeInfo& i) {
   json_str(o, i.note);
   o += ",\"write_note\":";
   json_str(o, i.write_note);
+  o += ",\"volume_id\":";
+  json_str(o, i.volume_id);
   o += "}";
   return o;
 }

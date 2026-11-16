@@ -498,6 +498,8 @@ UI の実機確認 その 2 (2026-11-17、J9260、同じ APK、C の p2 / p3 / p
 - **p5 BitLocker** (同日): 「解錠してマウント」→ 解錠ダイアログ (BitLocker (Windows 7+)・XTS-AES-128)。この合成ボリュームは保護子がパスワードだけなので、入力欄はパスワードだけが出る (回復キー・BEK の切り替えは出ない)。誤ったパスワードは「パスワードが違います。」で拒否され (`CryptoException code=12`)、正しいパスワード (読み取り専用) で解錠でき、「読み取り専用」の表示と「ロック (アンマウント)」が出る。ロックすると「解錠してマウント」に戻る。
 - 未確認: 回復キー (48 桁) と BEK ファイルの実機での入力 (C の p5 は保護子がパスワードだけ。回復パスワード / BEK 付きの構成は `bitlocker_synth.py --protectors pw,rec,bek` で作れる。エミュレータの crypt-ui テストでは確認済み)。
 
+UI 確認後の PC 側の再検査 (2026-11-17、`ssh home-notepc`、読み取り専用): 上の UI 確認 (p1〜p4 を書き込み可でマウントしただけで、ファイルは書いていない) の後に C を PC へ戻し、p1 `xfs_repair -n` rc=0 (異常なし)、p2 `btrfs check --readonly` rc=0 ("no error found")、p3 `fsck.f2fs --dry-run` rc=0 (全項目 Ok)、p4 LUKS2 を `--readonly` で開いて `e2fsck -fn` rc=0 (clean) だった。書き込み可のマウントとロック / アンマウントだけでは、FS は壊れていない。
+
 ## 11. PC に戻した後 (fsck とマニフェスト照合)
 
 USB を PC に戻す (自動マウントさせず、`lsblk` で `/dev/sdX` を確認)。

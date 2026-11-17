@@ -98,6 +98,11 @@ LFS 2.0 (Windows 11 の使用中) のダーティは、`state()` に `DIRTY` だ
 - Android emulator tests (run 44096388238): 6 グループすべて成功。`ro-misc` の `ntfs_read` で `VolumeStateInstrumentedTest` を含む 8 件が skip 0 で成功 (書き込み有効のビルドなので、rw 要求の検査も実行された)。`ext-fat` の FAT / exFAT のダーティの検査も成功。
 - ctest は成功時に出力を出さないため、上流だけの rw マウントでログがどうなるかの `info:` 行は CI の記録では見ていない (判定には使っていない)。
 
+## CI の結果 (確認ダイアログ、2026-11-17 UTC、ブランチ usbmem-ci-full-dirtyask、コミット c25de43)
+
+- Host tests (run 44168855046): plain / san / wsan / wrel の 4 構成すべて成功 (`ntfs_state` は 4 構成とも Passed。所要 133 分、wsan が最長)。
+- Android emulator tests (run 44168854969): 6 グループすべて成功。`ro-misc` の `ntfs_read` は 18 件 (`VolumeStateInstrumentedTest` + `DirtyConfirmUiTest` 9 件を含む) が skip 0・失敗 0。`crypt-ui` は 10 件成功 (既存の noload の確認フローは `CryptoPendingDialog` に置き換えても通る)。
+
 ## 残る課題・未検証
 
 - **実機・実 Windows 製イメージでの確認は未** (Windows 11 の LFS 2.0 のダーティ、高速スタートアップの実イメージ)。`LOG_UNCLEAN` は LFS 1.1 の restart area の印だけを見る。LFS 2.0 の restart area の配置が 1.1 と同じかは未確認なので、2.0 の判定は上流 (読めず読み取り専用) に任せている。

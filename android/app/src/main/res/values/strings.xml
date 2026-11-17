@@ -31,7 +31,7 @@
     <string name="usb_open_read_only">開く (読み取り専用)</string>
     <string name="usb_published_title">マウント中</string>
     <string name="usb_published_desc">ファイルアプリの一覧に「USB Storage Manager」として表示されます。</string>
-    <string name="usb_published_warning">作業が終わったら、必ず下のボタンで閉じてください。アプリを強制終了したり USB を抜くと、NTFS がダーティのまま残り、Windows で chkdsk が走ります。</string>
+    <string name="usb_published_warning">作業が終わったら、必ず下のボタンで閉じてください。アプリを強制終了したり USB を抜くと、NTFS / exFAT / FAT が「正しく取り外されていない」(ダーティ) 状態で残り、Windows でドライブのスキャンと修復 (chkdsk) が走ります。</string>
     <string name="usb_close_safely">USB を安全に閉じる</string>
     <string name="usb_publish_whole_device">デバイス全体をマウント (読み取り専用)</string>
     <string name="usb_close_without_publish">マウントせずに USB を閉じる</string>
@@ -154,13 +154,32 @@
     <string name="mode_read_only">読み取り専用</string>
     <string name="mode_create_only">新規作成のみ書き込み可</string>
     <string name="notice_published_read_only">読み取り専用でマウントしました</string>
-    <string name="notice_published_read_only_detail">書き込みは使えません (ビルドで無効、またはボリュームに異常/ダーティがあります)。</string>
+    <string name="notice_published_read_only_detail">書き込みは使えません。このビルドで書き込みが無効か、ボリュームが書き込みの条件 (対応している機能・エラー状態がない) を満たしていません。</string>
     <string name="notice_ntfs_open_failed">対応するファイルシステムとして開けません</string>
     <string name="notice_ntfs_open_failed_with_reason">対応するファイルシステムとして開けません: %1$s</string>
     <string name="notice_fs_needs_recovery">未回復または破損のため、マウントしません</string>
     <string name="notice_fs_needs_recovery_detail">まだ反映されていない更新 (ext3 / ext4 / XFS のジャーナル、Btrfs のログ、F2FS の直近の fsync の記録) が残っているか、ファイルシステムの内部が壊れています。書き込み中に取り外された可能性があります。このアプリはジャーナルを再生しないため、そのまま読むと古い内容が見えることがあります。PC や Linux 機器で fsck (e2fsck / chkdsk) を実行してから、もう一度マウントしてください。</string>
     <string name="notice_fs_unsupported_feature">対応していない機能のため、マウントできません</string>
     <string name="notice_fs_unsupported_feature_detail">暗号化・大文字小文字の無視 (casefold)・fs-verity など、このアプリが対応していない ext4 / F2FS の機能が有効です。</string>
+
+    <!-- ボリュームの状態 (ダーティ / 未再生ログ / 休止状態 / メディアエラー) の原因別の案内。VolumeStateNotice が組み立てる。docs/dirty-volumes.md -->
+    <string name="notice_vol_hibernated">Windows が休止状態のままのボリュームです</string>
+    <string name="notice_vol_log_unclean">Windows の書き込みが途中のままのボリュームです</string>
+    <string name="notice_vol_dirty">前回、正しく取り外されていないボリュームです</string>
+    <string name="notice_vol_media_error">メディアエラーの印が付いたボリュームです</string>
+    <string name="notice_vol_dirty_writable">ダーティフラグ付きのボリュームを書き込み可で開きました</string>
+    <string name="vol_cause_hibernated">Windows が休止状態 (高速スタートアップを含む) のままシャットダウンされ、hiberfil.sys が残っています。Windows がまだ書き戻していない内容があるため、いま読むと内容が古いことがあり、書き込むと Windows が再開したときにボリュームが壊れます。</string>
+    <string name="vol_cause_log_unclean">NTFS の $LogFile に、Windows が反映し終えていない更新の記録 (未再生のログ) が残っています。書き込み中に取り外されたか、Windows が休止状態のままです。このアプリはログを再生しないので、読み取りはできますが、内容が最新でない・一部が欠けている可能性があります。</string>
+    <string name="vol_cause_dirty_ntfs">NTFS のダーティフラグが付いています (Windows で「安全に取り外す」をせずに抜かれた、または高速スタートアップのまま終了した可能性があります)。</string>
+    <string name="vol_cause_dirty_exfat">exFAT のダーティフラグ (VolumeDirty) が付いています (「安全に取り外す」をせずに抜かれた、または書き込み途中だった可能性があります)。</string>
+    <string name="vol_cause_dirty_fat">FAT のダーティビット (前回きれいに取り外されなかった印) が付いています。</string>
+    <string name="vol_cause_media_error">「メディアエラーあり (表面検査が必要)」の印が付いています。読み書きできない場所がある可能性があります。</string>
+    <string name="vol_effect_ro_forced">書き込みを許可していましたが、データを守るため読み取り専用で開きました。</string>
+    <string name="vol_effect_ro">読み取り専用で開いています。</string>
+    <string name="vol_effect_writable_dirty">ログに未再生の更新は無いため書き込み可で開きました。閉じるときにダーティフラグを下ろします。Windows で chkdsk を実行したことがない場合は、念のため先にバックアップを取ってください。</string>
+    <string name="vol_remedy_hibernated">書き込むには、Windows に挿して「ハードウェアを安全に取り外してメディアを取り出す」で取り外してから、挿し直してください。Windows を終了するときは、Shift キーを押しながら「シャットダウン」を選ぶか、「高速スタートアップを有効にする」をオフにすると、休止状態になりません。</string>
+    <string name="vol_remedy_dirty">書き込むには、Windows に挿して、エクスプローラーでドライブの「取り出し」(または「ハードウェアを安全に取り外してメディアを取り出す」) をしてから、挿し直してください。ドライブのスキャンと修復 (chkdsk) を求められたら実行してください。このアプリはログの再生も、ダーティフラグの書き換えもしません。</string>
+    <string name="vol_remedy_media_error">Windows の chkdsk /r (不良セクターの検査) などで確認し、大事なデータは先にコピーしてください。</string>
     <string name="notice_ntfs_open_failed_tuning_reset">保存した転送設定を使っていたため、既定に戻しました。USB を閉じて、開き直してください。</string>
     <string name="busy_closing_usb">USB を閉じています (書き込みの確定とアンマウント)…</string>
     <string name="notice_usb_closed">USB を閉じました</string>
@@ -173,7 +192,7 @@
     <string name="notice_image_shared_write">書き込み可 (実験的) でマウントしました: %1$s</string>
     <string name="notice_image_shared_write_detail">ファイルアプリの一覧に表示されます。バックアップを取ってから使ってください。</string>
     <string name="notice_image_shared_fallback">読み取り専用でマウントしました: %1$s</string>
-    <string name="notice_image_shared_fallback_detail">書き込みは使えません (ビルドで無効、またはボリュームに未処理の異常/ダーティがあります)。</string>
+    <string name="notice_image_shared_fallback_detail">書き込みは使えません。このビルドで書き込みが無効か、ボリュームが書き込みの条件 (対応している機能・エラー状態がない) を満たしていません。</string>
     <string name="usb_power_title">ディスクの電源</string>
     <string name="usb_power_subtitle">回転を止めてから、USB を抜けます</string>
     <string name="usb_power_desc">ディスクの回転を止めます (SCSI の START STOP UNIT)。書き込みを確定して、マウント中のボリュームを閉じてから止めます。ディスクやケースによっては、この命令に対応していません。</string>

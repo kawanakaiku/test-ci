@@ -52,7 +52,7 @@ gen_fs() {
     ext4_read)   py "$HERE/gen_ext4_fixture.py" "$FIX/ext4" ;;
     exfat_read)  py "$HERE/gen_exfat_fixture.py" "$FIX/exfat" ;;
     iso_read)    py "$HERE/gen_iso_fixture.py" "$FIX/iso" ;;
-    ntfs_read)   bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
+    ntfs_read)   bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" && py "$HERE/gen_ntfs_state_fixture.py" "$FIX/ntfs" ;;   # ntfs_state_*.img (ダーティ / 未再生ログ / 休止状態。docs/dirty-volumes.md)
     app_misc)    py "$HERE/gen_ext2_fixture.py" "$FIX/ext2" && bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
     write) bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
     crypt_ui)    py "$HERE/gen_crypt_ui_fixture.py" "$FIX/crypt_ui" ;;
@@ -109,7 +109,7 @@ run_generic() {   # run_generic <クラス,...> <dir>:<prefix> ...
   local dp
   for dp in "$@"; do push_dir "${dp%%:*}" "${dp#*:}" || return 1; done
   instr_classes "$cls"; local r=$?
-  adbs shell 'rm -f /data/local/tmp/ext2_* /data/local/tmp/ext4_* /data/local/tmp/exfat_* /data/local/tmp/iso_* /data/local/tmp/ntfs_basic.* /data/local/tmp/cui_*' >/dev/null
+  adbs shell 'rm -f /data/local/tmp/ext2_* /data/local/tmp/ext4_* /data/local/tmp/exfat_* /data/local/tmp/iso_* /data/local/tmp/ntfs_basic.* /data/local/tmp/ntfs_state_* /data/local/tmp/cui_*' >/dev/null
   return $r
 }
 APP=org.usbmem.app
@@ -134,7 +134,7 @@ run_fs() {
     ext4_read)   run_generic $APP.Ext4InstrumentedTest "$FIX/ext4:ext4_" ;;
     exfat_read)  run_generic $APP.ExfatInstrumentedTest "$FIX/exfat:exfat_" ;;
     iso_read)    run_generic $APP.IsofsInstrumentedTest "$FIX/iso:iso_" ;;
-    ntfs_read)   run_generic $APP.NtfsInstrumentedTest "$FIX/ntfs:" ;;
+    ntfs_read)   run_generic $APP.NtfsInstrumentedTest,$APP.VolumeStateInstrumentedTest "$FIX/ntfs:" ;;
     # LinkProviderTest は ext2_wr.img (= b1k.img のコピー) と ntfs_basic を使う
     app_misc)    mkdir -p "$FIX/misc" && cp "$FIX/ext2/b1k.img" "$FIX/misc/ext2_wr.img" \
                    && run_generic $APP.DocumentsProviderTest,$APP.LinkProviderTest,$APP.WriteSelfTestInstrumented,$APP.RawImageInstrumentedTest,$APP.TransferTuningTest "$FIX/ntfs:" "$FIX/misc:" ;;

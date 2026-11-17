@@ -8,6 +8,7 @@
 #define USBMEM_FAT_C_H
 #include <stddef.h>
 #include <stdint.h>
+#include "usbmem/vol_state.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -28,6 +29,7 @@ void usbmem_fat_set_timezone(int minutes_west);
 /* bdev は usbmem_bdev_wrap() (ntfs_c.h) で作る。 */
 int usbmem_fat_mount(struct usbmem_bdev *bdev, int read_only, usbmem_fat **out);
 int usbmem_fat_writable(usbmem_fat *);
+unsigned usbmem_fat_state(usbmem_fat *);   /* マウント直後の状態 (USBMEM_VOL_DIRTY = ブートセクタのダーティ bit / FAT[1] のクリーン bit、USBMEM_VOL_MEDIA_ERROR。vol_state.h) */
 void usbmem_fat_unmount(usbmem_fat *);
 int usbmem_fat_lookup(usbmem_fat *, uint64_t dir_ino, const char *name, size_t len, uint64_t *ino);
 int usbmem_fat_stat_ino(usbmem_fat *, uint64_t ino, usbmem_fat_stat *st);

@@ -16,6 +16,9 @@ class NtfsVolume final : public FsVolume {
   // 読み取り専用でマウント。失敗時 nullptr と errno を *err に返す(負の errno ではなく正の値)。
   static std::unique_ptr<NtfsVolume> mount(BlockDevicePtr dev, int* err = nullptr);
   // 読み書きでマウント (実験的)。ビルドで USBMEM_NTFS_WRITE=ON が必要。無効なら err=EROFS。
+  // ログの再生は実装しない。上流の書き込みマウントは $LogFile を空にして (= 未再生の更新を捨てて) 書き始めるので、先に読み取り専用でマウントして状態を調べ、
+  // $LogFile に未再生のログがある / Windows が休止状態 (高速スタートアップ) のボリュームは、書き込みを要求されても読み取り専用のまま返す (writable() == false、state() で理由が分かる。docs/dirty-volumes.md)。
+  // ダーティフラグだけ (ログは静止) のボリュームは従来どおり書き込み可で開き、クリーンなアンマウントでフラグを下ろす (上流の方針)。
   static std::unique_ptr<NtfsVolume> mount_rw(BlockDevicePtr dev, int* err = nullptr);
   const char* fs_name() const override { return "ntfs"; }
   int sync() override;
@@ -26,7 +29,10 @@ class NtfsVolume final : public FsVolume {
   int rmdir(uint64_t dir, const std::string& name) override;
   int rename(uint64_t old_dir, const std::string& old_name, uint64_t new_dir, const std::string& new_name) override;
   int64_t write(uint64_t ino, uint64_t off, const void* buf, size_t len) override;   // 実験的: 拡張可。sync() で永続化
-  bool writable() const override;                        // rw 要求でも、異常 (ダーティ等) で読み取り専用に落ちていれば false
+  // rw 要求でも読み取り専用に落ちていれば false。落ちる理由: 未再生の $LogFile・休止状態 (どちらもこの層が書き込みを許さない。下の mount_rw) / 上流が見つけた異常 / ビルドで無効。
+  bool writable() const override;
+  // マウント時の状態 (USBMEM_VOL_DIRTY / LOG_UNCLEAN / HIBERNATED)。読み取り専用で開いたときも返す。
+  uint32_t state() const override;
   int truncate(uint64_t ino, uint64_t size) override;   // 実験的: 0 / 負の errno
   int64_t write_inplace(uint64_t ino, uint64_t off, const void* buf, size_t len) override;
   ~NtfsVolume() override;
@@ -38,6 +44,7 @@ class NtfsVolume final : public FsVolume {
 
  private:
   friend std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr, int, int*);
+  static std::unique_ptr<NtfsVolume> mount_once(const BlockDevicePtr& dev, int ro, int* err);   // 1 回マウントし、状態 (state()) も調べる
   NtfsVolume() = default;
   struct Impl;
   std::unique_ptr<Impl> impl_;

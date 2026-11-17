@@ -333,11 +333,17 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 if (v.journalIgnored) {
                     pub = PublishedVolume(label, getString(R.string.mode_read_only_journal_ignored), false, volumeKey = vk, startBytes = startBytes)
                     notice = Notice(Severity.Warning, getString(R.string.notice_journal_ignored), getString(R.string.notice_journal_ignored_detail))
-                } else if (!sess.writable) pub = PublishedVolume(label, roText, false, volumeKey = vk, startBytes = startBytes)
-                else if (v.writable) pub = PublishedVolume(label, getString(if (v.createOnly) R.string.mode_create_only else R.string.mode_full), true, fullWrite = !v.createOnly, canLink = v.fsName == "ext2" || v.fsName == "ext4" || v.fsName == "btrfs" || v.fsName == "f2fs" || v.fsName == "xfs", volumeKey = vk, startBytes = startBytes)
-                else {
+                } else if (!sess.writable) {
                     pub = PublishedVolume(label, roText, false, volumeKey = vk, startBytes = startBytes)
-                    notice = Notice(Severity.Warning, getString(R.string.notice_published_read_only), getString(R.string.notice_published_read_only_detail))
+                    notice = VolumeStateNotice.of(this, v, writeRequested = false)   // ダーティ / 未再生ログ / 休止状態の案内 (無ければ通知なし)
+                } else if (v.writable) {
+                    pub = PublishedVolume(label, getString(if (v.createOnly) R.string.mode_create_only else R.string.mode_full), true, fullWrite = !v.createOnly, canLink = v.fsName == "ext2" || v.fsName == "ext4" || v.fsName == "btrfs" || v.fsName == "f2fs" || v.fsName == "xfs", volumeKey = vk, startBytes = startBytes)
+                    notice = VolumeStateNotice.of(this, v, writeRequested = true)   // ダーティフラグ付きだがログは静止: 書き込み可で開いた旨
+                } else {
+                    pub = PublishedVolume(label, roText, false, volumeKey = vk, startBytes = startBytes)
+                    // 書き込めない実際の原因 (ダーティ・未再生ログ・休止状態・メディアエラー) が取れていれば、それを案内する。取れなければ汎用の文言
+                    notice = VolumeStateNotice.of(this, v, writeRequested = true)
+                        ?: Notice(Severity.Warning, getString(R.string.notice_published_read_only), getString(R.string.notice_published_read_only_detail))
                 }
             } catch (e: NativeException) {
                 android.util.Log.w("usbmem", "ntfs mount failed [$key]: code=${e.code} ${e.message}")
@@ -641,9 +647,12 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         val e = VolumeRegistry.addUri(this, uri, writable && !allowNoload, allowNoload)
         notifyRoots()
         if (e.volume.journalIgnored) ImageResult(notice = Notice(Severity.Warning, getString(R.string.notice_journal_ignored), getString(R.string.notice_journal_ignored_detail)))
-        else if (!writable) ImageResult(notice = Notice(Severity.Success, getString(R.string.notice_image_shared_read_only, e.label), getString(R.string.notice_image_shared_read_only_detail)))
-        else if (e.volume.writable) ImageResult(notice = Notice(Severity.Warning, getString(R.string.notice_image_shared_write, e.label), getString(R.string.notice_image_shared_write_detail)))
-        else ImageResult(notice = Notice(Severity.Warning, getString(R.string.notice_image_shared_fallback, e.label), getString(R.string.notice_image_shared_fallback_detail)))
+        else if (!writable) ImageResult(notice = VolumeStateNotice.of(this, e.volume, writeRequested = false)
+            ?: Notice(Severity.Success, getString(R.string.notice_image_shared_read_only, e.label), getString(R.string.notice_image_shared_read_only_detail)))
+        else if (e.volume.writable) ImageResult(notice = VolumeStateNotice.of(this, e.volume, writeRequested = true)
+            ?: Notice(Severity.Warning, getString(R.string.notice_image_shared_write, e.label), getString(R.string.notice_image_shared_write_detail)))
+        else ImageResult(notice = VolumeStateNotice.of(this, e.volume, writeRequested = true)
+            ?: Notice(Severity.Warning, getString(R.string.notice_image_shared_fallback, e.label), getString(R.string.notice_image_shared_fallback_detail)))
     } catch (e: NativeException) {
         ImageResult(notice = fsRefusalNotice(e) ?: Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.message), noloadUri = if (e.code == 117 && !allowNoload) uri else null)
     } catch (e: Exception) {
@@ -678,6 +687,10 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     private fun cryptoSuccessNotice(r: UnlockedCrypto, label: String): Notice {
         android.util.Log.i("usbmem", "crypto unlocked: writeRequested=${r.writeRequested} writable=${r.writable} note=${r.writeNote} fs=${r.volumes.map { it.volume.fsName }}")   // 資格情報は含まない
         val skipped = if (r.skipped.isEmpty()) "" else "\n" + getString(R.string.crypto_notice_skipped, r.skipped.joinToString(", "))
+        // 中のファイルシステムにダーティ / 未再生ログ / 休止状態があれば、その案内を優先する (中の FS ごとの状態。最初に見つかったもの)
+        r.volumes.firstNotNullOfOrNull { VolumeStateNotice.of(this, it.volume, r.writeRequested) }?.let { n ->
+            return n.copy(detail = getString(R.string.crypto_notice_unlocked, label) + "\n" + (n.detail ?: "") + skipped)
+        }
         return when {
             r.writeRequested && r.writable -> Notice(Severity.Warning, getString(R.string.crypto_notice_unlocked_write, label), getString(R.string.crypto_notice_unlocked_write_detail) + skipped)
             r.writeRequested -> Notice(Severity.Warning, getString(R.string.crypto_notice_write_fallback, label), getString(R.string.crypto_notice_write_fallback_detail, r.writeNote.ifBlank { "-" }) + skipped)
@@ -997,7 +1010,8 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         val e = VolumeRegistry.mountNested(this, volumeId, path, startBytes, sizeBytes, label, allowNoload)
         notifyRoots()
         if (e.volume.journalIgnored) NestedMountResult(Notice(Severity.Warning, getString(R.string.notice_journal_ignored), getString(R.string.notice_journal_ignored_detail)))
-        else NestedMountResult(Notice(Severity.Success, getString(R.string.notice_image_shared_read_only, e.label), getString(R.string.notice_nested_mounted_detail)))
+        else NestedMountResult(VolumeStateNotice.of(this, e.volume, writeRequested = false)
+            ?: Notice(Severity.Success, getString(R.string.notice_image_shared_read_only, e.label), getString(R.string.notice_nested_mounted_detail)))
     } catch (e: NativeException) {
         NestedMountResult(nestedNotice(e), noload = e.code == 117 && !allowNoload)
     } catch (e: Exception) {

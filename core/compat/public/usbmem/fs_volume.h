@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "usbmem/block_device.h"
+#include "usbmem/vol_state.h"
 
 namespace usbmem {
 
@@ -24,6 +25,9 @@ class FsVolume {
   virtual int stat(uint64_t ino, FsStat* st) = 0;
   virtual int readdir(uint64_t dir, std::vector<FsDirEntry>* out) = 0;
   virtual int64_t read(uint64_t ino, uint64_t off, void* buf, size_t len) = 0;
+  // マウント時に分かったボリュームの状態 (USBMEM_VOL_* のビットの組。docs/dirty-volumes.md)。0 = 何も見つからなかった (または、その FS では取れない)。
+  // 読み取り専用で開いたときも返す。UI が「なぜ書き込めないか / 何をすればよいか」を原因別に案内するために使う。
+  virtual uint32_t state() const { return 0; }
   // 書き込み系は既定で未対応 (読み取り専用の FS)。0 / 負の errno。
   virtual bool writable() const { return false; }
   virtual int sync() { return -30; /* EROFS */ }

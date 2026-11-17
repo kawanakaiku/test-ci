@@ -48,6 +48,7 @@ enum { K_NONE = 0, K_ALLOC = 1, K_FREE = 2 };
 struct dlog_ent { uint64_t off; unsigned op; };
 struct usbmem_fat {
   struct super_block *sb;
+  unsigned state;  /* USBMEM_VOL_* (マウント直後のダーティ bit / メディアエラー bit / FAT[1] のクリーン bit) */
   struct pin *tab[1024];
   int can_write;   /* 書き込み要求あり、かつ前提を満たす */
   int pending;     /* 同期前の変更の種類: K_ALLOC (確保・書き込み・名前の追加) / K_FREE (削除・縮小・上書き rename)。種類が変わる前に同期する */
@@ -92,30 +93,43 @@ static int fat1_bit(struct msdos_sb_info *sbi, u32 *bit, size_t *eoff) {
   if (sbi->fat_bits == 32) { *bit = 0x08000000u; *eoff = 4; return 1; }
   return 0;   /* FAT12 には無い */
 }
-static int writable_precheck(struct super_block *sb) {
-#ifdef USBMEM_NTFS_WRITE
+/* ボリュームの状態 (USBMEM_VOL_*): ブートセクタのダーティ bit・FAT[1] のクリーン bit (どの面でも) → DIRTY、ブートセクタのメディアエラー bit → MEDIA_ERROR。
+ * 読むだけ (読み取り専用のマウントでも使う)。ブートセクタ・FAT が読めなければ *ok = 0 (書き込み可の判定は、読めなかったら書かない側に倒す)。 */
+static unsigned fat_state_bits(struct super_block *sb, int *ok) {
   struct msdos_sb_info *sbi = MSDOS_SB(sb);
-  if (sbi->dirty) return 0;
-  if (sbi->fats < 1 || sbi->fats > 2) return 0;
+  unsigned st = 0;
+  *ok = 0;
+  if (sbi->dirty) st |= USBMEM_VOL_DIRTY;
   struct buffer_head *bh = sb_bread(sb, 0);
-  if (!bh) return 0;
-  unsigned char st = ((unsigned char *)bh->b_data)[sbi->fat_bits == 32 ? 0x41 : 0x25];
+  if (!bh) return st;
+  unsigned char b = ((unsigned char *)bh->b_data)[sbi->fat_bits == 32 ? 0x41 : 0x25];
   brelse(bh);
-  if (st & 0x03) return 0;   /* bit0 = ダーティ, bit1 = メディアエラー (表面検査が必要) */
+  if (b & 0x01) st |= USBMEM_VOL_DIRTY;   /* bit0 = ダーティ */
+  if (b & 0x02) st |= USBMEM_VOL_MEDIA_ERROR;   /* bit1 = メディアエラー (表面検査が必要) */
   u32 bit; size_t eoff;
   if (fat1_bit(sbi, &bit, &eoff)) {
-    for (int f = 0; f < sbi->fats; f++) {   /* どの面の FAT[1] でも、クリーン bit が落ちていたら書かない (Linux は 1 面目しか見ないが、2 面目だけ落ちている = 途中で止まった更新) */
+    for (int f = 0; f < sbi->fats; f++) {   /* どの面の FAT[1] でも、クリーン bit が落ちていたら前回きれいに取り外されていない (Windows 流のダーティ印)。Linux は 1 面目しか見ないが、2 面目だけ落ちている = 途中で止まった更新 */
       bh = sb_bread(sb, sbi->fat_start + (sector_t)f * sbi->fat_length);
-      if (!bh) return 0;
+      if (!bh) return st;
       const unsigned char *p = (const unsigned char *)bh->b_data + eoff;
       u32 val = sbi->fat_bits == 16 ? (u32)(p[0] | (p[1] << 8)) : (u32)(p[0] | (p[1] << 8) | (p[2] << 16) | ((u32)p[3] << 24));
       brelse(bh);
-      if (!(val & bit)) return 0;   /* 前回きれいに取り外されていない (Windows 流のダーティ印) */
+      if (!(val & bit)) st |= USBMEM_VOL_DIRTY;
     }
   }
+  *ok = 1;
+  return st;
+}
+unsigned usbmem_fat_state(usbmem_fat *v) { return v ? v->state : 0; }
+
+static int writable_precheck(struct super_block *sb, unsigned state, int state_ok) {
+#ifdef USBMEM_NTFS_WRITE
+  struct msdos_sb_info *sbi = MSDOS_SB(sb);
+  if (!state_ok || (state & (USBMEM_VOL_DIRTY | USBMEM_VOL_MEDIA_ERROR))) return 0;
+  if (sbi->fats < 1 || sbi->fats > 2) return 0;
   return 1;
 #else
-  (void)sb; return 0;
+  (void)sb; (void)state; (void)state_ok; return 0;
 #endif
 }
 
@@ -140,7 +154,9 @@ int usbmem_fat_mount(struct usbmem_bdev *bdev, int ro, usbmem_fat **out) {
   struct inode *root = sb->s_root->d_inode;
   ihold(root);
   if (!pin_add(v, root, 0)) { usbmem_fat_unmount(v); return -ENOMEM; }
-  if (!ro && writable_precheck(sb)) {
+  int state_ok = 0;
+  v->state = fat_state_bits(sb, &state_ok);
+  if (!ro && writable_precheck(sb, v->state, state_ok)) {
     v->can_write = 1;
 #ifdef USBMEM_NTFS_WRITE
     bd->usbmem_dirty_hook_ = dirty_hook; bd->usbmem_dirty_ctx_ = v;

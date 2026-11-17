@@ -8,7 +8,7 @@
 #include "inode.h"   /* ntfs_iget (fs/ntfs, -iquote で解決) */
 #include "ntfs.h"    /* ntfs_set_volume_flags / NTFS_SB */
 
-struct usbmem_ntfs { struct super_block *sb; int dirty_marked; };
+struct usbmem_ntfs { struct super_block *sb; int dirty_marked; unsigned state; /* USBMEM_VOL_* (マウント直後の値) */ };
 
 int usbmem_compat_mount(struct block_device *bdev, int read_only, struct super_block **out) {
   return usbmem_compat_mount_fs(usbmem_module_init_ntfs, bdev, read_only, out);
@@ -42,8 +42,16 @@ int usbmem_ntfs_mount(struct usbmem_bdev *bdev, int ro, usbmem_ntfs **out) {
    * 読み取り専用のマウントでは実行しない (空きクラスタ数は読み取りに不要。7 TiB の USB ディスクで 3 分以上かかる)。 */
   if (!ro && !sb_rdonly(sb)) usbmem_compat_run_deferred_work();
   usbmem_ntfs *v = calloc(1, sizeof *v);
-  v->sb = sb; *out = v; return 0;
+  v->sb = sb;
+  /* 状態 (UI の案内用): マウント直後の $Volume のフラグと、上流の休止状態の判定。書き込みマウントがあとから立てるダーティ印は含めない。 */
+  {
+    struct ntfs_volume *nv = NTFS_SB(sb);
+    if (nv->vol_flags & VOLUME_IS_DIRTY) v->state |= USBMEM_VOL_DIRTY;
+    if (NVolHibernated(nv)) v->state |= USBMEM_VOL_HIBERNATED;
+  }
+  *out = v; return 0;
 }
+unsigned usbmem_ntfs_state(usbmem_ntfs *v) { return v ? v->state : 0; }
 /* 書き込み可能でマウントされているか (rw 要求でも、上流が異常を見つけて読み取り専用に落ちていることがある) */
 int usbmem_ntfs_writable(usbmem_ntfs *v) { return v && !sb_rdonly(v->sb); }
 void usbmem_ntfs_unmount(usbmem_ntfs *v) {

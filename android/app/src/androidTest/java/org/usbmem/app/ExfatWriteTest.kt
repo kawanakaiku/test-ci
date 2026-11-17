@@ -109,6 +109,9 @@ class ExfatWriteTest {
         try {
             assertEquals("exfat", vol.fsName)
             assertFalse("dirty exFAT must not be writable", vol.writable)
+            assertTrue("the dirty state must be reported", vol.state and VolState.DIRTY != 0)
+            val n = VolumeStateNotice.of(ctx, vol, writeRequested = true)
+            assertTrue("notice names the cause: ${n?.text}", n != null && n.text.contains("正しく取り外されていない") && n.detail!!.contains("VolumeDirty") && n.detail!!.contains("読み取り専用"))
             try { vol.create("/", "x", false); throw AssertionError("create must fail on a read-only volume") } catch (ex: NativeException) { assertEquals(30, ex.code) }
             vol.list("/")   // 読み取りはできる
         } finally { vol.close() }

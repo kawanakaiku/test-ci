@@ -60,6 +60,7 @@ int64_t ExfatVolume::read(uint64_t ino, uint64_t off, void* buf, size_t len) {
   return usbmem_exfat_read(impl_->v, ino, off, buf, len);
 }
 bool ExfatVolume::writable() const { return usbmem_exfat_writable(impl_->v) != 0; }
+uint32_t ExfatVolume::state() const { return usbmem_exfat_state(impl_->v); }
 int ExfatVolume::sync() { return usbmem_exfat_sync(impl_->v); }
 int ExfatVolume::create(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) { return usbmem_exfat_create(impl_->v, dir, name.data(), name.size(), mode, ino); }
 int ExfatVolume::mkdir(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) { return usbmem_exfat_mkdir(impl_->v, dir, name.data(), name.size(), mode, ino); }

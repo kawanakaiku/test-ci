@@ -20,6 +20,7 @@ class ExfatVolume final : public FsVolume {
   int readdir(uint64_t dir, std::vector<FsDirEntry>* out) override;
   int64_t read(uint64_t ino, uint64_t off, void* buf, size_t len) override;
   bool writable() const override;
+  uint32_t state() const override;   // USBMEM_VOL_DIRTY / USBMEM_VOL_MEDIA_ERROR (マウント直後。読み取り専用で開いたときも返す)
   int sync() override;
   int create(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) override;
   int mkdir(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) override;

@@ -3,7 +3,7 @@
 //   --ops <img> <script>              書き込みマウントで操作列を実行 → sync → unmount。環境変数 USBMEM_CRASH_AT/MODE/SEED/TORN で電源断を模擬。
 //   --model <img> <seed> <nops> [dump] 乱数で操作列を作り、メモリ上のモデルと突き合わせる (途中・unmount 後の再マウント後にも全体比較)。dump に tools/ops_ref.py --tree と同じ書式でモデルを書く
 //   --noop <img>                      rw マウントして何もせず unmount: イメージが 1 バイトも変わらないこと
-//   --refuse <img>                    rw を要求したが書き込み不可のイメージ (汚れている/MediaFailure/FAT 2 面): マウントは成功し writable()==false、書き込みは -EROFS、イメージ不変
+//   --refuse <img> [期待する state()]                    rw を要求したが書き込み不可のイメージ (汚れている/MediaFailure/FAT 2 面): マウントは成功し writable()==false、書き込みは -EROFS、イメージ不変
 //   --dirfull <img>                   エントリセットがクラスタ境界ちょうどで尽きるディレクトリで、全部の名前を引ける / 列挙できること
 //   --enospc <img>                    満杯・ディレクトリの伸長不能で安全に失敗し、削除で回復すること
 //   --names <img>                     名前の規則 (大文字小文字を区別しない / 禁止文字 / 長さ / UTF-16 サロゲート / 大文字小文字だけの rename)
@@ -324,12 +324,13 @@ static int noop_run(const std::string& img) {
 }
 
 // ---- --refuse
-static int refuse_run(const std::string& img) {
+static int refuse_run(const std::string& img, int want_state) {
   std::string before = slurp_hash(img);
   {
     BlockDevicePtr dev = open_rw(img); int err = 0; auto vol = ExfatVolume::mount_rw(dev, &err);
     if (!vol) { std::fprintf(stderr, "mount failed %d\n", err); return 1; }
     CHECK(!vol->writable());
+    if (want_state >= 0 && (int)vol->state() != want_state) { std::fprintf(stderr, "state=0x%x want=0x%x\n", vol->state(), (unsigned)want_state); g_fail++; }   // 書き込めない理由 (VolumeDirty / MediaFailure) が state() に出る
     uint64_t ino = 0;
     CHECK(vol->create(vol->root(), "x", 0644, &ino) == -EROFS);
     CHECK(vol->mkdir(vol->root(), "d", 0755, &ino) == -EROFS);
@@ -476,7 +477,7 @@ int main(int argc, char** argv) {
   if (argc >= 4 && std::string(argv[1]) == "--ops") return ops_run(argv[2], argv[3]);
   if (argc >= 5 && std::string(argv[1]) == "--model") return model_run(argv[2], (unsigned)std::atoi(argv[3]), std::atoi(argv[4]), argc >= 6 ? argv[5] : "");
   if (argc >= 3 && std::string(argv[1]) == "--noop") return noop_run(argv[2]);
-  if (argc >= 3 && std::string(argv[1]) == "--refuse") return refuse_run(argv[2]);
+  if (argc >= 3 && std::string(argv[1]) == "--refuse") return refuse_run(argv[2], argc >= 4 ? std::atoi(argv[3]) : -1);
   if (argc >= 3 && std::string(argv[1]) == "--enospc") return enospc_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--dirfull") return dirfull_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--names") return names_run(argv[2]);

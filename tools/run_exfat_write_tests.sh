@@ -100,9 +100,9 @@ mk_small() { rm -f "$W/s.img"; truncate -s "${1:-8M}" "$W/s.img"; mkfs.exfat -q 
 setflags() {  # setflags <img> <value>: VolumeFlags (バイト 106-107。ブートチェックサムの対象外) を書き換える
   python3 -I -c "import struct,sys; f=open(sys.argv[1],'r+b'); f.seek(106); f.write(struct.pack('<H', int(sys.argv[2]))); f.close()" "$1" "$2"
 }
-mk_small; setflags "$W/s.img" 2; run_t "refuse unclean (VolumeDirty)" --refuse "$W/s.img"
-mk_small; setflags "$W/s.img" 4; run_t "refuse MediaFailure" --refuse "$W/s.img"
-mk_small; setflags "$W/s.img" 6; run_t "refuse VolumeDirty+MediaFailure" --refuse "$W/s.img"
+mk_small; setflags "$W/s.img" 2; run_t "refuse unclean (VolumeDirty)" --refuse "$W/s.img" 1
+mk_small; setflags "$W/s.img" 4; run_t "refuse MediaFailure" --refuse "$W/s.img" 8
+mk_small; setflags "$W/s.img" 6; run_t "refuse VolumeDirty+MediaFailure" --refuse "$W/s.img" 9
 mk_small 3M; run_t "enospc" --enospc "$W/s.img"
 fsck_clean "$W/s.img" "enospc" || true
 mk_small 16M; run_t "dirfull (entry sets end exactly at a cluster boundary)" --dirfull "$W/s.img"

@@ -10,6 +10,7 @@
 #include <unordered_map>
 
 #include "fscheck_internal.h"
+#include "usbmem/ntfs_logstate.h"
 
 namespace usbmem {
 namespace fsck {
@@ -514,39 +515,17 @@ Status NtfsChk::check_logfile() {
   bool hole;
   Status st = map_read(logfile_runs_, 0, pg.data(), pg.size(), &hole);
   if (!st.ok()) { if (st.code == Errc::OutOfRange) return Status::Ok(); return st; }
-  auto page_state = [&](const std::vector<uint8_t>& p) -> int {   // 0 = 不明, 1 = クリーン, 2 = 未クリーン
-    bool all_ff = true;
-    for (size_t i = 0; i < p.size(); i++) if (p[i] != 0xFF) { all_ff = false; break; }
-    if (all_ff) return 1;                               // 0xFF で埋まっている = ログは空 (リセット済み)
-    if (!std::memcmp(p.data(), "CHKD", 4)) return 1;    // chkdsk がリセットした
-    if (std::memcmp(p.data(), "RSTR", 4) != 0) return 0;
-    uint16_t ra = le16(p.data() + 0x18);
-    if (ra < 0x20 || ra + 0x30u > p.size()) return 0;
-    uint16_t flags = le16(p.data() + ra + 0xE);
-    return (flags & 0x0002) ? 1 : 2;                   // RESTART_VOLUME_IS_CLEAN
-  };
+  auto page_state = [&](const std::vector<uint8_t>& p) -> int { return ntfs_restart_page_state(p.data(), p.size()); };   // 0 = 不明, 1 = クリーン, 2 = 未クリーン (判定は ntfs_logstate.h と共通)
   int s0 = page_state(pg);
   std::vector<uint8_t> pg2(4096);
   st = map_read(logfile_runs_, 4096, pg2.data(), pg2.size(), &hole);
-  int s1 = st.ok() ? page_state(pg2) : 0;
+  if (!st.ok()) std::fill(pg2.begin(), pg2.end(), 0);   // 2 ページ目が読めなければ「不明」のページとして扱う
+  int s1 = page_state(pg2);
   if (s0 == 0 && s1 == 0) { c_.warn("ntfs-logfile-unknown", "the $LogFile restart pages are not recognized", UINT64_MAX, "$LogFile"); return Status::Ok(); }
   if ((s0 == 0) != (s1 == 0)) c_.info("ntfs-logfile-one-page-invalid", "one of the two $LogFile restart pages is not valid (the other one is used)", UINT64_MAX, "$LogFile");
-  if (s0 == 2 || s1 == 2) {
-    // どちらかのリスタートページが「ダーティ」。NTFS は新しい方 (LSN が大きい方) を採る。ここでは保守的に、クリーンと確認できない場合に報告する
-    if (!(s0 == 1 && s1 == 1)) {
-      bool clean_newer = false;
-      // 両ページに RSTR があるとき current_lsn を比べる
-      if (s0 != 0 && s1 != 0 && !std::memcmp(pg.data(), "RSTR", 4) && !std::memcmp(pg2.data(), "RSTR", 4)) {
-        uint16_t a0 = le16(pg.data() + 0x18), a1 = le16(pg2.data() + 0x18);
-        uint64_t l0 = le64(pg.data() + a0), l1 = le64(pg2.data() + a1);
-        const std::vector<uint8_t>& newer = l1 > l0 ? pg2 : pg;
-        clean_newer = page_state(newer) == 1;
-      }
-      if (!clean_newer) {
-        c_.warn("ntfs-logfile-unclean", "the $LogFile journal is not empty (the volume was not cleanly dismounted); Windows must replay it before writing", UINT64_MAX, "$LogFile");
-        c_.rep.unclean = true;
-      }
-    }
+  if (ntfs_logfile_state(pg.data(), pg2.data(), pg.size()) == NtfsLogState::Unclean) {
+    c_.warn("ntfs-logfile-unclean", "the $LogFile journal is not empty (the volume was not cleanly dismounted); Windows must replay it before writing", UINT64_MAX, "$LogFile");
+    c_.rep.unclean = true;
   }
   return Status::Ok();
 }

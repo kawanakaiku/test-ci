@@ -60,6 +60,7 @@ int64_t FatVolume::read(uint64_t ino, uint64_t off, void* buf, size_t len) {
   return usbmem_fat_read(impl_->v, ino, off, buf, len);
 }
 bool FatVolume::writable() const { return usbmem_fat_writable(impl_->v) != 0; }
+uint32_t FatVolume::state() const { return usbmem_fat_state(impl_->v); }
 int FatVolume::sync() { return usbmem_fat_sync(impl_->v); }
 int FatVolume::create(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) { return usbmem_fat_create(impl_->v, dir, name.data(), name.size(), mode, ino); }
 int FatVolume::mkdir(uint64_t dir, const std::string& name, uint32_t mode, uint64_t* ino) { return usbmem_fat_mkdir(impl_->v, dir, name.data(), name.size(), mode, ino); }

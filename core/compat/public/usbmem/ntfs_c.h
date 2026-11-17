@@ -6,6 +6,7 @@
 #define USBMEM_NTFS_C_H
 #include <stddef.h>
 #include <stdint.h>
+#include "usbmem/vol_state.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -31,6 +32,7 @@ int64_t usbmem_ntfs_write_inplace(usbmem_ntfs *, uint64_t ino, uint64_t off, con
 
 /* 上流の write_iter 経由の書き込み (拡張可)。書いたバイト数 / 負の errno。要 sync。 */
 int64_t usbmem_ntfs_write(usbmem_ntfs *, uint64_t ino, uint64_t off, const void *buf, size_t len);
+unsigned usbmem_ntfs_state(usbmem_ntfs *);   /* マウント直後の状態 (USBMEM_VOL_DIRTY / USBMEM_VOL_HIBERNATED。vol_state.h)。$LogFile の未再生は C++ 側 (NtfsVolume) が足す */
 int usbmem_ntfs_writable(usbmem_ntfs *);   /* 1 = 書き込み可能 (rw 要求でも読み取り専用に落ちることがある) */
 int usbmem_ntfs_truncate(usbmem_ntfs *, uint64_t ino, uint64_t size);   /* 実験的: 拡張・縮小 */
 

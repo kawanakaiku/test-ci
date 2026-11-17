@@ -2,6 +2,8 @@
 // 実 NTFS イメージ(tools/gen_ntfs_fixture.sh が mkntfs + ntfs-3g で作成)を fs/ntfs 経由で読み、
 // マニフェスト(サイズ・sha256)と照合する。使い方: usbmem_ntfs_tests <fixture_dir>
 #include <algorithm>
+#include <cerrno>
+#include <iterator>
 #include <cstdlib>
 #include <memory>
 #include <cstdint>
@@ -15,6 +17,7 @@
 
 #include "../../tests/fake_bot.h"
 #include "usbmem/devices.h"
+#include "usbmem/ntfs_c.h"
 #include "usbmem/ntfs_volume.h"
 #include "usbmem/partition.h"
 
@@ -399,10 +402,96 @@ static int bitops_test() {
   return bad ? 1 : 0;
 }
 
+
+// ---- --state <dir>: ダーティ / 未再生ログ / 休止状態のイメージ (tools/gen_ntfs_state_fixture.py)。docs/dirty-volumes.md
+//  - 読み取り専用で開いたときも state() に原因が出る (ダーティ・未再生ログ・休止状態)。
+//  - rw を要求しても、未再生ログ・休止状態のボリュームは読み取り専用のまま返り、**イメージは 1 バイトも変わらない** (上流の rw マウントは $LogFile を空にして書き始めるため、先に止める)。
+//  - ダーティフラグだけ (ログは静止) のボリュームは従来どおり書き込み可で、クリーンなアンマウントでフラグが下りる。
+static std::vector<char> slurp_file(const std::string& p) {
+  std::ifstream f(p, std::ios::binary);
+  return std::vector<char>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+static int state_run(const std::string& dir) {
+  struct Case { const char* name; uint32_t want; bool rw_ok; };
+  const Case cases[] = {
+    {"clean", 0, true},
+    {"dirty", USBMEM_VOL_DIRTY, true},
+    {"dirty_log", USBMEM_VOL_DIRTY | USBMEM_VOL_LOG_UNCLEAN, false},
+    {"log", USBMEM_VOL_LOG_UNCLEAN, false},
+    {"hiber", USBMEM_VOL_HIBERNATED, false},
+  };
+  auto open_img = [](const std::string& p, bool ro) { usbmem::BlockDevicePtr d; usbmem::RawImageDevice::open_path(p, ro, 512, &d); return d; };
+  bool rw_built = true;
+  for (const Case& c : cases) {
+    std::string img = dir + "/ntfs_state_" + c.name + ".img";
+    auto before = slurp_file(img);
+    if (before.empty()) { std::fprintf(stderr, "state[%s]: missing image %s\n", c.name, img.c_str()); g_fail++; continue; }
+    int bad0 = g_fail;
+    {  // 読み取り専用
+      auto dev = open_img(img, true); int err = 0;
+      auto v = usbmem::NtfsVolume::mount(dev, &err);
+      if (!v) { std::fprintf(stderr, "state[%s]: ro mount failed %d\n", c.name, err); g_fail++; continue; }
+      if (v->state() != c.want) { std::fprintf(stderr, "state[%s]: ro state=0x%x want=0x%x\n", c.name, v->state(), c.want); g_fail++; }
+      CHECK(!v->writable());
+      std::vector<usbmem::NtfsDirEntry> es; CHECK(v->readdir(v->root(), &es) == 0);
+      bool has_a = false; for (auto& e : es) if (e.name == "a.txt") has_a = true;
+      CHECK(has_a);
+    }
+    CHECK(slurp_file(img) == before);   // 読み取り専用のマウント・アンマウントはイメージを変えない
+    {  // 読み書きを要求
+      auto dev = open_img(img, false); int err = 0;
+      auto v = usbmem::NtfsVolume::mount_rw(dev, &err);
+      if (!v) {
+        if (err == EROFS) { rw_built = false; std::fprintf(stderr, "state[%s]: rw not built (EROFS): skip the rw checks\n", c.name); }
+        else { std::fprintf(stderr, "state[%s]: rw mount failed %d\n", c.name, err); g_fail++; }
+      } else {
+        if (v->state() != c.want) { std::fprintf(stderr, "state[%s]: rw state=0x%x want=0x%x\n", c.name, v->state(), c.want); g_fail++; }
+        if (v->writable() != c.rw_ok) { std::fprintf(stderr, "state[%s]: writable=%d want=%d\n", c.name, (int)v->writable(), (int)c.rw_ok); g_fail++; }
+        uint64_t ino = 0;
+        int rc = v->create(v->root(), "new.txt", 0644, &ino);
+        if (c.rw_ok) { CHECK(rc == 0); CHECK(v->sync() == 0); } else CHECK(rc == -EROFS);
+      }
+    }
+    if (rw_built) {
+      if (!c.rw_ok) {
+        CHECK(slurp_file(img) == before);   // 止めたボリュームは 1 バイトも書かれない (ログも、ダーティフラグも)
+      } else {
+        auto dev = open_img(img, true); int err = 0;
+        auto v = usbmem::NtfsVolume::mount(dev, &err);
+        if (!v) { std::fprintf(stderr, "state[%s]: remount failed %d\n", c.name, err); g_fail++; }
+        else {
+          if (v->state() != 0) { std::fprintf(stderr, "state[%s]: after a clean unmount state=0x%x (want 0: the dirty flag is lowered)\n", c.name, v->state()); g_fail++; }
+          uint64_t ino = 0; CHECK(v->resolve("/new.txt", &ino) == 0);
+        }
+      }
+    }
+    std::fprintf(stderr, "state[%s]: %s (want 0x%x)\n", c.name, g_fail == bad0 ? "ok" : "FAILED", c.want);
+  }
+  // 参考 (判定には使わない): 上流のドライバだけで rw マウントすると、未再生ログのボリュームがどうなるか (この層の止める理由の実測)
+  if (rw_built) {
+    std::string src = dir + "/ntfs_state_dirty_log.img", raw = dir + "/ntfs_state_dirty_log_raw.img";
+    { auto d = slurp_file(src); std::ofstream o(raw, std::ios::binary); o.write(d.data(), (std::streamsize)d.size()); }
+    usbmem::BlockDevicePtr d = open_img(raw, false);
+    usbmem_bdev* b = usbmem_bdev_wrap(&d);
+    usbmem_ntfs* uv = nullptr;
+    int rc = usbmem_ntfs_mount(b, 0, &uv);
+    int w = rc == 0 ? usbmem_ntfs_writable(uv) : -1;
+    if (rc == 0) usbmem_ntfs_unmount(uv);
+    usbmem_bdev_free(b);
+    auto d2 = open_img(raw, true); int e2 = 0; auto v2 = usbmem::NtfsVolume::mount(d2, &e2);
+    std::fprintf(stderr, "info: upstream-only rw mount of dirty_log: rc=%d writable=%d; afterwards state=0x%x (LOG_UNCLEAN=%s)\n", rc, w, v2 ? v2->state() : 0xffu,
+                 v2 ? ((v2->state() & USBMEM_VOL_LOG_UNCLEAN) ? "still" : "gone: the journal was discarded") : "?");
+    std::remove(raw.c_str());
+  }
+  std::fprintf(stderr, "state: %s\n", g_fail ? "FAIL" : "ok");
+  return g_fail ? 1 : 0;
+}
+
 int main(int argc, char** argv) {
   if (argc >= 2 && std::string(argv[1]) == "--bitops") return bitops_test();
   if (argc >= 7 && std::string(argv[1]) == "--wtest") return wtest(argv[2], argv[3], std::strtoull(argv[4], 0, 10), std::strtoull(argv[5], 0, 10), (unsigned)std::atoi(argv[6]));
   if (argc >= 3 && std::string(argv[1]) == "--probe") return probe_img(argv[2]);
+  if (argc >= 3 && std::string(argv[1]) == "--state") return state_run(argv[2]);
   if (argc >= 4 && std::string(argv[1]) == "--ops") return ops_run(argv[2], argv[3]);
   if (argc >= 4 && std::string(argv[1]) == "--extract") return extract_part(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);
   if (argc >= 4 && std::string(argv[1]) == "--cat") return cat_file(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);

@@ -177,6 +177,11 @@ JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_NativeBridge_nativeFsName(JNIEn
   return bytes(env, reinterpret_cast<Vol*>(h)->v->fs_name());
 }
 
+// マウント時に分かったボリュームの状態 (USBMEM_VOL_* のビットの組: 1 = ダーティ、2 = NTFS の未再生ログ、4 = NTFS の休止状態、8 = メディアエラー)。読み取り専用で開いたときも返す。0 = 何も見つからない / この FS では取れない
+JNIEXPORT jint JNICALL Java_org_usbmem_app_NativeBridge_nativeFsState(JNIEnv*, jclass, jlong h) {
+  return static_cast<jint>(reinterpret_cast<Vol*>(h)->v->state());
+}
+
 // 上流の判断で読み取り専用に落ちていないか (1 = 書き込み可)
 JNIEXPORT jboolean JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsWritable(JNIEnv*, jclass, jlong h) {
   return reinterpret_cast<Vol*>(h)->v->writable() ? JNI_TRUE : JNI_FALSE;

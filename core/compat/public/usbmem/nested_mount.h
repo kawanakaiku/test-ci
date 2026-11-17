@@ -35,6 +35,7 @@ class LockedFsVolume final : public FsVolume {
   const char* fs_name() const override { return inner_->fs_name(); }
   uint64_t root() const override { return inner_->root(); }
   bool writable() const override { return inner_->writable(); }
+  uint32_t state() const override { return inner_->state(); }
   int lookup(uint64_t dir, const std::string& name, uint64_t* ino) override;
   int stat(uint64_t ino, FsStat* st) override;
   int readdir(uint64_t dir, std::vector<FsDirEntry>* out) override;

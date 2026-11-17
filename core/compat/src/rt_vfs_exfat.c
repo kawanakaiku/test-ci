@@ -20,6 +20,7 @@ struct pin { uint64_t ino; struct inode *inode; uint64_t parent; struct pin *nex
 enum { K_NONE = 0, K_ALLOC = 1, K_FREE = 2 };
 struct usbmem_exfat {
   struct super_block *sb;
+  unsigned state;  /* USBMEM_VOL_* (マウント直後のブートセクタの VolumeFlags) */
   struct pin *tab[1024];
   int can_write;   /* 書き込み要求あり、かつ前提を満たす */
   unsigned char *bm_snap; size_t bm_snap_len;   /* 前回の同期時点の割り当てビットマップ (新しく確保されたクラスタを知るため) */
@@ -46,6 +47,18 @@ static void pin_remove(usbmem_exfat *v, uint64_t ino) {
     if ((*pp)->ino == ino) { struct pin *p = *pp; *pp = p->next; iput(p->inode); free(p); return; }
   }
 }
+
+/* ブートセクタの VolumeFlags から状態を取る (読むだけ。書き込みの可否に関係なく、読み取り専用のマウントでも使う)。読めない / exFAT でなければ 0 */
+static unsigned boot_state(struct usbmem_bdev *bdev) {
+  unsigned char b[512];
+  if (usbmem_bdev_read(bdev, 0, b, sizeof b)) return 0;
+  if (memcmp(b + 3, "EXFAT   ", 8) != 0 || b[510] != 0x55 || b[511] != 0xAA) return 0;
+  unsigned flags = b[106] | (b[107] << 8), st = 0;
+  if (flags & VOLUME_DIRTY) st |= USBMEM_VOL_DIRTY;
+  if (flags & MEDIA_FAILURE) st |= USBMEM_VOL_MEDIA_ERROR;
+  return st;
+}
+unsigned usbmem_exfat_state(usbmem_exfat *v) { return v ? v->state : 0; }
 
 /* ---- 書き込み可の判定 (ブートセクタ): VolumeDirty / MediaFailure なし、FAT 1 面、セクタ 512〜4096 */
 static int writable_precheck(struct usbmem_bdev *bdev) {
@@ -77,6 +90,7 @@ int usbmem_exfat_mount(struct usbmem_bdev *bdev, int ro, usbmem_exfat **out) {
   usbmem_exfat *v = calloc(1, sizeof *v);
   if (!v) { usbmem_compat_umount(sb); usbmem_bdev_mapping_free(bd); free(bd); return -ENOMEM; }
   v->sb = sb;
+  v->state = boot_state(bdev);
   sb->usbmem_bh_fs_ = 1;          /* FAT・ビットマップ・ディレクトリエントリは buffer_head (bd_mapping)。umount の同期で bd の dirty も書く */
   sb->usbmem_fill_via_read_ = 1;  /* クラスタ < 4096 では 1 folio に離れたエクステントが載る: 書き込み前の folio 補充は read_folio で行う */
   struct inode *root = sb->s_root->d_inode;

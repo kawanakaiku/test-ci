@@ -8,6 +8,7 @@
 #define USBMEM_EXFAT_C_H
 #include <stddef.h>
 #include <stdint.h>
+#include "usbmem/vol_state.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -25,6 +26,7 @@ typedef int (*usbmem_exfat_dir_cb)(void *user, const char *name, int len, uint64
  * (最初の書き込みの直前に VolumeDirty を確定してから書く)。bdev は usbmem_bdev_wrap() (ntfs_c.h) で作る。 */
 int usbmem_exfat_mount(struct usbmem_bdev *bdev, int read_only, usbmem_exfat **out);
 int usbmem_exfat_writable(usbmem_exfat *);
+unsigned usbmem_exfat_state(usbmem_exfat *);   /* マウント直後の状態 (USBMEM_VOL_DIRTY = VolumeDirty / USBMEM_VOL_MEDIA_ERROR = MediaFailure。vol_state.h) */
 void usbmem_exfat_unmount(usbmem_exfat *);
 int usbmem_exfat_lookup(usbmem_exfat *, uint64_t dir_ino, const char *name, size_t len, uint64_t *ino);
 int usbmem_exfat_stat_ino(usbmem_exfat *, uint64_t ino, usbmem_exfat_stat *st);

@@ -414,6 +414,10 @@ static int refuse_run(const std::string& img, const std::string& variant) {
     BlockDevicePtr dev = open_rw(img); int err = 0; auto vol = FatVolume::mount_rw(dev, &err);
     if (!vol) { std::fprintf(stderr, "mount failed %d\n", err); return 1; }
     CHECK(!vol->writable());
+    {  // 書き込めない理由 (ダーティ / メディアエラー) が state() に出る
+      uint32_t want = variant == "boot-media" ? USBMEM_VOL_MEDIA_ERROR : USBMEM_VOL_DIRTY;
+      if (vol->state() != want) { std::fprintf(stderr, "state=0x%x want=0x%x\n", vol->state(), want); g_fail++; }
+    }
     uint64_t ino = 0;
     CHECK(vol->create(vol->root(), "x", 0644, &ino) == -EROFS);
     CHECK(vol->mkdir(vol->root(), "d", 0755, &ino) == -EROFS);

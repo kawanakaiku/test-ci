@@ -50,6 +50,8 @@ object NativeBridge {
     @JvmStatic external fun nativeNtfsMountDeviceRw(devHandle: Long, offset: Long, length: Long): Long
     @JvmStatic external fun nativeFsName(handle: Long): ByteArray
     @JvmStatic external fun nativeNtfsWritable(handle: Long): Boolean
+    /** マウント時に分かったボリュームの状態 ([VolState] のビットの組)。読み取り専用で開いたときも返す。 */
+    @JvmStatic external fun nativeFsState(handle: Long): Int
     @JvmStatic external fun nativeNtfsWrite(handle: Long, path: ByteArray, offset: Long, buf: ByteArray, len: Int): Long
     @JvmStatic external fun nativeNtfsCreate(handle: Long, parent: ByteArray, name: ByteArray, isDir: Boolean): Long
     @JvmStatic external fun nativeNtfsRemove(handle: Long, path: ByteArray): Long
@@ -74,6 +76,14 @@ object NativeBridge {
 object Handle {
     fun isError(h: Long): Boolean = h in -4095L..0L
     fun valid(h: Long): Boolean = h != 0L && !isError(h)
+}
+
+/** [NtfsVolume.state] のビット (core/compat/public/usbmem/vol_state.h の USBMEM_VOL_* と同じ値)。 */
+object VolState {
+    const val DIRTY = 1            // ダーティフラグ (前回きれいに取り外されていない): NTFS / exFAT / FAT
+    const val LOG_UNCLEAN = 2      // NTFS: $LogFile に未再生のログ
+    const val HIBERNATED = 4       // NTFS: Windows が休止状態 (高速スタートアップ) のまま
+    const val MEDIA_ERROR = 8      // exFAT MediaFailure / FAT のメディアエラー bit
 }
 
 class NativeException(val code: Int, message: String) : Exception(message)
@@ -122,6 +132,8 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
     private val createdHere = HashSet<String>()
     /** マウントしたファイルシステム ("ntfs" / "exfat" / "ext2" / "ext4" / "btrfs" / "xfs" / "fat" / "iso9660" / "udf"。ext3 も ext4 ドライバなので "ext4"。FAT12/16/32 は "fat")。 */
     val fsName: String = String(NativeBridge.nativeFsName(handle), Charsets.UTF_8)
+    /** マウント時に分かった状態 ([VolState] のビットの組。ダーティ / NTFS の未再生ログ / NTFS の休止状態 / メディアエラー)。0 = 何も見つからない。UI の原因別の案内に使う ([VolumeStateNotice])。 */
+    val state: Int = NativeBridge.nativeFsState(handle)
     /** ext3/ext4 のジャーナルが未再生のまま (再生せず) 読み取り専用で開いている。内容が古い/欠けている可能性がある。 */
     @Volatile var journalIgnored: Boolean = false
     private fun bytes(p: String) = p.toByteArray(Charsets.UTF_8)

@@ -26,7 +26,7 @@ jobs:
       - name: Install host tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ make python3 ntfs-3g fuse3 zlib1g-dev
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ make python3 ntfs-3g fuse3 zlib1g-dev autoconf automake libtool pkg-config
           echo user_allow_other | sudo tee -a /etc/fuse.conf
 
       - name: Fetch ntfs-3g (pinned, sha256 verified) and configure

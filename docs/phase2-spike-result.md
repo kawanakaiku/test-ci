@@ -161,4 +161,4 @@ CTest `ntfs_windows_images` (イメージが無ければ SKIP)。
 - **LogFile v2.0 (訂正あり)**: ダーティのままデタッチした Windows 11 製イメージでは `$LogFile` の restart page が **v2.0** で、上流 (1.1 のみ対応) が書き込みマウントを自動的に読み取り専用に落とす
   (読み取りは全データ可、イメージ無変更)。当初「最近の Windows 11 でフォーマットした USB には書き込めない」と書いたが**誤り**: Windows は**クリーンにディスマウントすると restart page を v1.1 に戻し**、
   その状態のボリュームには `ntfs-3g` も自前ドライバも書き込めた (書いた範囲の内容と `ntfsfix -n` を確認)。v2.0 が問題になるのはダーティ (未再生ログあり) のボリュームだけで、
-  そこは元々書き込まない方針。`ntfs-3g` もダーティなこのイメージでは「unclean file system, refused to mount」と読み取り専用に落ちる。
+  そこは元々書き込まない方針 (ただし LFS 1.1 の未再生ログは上流が `$LogFile` を空にして書いてしまうので、実際に止めているのは 2026-11-17 の `mount_rw` の検査から。docs/dirty-volumes.md)。`ntfs-3g` もダーティなこのイメージでは「unclean file system, refused to mount」と読み取り専用に落ちる。

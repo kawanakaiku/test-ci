@@ -17,8 +17,8 @@ export LC_ALL=C
 
 strip_mtime() { sed -E 's/^(. [^ ]+) [^ ]+ /\1 - /' "$1" | sort; }
 
-compare_one() {  # name image manifest
-  local name=$1 img=$2 man=$3 d=$W/$1
+compare_one() {  # name image manifest tag
+  local name=$1 img=$2 man=$3 d=$W/cmp_$4
   mkdir -p "$d"
   "$CORE" "$img" > "$d/core.txt" 2> "$d/core.err"; local rc1=$?
   "$N3G" "$img" > "$d/n3g.txt" 2> "$d/n3g.err"; local rc2=$?
@@ -56,12 +56,19 @@ for cl in 4096 2048; do
   fx=$W/basic_c$cl
   rm -rf "$fx"
   USBMEM_NTFS_CLUSTER=$cl sh "$HERE/gen_ntfs_fixture.sh" "$fx" > "$fx.gen.log" 2>&1 || { cat "$fx.gen.log"; echo "フィクスチャ生成に失敗 (cluster $cl)" >&2; exit 1; }
-  compare_one "basic cluster=$cl" "$fx/ntfs_basic.img" "$fx/ntfs_basic.manifest"
+  compare_one "basic cluster=$cl" "$fx/ntfs_basic.img" "$fx/ntfs_basic.manifest" "basic_c$cl"
 done
+
+# ---- 1b. 別プロセス (socketpair の RPC) 越し: 同じ基本フィクスチャで、出力が同一プロセスの形と一致するか
+d=$W/rpc_basic; mkdir -p "$d"
+"$N3G" --rpc "$W/basic_c4096/ntfs_basic.img" > "$d/n3g_rpc.txt" 2> "$d/n3g_rpc.err"; rc=$?
+say "### 別プロセス (RPC) 越しの ntfs-3g (basic cluster=4096)"
+say "- rc=$rc $(tail -1 "$d/n3g_rpc.err")"
+if [ $rc -ne 0 ] || ! diff -q <(strip_mtime "$d/n3g_rpc.txt") "$W/cmp_basic_c4096/n3g.nomtime" >/dev/null; then say "- FAIL: RPC 越しの出力が同一プロセスの出力と違う"; head -20 "$d/n3g_rpc.err"; fail=1; else say "- 同一プロセスの出力と一致"; fi
 
 # ---- 2. 性能 (イメージは 1 つ。自前 → ntfs-3g を 2 回交互に)
 sh "$HERE/gen_fuseshim_perf_fixture.sh" "$W/perf" > "$W/perf.gen.log" 2>&1 || { cat "$W/perf.gen.log"; echo "性能用フィクスチャ生成に失敗" >&2; exit 1; }
-compare_one "perf image (全ツリー比較)" "$W/perf/ntfs_perf.img" ""
+compare_one "perf image (全ツリー比較)" "$W/perf/ntfs_perf.img" "" perf
 say "### 性能 (CI のマシンの値は参考。同じイメージ・同じ実行体で 2 回ずつ交互)"
 for round in 1 2; do
   for impl in core n3g; do
@@ -69,11 +76,43 @@ for round in 1 2; do
     "$exe" --perf "$W/perf/ntfs_perf.img" /big.bin /many > "$W/perf.$impl.$round.txt" 2> "$W/perf.$impl.$round.err" || { cat "$W/perf.$impl.$round.err"; say "- FAIL: perf $impl"; fail=1; }
   done
 done
+# 読み取りキャッシュ (64 MiB) を下位デバイスの前に入れた場合 (実機 USB のようにページキャッシュが無い状況の実験)
+for impl in core n3g; do
+  exe=$CORE; [ $impl = n3g ] && exe=$N3G
+  FSDUMP_CACHE_MB=64 "$exe" --perf "$W/perf/ntfs_perf.img" /big.bin /many > "$W/perf.$impl.cache.txt" 2> "$W/perf.$impl.cache.err" || { cat "$W/perf.$impl.cache.err"; say "- FAIL: perf $impl (cache)"; fail=1; }
+  say "- $impl (cache 64MiB): $(tr '\n' ' ' < "$W/perf.$impl.cache.txt")"
+done
 for impl in core n3g; do
   for round in 1 2; do
     say "- $impl (run $round): $(tr '\n' ' ' < "$W/perf.$impl.$round.txt")"
   done
 done
+
+# RPC 越し (fork した子プロセスに ntfs-3g。本体側は socketpair の RPC だけ)
+for round in 1 2; do
+  "$N3G" --rpc --perf "$W/perf/ntfs_perf.img" /big.bin /many > "$W/perf.n3grpc.$round.txt" 2> "$W/perf.n3grpc.$round.err" || { cat "$W/perf.n3grpc.$round.err"; say "- FAIL: perf n3g rpc"; fail=1; }
+  say "- n3g + RPC (run $round): $(tr '\n' ' ' < "$W/perf.n3grpc.$round.txt")"
+done
+
+# ---- 3. wimlib の wimmount (shim の libfuse 3.x 系)。usbmem_fsdump_wim があるときだけ
+WIMX=$B/usbmem_fsdump_wim
+if [ -x "$WIMX" ]; then
+  say "### wimlib wimmount (shim 越し、読み取り専用)"
+  python3 -I "$HERE/fuseshim/gen_wim_fixture.py" "$W/wim" > "$W/wim.gen.log" 2>&1 || { cat "$W/wim.gen.log"; say "- FAIL: wim フィクスチャ生成"; fail=1; }
+  strip_mtime "$W/wim/expected.txt" > "$W/wim/expected.nomtime"
+  for v in lzx none lzms; do
+    "$WIMX" "$W/wim/$v.wim" > "$W/wim/$v.txt" 2> "$W/wim/$v.err"; rc=$?
+    say "- $v.wim: rc=$rc $(tail -1 "$W/wim/$v.err")"
+    strip_mtime "$W/wim/$v.txt" > "$W/wim/$v.nomtime"
+    if [ $rc -ne 0 ] || ! diff -u "$W/wim/expected.nomtime" "$W/wim/$v.nomtime" > "$W/wim/$v.diff"; then say "- FAIL: $v.wim が元のツリーと一致しない"; head -20 "$W/wim/$v.diff" | tee -a "$SUM"; head -20 "$W/wim/$v.err"; fail=1
+    else say "  - 元のツリー ($(wc -l < "$W/wim/expected.nomtime") エントリ: 名前・種別・サイズ・sha256) と一致"; fi
+  done
+  for v in lzx none; do
+    "$WIMX" --perf "$W/wim/$v.wim" /big.bin /many > "$W/wim/perf.$v.txt" 2> "$W/wim/perf.$v.err" || { cat "$W/wim/perf.$v.err"; say "- FAIL: wim perf $v"; fail=1; }
+    say "- wim perf $v: $(tr '\n' ' ' < "$W/wim/perf.$v.txt")"
+  done
+  "$WIMX" --rpc "$W/wim/lzx.wim" > "$W/wim/lzx_rpc.txt" 2> "$W/wim/lzx_rpc.err" && diff -q <(strip_mtime "$W/wim/lzx_rpc.txt") "$W/wim/lzx.nomtime" >/dev/null && say "- RPC 越しの wimmount: 一致" || { say "- FAIL: RPC 越しの wimmount"; head -10 "$W/wim/lzx_rpc.err"; fail=1; }
+fi
 
 if [ $fail -ne 0 ]; then echo "FUSESHIM TESTS FAILED"; exit 1; fi
 echo "FUSESHIM TESTS PASSED"

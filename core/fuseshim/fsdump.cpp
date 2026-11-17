@@ -2,11 +2,17 @@
 // fsdump: NTFS イメージのツリー (名前・種別・サイズ・mtime・sha256) を書き出す。性能の測定も同じ実行体でする。docs/fuse-layer.md 5 章
 //   - 既定のビルド (USBMEM_FSDUMP_NTFS3G なし): 自前の NTFS 実装 (LinuxCompat 上の fs/ntfs = NtfsVolume)
 //   - USBMEM_FSDUMP_NTFS3G: shim 越しの無改変の ntfs-3g (FuseShimVolume)
+//   - USBMEM_FSDUMP_WIM: shim (libfuse 3.x 系) 越しの無改変の wimlib の wimmount。IMAGE は .wim ファイル (BlockDevice は通らない)
 // 2 つは 1 つの実行体にできない (どちらも ntfs_* のシンボルを定義する)。別プロセスで動かし、出力を diff で突き合わせる (tools/run_fuseshim_tests.sh)。
 //
 //   fsdump IMAGE                        ツリーを標準出力へ (行: 種別 サイズ mtime sha256 パス。種別 d / f / l / o)。統計は標準エラーへ
+//   fsdump --rpc ...                   (shim 版のみ) FUSE プログラムを fork した子プロセスで動かし、socketpair の RPC (rpc_volume.h) 越しに読む。本番の主案の形
 //   fsdump --perf IMAGE BIGFILE MANYDIR  性能 (key=value を標準出力へ)。BIGFILE / MANYDIR はルートからのパス (例 /big.bin /many)
+// 環境変数: FSDUMP_CACHE_MB=N  下位デバイスと FS の間に読み取りキャッシュ (16 KiB 行・LRU、256 KiB 以上の読みは素通し) を入れる (実機 USB にはページキャッシュが無い想定の実験)。
 #include <sys/resource.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <sys/stat.h>
 
 #include <algorithm>
@@ -15,15 +21,22 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <list>
 #include <memory>
+#include <mutex>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
 #include "usbmem/devices.h"
 #include "usbmem/fs_volume.h"
 #include "usbmem/sha256.h"
-#ifdef USBMEM_FSDUMP_NTFS3G
+#if defined(USBMEM_FSDUMP_NTFS3G)
 #include "ntfs3g_session.h"
+#include "rpc_volume.h"
+#elif defined(USBMEM_FSDUMP_WIM)
+#include "wim_session.h"
+#include "rpc_volume.h"
 #else
 #include "usbmem/ntfs_volume.h"
 #endif
@@ -57,35 +70,152 @@ class CountingDevice final : public BlockDevice {
   std::atomic<uint64_t> calls_{0}, bytes_{0};
 };
 
+
+// 読み取り専用の簡単な行キャッシュ。ntfs-3g はパスを引くたびに索引ブロックを読み直し、自前のキャッシュが小さい (OS のページキャッシュに頼る) ので、効果を見る。
+class CacheDevice final : public BlockDevice {
+ public:
+  CacheDevice(BlockDevicePtr in, size_t lines) : in_(std::move(in)), cap_(lines) {}
+  Status read_at(uint64_t off, void* buf, size_t len, const IoOptions& o = {}) override {
+    if (len >= kBypass) return in_->read_at(off, buf, len, o);
+    uint8_t* out = static_cast<uint8_t*>(buf);
+    while (len) {
+      uint64_t line = off / kLine;
+      size_t in_line = static_cast<size_t>(off % kLine), n = std::min(len, kLine - in_line);
+      std::lock_guard<std::mutex> l(mu_);
+      auto it = map_.find(line);
+      if (it == map_.end()) {
+        uint64_t base = line * kLine;
+        size_t want = static_cast<size_t>(std::min<uint64_t>(kLine, in_->size() - base));
+        Entry e;
+        e.data.resize(want);
+        Status st = in_->read_at(base, e.data.data(), want, o);
+        if (!st.ok()) return st;
+        if (map_.size() >= cap_) {
+          map_.erase(lru_.back());
+          lru_.pop_back();
+        }
+        lru_.push_front(line);
+        e.pos = lru_.begin();
+        it = map_.emplace(line, std::move(e)).first;
+      } else {
+        lru_.splice(lru_.begin(), lru_, it->second.pos);
+      }
+      if (in_line + n > it->second.data.size()) return Status::Make(Errc::OutOfRange);
+      std::memcpy(out, it->second.data.data() + in_line, n);
+      out += n;
+      off += n;
+      len -= n;
+    }
+    return Status::Ok();
+  }
+  Status write_at(uint64_t, const void*, size_t, const IoOptions& = {}) override { return Status::Make(Errc::ReadOnly); }
+  Status flush() override { return Status::Ok(); }
+  Status close() override { return in_->close(); }
+  uint64_t size() const override { return in_->size(); }
+  uint32_t logical_block_size() const override { return in_->logical_block_size(); }
+  bool is_read_only() const override { return true; }
+  std::string describe() const override { return "cache:" + in_->describe(); }
+
+ private:
+  static constexpr size_t kLine = 16384, kBypass = 262144;
+  struct Entry {
+    std::vector<uint8_t> data;
+    std::list<uint64_t>::iterator pos;
+  };
+  BlockDevicePtr in_;
+  size_t cap_;
+  std::mutex mu_;
+  std::unordered_map<uint64_t, Entry> map_;
+  std::list<uint64_t> lru_;
+};
+
 struct Opened {
-  std::shared_ptr<CountingDevice> dev;
-#ifdef USBMEM_FSDUMP_NTFS3G
+  std::shared_ptr<CountingDevice> dev;  // WIM では null
+#if defined(USBMEM_FSDUMP_NTFS3G) || defined(USBMEM_FSDUMP_WIM)
   std::unique_ptr<FuseShimSession> session;
-  FsVolume* vol() { return session ? session->volume() : nullptr; }
+  std::unique_ptr<RpcVolume> rpc;  // --rpc のとき (session は子プロセスの中)
+  FsVolume* vol() { return rpc ? static_cast<FsVolume*>(rpc.get()) : (session ? session->volume() : nullptr); }
+  uint64_t dev_calls() { uint64_t c = 0, b = 0; if (rpc) rpc->dev_stats(&c, &b); else if (dev) c = dev->calls(); return c; }
+  uint64_t dev_bytes() { uint64_t c = 0, b = 0; if (rpc) rpc->dev_stats(&c, &b); else if (dev) b = dev->bytes(); return b; }
 #else
   std::unique_ptr<NtfsVolume> v;
   FsVolume* vol() { return v.get(); }
+  uint64_t dev_calls() const { return dev ? dev->calls() : 0; }
+  uint64_t dev_bytes() const { return dev ? dev->bytes() : 0; }
 #endif
 };
 
+bool g_rpc = false;
+bool open_local(const std::string& path, Opened* o, double* mount_ms);
+
 bool open_image(const std::string& path, Opened* o, double* mount_ms) {
+#if defined(USBMEM_FSDUMP_NTFS3G) || defined(USBMEM_FSDUMP_WIM)
+  if (g_rpc) {
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv)) return false;
+    std::fflush(nullptr);
+    auto t0 = Clock::now();
+    pid_t pid = fork();
+    if (pid < 0) return false;
+    if (pid == 0) {  // 子: FUSE プログラム (shim + ntfs-3g / wimlib) の側
+      close(sv[0]);
+      {
+        Opened c;
+        double ms = 0;
+        uint64_t root = 0;
+        if (open_local(path, &c, &ms)) root = c.vol()->root();
+        if (::write(sv[1], &root, 8) != 8) _exit(3);
+        if (root) rpc_serve(sv[1], *c.vol(), [&c](uint64_t* a, uint64_t* b) { *a = c.dev_calls(); *b = c.dev_bytes(); });
+      }
+      _exit(0);
+    }
+    close(sv[1]);
+    uint64_t root = 0;
+    if (::read(sv[0], &root, 8) != 8 || !root) {
+      close(sv[0]);
+      waitpid(pid, nullptr, 0);
+      std::fprintf(stderr, "fsdump: child failed to mount\n");
+      return false;
+    }
+    o->rpc.reset(new RpcVolume(sv[0], pid, root));
+    *mount_ms = std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
+    return true;
+  }
+#endif
+  return open_local(path, o, mount_ms);
+}
+
+bool open_local(const std::string& path, Opened* o, double* mount_ms) {
+#ifdef USBMEM_FSDUMP_WIM
+  auto t0 = Clock::now();
+  std::string err;
+  o->session = open_wim(path, 1, &err);
+  if (!o->session) {
+    std::fprintf(stderr, "fsdump: wim mount failed: %s\n", err.c_str());
+    return false;
+  }
+  *mount_ms = std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
+  return true;
+#else
   BlockDevicePtr raw;
   if (!RawImageDevice::open_path(path, true, 512, &raw).ok()) {
     std::fprintf(stderr, "fsdump: cannot open %s\n", path.c_str());
     return false;
   }
-  o->dev = std::make_shared<CountingDevice>(raw);
+  o->dev = std::make_shared<CountingDevice>(raw);  // 下位 (実際のデバイス) への読みを数える
+  BlockDevicePtr top = o->dev;
+  if (const char* mb = std::getenv("FSDUMP_CACHE_MB")) top = std::make_shared<CacheDevice>(top, static_cast<size_t>(std::atoi(mb)) * 64);
   auto t0 = Clock::now();
 #ifdef USBMEM_FSDUMP_NTFS3G
   std::string err;
-  o->session = open_ntfs3g(o->dev, "", &err);
+  o->session = open_ntfs3g(top, "", &err);
   if (!o->session) {
     std::fprintf(stderr, "fsdump: ntfs3g mount failed: %s\n", err.c_str());
     return false;
   }
 #else
   int e = 0;
-  o->v = NtfsVolume::mount(o->dev, &e);
+  o->v = NtfsVolume::mount(top, &e);
   if (!o->v) {
     std::fprintf(stderr, "fsdump: mount failed errno %d\n", e);
     return false;
@@ -93,6 +223,7 @@ bool open_image(const std::string& path, Opened* o, double* mount_ms) {
 #endif
   *mount_ms = std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
   return true;
+#endif
 }
 
 bool sha_of(FsVolume& v, uint64_t ino, uint64_t size, std::string* hex, std::vector<uint8_t>& buf) {
@@ -199,7 +330,7 @@ int perf(const std::string& image, const std::string& big, const std::string& ma
   }
   std::vector<uint8_t> buf(1u << 20);
   std::vector<double> mbps;
-  uint64_t calls0 = o.dev->calls(), bytes0 = o.dev->bytes();
+  uint64_t calls0 = o.dev_calls(), bytes0 = o.dev_bytes();
   for (int run = 0; run < 3; run++) {
     auto t0 = Clock::now();
     uint64_t off = 0;
@@ -216,8 +347,8 @@ int perf(const std::string& image, const std::string& big, const std::string& ma
     mbps.push_back(static_cast<double>(off) / 1048576.0 / s);
     if (run == 0) {
       std::printf("perf.big_bytes=%llu\n", static_cast<unsigned long long>(off));
-      std::printf("perf.read_dev_calls_first_run=%llu\n", static_cast<unsigned long long>(o.dev->calls() - calls0));
-      std::printf("perf.read_dev_bytes_first_run=%llu\n", static_cast<unsigned long long>(o.dev->bytes() - bytes0));
+      std::printf("perf.read_dev_calls_first_run=%llu\n", static_cast<unsigned long long>(o.dev_calls() - calls0));
+      std::printf("perf.read_dev_bytes_first_run=%llu\n", static_cast<unsigned long long>(o.dev_bytes() - bytes0));
     }
   }
   std::printf("perf.read_mbps_runs=%.0f,%.0f,%.0f\n", mbps[0], mbps[1], mbps[2]);
@@ -235,6 +366,9 @@ int perf(const std::string& image, const std::string& big, const std::string& ma
   if (rc) return 3;
   std::printf("perf.dir_entries=%zu\n", ents.size());
   std::printf("perf.readdir_ms=%.1f\n", readdir_ms);
+  uint64_t mark = o.dev_bytes();
+  auto phase = [&](const char* n) { std::printf("perf.dev_bytes_%s=%llu\n", n, static_cast<unsigned long long>(o.dev_bytes() - mark)); mark = o.dev_bytes(); };
+  phase("readdir");
   t1 = Clock::now();
   uint64_t sum = 0;
   for (const auto& e : ents) {
@@ -243,6 +377,7 @@ int perf(const std::string& image, const std::string& big, const std::string& ma
     if (v.stat(e.ino, &s2) == 0) sum += s2.size;
   }
   std::printf("perf.stat_all_ms=%.1f\n", ms_since(t1));
+  phase("stat_all");
   t1 = Clock::now();
   uint64_t looked = 0;
   for (const auto& e : ents) {
@@ -251,6 +386,7 @@ int perf(const std::string& image, const std::string& big, const std::string& ma
     if (v.lookup(dino, e.name, &x) == 0) looked++;
   }
   std::printf("perf.lookup_all_ms=%.1f\n", ms_since(t1));
+  phase("lookup_all");
   t1 = Clock::now();
   uint64_t small_bytes = 0;
   std::vector<uint8_t> sb(4096);
@@ -260,9 +396,10 @@ int perf(const std::string& image, const std::string& big, const std::string& ma
     if (n > 0) small_bytes += static_cast<uint64_t>(n);
   }
   std::printf("perf.read_all_small_ms=%.1f\n", ms_since(t1));
+  phase("read_all_small");
   std::printf("perf.small_bytes=%llu looked=%llu sizesum=%llu\n", static_cast<unsigned long long>(small_bytes), static_cast<unsigned long long>(looked), static_cast<unsigned long long>(sum));
-  std::printf("perf.dev_calls_total=%llu\n", static_cast<unsigned long long>(o.dev->calls()));
-  std::printf("perf.dev_bytes_total=%llu\n", static_cast<unsigned long long>(o.dev->bytes()));
+  std::printf("perf.dev_calls_total=%llu\n", static_cast<unsigned long long>(o.dev_calls()));
+  std::printf("perf.dev_bytes_total=%llu\n", static_cast<unsigned long long>(o.dev_bytes()));
   struct rusage ru;
   getrusage(RUSAGE_SELF, &ru);
   std::printf("perf.maxrss_kb=%ld\n", ru.ru_maxrss);
@@ -272,6 +409,17 @@ int perf(const std::string& image, const std::string& big, const std::string& ma
 }  // namespace
 
 int main(int argc, char** argv) {
+  if (argc > 1 && !std::strcmp(argv[1], "--rpc")) {
+#if defined(USBMEM_FSDUMP_NTFS3G) || defined(USBMEM_FSDUMP_WIM)
+    g_rpc = true;
+    argv[1] = argv[0];
+    argv++;
+    argc--;
+#else
+    std::fprintf(stderr, "--rpc は shim 版のみ\n");
+    return 64;
+#endif
+  }
   if (argc == 5 && !std::strcmp(argv[1], "--perf")) return perf(argv[2], argv[3], argv[4]);
   if (argc != 2) {
     std::fprintf(stderr, "usage: %s IMAGE | --perf IMAGE BIGFILE MANYDIR\n", argv[0]);
@@ -286,7 +434,7 @@ int main(int argc, char** argv) {
   walk(*o.vol(), o.vol()->root(), "", &t, buf);
   std::fprintf(stderr, "fsdump: mount %.1f ms, walk %.1f ms, dirs=%llu files=%llu links=%llu other=%llu bytes=%llu errors=%llu dev_calls=%llu dev_bytes=%llu\n", mount_ms, ms_since(t0),
                static_cast<unsigned long long>(t.dirs), static_cast<unsigned long long>(t.files), static_cast<unsigned long long>(t.links), static_cast<unsigned long long>(t.other),
-               static_cast<unsigned long long>(t.bytes), static_cast<unsigned long long>(t.errors), static_cast<unsigned long long>(o.dev->calls()), static_cast<unsigned long long>(o.dev->bytes()));
+               static_cast<unsigned long long>(t.bytes), static_cast<unsigned long long>(t.errors), static_cast<unsigned long long>(o.dev_calls()), static_cast<unsigned long long>(o.dev_bytes()));
   std::fflush(stdout);
   return t.errors ? 1 : 0;
 }

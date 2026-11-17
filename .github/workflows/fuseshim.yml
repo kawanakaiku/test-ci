@@ -26,30 +26,34 @@ jobs:
       - name: Install host tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ make python3 ntfs-3g fuse3 zlib1g-dev autoconf automake libtool pkg-config
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ make python3 ntfs-3g fuse3 zlib1g-dev autoconf automake libtool pkg-config libfuse3-dev wimtools
           echo user_allow_other | sudo tee -a /etc/fuse.conf
 
       - name: Fetch ntfs-3g (pinned, sha256 verified) and configure
         run: tools/fuseshim/fetch_ntfs3g.sh "$RUNNER_TEMP/n3g"
 
+      - name: Fetch wimlib (pinned, sha256 verified) and build libwim.a (--without-ntfs-3g)
+        run: tools/fuseshim/fetch_wimlib.sh "$RUNNER_TEMP/wim" 2>&1 | tee "$RUNNER_TEMP/wim_fetch.log"; test "${PIPESTATUS[0]}" = 0; cat "$RUNNER_TEMP/wim_fetch.log" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Configure
         run: |
           cmake -S core -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSBMEM_BUILD_TESTS=OFF \
-            -DUSBMEM_BUILD_FUSESHIM=ON -DUSBMEM_NTFS3G_SRC="$RUNNER_TEMP/n3g/src" -DUSBMEM_NTFS3G_BUILD="$RUNNER_TEMP/n3g/build"
+            -DUSBMEM_BUILD_FUSESHIM=ON -DUSBMEM_NTFS3G_SRC="$RUNNER_TEMP/n3g/src" -DUSBMEM_NTFS3G_BUILD="$RUNNER_TEMP/n3g/build" \
+            -DUSBMEM_WIMLIB_SRC="$RUNNER_TEMP/wim/src" -DUSBMEM_WIMLIB_LIB="$RUNNER_TEMP/wim/build/.libs/libwim.a"
 
       - name: Build
-        run: cmake --build build -j"$(nproc)" --target usbmem_fsdump_core usbmem_fsdump_ntfs3g
+        run: cmake --build build -j"$(nproc)" --target usbmem_fsdump_core usbmem_fsdump_ntfs3g usbmem_fsdump_wim
 
       - name: Source size (shim)
         run: |
           { echo '### shim の大きさ (行数、コメント・空行を含む)'; echo '```'
-            wc -l core/fuseshim/*.c core/fuseshim/*.h core/fuseshim/*.cpp core/fuseshim.cmake
+            wc -l core/fuseshim/*.c core/fuseshim/*.h core/fuseshim/*.cpp core/fuseshim.cmake tools/fuseshim/*
             echo '--- C のみ (shim 本体 + libntfs-3g の差し替え)'
             cat core/fuseshim/fuseshim_fuse2.c core/fuseshim/ntfs3g_io.c core/fuseshim/fuseshim.h | wc -l
             echo '--- コメント・空行を除いた C の論理行 (cloc があれば)'
             (command -v cloc >/dev/null && cloc --quiet core/fuseshim/fuseshim_fuse2.c core/fuseshim/ntfs3g_io.c) || true
             echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
-          ls -l build/usbmem_fsdump_core build/usbmem_fsdump_ntfs3g | tee -a "$GITHUB_STEP_SUMMARY"
+          ls -l build/usbmem_fsdump_core build/usbmem_fsdump_ntfs3g build/usbmem_fsdump_wim | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Compare + perf
         run: tools/run_fuseshim_tests.sh build /tmp/fuseshim_work
@@ -64,4 +68,5 @@ jobs:
             /tmp/fuseshim_work/**/*.err
             /tmp/fuseshim_work/**/*.log
             /tmp/fuseshim_work/**/*.nomtime
+            /tmp/fuseshim_work/**/*.diff
           if-no-files-found: ignore

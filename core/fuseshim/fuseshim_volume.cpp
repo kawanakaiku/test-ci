@@ -91,6 +91,18 @@ int FuseShimVolume::readdir(uint64_t dir, std::vector<FsDirEntry>* out) {
       },
       &c);
   if (rc) return rc;
+  // stat を付けずに名前だけ渡す FS (wimlib) は、ino / 種別をここで getattr して補う。"." と ".." は dir 自身にする。
+  for (auto& e : *out) {
+    if (e.name == "." || e.name == "..") {
+      if (e.ino == 0) { e.ino = dir; e.dtype = 4; }
+      continue;
+    }
+    if (e.ino == 0 || e.dtype == 0) {
+      fuseshim_attr a;
+      std::string p = join(dp, e.name);
+      if (fuseshim_getattr(p.c_str(), &a) == 0) { e.ino = a.ino; e.dtype = dtype_of(a.mode); }
+    }
+  }
   std::lock_guard<std::mutex> l(mu_);
   for (const auto& e : *out)
     if (e.name != "." && e.name != "..") paths_.emplace(e.ino, join(dp, e.name));

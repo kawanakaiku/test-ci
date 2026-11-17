@@ -39,7 +39,8 @@ interface UsbSession : AutoCloseable {
 
     fun partitionTable(): PartitionTable
     fun opStats(): String
-    fun mountNtfs(offsetBytes: Long, sizeBytes: Long, writable: Boolean = false, createOnly: Boolean = true, allowNoload: Boolean = false): NtfsVolume
+    /** [allowDirty] = false: 書き込み可を要求しても、NTFS がダーティフラグだけなら [WriteConfirmRequired] (利用者に確認してから true で開き直す) */
+    fun mountNtfs(offsetBytes: Long, sizeBytes: Long, writable: Boolean = false, createOnly: Boolean = true, allowNoload: Boolean = false, allowDirty: Boolean = false): NtfsVolume
     fun startStop(start: Boolean)
     fun isSpunDown(): Boolean
     fun setIdleSpinDown(idleMinutes: Int, onStopped: (Boolean) -> Unit = {})

@@ -63,7 +63,7 @@ Java は Temurin 17、Gradle は 9.0.0 (ラッパー)、NDK 30.0.16248370、CMak
 | FS | 件数 | 備考 |
 |---|---|---|
 | fat | 6 | |
-| ntfs_state | 1 | ダーティ / 未再生ログ / 休止状態の NTFS 5 種 (`gen_ntfs_state_fixture.py`) の `state()`・書き込みの拒否・イメージ不変 (docs/dirty-volumes.md)。Android 側は `ro-misc` の `ntfs_read` が同じ 5 種を使う `VolumeStateInstrumentedTest` |
+| ntfs_state | 1 | ダーティ / 未再生ログ / 休止状態の NTFS 5 種 (`gen_ntfs_state_fixture.py`) の `state()`・書き込みの拒否・イメージ不変 (docs/dirty-volumes.md)。Android 側は `ro-misc` の `ntfs_read` が同じ 5 種を使う `VolumeStateInstrumentedTest` と、ダーティな NTFS の確認ダイアログを実画面で通す `DirtyConfirmUiTest` (イメージ画面・偽の USB セッション。回転も) |
 | fat_write | 3 | FAT12 / FAT16 / FAT32 の操作列 (fsck.fat・7z・ホスト参照ツリーとの比較) + ダーティ 2 種が読み取り専用に落ちる |
 | ext2_write | 3 | ホスト側の fsck / fuse2fs 参照実装との比較を含む |
 | exfat_write | 2 | 同上 (exfat-fuse) |

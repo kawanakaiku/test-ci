@@ -104,9 +104,19 @@ data class CryptoUnlockResult(
 
 /**
  * 解錠はできたが、中の ext3/ext4 などのジャーナルが未再生 (EUCLEAN) で、「読み取り専用で開く」確認を待っているボリューム (資格情報は含まない)。
- * [id] = 確認・キャンセルに渡す識別子 (VolumeRegistry の保留)。[writeRequested] = 書き込み可での解錠を選んでいた (読み取り専用でしか開けないことを文言で示す)。
+ * [id] = 確認・キャンセルに渡す識別子 (VolumeRegistry の保留)。[writeRequested] = 書き込み可での解錠を選んでいた (読み取り専用でしか開けないことを文言で示す)。[dirty] / [journal] = 保留の中身 (確認ダイアログの種類を決める)。
  */
-data class CryptoNoloadPrompt(val id: String, val label: String, val writeRequested: Boolean)
+data class CryptoNoloadPrompt(
+    val id: String, val label: String, val writeRequested: Boolean,
+    /** 保留の中に、ダーティフラグだけの NTFS (読み取り専用か書き込み可かを選ぶ) がある */
+    val dirty: Boolean = false,
+    /** 保留の中に、ジャーナル未再生の FS (読み取り専用でしか開けない) がある */
+    val journal: Boolean = true,
+) {
+    companion object {
+        fun of(id: String, label: String, writeRequested: Boolean, r: org.usbmem.app.PendingRecovery) = CryptoNoloadPrompt(id, label, writeRequested, dirty = r.hasDirty, journal = r.hasJournal)
+    }
+}
 
 /** 解錠済みの暗号ボリューム (中の FS) 1 つ。[id] = VolumeRegistry の id (ロックの操作に渡す)。 */
 data class CryptoVolumeRow(val id: String, val label: String, val fsName: String, val format: String, val writable: Boolean)

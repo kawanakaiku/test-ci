@@ -87,9 +87,9 @@ class VolumeStateInstrumentedTest {
 
     private fun mountRo(img: File): NtfsVolume = NtfsVolume.mountReadOnly(ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_ONLY).detachFd())
 
-    private fun mountRw(img: File): NtfsVolume {
+    private fun mountRw(img: File, allowDirty: Boolean = false): NtfsVolume {
         try {
-            return NtfsVolume.mountReadWrite(ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_WRITE).detachFd(), createOnly = false)
+            return NtfsVolume.mountReadWrite(ParcelFileDescriptor.open(img, ParcelFileDescriptor.MODE_READ_WRITE).detachFd(), createOnly = false, allowDirty = allowDirty)
         } catch (ex: NativeException) {
             assumeTrue("write support disabled in this build (errno ${ex.code})", ex.code != 30)
             throw ex
@@ -136,22 +136,38 @@ class VolumeStateInstrumentedTest {
     }
 
     @Test
-    fun dirtyFlagOnlyKeepsTheExistingPolicy() {
-        // ダーティフラグだけ (ログは静止) は従来どおり書き込み可。クリーンなアンマウントでフラグが下りる (上流の方針)
+    fun dirtyFlagOnlyAsksBeforeWriting() {
+        // ダーティフラグだけ (ログは静止): 書き込み可を要求しても、確認が取れるまで書き込みマウントしない (allowDirty = false が既定)。確認のあと、allowDirty = true で書き込み可
         val img = fetch("dirty")
+        val before = sha256Of(img)
         mountRo(img).use { v ->
             assertEquals(VolState.DIRTY, v.state)
             val n = VolumeStateNotice.of(ctx, v, writeRequested = false)
             assertTrue(text(n), n != null && n.detail!!.contains("NTFS のダーティフラグ") && n.detail!!.contains("読み取り専用で開いています"))
         }
-        mountRw(img).use { v ->
+        assertEquals("a read-only open must not change the image", before, sha256Of(img))
+
+        // (1) 書き込み可を要求: 確認が要る (WriteConfirmRequired)。ボリュームは閉じてあり、イメージは 1 バイトも変わらない
+        try { mountRw(img).close(); throw AssertionError("a dirty NTFS must ask before opening read-write") }
+        catch (ex: WriteConfirmRequired) { assertEquals(VolState.DIRTY or VolState.CONFIRM_WRITE, ex.volState) }
+        assertEquals("a held volume must stay byte-identical (no flag change, no log emptying)", before, sha256Of(img))
+
+        // (2) 確認で「書き込み可で開く」: allowDirty = true。書き込み可、クリーンなアンマウントでフラグが下りる
+        mountRw(img, allowDirty = true).use { v ->
             assertEquals(VolState.DIRTY, v.state)
-            assertTrue("dirty flag with a quiet log is writable", v.writable)
+            assertTrue("dirty flag with a quiet log is writable once confirmed", v.writable)
             val n = VolumeStateNotice.of(ctx, v, writeRequested = true)
             assertTrue(text(n), n != null && n.text.contains("書き込み可で開きました"))
             v.create("/", "new.txt", false)
         }
-        mountRo(img).use { v -> assertEquals("the dirty flag is lowered by the clean unmount", 0, v.state) }
+        mountRo(img).use { v -> assertEquals("the dirty flag is lowered by the clean unmount", 0, v.state); assertTrue(v.list("/").any { it.name == "new.txt" }) }
+        img.delete()
+    }
+
+    @Test
+    fun cleanVolumeDoesNotAsk() {
+        val img = fetch("clean")
+        mountRw(img).use { v -> assertTrue(v.writable); assertEquals(0, v.state and VolState.CONFIRM_WRITE) }
         img.delete()
     }
 }

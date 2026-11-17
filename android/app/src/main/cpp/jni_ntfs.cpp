@@ -32,7 +32,7 @@ namespace {
 
 // dev 全体のファイルシステムを判別してマウントする。exFAT / ext2 / ext3 / ext4 / FAT12・16・32 と判別できたときだけそれぞれマウントする。それ以外は従来どおり NTFS として試す
 // (壊れた NTFS のブート領域でも、NTFS ドライバ側の検査・復旧の挙動を変えないため)。失敗時 nullptr と正の errno。
-std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, bool rw, int* err, bool allow_noload = false) {
+std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, bool rw, int* err, bool allow_noload = false, bool allow_dirty = true) {
   if (dev->is_read_only()) rw = false;  // 下のデバイスが読み取り専用 (ネストの子など) なら、書き込み可を要求されても読み取り専用でマウントする
   usbmem::FsType t = usbmem::probe_filesystem(*dev, 0, dev->size());
   if (t == usbmem::FsType::Exfat) {
@@ -111,7 +111,8 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     usbmem::XfsMountOptions ox; ox.allow_noload = allow_noload;
     return usbmem::XfsVolume::mount(dev, err, ox);
   }
-  return rw ? usbmem::NtfsVolume::mount_rw(dev, err) : usbmem::NtfsVolume::mount(dev, err);
+  // NTFS: allow_dirty = false なら、ダーティフラグだけのボリュームは書き込みマウントせず、読み取り専用のまま返す (state に USBMEM_VOL_CONFIRM_WRITE。呼び出し側が確認する)
+  return rw ? usbmem::NtfsVolume::mount_rw(dev, err, allow_dirty) : usbmem::NtfsVolume::mount(dev, err);
 }
 
 std::string utf8(JNIEnv* env, jbyteArray a) {
@@ -161,13 +162,13 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountNoload(J
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
 }
 
-// 書き込み可能でマウント (実験的。ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS)。fd の所有権を引き取る。戻り値: >0 ハンドル / <=0 = -errno
-JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountRw(JNIEnv*, jclass, jint fd) {
+// 書き込み可能でマウント (実験的。ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS)。fd の所有権を引き取る。allowDirty = false: NTFS のダーティフラグだけのボリュームは保留 (読み取り専用で返り、state に CONFIRM_WRITE)。戻り値: >0 ハンドル / <=0 = -errno
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountRw(JNIEnv*, jclass, jint fd, jboolean allowDirty) {
   usbmem::BlockDevicePtr dev;
   usbmem::Status st = usbmem::RawImageDevice::open_fd(fd, false, true, 512, &dev);
   if (!st.ok()) return -22;
   int err = 0;
-  auto v = mount_auto(dev, true, &err);
+  auto v = mount_auto(dev, true, &err, false, allowDirty == JNI_TRUE);
   if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
   return reinterpret_cast<jlong>(new Vol{std::move(v)});
 }
@@ -230,7 +231,7 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDevice(J
 }
 
 // 開いているデバイスの一区間を書き込み可能で NTFS マウント (実験的。ビルドで無効なら -EROFS)。デバイス自体も read_only=false で開かれていること。
-JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDeviceRw(JNIEnv*, jclass, jlong devHandle, jlong offset, jlong length) {
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDeviceRw(JNIEnv*, jclass, jlong devHandle, jlong offset, jlong length, jboolean allowDirty) {
   auto* d = reinterpret_cast<usbmem_device*>(devHandle);
   if (!d || offset < 0 || length <= 0) return -22;
   usbmem::BlockDevicePtr sub;
@@ -239,7 +240,7 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMountDeviceRw
   int err = 0;
   auto ra = usbmem::ReadAheadDevice::wrap(sub);
   auto t0 = std::chrono::steady_clock::now();
-  auto v = mount_auto(ra, true, &err);
+  auto v = mount_auto(ra, true, &err, false, allowDirty == JNI_TRUE);
   log_mount_stats("mount_rw", ra, t0, v != nullptr);
   if (!v) return err > 0 ? -static_cast<jlong>(err) : -5;
   return reinterpret_cast<jlong>(new Vol{std::move(v), d->lineage});

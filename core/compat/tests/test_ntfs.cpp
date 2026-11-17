@@ -438,7 +438,28 @@ static int state_run(const std::string& dir) {
       CHECK(has_a);
     }
     CHECK(slurp_file(img) == before);   // 読み取り専用のマウント・アンマウントはイメージを変えない
-    {  // 読み書きを要求
+    // 確認待ち (allow_dirty = false): ダーティフラグだけのボリュームは書き込みマウントせず、読み取り専用のまま CONFIRM_WRITE 付きで返る (イメージ不変)。
+    // クリーンなものは通常どおり書き込み可で、CONFIRM_WRITE は付かない。ほかの 3 種は allow_dirty に関係なく従来どおり止まる (上の rw 要求と同じ)
+    if (c.want == USBMEM_VOL_DIRTY || c.want == 0) {
+      auto dev = open_img(img, false); int err = 0;
+      auto v = usbmem::NtfsVolume::mount_rw(dev, &err, false);
+      if (!v) {
+        if (err != EROFS) { std::fprintf(stderr, "state[%s]: rw(allow_dirty=false) mount failed %d\n", c.name, err); g_fail++; }
+      } else if (c.want == 0) {
+        CHECK(v->writable());
+        CHECK((v->state() & USBMEM_VOL_CONFIRM_WRITE) == 0);
+      } else {
+        if (v->state() != (USBMEM_VOL_DIRTY | USBMEM_VOL_CONFIRM_WRITE)) { std::fprintf(stderr, "state[%s]: held state=0x%x want=0x%x\n", c.name, v->state(), USBMEM_VOL_DIRTY | USBMEM_VOL_CONFIRM_WRITE); g_fail++; }
+        CHECK(!v->writable());
+        uint64_t ino = 0; CHECK(v->create(v->root(), "held.txt", 0644, &ino) == -EROFS);
+        std::vector<usbmem::NtfsDirEntry> es; CHECK(v->readdir(v->root(), &es) == 0);   // 読むことはできる
+        bool has_a = false; for (auto& e : es) if (e.name == "a.txt") has_a = true;
+        CHECK(has_a);
+        v.reset();
+        CHECK(slurp_file(img) == before);   // 保留したボリュームは 1 バイトも書かれない (ダーティフラグも、ログも)
+      }
+    }
+    {  // 読み書きを要求 (allow_dirty = true: 既定)
       auto dev = open_img(img, false); int err = 0;
       auto v = usbmem::NtfsVolume::mount_rw(dev, &err);
       if (!v) {

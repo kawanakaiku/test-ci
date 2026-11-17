@@ -49,6 +49,9 @@ interface UsbActions : LinkActions {
     fun publishPartition(key: String, startBytes: Long, sizeBytes: Long, label: String)
     fun publishPartitionNoload(key: String, startBytes: Long, sizeBytes: Long, label: String)
     fun cancelNoload(key: String)
+    /** ダーティフラグだけの NTFS (書き込み可を要求して、確認待ち) を、確認のうえ開く: [write] = true なら書き込み可、false なら読み取り専用。 */
+    fun publishPartitionDirty(key: String, startBytes: Long, sizeBytes: Long, label: String, write: Boolean)
+    fun cancelDirty(key: String)
     /** 暗号ボリューム (LUKS / BitLocker) のパーティションを調べて、解錠ダイアログを出す。 */
     fun requestUnlock(key: String, startBytes: Long, sizeBytes: Long, label: String)
     /** 解錠ダイアログの入力で解錠して、中のファイルシステムをマウント・公開する。 */
@@ -56,8 +59,8 @@ interface UsbActions : LinkActions {
     fun cancelUnlock(key: String)
     /** 解錠ダイアログの「記憶を削除」: [volumeId] のパスワードの記憶を消して、ダイアログを「記憶なし」の状態にする。 */
     fun forgetRemembered(key: String, volumeId: String)
-    /** 解錠した中のジャーナル未再生の FS を、確認のうえ読み取り専用 (noload) で開く。 */
-    fun confirmCryptoNoload(key: String, id: String)
+    /** 解錠した中のジャーナル未再生の FS を、確認のうえ読み取り専用 (noload) で開く。[writeDirty] = true なら、ダーティフラグだけの NTFS は書き込み可で開く。 */
+    fun confirmCryptoNoload(key: String, id: String, writeDirty: Boolean = false)
     /** キャンセル: 保留していた復号済みデバイスを閉じる (= ロック。鍵を消す)。 */
     fun cancelCryptoNoload(key: String, id: String)
     /** 公開中のボリューム 1 つだけをアンマウントする (USB は開いたまま)。 */
@@ -205,14 +208,20 @@ private fun DeviceCard(d: UsbDeviceState, a: UsbActions, canRelease: Boolean = f
             onDismiss = { a.cancelNoload(d.key) },
         )
     }
+    d.dirtyPrompt?.let { p ->
+        DirtyWriteDialog(
+            text = stringResource(R.string.dirty_dialog_text),
+            onOpenReadOnly = { a.publishPartitionDirty(d.key, p.startBytes, p.sizeBytes, p.label, write = false) },
+            onOpenWrite = { a.publishPartitionDirty(d.key, p.startBytes, p.sizeBytes, p.label, write = true) },
+            onCancel = { a.cancelDirty(d.key) },
+        )
+    }
     d.cryptoNoload?.let { p ->
-        ConfirmDialog(
-            title = stringResource(R.string.noload_dialog_title),
-            text = stringResource(R.string.noload_dialog_text) + "\n\n" + stringResource(R.string.crypto_noload_dialog_extra, p.label) +
-                (if (p.writeRequested) "\n\n" + stringResource(R.string.crypto_noload_dialog_write_note) else ""),
-            confirmLabel = stringResource(R.string.noload_dialog_confirm),
-            onConfirm = { a.confirmCryptoNoload(d.key, p.id) },
-            onDismiss = { a.cancelCryptoNoload(d.key, p.id) },
+        CryptoPendingDialog(
+            p,
+            onOpenReadOnly = { a.confirmCryptoNoload(d.key, p.id, writeDirty = false) },
+            onOpenWrite = { a.confirmCryptoNoload(d.key, p.id, writeDirty = true) },
+            onCancel = { a.cancelCryptoNoload(d.key, p.id) },
         )
     }
     d.unlockTarget?.let { t ->

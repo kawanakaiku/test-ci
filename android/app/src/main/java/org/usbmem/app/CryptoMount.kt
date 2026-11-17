@@ -38,8 +38,12 @@ class CryptoGroup(val id: String, private val closers: List<() -> Unit>) {
     private fun closeAll() { if (!closed) { closed = true; closers.forEach { runCatching { it() } } } }
 }
 
-/** [CryptoMount.unlock] が中の FS を 1 つも開けず、ジャーナル未再生 (EUCLEAN=117) で保留したものの範囲 (復号済みデバイス上の位置)。 */
-class InnerRange(val start: Long, val size: Long, val suffix: String)
+/**
+ * [CryptoMount.unlock] が中の FS を開かずに保留したものの範囲 (復号済みデバイス上の位置)。
+ * [dirty] = false: ジャーナル未再生 (EUCLEAN=117) で、読み取り専用 (noload) でしか開けない。
+ * [dirty] = true: ダーティフラグだけの NTFS に書き込み可を要求した ([WriteConfirmRequired]。何も書いていない)。確認すれば、読み取り専用か書き込み可で開ける。
+ */
+class InnerRange(val start: Long, val size: Long, val suffix: String, val dirty: Boolean = false)
 
 /**
  * 解錠は成功したが、中の ext3/ext4 (将来は Btrfs / F2FS / XFS) がジャーナル未再生 (EUCLEAN) で開けなかった FS を、**ユーザーの確認が出るまで保留**するもの。
@@ -49,6 +53,10 @@ class InnerRange(val start: Long, val size: Long, val suffix: String)
  */
 class PendingRecovery internal constructor(val group: CryptoGroup, private val dec: Long, val ranges: List<InnerRange>) {
     private var released = false
+    /** ダーティフラグだけの NTFS (読み取り専用か書き込み可かを選べる) を含むか */
+    val hasDirty: Boolean get() = ranges.any { it.dirty }
+    /** ジャーナル未再生の FS (読み取り専用でしか開けない) を含むか */
+    val hasJournal: Boolean get() = ranges.any { !it.dirty }
 
     class Mounted(val volumes: List<UnlockedCrypto.Inner>, val skipped: List<String>)
 
@@ -56,15 +64,23 @@ class PendingRecovery internal constructor(val group: CryptoGroup, private val d
      * 保留していた FS を、ジャーナルを再生せずに**読み取り専用**でマウントする (書き込みは一切しない)。1 つも開けなければ例外 (この場合は保留も [release] 済み)。
      * 成功したときは保留の参照が残る: 呼び出し側が [VolumeRegistry.addCryptoVolume] で登録 (= retain) したあとに [release] すること。
      */
+    fun mountNoload(): Mounted = mountPending(writeDirty = false, createOnly = true)
+
+    /**
+     * [mountNoload] の、ダーティフラグだけの NTFS を書き込み可で開けるもの: [writeDirty] = true なら、そのような範囲は書き込み可 ([createOnly] = 新規作成のみ) で開く
+     * (確認のうえ。ダーティフラグを承知)。ジャーナル未再生の FS は常に読み取り専用 (noload)。
+     */
     @Synchronized
-    fun mountNoload(): Mounted {
+    fun mountPending(writeDirty: Boolean, createOnly: Boolean): Mounted {
         check(!released) { "recovery already released" }
         val mounted = ArrayList<UnlockedCrypto.Inner>()
         val skipped = ArrayList<String>()
         var firstError: NativeException? = null
         for (r in ranges) {
             try {
-                mounted += UnlockedCrypto.Inner(NtfsVolume.mountDeviceRange(dec, r.start, r.size, allowNoload = true), r.suffix, r.start)
+                val v = if (r.dirty && writeDirty) NtfsVolume.mountDeviceRangeReadWrite(dec, r.start, r.size, createOnly, allowDirty = true)
+                else NtfsVolume.mountDeviceRange(dec, r.start, r.size, allowNoload = true)
+                mounted += UnlockedCrypto.Inner(v, r.suffix, r.start)
             } catch (e: NativeException) {
                 if (firstError == null) firstError = e
                 skipped += "${r.suffix.ifEmpty { "-" }}: errno ${e.code}"
@@ -94,7 +110,7 @@ class UnlockedCrypto(
     val writeRequested: Boolean,
     /** マウントしなかった中のパーティションの理由 (人に見せてよい。秘密を含まない) */
     val skipped: List<String>,
-    /** ジャーナル未再生で保留した FS (確認のうえ読み取り専用で開く)。無ければ null。非 null のとき、呼び出し側は必ず [PendingRecovery.release] か [PendingRecovery.mountNoload] の後の release をすること */
+    /** ジャーナル未再生 / ダーティな NTFS で保留した FS (確認のうえ開く)。無ければ null。非 null のとき、呼び出し側は必ず [PendingRecovery.release] か [PendingRecovery.mountNoload] の後の release をすること */
     val recovery: PendingRecovery? = null,
 ) {
     class Inner(val volume: NtfsVolume, val suffix: String, val startBytes: Long)
@@ -135,9 +151,9 @@ object CryptoMount {
      *   (この関数が例外を投げたら、呼び出し側は何も閉じなくてよい)。成功したときは [UnlockedCrypto.group] が最後の FS を閉じたときに呼ぶ。
      * 失敗は [CryptoException] (認証失敗は authFailed) か [NativeException] (中の FS のマウント失敗など)。
      *
-     * 中の FS が**ジャーナル未再生 (EUCLEAN=117)** のときは失敗にせず、その範囲を [UnlockedCrypto.recovery] に保留して返す (ほかの FS は普通にマウントする。
+     * 中の FS が**ジャーナル未再生 (EUCLEAN=117)**、または書き込み可を要求した**ダーティフラグだけの NTFS** のときは失敗にせず、その範囲を [UnlockedCrypto.recovery] に保留して返す (ほかの FS は普通にマウントする。
      * 1 つも開けた FS が無くても例外にしない)。呼び出し側はユーザーに「読み取り専用で開く」確認を取り、[PendingRecovery.mountNoload] か [PendingRecovery.release] をすること。
-     * 書き込み可を要求していても、保留した FS は書き込み可では開かない (noload は読み取り専用のみ)。
+     * 書き込み可を要求していても、ジャーナル未再生の FS は書き込み可では開かない (noload は読み取り専用のみ)。ダーティフラグだけの NTFS は、確認のうえ [PendingRecovery.mountPending] で書き込み可にできる。
      */
     fun unlock(
         parent: Long, parentWritable: Boolean, start: Long, size: Long, cred: UnlockCredentials, method: Method,
@@ -174,6 +190,8 @@ object CryptoMount {
                     val v = if (coreRw) NtfsVolume.mountDeviceRangeReadWrite(dec, r.start, r.size, createOnly) else NtfsVolume.mountDeviceRange(dec, r.start, r.size, false)
                     if (coreRw && !v.writable && note.isEmpty()) note = "中のファイルシステム (${v.fsName}) は書き込みに対応していない、または未処理の異常があるため、読み取り専用で開きました"
                     mounted += UnlockedCrypto.Inner(v, r.suffix, r.start)
+                } catch (e: WriteConfirmRequired) {
+                    recoveryRanges += InnerRange(r.start, r.size, r.suffix, dirty = true); continue   // ダーティフラグだけの NTFS: 確認すれば読み取り専用 / 書き込み可で開ける (保留。何も書いていない)
                 } catch (e: NativeException) {
                     if (e.code == 117) { recoveryRanges += r; continue }   // ジャーナル未再生: 確認すれば読み取り専用で開ける (保留)
                     if (firstError == null) firstError = e

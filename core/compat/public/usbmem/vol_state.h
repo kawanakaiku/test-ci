@@ -13,5 +13,8 @@
 #define USBMEM_VOL_HIBERNATED 4u
 /* exFAT の MediaFailure / FAT のメディアエラー bit: 表面検査が必要と記録されている。 */
 #define USBMEM_VOL_MEDIA_ERROR 8u
+/* NTFS: ダーティフラグだけ (ログは静止) のボリュームに書き込み可を要求されたが、mount_rw の allow_dirty = false だったので、書き込みマウントをせず読み取り専用のまま返した
+ * (writable() == false)。呼び出し側 (UI) が利用者に確認して、「読み取り専用で開く」か、allow_dirty = true で開き直す (書き込み可)。ボリュームの事実ではなく、この層の保留の合図。 */
+#define USBMEM_VOL_CONFIRM_WRITE 16u
 
 #endif

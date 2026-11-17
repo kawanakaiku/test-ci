@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -23,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -129,6 +131,50 @@ fun ConfirmDialog(title: String, text: String, confirmLabel: String, onConfirm: 
         confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
+}
+
+/**
+ * ダーティフラグだけの NTFS に書き込み可を要求したときの確認 (docs/dirty-volumes.md)。選択肢は 3 つ:
+ * 「読み取り専用で開く」(既定・強調) / 「書き込み可で開く」(明示的に選ぶ) / キャンセル (何も開かない)。USB のパーティション・イメージ・暗号ボリュームの中の NTFS が共通で使う。
+ */
+@Composable
+fun DirtyWriteDialog(text: String, onOpenReadOnly: () -> Unit, onOpenWrite: () -> Unit, onCancel: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text(stringResource(R.string.dirty_dialog_title)) },
+        text = { Text(text, Modifier.testTag("dirty_dialog")) },
+        confirmButton = {
+            Column(horizontalAlignment = Alignment.End) {
+                Button(onClick = onOpenReadOnly, modifier = Modifier.testTag("dirty_open_ro")) { Text(stringResource(R.string.dirty_dialog_read_only)) }
+                TextButton(onClick = onOpenWrite, modifier = Modifier.testTag("dirty_open_rw")) { Text(stringResource(R.string.dirty_dialog_write)) }
+                TextButton(onClick = onCancel, modifier = Modifier.testTag("dirty_cancel")) { Text(stringResource(R.string.common_cancel)) }
+            }
+        },
+    )
+}
+
+/**
+ * 解錠した暗号ボリュームの中に、確認が要る FS (ジャーナル未再生 = 読み取り専用 (noload) で開くか / ダーティフラグだけの NTFS = 読み取り専用か書き込み可か) があるときの確認。
+ * USB 画面とイメージ画面の共通部分。保留は VolumeRegistry が持つ (この関数は何も保持しない)。
+ */
+@Composable
+fun CryptoPendingDialog(p: CryptoNoloadPrompt, onOpenReadOnly: () -> Unit, onOpenWrite: () -> Unit, onCancel: () -> Unit) {
+    if (p.dirty) {
+        DirtyWriteDialog(
+            text = stringResource(R.string.dirty_dialog_text) + "\n\n" + stringResource(R.string.crypto_noload_dialog_extra, p.label) +
+                (if (p.journal) "\n\n" + stringResource(R.string.dirty_dialog_crypto_journal) else ""),
+            onOpenReadOnly = onOpenReadOnly, onOpenWrite = onOpenWrite, onCancel = onCancel,
+        )
+    } else {
+        ConfirmDialog(
+            title = stringResource(R.string.noload_dialog_title),
+            text = stringResource(R.string.noload_dialog_text) + "\n\n" + stringResource(R.string.crypto_noload_dialog_extra, p.label) +
+                (if (p.writeRequested) "\n\n" + stringResource(R.string.crypto_noload_dialog_write_note) else ""),
+            confirmLabel = stringResource(R.string.noload_dialog_confirm),
+            onConfirm = onOpenReadOnly,
+            onDismiss = onCancel,
+        )
+    }
 }
 
 @Composable

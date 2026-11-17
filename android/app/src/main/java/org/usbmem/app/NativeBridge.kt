@@ -46,8 +46,8 @@ object NativeBridge {
     @JvmStatic external fun nativeNtfsStat(handle: Long, path: ByteArray, errorOut: IntArray): ByteArray?
     @JvmStatic external fun nativeNtfsRead(handle: Long, path: ByteArray, offset: Long, buf: ByteArray): Long
     // --- 書き込み (実験的。ビルドで無効なら nativeNtfsMountRw が -EROFS(30) で失敗する)
-    @JvmStatic external fun nativeNtfsMountRw(fd: Int): Long
-    @JvmStatic external fun nativeNtfsMountDeviceRw(devHandle: Long, offset: Long, length: Long): Long
+    @JvmStatic external fun nativeNtfsMountRw(fd: Int, allowDirty: Boolean): Long
+    @JvmStatic external fun nativeNtfsMountDeviceRw(devHandle: Long, offset: Long, length: Long, allowDirty: Boolean): Long
     @JvmStatic external fun nativeFsName(handle: Long): ByteArray
     @JvmStatic external fun nativeNtfsWritable(handle: Long): Boolean
     /** マウント時に分かったボリュームの状態 ([VolState] のビットの組)。読み取り専用で開いたときも返す。 */
@@ -84,9 +84,18 @@ object VolState {
     const val LOG_UNCLEAN = 2      // NTFS: $LogFile に未再生のログ
     const val HIBERNATED = 4       // NTFS: Windows が休止状態 (高速スタートアップ) のまま
     const val MEDIA_ERROR = 8      // exFAT MediaFailure / FAT のメディアエラー bit
+    const val CONFIRM_WRITE = 16   // NTFS: ダーティフラグだけのボリュームに書き込み可を要求され、allowDirty = false なので書き込みマウントせず読み取り専用で保留した (事実ではなく、core の保留の合図)
 }
 
-class NativeException(val code: Int, message: String) : Exception(message)
+open class NativeException(val code: Int, message: String) : Exception(message)
+
+/**
+ * ダーティフラグだけ (ログは静止) の NTFS に書き込み可を要求されたが、allowDirty = false だったので、**何も書かずに** 開くのをやめた (開いたボリュームは閉じ済み。イメージは変わっていない)。
+ * 呼び出し側は利用者に確認して、「読み取り専用で開く」か、allowDirty = true で書き込み可を開き直す。[volState] = そのときの [VolState]。docs/dirty-volumes.md
+ */
+class WriteConfirmRequired(val volState: Int) : NativeException(CODE, "volume is dirty: confirmation needed to open read-write") {
+    companion object { const val CODE = 10117 }   // errno ではない (errno と重ならない値)
+}
 
 /** fd の所有権を引き受ける(close でネイティブ側が閉じる)。 */
 class RawImage private constructor(private var handle: Long) : AutoCloseable {
@@ -282,18 +291,25 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
         }
 
         /** USB 等の開いているデバイスの一区間を書き込み可能で試みる (実験的)。デバイスも書き込み可能で開いていること。[writable] は実際に書き込み可能なときだけ true。 */
-        fun mountDeviceRangeReadWrite(deviceHandle: Long, offset: Long, length: Long, createOnly: Boolean = true): NtfsVolume {
-            val h = NativeBridge.nativeNtfsMountDeviceRw(deviceHandle, offset, length)
+        fun mountDeviceRangeReadWrite(deviceHandle: Long, offset: Long, length: Long, createOnly: Boolean = true, allowDirty: Boolean = false): NtfsVolume {
+            val h = NativeBridge.nativeNtfsMountDeviceRw(deviceHandle, offset, length, allowDirty)
             if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs rw mount failed: errno ${-h}")
-            return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly)
+            return heldOrOpen(NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly), allowDirty)
+        }
+
+        /** [allowDirty] = false で core が保留した (state に [VolState.CONFIRM_WRITE]) なら、閉じて [WriteConfirmRequired] にする (何も書いていない)。 */
+        private fun heldOrOpen(v: NtfsVolume, allowDirty: Boolean): NtfsVolume {
+            if (!allowDirty && v.state and VolState.CONFIRM_WRITE != 0) { val st = v.state; v.close(); throw WriteConfirmRequired(st) }
+            return v
         }
 
 
-        /** 書き込み可能で試みる (実験的)。ビルドで無効、またはボリュームがダーティ等で上流が読み取り専用に落とした場合は [writable] = false で返す。 */
-        fun mountReadWrite(detachedFd: Int, createOnly: Boolean = false): NtfsVolume {
-            val h = NativeBridge.nativeNtfsMountRw(detachedFd)
+        /** 書き込み可能で試みる (実験的)。ビルドで無効、またはボリュームがダーティ等で上流が読み取り専用に落とした場合は [writable] = false で返す。
+         * [allowDirty] = false (既定) で、NTFS がダーティフラグだけのときは、何も書かずに [WriteConfirmRequired] を投げる (利用者に確認してから allowDirty = true で開き直す)。 */
+        fun mountReadWrite(detachedFd: Int, createOnly: Boolean = false, allowDirty: Boolean = false): NtfsVolume {
+            val h = NativeBridge.nativeNtfsMountRw(detachedFd, allowDirty)
             if (Handle.isError(h)) throw NativeException((-h).toInt(), "ntfs rw mount failed: errno ${-h}")
-            return NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly)
+            return heldOrOpen(NtfsVolume(h, NativeBridge.nativeNtfsWritable(h), createOnly), allowDirty)
         }
 
         fun mountReadOnly(detachedFd: Int, allowNoload: Boolean = false): NtfsVolume {

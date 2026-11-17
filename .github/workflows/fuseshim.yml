@@ -1,0 +1,67 @@
+# fuseshim (プロセス内の libfuse 互換の層) の試作 (docs/fuse-layer.md)。固定バージョンの ntfs-3g のソースを取得 (sha256 検証) して shim にリンクし、
+# 同じ NTFS イメージを自前の NTFS と shim 越しの ntfs-3g で読んで比較し、性能を測る (tools/run_fuseshim_tests.sh)。
+# ネットワークからソースを取るので、既定の ctest / host-tests には入れない専用ジョブ。
+# トリガ: workflow_dispatch、usbmem-fuseshim* ブランチへの push (usbmem-ci* は重い Host tests / emulator が動くので使わない)。
+name: fuseshim
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['usbmem-fuseshim*']
+
+concurrency:
+  group: fuseshim-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ntfs3g:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ make python3 ntfs-3g fuse3 zlib1g-dev
+          echo user_allow_other | sudo tee -a /etc/fuse.conf
+
+      - name: Fetch ntfs-3g (pinned, sha256 verified) and configure
+        run: tools/fuseshim/fetch_ntfs3g.sh "$RUNNER_TEMP/n3g"
+
+      - name: Configure
+        run: |
+          cmake -S core -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSBMEM_BUILD_TESTS=OFF \
+            -DUSBMEM_BUILD_FUSESHIM=ON -DUSBMEM_NTFS3G_SRC="$RUNNER_TEMP/n3g/src" -DUSBMEM_NTFS3G_BUILD="$RUNNER_TEMP/n3g/build"
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)" --target usbmem_fsdump_core usbmem_fsdump_ntfs3g
+
+      - name: Source size (shim)
+        run: |
+          { echo '### shim の大きさ (行数、コメント・空行を含む)'; echo '```'
+            wc -l core/fuseshim/*.c core/fuseshim/*.h core/fuseshim/*.cpp core/fuseshim.cmake
+            echo '--- C のみ (shim 本体 + libntfs-3g の差し替え)'
+            cat core/fuseshim/fuseshim_fuse2.c core/fuseshim/ntfs3g_io.c core/fuseshim/fuseshim.h | wc -l
+            echo '--- コメント・空行を除いた C の論理行 (cloc があれば)'
+            (command -v cloc >/dev/null && cloc --quiet core/fuseshim/fuseshim_fuse2.c core/fuseshim/ntfs3g_io.c) || true
+            echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+          ls -l build/usbmem_fsdump_core build/usbmem_fsdump_ntfs3g | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Compare + perf
+        run: tools/run_fuseshim_tests.sh build /tmp/fuseshim_work
+
+      - name: Save logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuseshim-logs
+          path: |
+            /tmp/fuseshim_work/**/*.txt
+            /tmp/fuseshim_work/**/*.err
+            /tmp/fuseshim_work/**/*.log
+            /tmp/fuseshim_work/**/*.nomtime
+          if-no-files-found: ignore

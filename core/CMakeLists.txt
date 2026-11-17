@@ -81,3 +81,5 @@ include(${CMAKE_CURRENT_LIST_DIR}/recovery.cmake)
 
 # FUSE アダプター (xfstests 用。docs/xfstests.md)
 include(${CMAKE_CURRENT_LIST_DIR}/fuse.cmake)
+# fuseshim の試作 (ntfs-3g を libfuse 互換の層に載せる。既定 OFF。docs/fuse-layer.md)
+include(${CMAKE_CURRENT_LIST_DIR}/fuseshim.cmake)

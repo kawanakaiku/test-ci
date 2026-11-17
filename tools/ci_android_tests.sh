@@ -134,7 +134,7 @@ run_fs() {
     ext4_read)   run_generic $APP.Ext4InstrumentedTest "$FIX/ext4:ext4_" ;;
     exfat_read)  run_generic $APP.ExfatInstrumentedTest "$FIX/exfat:exfat_" ;;
     iso_read)    run_generic $APP.IsofsInstrumentedTest "$FIX/iso:iso_" ;;
-    ntfs_read)   run_generic $APP.NtfsInstrumentedTest,$APP.VolumeStateInstrumentedTest "$FIX/ntfs:" ;;
+    ntfs_read)   run_generic $APP.NtfsInstrumentedTest,$APP.VolumeStateInstrumentedTest,$APP.DirtyConfirmUiTest "$FIX/ntfs:" ;;
     # LinkProviderTest は ext2_wr.img (= b1k.img のコピー) と ntfs_basic を使う
     app_misc)    mkdir -p "$FIX/misc" && cp "$FIX/ext2/b1k.img" "$FIX/misc/ext2_wr.img" \
                    && run_generic $APP.DocumentsProviderTest,$APP.LinkProviderTest,$APP.WriteSelfTestInstrumented,$APP.RawImageInstrumentedTest,$APP.TransferTuningTest "$FIX/ntfs:" "$FIX/misc:" ;;

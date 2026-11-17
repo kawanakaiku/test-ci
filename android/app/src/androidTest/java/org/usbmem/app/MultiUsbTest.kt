@@ -61,7 +61,7 @@ class MultiUsbTest {
         override val vendorId = 0x0781; override val productId = 0x5581; override val tuningIndex = -1
         override fun partitionTable() = PartitionTable("mbr", 512, 1L shl 30, "", false, false, emptyList(), emptyList())
         override fun opStats() = ""
-        override fun mountNtfs(offsetBytes: Long, sizeBytes: Long, writable: Boolean, createOnly: Boolean, allowNoload: Boolean): NtfsVolume = throw UnsupportedOperationException()
+        override fun mountNtfs(offsetBytes: Long, sizeBytes: Long, writable: Boolean, createOnly: Boolean, allowNoload: Boolean, allowDirty: Boolean): NtfsVolume = throw UnsupportedOperationException()
         override fun startStop(start: Boolean) {}
         override fun isSpunDown() = false
         override fun setIdleSpinDown(idleMinutes: Int, onStopped: (Boolean) -> Unit) {}

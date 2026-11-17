@@ -18,8 +18,10 @@ class NtfsVolume final : public FsVolume {
   // 読み書きでマウント (実験的)。ビルドで USBMEM_NTFS_WRITE=ON が必要。無効なら err=EROFS。
   // ログの再生は実装しない。上流の書き込みマウントは $LogFile を空にして (= 未再生の更新を捨てて) 書き始めるので、先に読み取り専用でマウントして状態を調べ、
   // $LogFile に未再生のログがある / Windows が休止状態 (高速スタートアップ) のボリュームは、書き込みを要求されても読み取り専用のまま返す (writable() == false、state() で理由が分かる。docs/dirty-volumes.md)。
-  // ダーティフラグだけ (ログは静止) のボリュームは従来どおり書き込み可で開き、クリーンなアンマウントでフラグを下ろす (上流の方針)。
-  static std::unique_ptr<NtfsVolume> mount_rw(BlockDevicePtr dev, int* err = nullptr);
+  // ダーティフラグだけ (ログは静止) のボリュームは、allow_dirty = true (既定) なら従来どおり書き込み可で開き、クリーンなアンマウントでフラグを下ろす (上流の方針)。
+  // allow_dirty = false なら、書き込みマウントをせずに読み取り専用のまま返す (writable() == false、state() に USBMEM_VOL_DIRTY | USBMEM_VOL_CONFIRM_WRITE)。
+  // UI が利用者に確認するための保留で、イメージは 1 バイトも変わらない。確認が取れたら allow_dirty = true で開き直す (docs/dirty-volumes.md)。
+  static std::unique_ptr<NtfsVolume> mount_rw(BlockDevicePtr dev, int* err = nullptr, bool allow_dirty = true);
   const char* fs_name() const override { return "ntfs"; }
   int sync() override;
   // 名前空間の変更 (実験的)。0 / 負の errno。sync() で永続化。
@@ -43,7 +45,7 @@ class NtfsVolume final : public FsVolume {
   int64_t read(uint64_t ino, uint64_t off, void* buf, size_t len) override;
 
  private:
-  friend std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr, int, int*);
+  friend std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr, int, int*, bool);
   static std::unique_ptr<NtfsVolume> mount_once(const BlockDevicePtr& dev, int ro, int* err);   // 1 回マウントし、状態 (state()) も調べる
   NtfsVolume() = default;
   struct Impl;

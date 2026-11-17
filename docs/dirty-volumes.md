@@ -9,7 +9,7 @@ Windows の「高速スタートアップ」「休止状態」「取り外し忘
 
 | FS | 状態 | 読み取り専用で開く | 書き込み可を要求したとき | UI の案内 (変更前) |
 |---|---|---|---|---|
-| NTFS | ダーティフラグだけ (ログ静止) | 開ける | 書き込み可で開く (上流の既定が `errors=continue` なので、ダーティでも読み取り専用に落とさない)。クリーンなアンマウントでフラグを下ろす (上流の方針) | なし (読み取り専用の経路は通知も出ない) |
+| NTFS | ダーティフラグだけ (ログ静止) | 開ける | 書き込み可で開く (上流の既定が `errors=continue` なので、ダーティでも読み取り専用に落とさない)。クリーンなアンマウントでフラグを下ろす (上流の方針)。**2026-11-18 から、UI は書き込み可で開く前に確認する** (下の「ダーティな NTFS を書き込み可で開く前の確認」) | なし (読み取り専用の経路は通知も出ない) |
 | NTFS | ダーティ + **未再生ログ** (LFS 1.1。Windows 10 以前・取り外し忘れ) | 開ける | **書き込み可で開き、マウント中に `$LogFile` を空にして書き始める** (上流は `ntfs_empty_logfile` を無条件に呼ぶ。未再生の更新を捨てる)。「元々書かない」という TODO の記述は、実際には Windows 11 の LFS 2.0 (上流が読めず `NVolErrors` で読み取り専用) でしか成り立っていなかった | なし |
 | NTFS | ダーティ + 未再生ログ (LFS 2.0。Windows 11 の使用中) | 開ける | 上流が `$LogFile` を読めず (1.1 のみ対応) 読み取り専用に落ちる | 汎用「ビルドで無効、またはボリュームに異常/ダーティがあります」 |
 | NTFS | 休止状態 (`hiberfil.sys` が `hibr`) | 開ける | 上流が読み取り専用に落とし、ダーティフラグも書かない (`NVolHibernated`) | 同上 |
@@ -37,7 +37,7 @@ Windows の「高速スタートアップ」「休止状態」「取り外し忘
 ### core: NTFS の `mount_rw` が未再生ログ・休止状態を止める
 `NtfsVolume::mount_rw` は、書き込み可を要求されたとき**先に読み取り専用でマウントして状態を調べ**、`LOG_UNCLEAN` / `HIBERNATED` なら**その読み取り専用のボリュームをそのまま返す** (`writable() == false`、`state()` に理由)。
 書き込みマウントを一度も行わないので、**イメージは 1 バイトも変わらない** (ログも空にしない、ダーティフラグも触らない)。問題なければ、いったん閉じて書き込み可でマウントし直す (マウント 1 回分の時間が増える)。
-- ダーティフラグだけでログが静止しているボリュームは**従来どおり**書き込み可で開き、クリーンなアンマウントでフラグを下ろす (上流の方針。広げていない)。
+- ダーティフラグだけでログが静止しているボリュームは、`allow_dirty = true` (既定。ctest などの C++ 呼び出し) なら**従来どおり**書き込み可で開き、クリーンなアンマウントでフラグを下ろす (上流の方針。広げていない)。`allow_dirty = false` (アプリの JNI) なら、書き込みマウントをせず読み取り専用のまま返す (下の「ダーティな NTFS を書き込み可で開く前の確認」)。
 - LFS 2.0 などログを読めないものは、上流が従来どおり読み取り専用に落とす (state には `DIRTY` が出る)。`LOG_UNCLEAN` は「restart page を読めて、クリーンの印がない」ときだけ。
 - ビルドで書き込みが無効なときは従来どおり `EROFS` で失敗する。
 
@@ -56,11 +56,37 @@ state が 0 (何も取れていない) のときは null を返し、従来の�
 
 結果の文は「書き込みを許可していましたが、データを守るため読み取り専用で開きました」/「読み取り専用で開いています」を使い分ける。
 
+## ダーティな NTFS を書き込み可で開く前の確認 (2026-11-18)
+
+ダーティフラグだけ (`LOG_UNCLEAN` も `HIBERNATED` もない) の NTFS に書き込み可が要求されたとき、UI は書き込み可で開く前に確認する。ext4 などの「ジャーナル未再生 → 読み取り専用 (noload) で開くか確認」と同じ型 (拒否 → 確認 → 別のモードで開き直す) で、何も保持せずに開き直す。
+
+### core / JNI / Kotlin: 保留の持ち方
+- `NtfsVolume::mount_rw(dev, err, allow_dirty = true)`。`allow_dirty = false` で、先に調べた読み取り専用のマウントが `DIRTY` (未再生ログ・休止状態は従来どおりその前で止まる) なら、書き込みマウントをせずにその読み取り専用のボリュームを返し、`state()` に `DIRTY | USBMEM_VOL_CONFIRM_WRITE` (16) を立てる。**書き込みマウントを一度も行わないので、イメージは 1 バイトも変わらない**。`CONFIRM_WRITE` はボリュームの事実ではなく、core が「確認待ちで止めた」と伝える合図 (`vol_state.h` に書いた)。
+- JNI `nativeNtfsMountRw` / `nativeNtfsMountDeviceRw` に `allowDirty` を足した。Kotlin の `NtfsVolume.mountReadWrite` / `mountDeviceRangeReadWrite` は **`allowDirty = false` が既定**で、`CONFIRM_WRITE` が付いて返ったら、そのボリュームを**閉じて** `WriteConfirmRequired` (`NativeException` の派生。ジャーナル未再生の `EUCLEAN` と同じ「拒否」の形) を投げる。つまり**保留中に開いているものは何も無い** (ネイティブのハンドルもファイルディスクリプタも、デバイスのセッション側の登録も残らない)。確認が取れたら `allowDirty = true` で開き直す (マウント 1 回分の時間が増える)。
+- exFAT / FAT はダーティだと上流が読み取り専用に落とす (書き込めない) ので、確認は出ない (今までどおり原因別の通知だけ)。
+
+### app: どの経路に出したか
+
+| 経路 | 確認 | 保留の持ち方 |
+|---|---|---|
+| USB のパーティション (`MainActivity.publishPartition`) | 出す | `UsbDeviceState.dirtyPrompt` (開始位置・長さ・ラベルだけ。プロセスで共有する `AppModel` にあるので、回転で Activity が作り直されても残る)。USB を閉じる・抜く (`resetAfterClose`) で消える。公開前なので SAF には何も出ていない。「読み取り専用で開く」= 読み取り専用で公開 (通知は従来の「読み取り専用で開いています」)、「書き込み可で開く」= `allowDirty = true` で開き直す |
+| イメージを共有 (`shareImage`) | 出す | `ImageScreen` の `rememberSaveable` の URI だけ (回転で出し直される)。「読み取り専用で開く」= 既存の `shareImage(uri, writable = false)`、「書き込み可で開く」= `shareImageDirty` |
+| 暗号ボリュームの中の NTFS (USB・イメージ) | 出す | ジャーナル未再生の保留 (`VolumeRegistry.pendingCrypto` の `PendingRecovery`。復号済みデバイスのハンドルだけ。鍵は持たない) に、`InnerRange.dirty = true` の範囲として相乗りする。確認 (`confirmCryptoNoload(.., writeDirty)`)・キャンセル・USB を閉じる・アプリの終了で必ず `release` する規律は、noload の保留と同じ。ほかに解錠できた FS はそのまま公開する |
+| 入れ子マウント (`NestedMountSection`) | **出さない (不要)** | 入れ子は常に読み取り専用でマウントするので、書き込み可を要求しない |
+| 書き込み可を要求しないとき (読み取り専用のセッション、イメージの「書き込みを許可」が切) | 出さない | 従来どおり、読み取り専用で開き、通知だけ |
+
+確認ダイアログ (`DirtyWriteDialog`、USB・イメージ・暗号で共通。暗号の中は `CryptoPendingDialog` が noload と dirty を出し分ける): 文言は「このボリュームは前回きれいに取り外されていません (Windows の取り外し忘れ・高速スタートアップなど)。書き込み可で開くと、アプリはダーティフラグを下ろして終了時に NTFS を更新します。Windows で chkdsk を実行してから使う方が安全です。」。選択肢は「読み取り専用で開く」(既定・強調のボタン) / 「書き込み可で開く」(押し間違えにくいテキストボタン) / キャンセル (何も開かない)。
+
+LFS 2.0 (Windows 11 の使用中) のダーティは、`state()` に `DIRTY` だけが出るので確認が出る。「書き込み可で開く」を選んでも、上流がログを読めず読み取り専用に落ちる (そのときは従来どおり、書けなかった原因の通知が出る)。確認が無駄になるが、読み取り専用で開くだけなら害はない。
+
 ## 検証
 
 - ctest `ntfs_state` (`tools/run_ntfs_state_tests.sh` + `tools/gen_ntfs_state_fixture.py` + `usbmem_ntfs_tests --state`): mkntfs + ntfs-3g で 16 MiB のクリーンなボリュームを作り、その写しの `$Volume` のフラグと `$LogFile` の restart page (Windows 10 流の LFS 1.1。上流の検査を通る形) を書き換えて、
   `clean` / `dirty` / `dirty_log` / `log` / `hiber` の 5 イメージを作る。読み取り専用・rw 要求の両方で `state()` が期待どおり、止めるべきものは `writable() == false` で**イメージ不変**、`dirty` は書き込み可 + アンマウント後にフラグが下りる (ダーティフラグの方針の回帰)。
   参考として、上流のドライバだけで rw マウントしたときのログの扱いを `info:` 行に出す (判定には使わない)。
+- ctest `ntfs_state` に、確認待ち (`mount_rw(.., allow_dirty = false)`) の検査を追加: `dirty` は読み取り専用のまま `DIRTY | CONFIRM_WRITE`・`writable() == false`・書き込みは `EROFS`・読める・**イメージ不変**。`clean` は書き込み可で `CONFIRM_WRITE` なし。
+- 計装テスト `VolumeStateInstrumentedTest.dirtyFlagOnlyAsksBeforeWriting` (`allowDirty = false` で `WriteConfirmRequired`・イメージ不変 → `allowDirty = true` で書き込み可・アンマウントでフラグが下りる)・`cleanVolumeDoesNotAsk`。
+- 計装テスト `DirtyConfirmUiTest` (`ro-misc` の `ntfs_read`。実画面を操作): イメージ画面 (書き込みを許可 → 共有 → 確認が出る・まだ公開されない・イメージ不変 / 「読み取り専用で開く」→ 読み取り専用で公開・イメージ不変 / 「書き込み可で開く」→ 書き込み可・書き込み・アンマウントでフラグが下りる / キャンセル → 何も公開されない / 回転 (`recreate`) でダイアログが出し直される)。USB 画面は偽のセッション (マウントは実イメージ。`UsbSessions.testOverride`) で、同じ 4 つ + 抜去 (`resetAfterClose`) で何も残らない + 読み取り専用のセッションは確認なし。
 - ctest `fat_write` / `exfat_write` の拒否テストに `state()` の検査 (boot-dirty → DIRTY、boot-media → MEDIA_ERROR、FAT[1] → DIRTY、exFAT の 1 / 8 / 9)。
 - 自前の検査 (`disktools`) は `ntfs_logstate.h` を共有したので、既存の `logfile_*` の変異テストで回帰を見る。
 - 計装テスト `VolumeStateInstrumentedTest` (ro-misc の `ntfs_read`): 通知の文言が原因別に出ること (休止 / 未再生ログ / ダーティ + 読み取り専用 / ダーティ + 書き込み可 / exFAT / FAT / メディアエラー / state 0 は null)、NTFS の 5 イメージで state・書き込みの扱い・通知・イメージ不変。
@@ -72,9 +98,16 @@ state が 0 (何も取れていない) のときは null を返し、従来の�
 - Android emulator tests (run 44096388238): 6 グループすべて成功。`ro-misc` の `ntfs_read` で `VolumeStateInstrumentedTest` を含む 8 件が skip 0 で成功 (書き込み有効のビルドなので、rw 要求の検査も実行された)。`ext-fat` の FAT / exFAT のダーティの検査も成功。
 - ctest は成功時に出力を出さないため、上流だけの rw マウントでログがどうなるかの `info:` 行は CI の記録では見ていない (判定には使っていない)。
 
+## CI の結果 (確認ダイアログ、2026-11-17 UTC、ブランチ usbmem-ci-full-dirtyask、コミット c25de43)
+
+- Host tests (run 44168855046): plain / san / wsan / wrel の 4 構成すべて成功 (`ntfs_state` は 4 構成とも Passed。所要 133 分、wsan が最長)。
+- Android emulator tests (run 44168854969): 6 グループすべて成功。`ro-misc` の `ntfs_read` は 18 件 (`VolumeStateInstrumentedTest` + `DirtyConfirmUiTest` 9 件を含む) が skip 0・失敗 0。`crypt-ui` は 10 件成功 (既存の noload の確認フローは `CryptoPendingDialog` に置き換えても通る)。
+
 ## 残る課題・未検証
 
 - **実機・実 Windows 製イメージでの確認は未** (Windows 11 の LFS 2.0 のダーティ、高速スタートアップの実イメージ)。`LOG_UNCLEAN` は LFS 1.1 の restart area の印だけを見る。LFS 2.0 の restart area の配置が 1.1 と同じかは未確認なので、2.0 の判定は上流 (読めず読み取り専用) に任せている。
-- ダーティフラグだけ (ログ静止) のボリュームを書き込み可で開く方針 (上流の方針) は変えていない。Windows が chkdsk を要求する状態で書くことになるので、将来「確認ダイアログ」にする案がある。
+- ダーティフラグだけ (ログ静止) の NTFS を書き込み可で開く方針 (上流の方針) は変えていない。確認ダイアログを足した (2026-11-18。上の節)。確認を取らずに書き込み可で開く経路は、C++ の `mount_rw` の既定 (`allow_dirty = true`。ctest 用) だけ。
+- 確認ダイアログの暗号ボリューム版 (ダーティな NTFS が LUKS / BitLocker の中にあるとき) は、実画面の計装テストを足していない (`CryptoUiTest` のフィクスチャに、ダーティな NTFS を中に持つ暗号イメージが無い)。コード上は noload の保留と同じ経路を共有する。
+- USB の確認は、実機 USB なしの偽のセッションで通した (実機は未確認)。
 - 書き込みを止めた NTFS で、「ダーティフラグを下ろすだけ」の操作はしない (ログの再生をしない以上、フラグだけ下ろすと未再生の更新を無かったことにする)。
 - 暗号ボリュームの中の NTFS / exFAT / FAT の通知は、中の FS ごとの最初の 1 つだけを出す (複数のパーティションがそれぞれ異常でも 1 件)。

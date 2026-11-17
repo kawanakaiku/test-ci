@@ -92,6 +92,12 @@
     <string name="noload_dialog_title">読み取り専用で開きますか？</string>
     <string name="noload_dialog_text">このボリュームには、まだ反映されていない更新 (ext3 / ext4 / XFS のジャーナル、Btrfs のログ、F2FS の直近の fsync の記録) が残っています。書き込み中に取り外された可能性があります。\n\nジャーナルを再生せずに、読み取り専用で開くことはできますが、古い内容が見えたり、一部のファイルやフォルダが欠けたり壊れて見えたりすることがあります。大事なデータは、先にコピーして保存し、あとで PC や Linux 機器で fsck を実行してください。\n\n何も書き込みません。</string>
     <string name="noload_dialog_confirm">読み取り専用で開く</string>
+    <string name="dirty_dialog_title">書き込み可で開きますか？</string>
+    <string name="dirty_dialog_text">このボリュームは前回きれいに取り外されていません (Windows の取り外し忘れ・高速スタートアップなど)。書き込み可で開くと、アプリはダーティフラグを下ろして終了時に NTFS を更新します。Windows で chkdsk を実行してから使う方が安全です。\n\n「読み取り専用で開く」を選ぶと、何も書き込みません。</string>
+    <string name="dirty_dialog_read_only">読み取り専用で開く</string>
+    <string name="dirty_dialog_write">書き込み可で開く</string>
+    <string name="dirty_cancelled">開くのをやめました。ダーティフラグ付きのボリュームは何も開いていません。</string>
+    <string name="dirty_dialog_crypto_journal">このほかに、ジャーナルが未再生の FS もあります。それは読み取り専用でしか開きません。</string>
     <string name="mode_read_only_journal_ignored">読み取り専用 (ジャーナル未再生)</string>
     <string name="notice_journal_ignored">ジャーナルを再生せずに開いています</string>
     <string name="notice_journal_ignored_detail">内容が古い、または一部が欠けている可能性があります。何も書き込まれません。大事なデータは先にコピーし、PC や Linux 機器で fsck (e2fsck / btrfs check) を実行してください。</string>
@@ -283,7 +289,7 @@
     <!-- 暗号ボリューム (LUKS1/2・BitLocker)。docs/crypto-volumes.md 10 章 -->
     <string name="crypto_noload_dialog_extra">暗号ボリューム「%1$s」の解錠はできました。「読み取り専用で開く」を選ぶと、中のファイルを読み取り専用で公開します。キャンセルすると、このボリュームは開きません (ほかに開けたものが無ければ、ロックして鍵を消します)。</string>
     <string name="crypto_noload_dialog_write_note">書き込み可での解錠を選びましたが、ジャーナルが未再生のボリュームは書き込み可では開きません。読み取り専用で開きます。</string>
-    <string name="crypto_noload_cancelled">読み取り専用で開くのをやめました。ジャーナルが未再生のボリュームは公開していません。</string>
+    <string name="crypto_noload_cancelled">開くのをやめました。確認待ちだったボリューム (ジャーナル未再生、またはダーティフラグ付き) は公開していません。</string>
     <string name="crypto_noload_gone">確認を待っていたボリュームは、すでにロックされています (USB が閉じられたなど)。もう一度解錠してください。</string>
     <string name="crypto_chip_encrypted">暗号化</string>
     <string name="crypto_chip_unlocked">解錠済み %1$s</string>

@@ -66,7 +66,7 @@ object VolumeRegistry {
 
     /** SAF で選ばれたイメージを読み取り専用でマウントして登録する。 */
     @Synchronized
-    fun addUri(ctx: Context, uri: Uri, writable: Boolean = false, allowNoload: Boolean = false): Entry {
+    fun addUri(ctx: Context, uri: Uri, writable: Boolean = false, allowNoload: Boolean = false, allowDirty: Boolean = false): Entry {
         restore(ctx)
         // このアプリ自身のプロバイダが公開しているファイル: SAF の fd を経由すると、プロバイダの IO スレッドと登録簿のロックでデッドロックしうる。
         // ネイティブ層で親ボリュームのファイルを直接読むネストマウントにする (読み取り専用)
@@ -75,7 +75,7 @@ object VolumeRegistry {
             val size = (volumes[parentId]?.volume ?: throw java.io.FileNotFoundException(uri.toString())).stat(path).size
             return mountNested(ctx, parentId, path, 0, size, path.substringAfterLast('/'), allowNoload)
         }
-        val e = mountUri(ctx, uri, writable, allowNoload)
+        val e = mountUri(ctx, uri, writable, allowNoload, allowDirty)
         // 再起動後の復元は常に読み取り専用 (書き込みは起動のたびに明示的に許可させる)
         prefs(ctx).edit().putStringSet("uris", (savedUris(ctx) + uri.toString()).toSet()).apply()
         return e
@@ -96,10 +96,10 @@ object VolumeRegistry {
 
     /** テスト・内部用: 既にある fd(所有権を渡す)を登録する。永続化しない。 */
     @Synchronized
-    fun addFd(label: String, key: String, detachedFd: Int, writable: Boolean = false, createOnly: Boolean = false, allowNoload: Boolean = false): Entry {
+    fun addFd(label: String, key: String, detachedFd: Int, writable: Boolean = false, createOnly: Boolean = false, allowNoload: Boolean = false, allowDirty: Boolean = false): Entry {
         val id = idOf(key)
         volumes.remove(id)?.let { closeEntry(it) }
-        val e = Entry(id, label, if (writable) NtfsVolume.mountReadWrite(detachedFd, createOnly) else NtfsVolume.mountReadOnly(detachedFd, allowNoload))
+        val e = Entry(id, label, if (writable) NtfsVolume.mountReadWrite(detachedFd, createOnly, allowDirty) else NtfsVolume.mountReadOnly(detachedFd, allowNoload))
         volumes[id] = e
         return e
     }
@@ -246,11 +246,11 @@ object VolumeRegistry {
         ctx.contentResolver.notifyChange(android.provider.DocumentsContract.buildRootsUri(OWN_AUTHORITY), null)
     }
 
-    private fun mountUri(ctx: Context, uri: Uri, writable: Boolean = false, allowNoload: Boolean = false): Entry {
+    private fun mountUri(ctx: Context, uri: Uri, writable: Boolean = false, allowNoload: Boolean = false, allowDirty: Boolean = false): Entry {
         val pfd: ParcelFileDescriptor = ctx.contentResolver.openFileDescriptor(uri, if (writable) "rw" else "r")
             ?: throw java.io.FileNotFoundException(uri.toString())
         val label = uri.lastPathSegment?.substringAfterLast('/') ?: "NTFS"
-        return addFd(label, uri.toString(), pfd.detachFd(), writable, allowNoload = allowNoload)
+        return addFd(label, uri.toString(), pfd.detachFd(), writable, allowNoload = allowNoload, allowDirty = allowDirty)
     }
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

@@ -226,7 +226,7 @@ object RealUsb {
         fun ms() = (System.nanoTime() - t0) / 1_000_000
         try {
             if (CryptoMount.isCryptoFs(p.fs)) return mountCrypto(sess, p, luksPass, bitlockerPass, writable, createOnly, j, t0)
-            val v = sess.mountNtfs(p.startBytes, p.sizeBytes, writable, createOnly, false)
+            val v = sess.mountNtfs(p.startBytes, p.sizeBytes, writable, createOnly, false, allowDirty = true)
             j.put("ok", true).put("fsName", v.fsName).put("noload", false).put("writable", v.writable).put("mountMs", ms())
             return MountedVolume(v, emptyList(), j) to j
         } catch (e: NativeException) {

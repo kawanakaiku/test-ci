@@ -15,7 +15,10 @@ import android.hardware.usb.UsbManager
 object UsbSessions {
     @Volatile private var mgr: UsbSessionManager? = null
 
-    fun manager(ctx: Context): UsbSessionManager = mgr ?: synchronized(this) { mgr ?: create(ctx.applicationContext).also { mgr = it } }
+    /** 試験用: 偽のセッションを持つマネージャに差し替える (null = 本物)。画面の操作 (MainActivity) を実機の USB なしで通す計装テストが使う。 */
+    @Volatile var testOverride: UsbSessionManager? = null
+
+    fun manager(ctx: Context): UsbSessionManager = testOverride ?: mgr ?: synchronized(this) { mgr ?: create(ctx.applicationContext).also { mgr = it } }
 
     private fun create(app: Context): UsbSessionManager {
         val usb = app.getSystemService(Context.USB_SERVICE) as UsbManager

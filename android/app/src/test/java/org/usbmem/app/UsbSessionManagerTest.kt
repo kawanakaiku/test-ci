@@ -45,7 +45,7 @@ class FakeUsbSession(
 
     override fun partitionTable() = PartitionTable("mbr", 512, 1L shl 30, "", false, false, emptyList(), emptyList()).also { alive() }
     override fun opStats(): String { alive(); return "28x${ioCount.get()}" }
-    override fun mountNtfs(offsetBytes: Long, sizeBytes: Long, writable: Boolean, createOnly: Boolean, allowNoload: Boolean): NtfsVolume = throw UnsupportedOperationException("fake")
+    override fun mountNtfs(offsetBytes: Long, sizeBytes: Long, writable: Boolean, createOnly: Boolean, allowNoload: Boolean, allowDirty: Boolean): NtfsVolume = throw UnsupportedOperationException("fake")
     override fun startStop(start: Boolean) { alive() }
     override fun isSpunDown() = false
     override fun setIdleSpinDown(idleMinutes: Int, onStopped: (Boolean) -> Unit) { alive(); this.idleMinutes = idleMinutes; idleCallback = onStopped }
@@ -425,7 +425,7 @@ class UsbSessionManagerTest {
             override val deviceName = d.deviceName; override val writable = false; override val vendorId = 1; override val productId = 2; override val tuningIndex = -1
             val inner = FakeUsbSession(d.deviceName, false)
             override fun partitionTable() = inner.partitionTable(); override fun opStats() = ""
-            override fun mountNtfs(offsetBytes: Long, sizeBytes: Long, writable: Boolean, createOnly: Boolean, allowNoload: Boolean): NtfsVolume = throw UnsupportedOperationException()
+            override fun mountNtfs(offsetBytes: Long, sizeBytes: Long, writable: Boolean, createOnly: Boolean, allowNoload: Boolean, allowDirty: Boolean): NtfsVolume = throw UnsupportedOperationException()
             override fun startStop(start: Boolean) {}; override fun isSpunDown() = false
             override fun setIdleSpinDown(idleMinutes: Int, onStopped: (Boolean) -> Unit) { lastIdle = idleMinutes }
             override fun tune(chunkKiB: Int, maxTransferKiB: Int) {}

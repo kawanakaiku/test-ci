@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -37,6 +38,8 @@ import org.usbmem.app.formatBytes
 /** ディスクイメージ画面の結果。table = パーティション一覧、notice = 結果の通知。 */
 data class ImageResult(
     val label: String? = null, val table: PartitionTable? = null, val notice: Notice? = null, val noloadUri: Uri? = null,
+    /** 非 null = ダーティフラグだけの NTFS に書き込み可を要求して、確認待ち (何も開いていない)。確認のダイアログを出す */
+    val dirtyUri: Uri? = null,
     /** 調べたイメージの URI (暗号ボリュームの解錠で、もう一度開くのに使う)。イメージ内のイメージ (ネスト) は null */
     val uri: Uri? = null,
 )
@@ -47,6 +50,8 @@ interface ImageActions : NestedActions {
     fun shareImage(uri: Uri, writable: Boolean): ImageResult
     /** ext3/ext4 のジャーナル未再生を承知のうえ (確認後) で、読み取り専用で開く。 */
     fun shareImageNoload(uri: Uri): ImageResult
+    /** ダーティフラグだけの NTFS を、確認のうえ書き込み可で開く (読み取り専用で開くほうは [shareImage] の writable = false)。 */
+    fun shareImageDirty(uri: Uri): ImageResult
     /** イメージの [startBytes, +sizeBytes) が暗号ボリュームなら、解錠ダイアログの内容を返す (資格情報は使わない。何もマウントしない)。 */
     fun probeCrypto(uri: Uri, startBytes: Long, sizeBytes: Long, label: String): CryptoProbeResult
     /** 解錠して、中のファイルシステムをマウント・公開する。[UnlockInput.cred] は呼び出しの最後に消す。 */
@@ -55,8 +60,8 @@ interface ImageActions : NestedActions {
     fun pendingCryptoNoload(): List<CryptoNoloadPrompt>
     /** 解錠ダイアログの「記憶を削除」: [volumeId] のパスワードの記憶を消す (IO スレッドから呼ばれる)。 */
     fun forgetRemembered(volumeId: String)
-    /** 確認のうえ、読み取り専用 (noload) で開く。 */
-    fun confirmCryptoNoload(id: String): CryptoUnlockResult
+    /** 確認のうえ、読み取り専用 (noload) で開く。[writeDirty] = true なら、ダーティフラグだけの NTFS は書き込み可で開く。 */
+    fun confirmCryptoNoload(id: String, writeDirty: Boolean = false): CryptoUnlockResult
     /** キャンセル: 保留していた復号済みデバイスを閉じる (= ロック。鍵を消す)。 */
     fun cancelCryptoNoload(id: String)
     /** 解錠済みの暗号ボリューム (USB から解錠したものも含む) */
@@ -71,6 +76,9 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
     val appCtx = LocalContext.current
     var result by remember { mutableStateOf(ImageResult()) }
     var busy by remember { mutableStateOf(false) }
+    // ダーティフラグだけの NTFS に書き込み可を要求して、確認待ちのイメージ。何も保持しない (開き直すだけ) ので、画面の作り直し (回転) でも失わないよう保存する
+    var dirtyUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    fun applyShare(r: ImageResult) { result = r; dirtyUri = r.dirtyUri }
     var allowWrite by remember { mutableStateOf(false) }   // 書き込みは毎回の起動で明示的に許可する (保存しない)
     val openPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) scope.launch { busy = true; result = withContext(Dispatchers.IO) { a.loadImage(uri) }; busy = false }
@@ -93,7 +101,7 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
         }
     }
     val sharePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri != null) scope.launch { busy = true; result = withContext(Dispatchers.IO) { a.shareImage(uri, allowWrite) }; busy = false }
+        if (uri != null) scope.launch { busy = true; applyShare(withContext(Dispatchers.IO) { a.shareImage(uri, allowWrite) }); busy = false }
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SectionCard(stringResource(R.string.image_inspect_title), subtitle = stringResource(R.string.image_inspect_subtitle)) {
@@ -109,9 +117,9 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
                     Text(stringResource(R.string.common_write_allow), style = MaterialTheme.typography.bodyLarge)
                     Text(stringResource(R.string.image_write_warning), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(checked = allowWrite, onCheckedChange = { allowWrite = it }, enabled = !busy)
+                Switch(checked = allowWrite, onCheckedChange = { allowWrite = it }, enabled = !busy, modifier = Modifier.testTag("image_write_switch"))
             }
-            OutlinedButton(onClick = { sharePicker.launch(arrayOf("*/*")) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { sharePicker.launch(arrayOf("*/*")) }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("image_share_button")) {
                 Text(stringResource(if (allowWrite) R.string.image_share_write else R.string.image_share_read_only))
             }
         }
@@ -141,22 +149,29 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
                 onDismiss = { result = result.copy(noloadUri = null) },
             )
         }
+        dirtyUri?.let { u ->
+            DirtyWriteDialog(
+                text = stringResource(R.string.dirty_dialog_text),
+                onOpenReadOnly = { dirtyUri = null; scope.launch { busy = true; applyShare(withContext(Dispatchers.IO) { a.shareImage(u, false) }); busy = false } },
+                onOpenWrite = { dirtyUri = null; scope.launch { busy = true; applyShare(withContext(Dispatchers.IO) { a.shareImageDirty(u) }); busy = false } },
+                onCancel = { dirtyUri = null; result = result.copy(notice = Notice(Severity.Info, appCtx.getString(R.string.dirty_cancelled))) },
+            )
+        }
         cryptoNoload?.let { p ->
-            ConfirmDialog(
-                title = stringResource(R.string.noload_dialog_title),
-                text = stringResource(R.string.noload_dialog_text) + "\n\n" + stringResource(R.string.crypto_noload_dialog_extra, p.label) +
-                    (if (p.writeRequested) "\n\n" + stringResource(R.string.crypto_noload_dialog_write_note) else ""),
-                confirmLabel = stringResource(R.string.noload_dialog_confirm),
-                onConfirm = {
-                    cryptoNoload = null
-                    scope.launch {
-                        busy = true
-                        val r = withContext(Dispatchers.IO) { a.confirmCryptoNoload(p.id) }
-                        busy = false
-                        result = result.copy(notice = r.notice); refreshCrypto()
-                    }
-                },
-                onDismiss = {
+            fun confirm(writeDirty: Boolean) {
+                cryptoNoload = null
+                scope.launch {
+                    busy = true
+                    val r = withContext(Dispatchers.IO) { a.confirmCryptoNoload(p.id, writeDirty) }
+                    busy = false
+                    result = result.copy(notice = r.notice); refreshCrypto()
+                }
+            }
+            CryptoPendingDialog(
+                p,
+                onOpenReadOnly = { confirm(false) },
+                onOpenWrite = { confirm(true) },
+                onCancel = {
                     cryptoNoload = null
                     scope.launch {
                         busy = true; withContext(Dispatchers.IO) { a.cancelCryptoNoload(p.id) }; busy = false

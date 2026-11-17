@@ -14,9 +14,9 @@ struct NtfsVolume::Impl {
   uint32_t state = 0;   // USBMEM_VOL_* (マウント直後)
 };
 
-std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr dev, int ro, int* err);
-std::unique_ptr<NtfsVolume> NtfsVolume::mount(BlockDevicePtr dev, int* err) { return mount_impl_(std::move(dev), 1, err); }
-std::unique_ptr<NtfsVolume> NtfsVolume::mount_rw(BlockDevicePtr dev, int* err) { return mount_impl_(std::move(dev), 0, err); }
+std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr dev, int ro, int* err, bool allow_dirty);
+std::unique_ptr<NtfsVolume> NtfsVolume::mount(BlockDevicePtr dev, int* err) { return mount_impl_(std::move(dev), 1, err, true); }
+std::unique_ptr<NtfsVolume> NtfsVolume::mount_rw(BlockDevicePtr dev, int* err, bool allow_dirty) { return mount_impl_(std::move(dev), 0, err, allow_dirty); }
 int64_t NtfsVolume::write(uint64_t ino, uint64_t off, const void* buf, size_t len) { return usbmem_ntfs_write(impl_->v, ino, off, buf, len); }
 int NtfsVolume::create(uint64_t d, const std::string& n, uint32_t m, uint64_t* i) { return usbmem_ntfs_create(impl_->v, d, n.data(), n.size(), m, i); }
 int NtfsVolume::mkdir(uint64_t d, const std::string& n, uint32_t m, uint64_t* i) { return usbmem_ntfs_mkdir(impl_->v, d, n.data(), n.size(), m, i); }
@@ -53,7 +53,7 @@ std::unique_ptr<NtfsVolume> NtfsVolume::mount_once(const BlockDevicePtr& dev_in,
   return vol;
 }
 
-std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr dev, int ro, int* err) {
+std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr dev, int ro, int* err, bool allow_dirty) {
   if (!ro && dev && dev->is_read_only()) ro = 1;  // 下のデバイス (暗号層など) が読み取り専用なら、mount_rw でも読み取り専用でマウントする (ext4 の writable_precheck と同じ)
 #ifdef USBMEM_NTFS_WRITE   // 書き込みがビルドで無効なら、従来どおり mount_rw は EROFS で失敗する (下の mount_once)
   if (!ro) {
@@ -62,6 +62,8 @@ std::unique_ptr<NtfsVolume> mount_impl_(BlockDevicePtr dev, int ro, int* err) {
     // 読み取り専用のマウントが失敗したときは何もせず、書き込み可のマウントに進んで従来どおりのエラーコードを返す。
     std::unique_ptr<NtfsVolume> probe = NtfsVolume::mount_once(dev, 1, nullptr);
     if (probe && (probe->impl_->state & (USBMEM_VOL_LOG_UNCLEAN | USBMEM_VOL_HIBERNATED))) return probe;
+    // ダーティフラグだけ (ログは静止): 呼び出し側が確認するまで書き込みマウントしない (上流の書き込みマウントはフラグを立て直し、閉じるときに下ろす)。読み取り専用のまま返す
+    if (probe && !allow_dirty && (probe->impl_->state & USBMEM_VOL_DIRTY)) { probe->impl_->state |= USBMEM_VOL_CONFIRM_WRITE; return probe; }
   }
 #endif
   return NtfsVolume::mount_once(dev, ro, err);

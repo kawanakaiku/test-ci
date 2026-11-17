@@ -24,7 +24,8 @@ import org.usbmem.app.ui.Notice
 import org.usbmem.app.ui.NestedInspectResult
 import org.usbmem.app.ui.NestedMountResult
 import org.usbmem.app.ui.NestedVolumeRow
-import org.usbmem.app.ui.NoloadPrompt
+import org.usbmem.app.ui.PartitionPrompt
+import org.usbmem.app.ui.DirtyChoice
 import org.usbmem.app.ui.PublishedVolume
 import org.usbmem.app.ui.Severity
 import org.usbmem.app.ui.UsbActions
@@ -39,7 +40,7 @@ import org.usbmem.app.ui.UsbDeviceState
  */
 class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsActions {
     private val usbManager by lazy { getSystemService(USB_SERVICE) as UsbManager }
-    private val sessions by lazy { UsbSessions.manager(this) }
+    private val sessions get() = UsbSessions.manager(this)   // 毎回引く (計装テストが UsbSessions.testOverride で差し替えられるように)
     private val model = AppModel.shared
     /** 権限を得た機器のシリアル (識別子の元)。メインスレッドだけで読み書きする */
     private val serials = HashMap<String, String>()
@@ -302,24 +303,33 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     }
 
     /** USB 上のパーティションをマウントして SAF に公開する (開いたセッションが書き込み可なら、新規作成のみ書き込み可。同じ USB の別のパーティションも同時に公開できる)。 */
-    override fun publishPartition(key: String, startBytes: Long, sizeBytes: Long, label: String) = publishPartition(key, startBytes, sizeBytes, label, allowNoload = false)
+    override fun publishPartition(key: String, startBytes: Long, sizeBytes: Long, label: String) = publishPartition(key, startBytes, sizeBytes, label, allowNoload = false, dirty = DirtyChoice.Ask)
 
     /** ext3/ext4 のジャーナル未再生を承知のうえで (確認ダイアログの後)、読み取り専用でマウントする。書き込みは常に不可。 */
-    override fun publishPartitionNoload(key: String, startBytes: Long, sizeBytes: Long, label: String) { state(key)?.noloadPrompt = null; publishPartition(key, startBytes, sizeBytes, label, allowNoload = true) }
+    override fun publishPartitionNoload(key: String, startBytes: Long, sizeBytes: Long, label: String) { state(key)?.noloadPrompt = null; publishPartition(key, startBytes, sizeBytes, label, allowNoload = true, dirty = DirtyChoice.Ask) }
     override fun cancelNoload(key: String) { state(key)?.noloadPrompt = null }
 
-    private fun publishPartition(key: String, startBytes: Long, sizeBytes: Long, label: String, allowNoload: Boolean) {
+    /** ダーティフラグだけの NTFS の確認ダイアログの後: [write] = true なら書き込み可 (ダーティフラグを承知のうえ)、false なら読み取り専用で開く。確認の前は何も書いていない (開き直す)。 */
+    override fun publishPartitionDirty(key: String, startBytes: Long, sizeBytes: Long, label: String, write: Boolean) {
+        state(key)?.dirtyPrompt = null
+        publishPartition(key, startBytes, sizeBytes, label, allowNoload = false, dirty = if (write) DirtyChoice.Write else DirtyChoice.ReadOnly)
+    }
+    override fun cancelDirty(key: String) { state(key)?.dirtyPrompt = null }
+
+    private fun publishPartition(key: String, startBytes: Long, sizeBytes: Long, label: String, allowNoload: Boolean, dirty: DirtyChoice) {
         val sess = sessions.session(key) ?: return
         val d = state(key) ?: return
         val mode = sessions.writeMode(key)
-        d.busy = getString(if (sess.writable) R.string.busy_mounting_write else R.string.busy_mounting_read_only)
+        val roChosen = allowNoload || dirty == DirtyChoice.ReadOnly   // 確認のうえ、読み取り専用で開く
+        d.busy = getString(if (sess.writable && !roChosen) R.string.busy_mounting_write else R.string.busy_mounting_read_only)
         d.notice = null
         Thread {
             var notice: Notice? = null
             var pub: PublishedVolume? = null
-            var pendingNoload: NoloadPrompt? = null
+            var pendingNoload: PartitionPrompt? = null
+            var pendingDirty: PartitionPrompt? = null
             try {
-                val v = sess.mountNtfs(startBytes, sizeBytes, writable = sess.writable && !allowNoload, createOnly = mode != WriteMode.Full, allowNoload = allowNoload)
+                val v = sess.mountNtfs(startBytes, sizeBytes, writable = sess.writable && !roChosen, createOnly = mode != WriteMode.Full, allowNoload = allowNoload, allowDirty = dirty == DirtyChoice.Write)
                 val vk = VolumeRegistry.usbKey(key, startBytes)
                 VolumeRegistry.addVolume(label, vk, v, deviceName = key)
                 if (sessions.session(key) !== sess) {   // マウントしている間にこのデバイスが閉じられた/抜かれた: 登録を取り消す
@@ -333,21 +343,25 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 if (v.journalIgnored) {
                     pub = PublishedVolume(label, getString(R.string.mode_read_only_journal_ignored), false, volumeKey = vk, startBytes = startBytes)
                     notice = Notice(Severity.Warning, getString(R.string.notice_journal_ignored), getString(R.string.notice_journal_ignored_detail))
-                } else if (!sess.writable) {
+                } else if (!sess.writable || dirty == DirtyChoice.ReadOnly) {
                     pub = PublishedVolume(label, roText, false, volumeKey = vk, startBytes = startBytes)
                     notice = VolumeStateNotice.of(this, v, writeRequested = false)   // ダーティ / 未再生ログ / 休止状態の案内 (無ければ通知なし)
                 } else if (v.writable) {
                     pub = PublishedVolume(label, getString(if (v.createOnly) R.string.mode_create_only else R.string.mode_full), true, fullWrite = !v.createOnly, canLink = v.fsName == "ext2" || v.fsName == "ext4" || v.fsName == "btrfs" || v.fsName == "f2fs" || v.fsName == "xfs", volumeKey = vk, startBytes = startBytes)
-                    notice = VolumeStateNotice.of(this, v, writeRequested = true)   // ダーティフラグ付きだがログは静止: 書き込み可で開いた旨
+                    notice = VolumeStateNotice.of(this, v, writeRequested = true)   // ダーティフラグ付きだがログは静止 (確認のうえ): 書き込み可で開いた旨
                 } else {
                     pub = PublishedVolume(label, roText, false, volumeKey = vk, startBytes = startBytes)
                     // 書き込めない実際の原因 (ダーティ・未再生ログ・休止状態・メディアエラー) が取れていれば、それを案内する。取れなければ汎用の文言
                     notice = VolumeStateNotice.of(this, v, writeRequested = true)
                         ?: Notice(Severity.Warning, getString(R.string.notice_published_read_only), getString(R.string.notice_published_read_only_detail))
                 }
+            } catch (e: WriteConfirmRequired) {
+                // ダーティフラグだけの NTFS に書き込み可を要求した: core は何も書かずに保留し、ボリュームは閉じてある。確認のダイアログを出す (何も公開しない)
+                android.util.Log.i("usbmem", "ntfs mount [$key]: dirty volume, asking before opening read-write")
+                pendingDirty = PartitionPrompt(startBytes, sizeBytes, label)
             } catch (e: NativeException) {
                 android.util.Log.w("usbmem", "ntfs mount failed [$key]: code=${e.code} ${e.message}")
-                if (e.code == 117 && !allowNoload) pendingNoload = NoloadPrompt(startBytes, sizeBytes, label)   // ジャーナル未再生: 確認すれば読み取り専用で開ける
+                if (e.code == 117 && !allowNoload) pendingNoload = PartitionPrompt(startBytes, sizeBytes, label)   // ジャーナル未再生: 確認すれば読み取り専用で開ける
                 notice = if (fsRefusalNotice(e) != null) fsRefusalNotice(e)!!   // ext3/ext4 の意図的な拒否 (転送設定とは無関係)
                 else if (sess.tuningIndex >= 0) {   // 保存した転送設定が原因かもしれない → 既定に戻す (次の最適化で、その設定以上は試さない)
                     TransferTuning.markFailed(this, sess.vendorId, sess.productId, sess.tuningIndex)
@@ -357,13 +371,14 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             } catch (e: Exception) {
                 notice = Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.javaClass.simpleName)
             }
-            val p = pub; val n = notice; val np = pendingNoload
+            val p = pub; val n = notice; val np = pendingNoload; val pd = pendingDirty
             ui {
                 val st = state(key)
                 if (st != null) {
                     st.busy = null
                     if (p != null && st.open) st.published = st.published.filter { it.volumeKey != p.volumeKey } + p
                     st.notice = n; st.noloadPrompt = np
+                    if (pd != null && st.open) st.dirtyPrompt = pd   // 抜かれて閉じられていたら出さない (保留しているものは何も無い)
                 }
             }
         }.start()
@@ -638,13 +653,15 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     }
 
     /** NTFS イメージをマウントし、SAF プロバイダ経由でファイルマネージャ等へ公開する。 */
-    override fun shareImageNoload(uri: Uri): ImageResult = shareImage(uri, writable = false, allowNoload = true)
-    override fun shareImage(uri: Uri, writable: Boolean): ImageResult = shareImage(uri, writable, allowNoload = false)
+    override fun shareImageNoload(uri: Uri): ImageResult = shareImage(uri, writable = false, allowNoload = true, allowDirty = false)
+    override fun shareImage(uri: Uri, writable: Boolean): ImageResult = shareImage(uri, writable, allowNoload = false, allowDirty = false)
+    /** ダーティフラグだけの NTFS の確認のあと、書き込み可で開く (ダーティフラグを承知のうえ)。読み取り専用で開くほうは [shareImage] (writable = false)。 */
+    override fun shareImageDirty(uri: Uri): ImageResult = shareImage(uri, writable = true, allowNoload = false, allowDirty = true)
 
-    private fun shareImage(uri: Uri, writable: Boolean, allowNoload: Boolean): ImageResult = try {
+    private fun shareImage(uri: Uri, writable: Boolean, allowNoload: Boolean, allowDirty: Boolean): ImageResult = try {
         val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or (if (writable) android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
-        if (VolumeRegistry.ownDocument(uri) == null) try { contentResolver.takePersistableUriPermission(uri, flags) } catch (_: SecurityException) { }
-        val e = VolumeRegistry.addUri(this, uri, writable && !allowNoload, allowNoload)
+        if (VolumeRegistry.ownDocument(uri) == null) try { contentResolver.takePersistableUriPermission(uri, flags) } catch (_: RuntimeException) { }   // 永続の許可が取れない URI (file:// など) はそのまま開く
+        val e = VolumeRegistry.addUri(this, uri, writable && !allowNoload, allowNoload, allowDirty)
         notifyRoots()
         if (e.volume.journalIgnored) ImageResult(notice = Notice(Severity.Warning, getString(R.string.notice_journal_ignored), getString(R.string.notice_journal_ignored_detail)))
         else if (!writable) ImageResult(notice = VolumeStateNotice.of(this, e.volume, writeRequested = false)
@@ -653,6 +670,9 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             ?: Notice(Severity.Warning, getString(R.string.notice_image_shared_write, e.label), getString(R.string.notice_image_shared_write_detail)))
         else ImageResult(notice = VolumeStateNotice.of(this, e.volume, writeRequested = true)
             ?: Notice(Severity.Warning, getString(R.string.notice_image_shared_fallback, e.label), getString(R.string.notice_image_shared_fallback_detail)))
+    } catch (e: WriteConfirmRequired) {
+        // ダーティフラグだけの NTFS に書き込み可を要求した: core は何も書かずに保留し、ボリュームは閉じてある (何も公開していない)。確認のダイアログを出す
+        ImageResult(dirtyUri = uri)
     } catch (e: NativeException) {
         ImageResult(notice = fsRefusalNotice(e) ?: Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.message), noloadUri = if (e.code == 117 && !allowNoload) uri else null)
     } catch (e: Exception) {
@@ -790,7 +810,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 return CryptoOutcome(Notice(Severity.Warning, getString(R.string.notice_usb_closed_while_opening)), null)
             }
             notifyRoots()
-            val prompt = if (rec != null) CryptoNoloadPrompt(gid, label, r.writeRequested) else null
+            val prompt = if (rec != null) CryptoNoloadPrompt.of(gid, label, r.writeRequested, rec) else null
             // パスワードの記憶: 解錠に成功した (= パスワードが正しい) あとだけ保存する。認証の取り消し・失敗でも、解錠そのものは成功のまま
             var savedNow: Boolean? = null
             var saveMsg: String? = null
@@ -878,21 +898,22 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     }
 
     /**
-     * 確認 (「読み取り専用で開く」) を受けて、保留していた中の FS を noload で (読み取り専用に) マウントして公開する。保留が無ければ (USB が閉じられた等) 通知だけ。
+     * 確認 (「読み取り専用で開く」/ ダーティな NTFS の「書き込み可で開く」) を受けて、保留していた中の FS をマウントして公開する。ジャーナル未再生の FS は noload の読み取り専用、
+     * ダーティフラグだけの NTFS は [writeDirty] なら書き込み可 (そうでなければ読み取り専用)。保留が無ければ (USB が閉じられた等) 通知だけ。
      * どの結果でも保留は手放す (成功時は、登録した FS が復号済みデバイスの持ち主を引き継ぐ)。USB (UI) とイメージ (IO スレッド) の共通部分。
      */
-    private fun runCryptoNoload(id: String, stillValid: () -> Boolean): CryptoOutcome {
+    private fun runCryptoNoload(id: String, writeDirty: Boolean, stillValid: () -> Boolean): CryptoOutcome {
         val p = VolumeRegistry.takePendingCrypto(id) ?: return CryptoOutcome(Notice(Severity.Warning, getString(R.string.crypto_noload_gone)), null)
         val rec = p.recovery
         val keys = ArrayList<String>()
         try {
-            val m = try { rec.mountNoload() } catch (e: NativeException) {
+            val m = try { rec.mountPending(writeDirty, p.createOnly) } catch (e: NativeException) {
                 android.util.Log.w("usbmem", "crypto noload mount failed: code=${e.code}")
                 return CryptoOutcome(fsRefusalNotice(e) ?: Notice(Severity.Error, getString(R.string.crypto_notice_inner_failed), e.message), null)
             } catch (e: Exception) {
                 return CryptoOutcome(Notice(Severity.Error, getString(R.string.crypto_notice_inner_failed), e.javaClass.simpleName), null)
             }
-            val meta = CryptoMeta(p.format, p.cipher, false, p.id)   // noload は常に読み取り専用
+            val meta = CryptoMeta(p.format, p.cipher, m.volumes.any { it.volume.writable }, p.id)   // noload は読み取り専用。書き込み可になるのは、確認のうえのダーティな NTFS だけ
             val pubs = try {
                 registerCryptoInner(m.volumes, rec.group, meta, p.label, p.keyBase, p.deviceName, p.createOnly, p.startBytes, keys)
             } catch (t: Throwable) {
@@ -904,20 +925,24 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             notifyRoots()
             android.util.Log.i("usbmem", "crypto noload mounted: fs=${m.volumes.map { it.volume.fsName }} skipped=${m.skipped}")
             val skipped = if (m.skipped.isEmpty()) "" else "\n" + getString(R.string.crypto_notice_skipped, m.skipped.joinToString(", "))
-            return CryptoOutcome(Notice(Severity.Warning, getString(R.string.notice_journal_ignored), getString(R.string.notice_journal_ignored_detail) + skipped), null, pubs)
+            // ジャーナルを無視して開いた FS があればその案内。無ければ (ダーティな NTFS だけ) 状態の案内 (読み取り専用で開いた / 書き込み可で開いた)
+            val stateNotice = if (m.volumes.any { it.volume.journalIgnored }) null else m.volumes.firstNotNullOfOrNull { VolumeStateNotice.of(this, it.volume, writeDirty) }
+            val notice = stateNotice?.let { n -> n.copy(detail = getString(R.string.crypto_notice_unlocked, p.label) + "\n" + (n.detail ?: "") + skipped) }
+                ?: Notice(Severity.Warning, getString(R.string.notice_journal_ignored), getString(R.string.notice_journal_ignored_detail) + skipped)
+            return CryptoOutcome(notice, null, pubs)
         } finally {
             rec.release()   // 登録できていれば、登録した FS が group を保持している。できなかったときはここで鍵ごと閉じる
         }
     }
 
-    override fun confirmCryptoNoload(key: String, id: String) {
+    override fun confirmCryptoNoload(key: String, id: String, writeDirty: Boolean) {
         val d = state(key) ?: return
         val sess = sessions.session(key)
         d.cryptoNoload = null
-        d.busy = getString(R.string.busy_mounting_read_only)
+        d.busy = getString(if (writeDirty) R.string.busy_mounting_write else R.string.busy_mounting_read_only)
         d.notice = null
         Thread {
-            val out = runCryptoNoload(id) { sessions.session(key) === sess }
+            val out = runCryptoNoload(id, writeDirty) { sessions.session(key) === sess }
             ui {
                 val st = state(key)
                 if (st != null) {
@@ -973,9 +998,9 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     override fun forgetRemembered(volumeId: String) { if (volumeId.isNotEmpty()) vault.forget(volumeId) }
 
     override fun pendingCryptoNoload(): List<CryptoNoloadPrompt> =
-        VolumeRegistry.pendingCryptoList().filter { it.deviceName == null }.map { CryptoNoloadPrompt(it.id, it.label, it.writeRequested) }
+        VolumeRegistry.pendingCryptoList().filter { it.deviceName == null }.map { CryptoNoloadPrompt.of(it.id, it.label, it.writeRequested, it.recovery) }
 
-    override fun confirmCryptoNoload(id: String): CryptoUnlockResult = runCryptoNoload(id) { true }.let { CryptoUnlockResult(it.notice, null) }
+    override fun confirmCryptoNoload(id: String, writeDirty: Boolean): CryptoUnlockResult = runCryptoNoload(id, writeDirty) { true }.let { CryptoUnlockResult(it.notice, null) }
 
     override fun cancelCryptoNoload(id: String) = VolumeRegistry.discardPendingCrypto(id)
 

@@ -10,8 +10,11 @@ import org.usbmem.app.UsbLunInfo
 import org.usbmem.app.UsbSlotKey
 import org.usbmem.app.WriteMode
 
-/** ext3/ext4 のジャーナル未再生 (EUCLEAN) で拒否したパーティション。ユーザーが確認すれば、読み取り専用で開き直せる。 */
-data class NoloadPrompt(val startBytes: Long, val sizeBytes: Long, val label: String)
+/** 確認待ちのパーティション。ext3/ext4 のジャーナル未再生 (EUCLEAN) で拒否したもの (確認すれば読み取り専用で開き直せる)、または ダーティフラグだけの NTFS に書き込み可を要求したもの (確認すれば、読み取り専用か書き込み可で開き直せる)。何も保持しない (開いたボリュームは閉じてある) */
+data class PartitionPrompt(val startBytes: Long, val sizeBytes: Long, val label: String)
+
+/** ダーティフラグだけの NTFS に書き込み可を要求したときの、利用者の選択。Ask = まだ聞いていない (確認が要れば聞く)、ReadOnly = 読み取り専用で開く、Write = 書き込み可で開く (ダーティを承知のうえ)。 */
+enum class DirtyChoice { Ask, ReadOnly, Write }
 
 /**
  * 公開 (SAF) 中のボリューム。[volumeKey] = VolumeRegistry の登録キー、[startBytes] = デバイス上の開始位置
@@ -56,7 +59,8 @@ class UsbDeviceState(val key: String) {
     var diskStopped by mutableStateOf(false)                 // ディスクの回転を止めた状態 (再開するまで公開などはできない)
     var busy by mutableStateOf<String?>(null)                // このデバイスの処理中の説明 (null = なし)
     var notice by mutableStateOf<Notice?>(null)
-    var noloadPrompt by mutableStateOf<NoloadPrompt?>(null)   // 非 null のとき、確認ダイアログを出す
+    var noloadPrompt by mutableStateOf<PartitionPrompt?>(null)   // 非 null のとき、確認ダイアログを出す
+    var dirtyPrompt by mutableStateOf<PartitionPrompt?>(null)    // 非 null のとき、ダーティな NTFS を「読み取り専用で開く / 書き込み可で開く」確認ダイアログを出す (何も保持しない。docs/dirty-volumes.md)
     var cryptoNoload by mutableStateOf<CryptoNoloadPrompt?>(null)   // 非 null のとき、暗号ボリュームの「読み取り専用で開く」確認ダイアログを出す (保留は VolumeRegistry が持つ)
     var unlockTarget by mutableStateOf<UnlockTarget?>(null)   // 非 null のとき、暗号ボリュームの解錠ダイアログを出す (資格情報は含まない)
     var unlocking by mutableStateOf(false)                    // 解錠中 (ダイアログの入力を無効にする)
@@ -72,7 +76,7 @@ class UsbDeviceState(val key: String) {
     fun resetAfterClose() {
         open = false; writable = false; table = null; published = emptyList(); diskStopped = false; diskIdleStopped = false
         mediaKind = MediaKindInfo.UNKNOWN; spinDownUnlocked = false
-        busy = null; noloadPrompt = null; cryptoNoload = null; unlockTarget = null; unlocking = false; ops = ""; tuneLog = ""; tuningSaved = null; selfTestLog = ""; selfTestPassed = null
+        busy = null; noloadPrompt = null; dirtyPrompt = null; cryptoNoload = null; unlockTarget = null; unlocking = false; ops = ""; tuneLog = ""; tuningSaved = null; selfTestLog = ""; selfTestPassed = null
     }
 }
 

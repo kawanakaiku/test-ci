@@ -157,6 +157,15 @@ host-tests.yml の ctest に `cryptodisk_gen_fixture` / `cryptodisk_part` / `cry
 - **結果**: run 43590409180 (最初の push): plain / san / wrel は成功 (cryptodisk 6 件とも Passed。plain で合計約 1.5 分、san で約 15 分: 異常系 39 件が 677 秒)。**wsan は 180 分の `timeout-minutes` で打ち切り** (cryptodisk 6 件は全て Passed。打ち切られたのは別の試験 `xfs_write` の途中で、wsan は元々 2.5 時間超かかる)。そこで `USBMEM_CRYPTODISK_JOBS=3` (ケースを 3 並列) にして異常系を短縮した。run 43605628654 (並列化後): **plain / san / wsan / wrel の 4 ジョブすべて成功** (所要 144 分、wsan が最長)。
 
 
+## FUSE プログラムを載せる層の試作 (`fuseshim.yml`、`usbmem-fuseshim*` ブランチ、2026-11-18)
+
+docs/fuse-layer.md の試作 (ntfs-3g / wimlib を libfuse 互換の shim の上で動かし、自前の NTFS と比較・測定する) の専用ジョブ。`usbmem-fuseshim*` ブランチへの push か workflow_dispatch で動く (約 10 分)。**製品のビルドには入らない** (CMake の `USBMEM_BUILD_FUSESHIM`、既定 OFF)。
+
+- サードパーティのソースはリポジトリに置かず、`tools/fuseshim/fetch_ntfs3g.sh` / `fetch_wimlib.sh` が固定バージョンを **sha256 検証つき**で取得する。検証に失敗したらジョブを失敗にする (skip しない)。ntfs-3g の配布元は GitHub runner の既定 User-Agent に 403 を返すので、ブラウザ風の User-Agent を付け、失敗時は Debian の orig tarball (autoreconf が要る) に切り替える。
+- 試験は `tools/run_fuseshim_tests.sh`: 自前の NTFS と shim 越しの ntfs-3g の全ツリー比較 (基本フィクスチャ 2 種 + 20000 ファイルの性能用イメージ)、別プロセス (socketpair RPC) 越し、wimlib の WIM 3 種 (LZX / 無圧縮 / LZMS)、性能測定。数字は共有 runner の参考値。
+- 実測 (run 44189230731 成功): 比較はすべて一致。詳細は docs/fuse-layer.md の 5・6・9 章。
+- 注意: `usbmem_fsdump_core` と `usbmem_fsdump_ntfs3g` は別の実行体 (自前の NTFS と libntfs-3g は `ntfs_*` のシンボルが衝突するため 1 つにできない)。
+
 ## CI の完了待ちは `tools/ci/gh_wait.sh` で 1 本だけ (CPU 暴走の再発防止)
 
 `until [ "$(gh run view ID ...)" = completed ]; do sleep 20; done` のような待機ループを前景の Bash で何度も起動すると、ツールのタイムアウトで背景に回された古いループが終了せずに溜まる (2026-11-14 に 30 本超、同じ run を 4 本で待つ例も)。固まった `gh` が 1 個あたり CPU 約 30% を 10 分以上使い続け、PC がほぼフリーズした。

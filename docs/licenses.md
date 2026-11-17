@@ -24,9 +24,10 @@
 | fsck.fat / fsck.exfat / e2fsck / ntfsfix / mkfs.* / mtools / debugfs | DiskTools の独立検証の**テスト時の外部ツール** (検査のみの引数で呼ぶ) | GPL-2.0-or-later 他。配布物に含めない・リンクしない | テストのみ |
 | ddrescue / partclone.* / lz4 コマンド / e2fsprogs / dosfstools / exfatprogs / ntfs-3g (mkntfs) (ホストの検証専用) | 救出・バックアップの出力との照合 (`tools/check_recovery_tools.py`)。コードは取り込まず、アプリにも含めない | GPL-2.0+ 等 (実行のみ。成果物に入らない) | 検証用のみ |
 | Partclone イメージ形式 / ddrescue mapfile 形式 | 互換のため形式を再実装 (partclone 0.3.49 の実出力の解析から。partclone のソースコードは取り込んでいない)。LZ4 フレーム形式も自前実装 | 形式の仕様。自前コード (Apache-2.0) | 実装済み |
+| fuseshim の試作 (`core/fuseshim/`、docs/fuse-layer.md): ntfs-3g 2022.10.3 (libntfs-3g + src/ntfs-3g.c) と wimlib 1.14.4 (libwim。`--without-ntfs-3g`) を、libfuse 互換の shim の上で無改変で動かす | NTFS / WIM を読む実験と測定 (CI の専用ジョブ `fuseshim.yml` のみ) | ntfs-3g: GPL-2.0-or-later (内蔵 fuse-lite のヘッダ / ソースは LGPLv2)。wimlib: LGPL-3.0-or-later と GPL-3.0-or-later のデュアル (libntfs-3g にリンクすると LGPL は選べない = 配布時は `--without-ntfs-3g`)。shim・アダプターは GPL-2.0-or-later (SPDX) | **試作のみ。配布物に含めない・ソースもリポジトリに置かない** (CI が固定バージョンを sha256 検証つきで取得)。製品に入れる場合は「配布する依存」の行に移し、ライセンス全文・ソースの入手先の表示・別プロセス / 別 .so の方式を決める (docs/fuse-layer.md 4 章) |
 
 ## 未解決の確認事項(推測で断定しない)
 - GPL-2.0 コードをアプリに静的リンクした場合の配布物全体の扱い、Google Play 配布との両立(ソース提供方法)。Phase 7 前に法務的確認が必要。
-- 自前コードのライセンスを GPL にするか、プロセス分離するか。
+- 自前コードのライセンスを GPL にするか、プロセス分離するか。(FUSE プログラム (ntfs-3g / wimlib) の層は別プロセスを主案にするが、native 層の .so にはカーネル由来の GPL-2.0+ コードが既に同居しているので、アプリ全体の方針はこれとは別に決める必要がある。docs/fuse-layer.md 4 章)
 - exFAT 特許の現状、Play ポリシー最新版、targetSdk 要件(現在 36 を使用。最新要件は公開前に公式で再確認)。
 - NTFS-3G / libbde / dislocker / libfdisk 等の各ライセンス(Phase 2/4/5 で調査)。

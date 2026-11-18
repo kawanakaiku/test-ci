@@ -58,3 +58,12 @@ jobs:
           Get-Content event-err.txt
           "exit=$($p.ExitCode)"
           if ($p.ExitCode -ne 0) { exit 1 }
+      - name: 停止予約なしの空フラグ復元を測定
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath probe\continue-flags.exe -NoNewWindow -PassThru -RedirectStandardOutput continue.txt -RedirectStandardError continue-err.txt
+          if (-not $p.WaitForExit(35000)) { $p.Kill(); 'TIMEOUT' }
+          Get-Content continue.txt
+          Get-Content continue-err.txt
+          "exit=$($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }

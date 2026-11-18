@@ -67,3 +67,12 @@ jobs:
           Get-Content continue-err.txt
           "exit=$($p.ExitCode)"
           if ($p.ExitCode -ne 0) { exit 1 }
+      - name: x64コードへの空フラグ復元を測定
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath probe\continue-flags-x64.exe -NoNewWindow -PassThru -RedirectStandardOutput continue-x64.txt -RedirectStandardError continue-x64-err.txt
+          if (-not $p.WaitForExit(35000)) { $p.Kill(); 'TIMEOUT' }
+          Get-Content continue-x64.txt
+          Get-Content continue-x64-err.txt
+          "exit=$($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }

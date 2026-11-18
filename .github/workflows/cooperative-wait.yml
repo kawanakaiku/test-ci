@@ -1,0 +1,24 @@
+name: 協調停止の待機計測
+on:
+  push:
+    branches: [xtajit4-cooperative-wait]
+jobs:
+  probe:
+    runs-on: windows-11-arm
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Windows と Prism の版
+        shell: pwsh
+        run: |
+          [Environment]::OSVersion.VersionString
+          (Get-Item C:\Windows\System32\xtajit64.dll).VersionInfo.FileVersion
+      - name: 待機中の協調停止を測定
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath probe\cooperative-wait.exe -NoNewWindow -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+          if (-not $p.WaitForExit(35000)) { $p.Kill(); 'TIMEOUT' }
+          Get-Content out.txt
+          Get-Content err.txt
+          "exit=$($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }

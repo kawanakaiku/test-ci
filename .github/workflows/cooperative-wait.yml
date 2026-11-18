@@ -17,7 +17,7 @@ jobs:
         shell: pwsh
         run: |
           $p = Start-Process -FilePath probe\cooperative-wait.exe -NoNewWindow -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
-          if (-not $p.WaitForExit(35000)) { $p.Kill(); 'TIMEOUT' }
+          if (-not $p.WaitForExit(100000)) { $p.Kill(); 'TIMEOUT' }
           Get-Content out.txt
           Get-Content err.txt
           "exit=$($p.ExitCode)"

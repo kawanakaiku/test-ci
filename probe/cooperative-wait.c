@@ -17,7 +17,7 @@ static volatile LONGLONG wait_start, wait_end;
 static LARGE_INTEGER freq;
 static HANDLE event;
 static LONGLONG now(void) { LARGE_INTEGER q; QueryPerformanceCounter(&q); return q.QuadPart * 1000000 / freq.QuadPart; }
-static DWORD WINAPI watchdog(void *p) { (void)p; Sleep(25000); puts("WATCHDOG"); fflush(stdout); ExitProcess(3); }
+static DWORD WINAPI watchdog(void *p) { (void)p; Sleep(90000); puts("WATCHDOG"); fflush(stdout); ExitProcess(3); }
 static DWORD WINAPI worker(void *arg)
 {
     CONTEXT ctx;

@@ -2,10 +2,17 @@ package org.usbmem.app
 
 import android.app.Activity
 import android.app.Instrumentation
+import android.app.UiAutomation
+import android.content.res.Configuration
 import android.content.Intent
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -107,6 +114,77 @@ class DirtyConfirmUiTest {
         assertEquals("the image must stay byte-identical while asking", before, sha256Of(img))
         rule.onNodeWithText(s(R.string.dirty_dialog_text), substring = true).assertExists()
         tag("dirty_open_ro").assertExists(); tag("dirty_open_rw").assertExists(); tag("dirty_cancel").assertExists()
+    }
+
+    /** 回転を固定して横向きにする (MainActivity は orientation の configChanges を持つので、Activity は作り直されない)。[block] のあと、縦に戻して固定を解く。 */
+    private fun inLandscape(block: () -> Unit) {
+        val ua = inst.uiAutomation
+        ua.setRotation(UiAutomation.ROTATION_FREEZE_90)
+        try {
+            rule.waitUntil(30_000) { rule.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE }
+            rule.waitForIdle()
+            block()
+        } finally {
+            ua.setRotation(UiAutomation.ROTATION_FREEZE_0)
+            ua.setRotation(UiAutomation.ROTATION_UNFREEZE)
+        }
+    }
+
+    /** ダイアログの本文 ([t] のタグ) を一番下までスクロールできて、そこで止まる (切れて読めないままにならない) ことを確かめる。 */
+    private fun assertScrollsToEnd(t: String) {
+        val n = tag(t)
+        n.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 100_000f) }
+        rule.waitForIdle()
+        val r = n.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+        assertEquals("the dialog body must be scrollable to its end", r.maxValue(), r.value(), 1f)
+    }
+
+    @Test fun image_dialogNamesTheImage_andScrollsInLandscape() {
+        shareImageWritable()
+        tag("dialog_subject").assertTextEquals(img.name)   // どのイメージの確認か (内部表記ではなくファイル名)
+        inLandscape {
+            tag("dirty_dialog").assertExists()
+            assertScrollsToEnd("dirty_dialog")
+            // 本文が切れていても、ボタンは常に見える (警告を読まずに押せる状態でも、読める状態でもある)
+            tag("dirty_open_ro").assertIsDisplayed()
+            tag("dirty_cancel").assertIsDisplayed()
+        }
+        waitTag("dirty_dialog")
+        clickTag("dirty_cancel")
+        waitGone("dirty_dialog")
+        assertEquals(before, sha256Of(img))
+    }
+
+    /** 平文のイメージを書き込み可で開いたあと、画面の「閉じる」でクリーンにアンマウントでき、ダーティフラグが下りる (閉じる導線)。 */
+    @Test fun image_closeButton_unmountsCleanlyAndLowersDirtyFlag() {
+        shareImageWritable()
+        clickTag("dirty_open_rw")
+        rule.waitUntil(60_000) { entries().isNotEmpty() }
+        val e = entries().single()
+        assertTrue(e.volume.writable)
+        assertEquals("the volume is named after the file", img.name, e.label)
+        e.volume.create("/", "closed_by_button.txt", false)
+        waitTag("image_close")
+        clickTag("image_close")
+        waitText(s(R.string.image_closed_write))
+        rule.waitUntil(60_000) { entries().isEmpty() }
+        waitGone("image_close")
+        mountRo().use { v ->
+            assertEquals("the dirty flag is lowered by the close button", 0, v.state)
+            assertTrue(v.list("/").any { it.name == "closed_by_button.txt" })
+        }
+    }
+
+    /** 読み取り専用で開いたイメージも「閉じる」で閉じられ (通知は書き込み確定ではない)、イメージは変わらない。 */
+    @Test fun image_closeButton_readOnly() {
+        shareImageWritable()
+        clickTag("dirty_open_ro")
+        rule.waitUntil(60_000) { entries().isNotEmpty() }
+        waitTag("image_close")
+        clickTag("image_close")
+        waitText(s(R.string.image_closed_read_only))
+        rule.waitUntil(60_000) { entries().isEmpty() }
+        assertEquals(before, sha256Of(img))
     }
 
     @Test fun image_asksBeforeWriting_thenReadOnly() {

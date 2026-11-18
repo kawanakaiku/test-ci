@@ -96,14 +96,32 @@ object VaultBlob {
     }
 }
 
+/** パスワードの記憶が使えるか、使えないならその理由 (画面に一言出すために区別する)。 */
+enum class VaultSupport {
+    Supported,
+    /** Android 11 (API 30) 未満: 「使うたびに生体認証 / 画面ロック」の鍵が作れない */
+    OsTooOld,
+    /** 画面ロックも生体認証も未設定 */
+    NoCredential,
+    /** そのほか (生体のハードウェアが使えない・権限の漏れ・問い合わせの失敗など) */
+    Unavailable,
+}
+
 class SecretVault(
     private val keys: VaultKeys,
     private val auth: UserAuth,
     private val store: VaultStore,
     /** この端末・この時点で記憶を使えるか (OS のバージョン・画面ロック / 生体の登録など) */
     private val supported: () -> Boolean = { true },
+    /** [supported] の理由つき版。null なら [supported] の結果から (使えない = [VaultSupport.Unavailable]) */
+    private val support: (() -> VaultSupport)? = null,
 ) {
-    fun isSupported(): Boolean = try { supported() } catch (_: Exception) { false }
+    fun isSupported(): Boolean = supportState() == VaultSupport.Supported
+
+    /** 使えるか、使えないなら理由。判定が例外になったら [VaultSupport.Unavailable]。 */
+    fun supportState(): VaultSupport = try {
+        support?.invoke() ?: if (supported()) VaultSupport.Supported else VaultSupport.Unavailable
+    } catch (_: Exception) { VaultSupport.Unavailable }
 
     fun has(id: String): Boolean = store.get(slot(id)) != null
 

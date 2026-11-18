@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -121,28 +123,41 @@ fun Step(number: Int, title: String, body: String? = null, done: Boolean = false
     }
 }
 
-/** 取り返しのつかない/注意が要る操作の確認。誤タップ対策 (書き込み可で開いている USB を閉じるときなど)。 */
+/**
+ * 確認ダイアログの本文の共通部品。**縦にスクロールできる** (横向きなど、高さが足りない画面で本文が切れても、スクロールして最後まで読める。ボタンは AlertDialog が下に固定するので常に見える)。
+ * [subject] = どのイメージ / ボリュームの確認かを本文の先頭に出す (null なら出さない)。
+ */
 @Composable
-fun ConfirmDialog(title: String, text: String, confirmLabel: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+fun DialogBody(text: String, subject: String? = null, tag: String = "dialog_body") {
+    Column(Modifier.testTag(tag).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (subject != null) Text(subject, style = MaterialTheme.typography.titleSmall, modifier = Modifier.testTag("dialog_subject"))
+        Text(text)
+    }
+}
+
+/** 取り返しのつかない/注意が要る操作の確認。誤タップ対策 (書き込み可で開いている USB を閉じるときなど)。[subject] = 対象の名前 (本文の先頭に出す)。 */
+@Composable
+fun ConfirmDialog(title: String, text: String, confirmLabel: String, onConfirm: () -> Unit, onDismiss: () -> Unit, subject: String? = null) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
-        text = { Text(text) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
+        text = { DialogBody(text, subject) },
+        confirmButton = { TextButton(onClick = onConfirm, modifier = Modifier.testTag("confirm_ok")) { Text(confirmLabel) } },
+        dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.testTag("confirm_cancel")) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 
 /**
  * ダーティフラグだけの NTFS に書き込み可を要求したときの確認 (docs/dirty-volumes.md)。選択肢は 3 つ:
  * 「読み取り専用で開く」(既定・強調) / 「書き込み可で開く」(明示的に選ぶ) / キャンセル (何も開かない)。USB のパーティション・イメージ・暗号ボリュームの中の NTFS が共通で使う。
+ * [subject] = どのイメージ / ボリュームの確認か。
  */
 @Composable
-fun DirtyWriteDialog(text: String, onOpenReadOnly: () -> Unit, onOpenWrite: () -> Unit, onCancel: () -> Unit) {
+fun DirtyWriteDialog(text: String, onOpenReadOnly: () -> Unit, onOpenWrite: () -> Unit, onCancel: () -> Unit, subject: String? = null) {
     AlertDialog(
         onDismissRequest = onCancel,
         title = { Text(stringResource(R.string.dirty_dialog_title)) },
-        text = { Text(text, Modifier.testTag("dirty_dialog")) },
+        text = { DialogBody(text, subject, tag = "dirty_dialog") },
         confirmButton = {
             Column(horizontalAlignment = Alignment.End) {
                 Button(onClick = onOpenReadOnly, modifier = Modifier.testTag("dirty_open_ro")) { Text(stringResource(R.string.dirty_dialog_read_only)) }
@@ -163,7 +178,7 @@ fun CryptoPendingDialog(p: CryptoNoloadPrompt, onOpenReadOnly: () -> Unit, onOpe
         DirtyWriteDialog(
             text = stringResource(R.string.dirty_dialog_text) + "\n\n" + stringResource(R.string.crypto_noload_dialog_extra, p.label) +
                 (if (p.journal) "\n\n" + stringResource(R.string.dirty_dialog_crypto_journal) else ""),
-            onOpenReadOnly = onOpenReadOnly, onOpenWrite = onOpenWrite, onCancel = onCancel,
+            onOpenReadOnly = onOpenReadOnly, onOpenWrite = onOpenWrite, onCancel = onCancel, subject = p.label,
         )
     } else {
         ConfirmDialog(
@@ -173,6 +188,7 @@ fun CryptoPendingDialog(p: CryptoNoloadPrompt, onOpenReadOnly: () -> Unit, onOpe
             confirmLabel = stringResource(R.string.noload_dialog_confirm),
             onConfirm = onOpenReadOnly,
             onDismiss = onCancel,
+            subject = p.label,
         )
     }
 }

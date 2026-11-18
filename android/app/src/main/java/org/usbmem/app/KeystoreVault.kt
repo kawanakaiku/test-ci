@@ -156,13 +156,20 @@ object VaultProvider {
 
     private fun create(app: Context): SecretVault = SecretVault(
         AndroidKeystoreKeys(requireAuth = true), BiometricUserAuth { activityRef?.get() }, PrefsVaultStore(app),
-        supported = { canAuthenticate(app) },
+        support = { supportState(app) },
     )
 
     /** この端末で、生体 (BIOMETRIC_STRONG) または画面ロックが使える (API 30+ で、登録・設定済み)。 */
-    fun canAuthenticate(ctx: Context): Boolean {
-        if (Build.VERSION.SDK_INT < 30) return false
-        val bm = ctx.getSystemService(BiometricManager::class.java) ?: return false
-        return bm.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL) == BiometricManager.BIOMETRIC_SUCCESS
+    fun canAuthenticate(ctx: Context): Boolean = supportState(ctx) == VaultSupport.Supported
+
+    /** [canAuthenticate] の理由つき版 (使えないとき、解錠ダイアログに理由を一言出す)。 */
+    fun supportState(ctx: Context): VaultSupport {
+        if (Build.VERSION.SDK_INT < 30) return VaultSupport.OsTooOld
+        val bm = ctx.getSystemService(BiometricManager::class.java) ?: return VaultSupport.Unavailable
+        return when (bm.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)) {
+            BiometricManager.BIOMETRIC_SUCCESS -> VaultSupport.Supported
+            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> VaultSupport.NoCredential   // 画面ロックも指紋も未設定
+            else -> VaultSupport.Unavailable
+        }
     }
 }

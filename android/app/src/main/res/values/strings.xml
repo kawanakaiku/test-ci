@@ -60,8 +60,16 @@
     <string name="image_share_subtitle">ファイルアプリから中身を見られるようにします</string>
     <string name="image_chip_write">書き込み可 (実験的)</string>
     <string name="image_write_warning">データ破損の恐れがあります。バックアップを取ってください。</string>
-    <string name="image_share_write">NTFS イメージをマウント (書き込み可)</string>
-    <string name="image_share_read_only">NTFS イメージをマウント (読み取り専用)</string>
+    <string name="image_share_write">イメージをマウント (書き込み可)</string>
+    <string name="image_share_read_only">イメージをマウント (読み取り専用)</string>
+    <string name="image_mounted_title">マウント中のイメージ</string>
+    <string name="image_mounted_subtitle">閉じると、アンマウントして書き込みを確定します (書き込み可で開いた NTFS はダーティフラグも下ろします)</string>
+    <string name="image_mounted_mode_write">書き込み可 (実験的)</string>
+    <string name="image_close_button">閉じる (アンマウント)</string>
+    <string name="image_closed_write">閉じました。書き込みを確定しました</string>
+    <string name="image_closed_read_only">閉じました (アンマウントしました)</string>
+    <string name="image_closed_gone">すでに閉じられています</string>
+    <string name="image_close_failed">閉じる途中でエラーが起きました</string>
 
     <!-- 診断画面 -->
     <string name="diag_speed_title">読み取り速度</string>
@@ -321,6 +329,13 @@
     <string name="unlock_remembered_hint">このボリュームのパスワードは、この端末に記憶されています。</string>
     <string name="unlock_remembered_button">生体認証 / 画面ロックで解錠</string>
     <string name="unlock_forget">記憶を削除</string>
+    <string name="unlock_forget_confirm_title">記憶を削除しますか？</string>
+    <string name="unlock_forget_confirm_text">このボリュームの記憶したパスワードを削除します。次回からパスワードの入力が必要です。</string>
+    <string name="unlock_forget_confirm">削除</string>
+    <string name="unlock_remember_unavailable_os">この端末では (Android 11 未満のため) パスワードを記憶できません。</string>
+    <string name="unlock_remember_unavailable_no_lock">この端末では画面ロックまたは生体認証が未設定のため、パスワードを記憶できません。</string>
+    <string name="unlock_remember_unavailable_other">この端末では生体認証 / 画面ロックが使えないため、パスワードを記憶できません。</string>
+    <string name="unlock_not_saved_plain">入力した内容は保存しません。解錠に使ったあと、メモリ上のバイト列はゼロで消します。</string>
     <string name="vault_prompt_save_title">パスワードを記憶する</string>
     <string name="vault_prompt_unlock_title">記憶したパスワードで解錠する</string>
     <string name="vault_saved">このボリュームのパスワードを記憶しました。次回からは生体認証 / 画面ロックで解錠できます。</string>

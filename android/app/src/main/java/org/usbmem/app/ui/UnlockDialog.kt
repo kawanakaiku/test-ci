@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -35,11 +36,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import org.usbmem.app.CryptoInfo
 import org.usbmem.app.CryptoMount
 import org.usbmem.app.R
 import org.usbmem.app.SecretVault
 import org.usbmem.app.UnlockCredentials
+import org.usbmem.app.VaultSupport
 
 /**
  * 解錠ダイアログに出す内容 (人に見せてよい情報だけ。資格情報は含まない)。[error] = 直前の解錠の失敗 (認証失敗など)。付いていれば、そのまま再入力できる。
@@ -64,18 +67,23 @@ data class UnlockPrompt(
     val canRemember: Boolean = false,
     /** すでに記憶している (生体認証 / 画面ロックで解錠できる) */
     val remembered: Boolean = false,
+    /** 記憶が使えない理由 (パスワードで解錠できるのに記憶の機能を出せないとき)。null = 使える、または記憶の対象外 (理由を出す意味が無い) */
+    val rememberUnavailable: VaultSupport? = null,
 ) {
     companion object {
         /** [vault] = パスワードの記憶。null なら記憶の機能を出さない。 */
         fun of(info: CryptoInfo, startBytes: Long, sizeBytes: Long, label: String, vault: SecretVault? = null): UnlockPrompt {
             val usable = info.supported && !info.tpmOnly
             val vid = SecretVault.idOf(info)
-            val can = vault != null && usable && info.canPassword && vid.isNotEmpty() && vault.isSupported()
+            val eligible = vault != null && usable && info.canPassword && vid.isNotEmpty()
+            val state = if (eligible) vault!!.supportState() else null
+            val can = state == VaultSupport.Supported
             return UnlockPrompt(
                 startBytes, sizeBytes, label, CryptoMount.displayFormat(info), info.cipher,
                 info.canPassword, info.canRecoveryKey, info.canKeyFile, info.unlockedWithoutSecret,
                 usable = usable, note = info.note, writeSupported = info.writeSupported, writeNote = info.writeNote,
                 volumeId = vid, canRemember = can, remembered = can && vault!!.has(vid),
+                rememberUnavailable = state?.takeIf { it != VaultSupport.Supported },
             )
         }
     }
@@ -160,6 +168,7 @@ fun UnlockDialog(
     var write by remember { mutableStateOf(writePossible && writeInitial) }
     var confirmWrite by remember { mutableStateOf(false) }
     var rememberIt by remember { mutableStateOf(false) }
+    var confirmForget by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> if (uri != null) keyFileUri = uri }
 
     val recoveryOk = recovery.count { it in '0'..'9' } == 48
@@ -192,7 +201,9 @@ fun UnlockDialog(
 
     AlertDialog(
         onDismissRequest = { if (!busy) onCancel() },
-        modifier = Modifier.testTag("unlock_dialog"),
+        // キーボードが出ても、「解錠」「キャンセル」が隠れない (ダイアログがキーボードの高さぶん縮み、本文は下のスクロールで読める)
+        modifier = Modifier.testTag("unlock_dialog").imePadding(),
+        properties = DialogProperties(decorFitsSystemWindows = false),
         title = { Text(stringResource(R.string.unlock_title)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -208,7 +219,7 @@ fun UnlockDialog(
                             OutlinedButton(onClick = { submitRemembered() }, enabled = !busy, modifier = Modifier.weight(1f).testTag("unlock_remembered")) {
                                 Text(stringResource(R.string.unlock_remembered_button))
                             }
-                            TextButton(onClick = onForget, enabled = !busy, modifier = Modifier.testTag("unlock_forget")) { Text(stringResource(R.string.unlock_forget)) }
+                            TextButton(onClick = { confirmForget = true }, enabled = !busy, modifier = Modifier.testTag("unlock_forget")) { Text(stringResource(R.string.unlock_forget)) }
                         }
                     }
                 }
@@ -234,6 +245,17 @@ fun UnlockDialog(
                         )
                         TextButton(onClick = { showPassword = !showPassword }, enabled = !busy, modifier = Modifier.testTag("unlock_show_toggle")) {
                             Text(stringResource(if (showPassword) R.string.unlock_hide else R.string.unlock_show))
+                        }
+                        // 記憶できない端末では、理由を一言 (黙って消えない)
+                        prompt.rememberUnavailable?.let { why ->
+                            Text(
+                                stringResource(when (why) {
+                                    VaultSupport.OsTooOld -> R.string.unlock_remember_unavailable_os
+                                    VaultSupport.NoCredential -> R.string.unlock_remember_unavailable_no_lock
+                                    else -> R.string.unlock_remember_unavailable_other
+                                }),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("unlock_remember_unavailable"),
+                            )
                         }
                         // パスワードの記憶 (既定はオフ。解錠に成功したあとにだけ保存する)
                         if (prompt.canRemember && !prompt.remembered) {
@@ -283,7 +305,7 @@ fun UnlockDialog(
                         onCheckedChange = { if (it) confirmWrite = true else write = false },
                     )
                 }
-                Text(stringResource(R.string.unlock_not_saved), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(if (prompt.canRemember && !prompt.remembered) R.string.unlock_not_saved else R.string.unlock_not_saved_plain), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                     Text(stringResource(R.string.unlock_progress), style = MaterialTheme.typography.bodySmall)
@@ -297,6 +319,16 @@ fun UnlockDialog(
         },
         dismissButton = { TextButton(onClick = onCancel, enabled = !busy, modifier = Modifier.testTag("unlock_cancel")) { Text(stringResource(R.string.common_cancel)) } },
     )
+    if (confirmForget) {
+        ConfirmDialog(
+            title = stringResource(R.string.unlock_forget_confirm_title),
+            text = stringResource(R.string.unlock_forget_confirm_text),
+            confirmLabel = stringResource(R.string.unlock_forget_confirm),
+            onConfirm = { confirmForget = false; onForget() },
+            onDismiss = { confirmForget = false },
+            subject = prompt.label,
+        )
+    }
     if (confirmWrite) {
         ConfirmDialog(
             title = stringResource(R.string.unlock_write_confirm_title),

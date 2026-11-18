@@ -21,7 +21,9 @@ object VolumeRegistry {
                 val deviceName: String? = null,
                 internal val closer: (() -> Unit)? = null,
                 /** 暗号ボリュームを解錠した中の FS のとき、その情報 (非 null なら、閉じる = ロック。同じ解錠から出た兄弟も一緒に閉じる) */
-                val crypto: CryptoMeta? = null)
+                val crypto: CryptoMeta? = null,
+                /** SAF で選ばれたイメージのとき、その URI (閉じるとき、再起動後の復元の一覧から外すのに使う)。それ以外は null */
+                val sourceUri: String? = null)
 
     /**
      * 解錠は成功したが、中の FS のジャーナルが未再生 (EUCLEAN) で、ユーザーの「読み取り専用で開く」確認を待っているもの (暗号ボリューム)。
@@ -96,10 +98,10 @@ object VolumeRegistry {
 
     /** テスト・内部用: 既にある fd(所有権を渡す)を登録する。永続化しない。 */
     @Synchronized
-    fun addFd(label: String, key: String, detachedFd: Int, writable: Boolean = false, createOnly: Boolean = false, allowNoload: Boolean = false, allowDirty: Boolean = false): Entry {
+    fun addFd(label: String, key: String, detachedFd: Int, writable: Boolean = false, createOnly: Boolean = false, allowNoload: Boolean = false, allowDirty: Boolean = false, sourceUri: String? = null): Entry {
         val id = idOf(key)
         volumes.remove(id)?.let { closeEntry(it) }
-        val e = Entry(id, label, if (writable) NtfsVolume.mountReadWrite(detachedFd, createOnly, allowDirty) else NtfsVolume.mountReadOnly(detachedFd, allowNoload))
+        val e = Entry(id, label, if (writable) NtfsVolume.mountReadWrite(detachedFd, createOnly, allowDirty) else NtfsVolume.mountReadOnly(detachedFd, allowNoload), sourceUri = sourceUri)
         volumes[id] = e
         return e
     }
@@ -195,6 +197,19 @@ object VolumeRegistry {
 
     fun remove(ctx: Context, id: String) = removeById(id)
 
+    /**
+     * 利用者が「閉じる」を押した (イメージ画面の公開中のボリューム)。クリーンにアンマウントして (書き込みの確定・NTFS のダーティフラグを下ろす)、
+     * 再起動後の復元の一覧からも外す (閉じたものが次の起動で読み取り専用で戻らないように)。閉じる処理はロックの外。
+     * 閉じる前に書き込み可だったかを返す。登録が無ければ null。失敗したら例外 (復元の一覧からは外してある)。
+     */
+    fun closeByUser(ctx: Context, id: String): Boolean? {
+        val e = synchronized(this) { volumes[id] } ?: return null
+        val wasWritable = e.volume.writable
+        e.sourceUri?.let { u -> synchronized(this) { prefs(ctx).edit().putStringSet("uris", savedUris(ctx) - u).apply() } }
+        removeById(id)
+        return wasWritable
+    }
+
     private fun removeById(id: String) {
         val victims = synchronized(this) { volumes.remove(id)?.let { takeOut(it) } ?: return }
         closeInOrder(victims)
@@ -249,8 +264,8 @@ object VolumeRegistry {
     private fun mountUri(ctx: Context, uri: Uri, writable: Boolean = false, allowNoload: Boolean = false, allowDirty: Boolean = false): Entry {
         val pfd: ParcelFileDescriptor = ctx.contentResolver.openFileDescriptor(uri, if (writable) "rw" else "r")
             ?: throw java.io.FileNotFoundException(uri.toString())
-        val label = uri.lastPathSegment?.substringAfterLast('/') ?: "NTFS"
-        return addFd(label, uri.toString(), pfd.detachFd(), writable, allowNoload = allowNoload, allowDirty = allowDirty)
+        val label = UriNames.displayName(ctx, uri, "NTFS")   // msf:19 のような内部表記ではなく、ファイル名 (OpenableColumns.DISPLAY_NAME)
+        return addFd(label, uri.toString(), pfd.detachFd(), writable, allowNoload = allowNoload, allowDirty = allowDirty, sourceUri = uri.toString())
     }
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

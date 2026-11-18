@@ -3,11 +3,12 @@ package org.usbmem.app
 import android.app.Activity
 import android.app.Instrumentation
 import android.content.Intent
+import android.app.UiAutomation
+import android.content.res.Configuration
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import android.provider.DocumentsContract.Root
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
@@ -21,6 +22,11 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
@@ -349,6 +355,7 @@ class CryptoUiTest {
         unlockWithPassword("cui_nl")
         waitNoloadDialog()
         rule.onNodeWithText(s(R.string.noload_dialog_text), substring = true).assertExists()
+        tag("dialog_subject").assertTextEquals("nl.img")   // どのボリュームの確認か (内部表記ではなくファイル名)
         // 確認するまでは何も公開されない。保留 (復号済みデバイスのハンドル) だけが残り、解錠済みの一覧には出ない
         assertEquals(null, rootIdByTitle(title))
         assertEquals(1, VolumeRegistry.pendingCryptoList().size)
@@ -401,6 +408,33 @@ class CryptoUiTest {
         clickTag("crypto_lock")
         waitRootGone(title)
         assertNoSecretLeak()
+    }
+
+    /** 横向き (高さが足りない) でも、確認ダイアログの本文は一番下までスクロールでき、ボタンは見えたまま。 */
+    @Test
+    fun journalNeedsRecovery_dialogScrollsInLandscape() {
+        openImage(fixture("nl.img"))
+        unlockWithPassword("cui_nl")
+        waitNoloadDialog()
+        val ua = inst.uiAutomation
+        ua.setRotation(UiAutomation.ROTATION_FREEZE_90)
+        try {
+            rule.waitUntil(30_000) { rule.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE }
+            rule.waitForIdle()
+            val n = tag("dialog_body")
+            n.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 100_000f) }
+            rule.waitForIdle()
+            val r = n.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+            assertEquals("the dialog body must be scrollable to its end", r.maxValue(), r.value(), 1f)
+            rule.onNodeWithText(s(R.string.noload_dialog_confirm)).assertIsDisplayed()
+            rule.onNodeWithText(s(R.string.common_cancel)).assertIsDisplayed()
+        } finally {
+            ua.setRotation(UiAutomation.ROTATION_FREEZE_0)
+            ua.setRotation(UiAutomation.ROTATION_UNFREEZE)
+        }
+        waitNoloadDialog()
+        clickText(s(R.string.common_cancel))
+        rule.waitUntil(30_000) { VolumeRegistry.pendingCryptoList().isEmpty() }
     }
 
     /** 中が GPT で、一部 (NTFS) は普通に開き、ジャーナル未再生の ext4 だけが確認待ちになる。確認すると両方が読め、ロックは両方を閉じる。 */
@@ -537,6 +571,16 @@ class CryptoUiTest {
         openUnlockDialog()
         waitTag("unlock_forget")
         clickTag("unlock_forget")
+        // 確認なしで消えない: まず確認が出る。キャンセルすると、記憶はそのまま残る
+        waitText(s(R.string.unlock_forget_confirm_text))
+        clickTag("confirm_cancel")
+        waitGone("dialog_body")
+        assertEquals(1, vStore.slots().size)
+        tag("unlock_remembered").assertExists()
+        // もう一度押して「削除」で確定する
+        clickTag("unlock_forget")
+        waitText(s(R.string.unlock_forget_confirm_text))
+        clickTag("confirm_ok")
         waitGone("unlock_remembered")
         waitTag("unlock_remember")
         tag("unlock_remember").assertIsOff()
@@ -551,6 +595,28 @@ class CryptoUiTest {
         clickTag("crypto_lock", 0)
         waitRootGone("whole.img #1")
         assertNoSecretLeak()
+    }
+
+    /** 記憶が使えない端末 (画面ロックが無いなど) では、「記憶する」が黙って消えず、理由が一言出る。 */
+    @Test
+    fun vault_unsupportedDeviceShowsWhy() {
+        installVault()
+        VaultProvider.override = SecretVault(vKeys, vAuth, vStore, support = { VaultSupport.NoCredential })
+        openImage(fixture("whole.img"))
+        openUnlockDialog()
+        assertNoRememberOffered()
+        rule.onAllNodesWithTag("unlock_remember").assertCountEquals(0)
+        tag("unlock_remember_unavailable").assertExists()
+        rule.onNodeWithText(s(R.string.unlock_remember_unavailable_no_lock), substring = true).assertExists()
+        // 「記憶する」を選ばない限り…という指す先の無い文も出さない
+        rule.onAllNodesWithText(s(R.string.unlock_not_saved), substring = true).assertCountEquals(0)
+        clickText(s(R.string.common_cancel))
+        waitGone("unlock_dialog")
+        VaultProvider.override = SecretVault(vKeys, vAuth, vStore, support = { VaultSupport.OsTooOld })
+        openUnlockDialog()
+        rule.onNodeWithText(s(R.string.unlock_remember_unavailable_os), substring = true).assertExists()
+        clickText(s(R.string.common_cancel))
+        waitGone("unlock_dialog")
     }
 
     /** 記憶経由の認証を取り消したら、ダイアログは開いたまま通常のパスワード入力に戻れる (記憶は残る)。保存のときの取り消しでは何も保存しないが、解錠は成功する。 */

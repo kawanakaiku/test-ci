@@ -20,6 +20,7 @@ import org.usbmem.app.ui.UnlockTarget
 import org.usbmem.app.ui.DiagnosticsActions
 import org.usbmem.app.ui.ImageActions
 import org.usbmem.app.ui.ImageResult
+import org.usbmem.app.ui.ImageVolumeRow
 import org.usbmem.app.ui.Notice
 import org.usbmem.app.ui.NestedInspectResult
 import org.usbmem.app.ui.NestedMountResult
@@ -645,7 +646,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         // 読み取り専用 ("r") で開く。fd の所有権はネイティブ側へ渡す。
         val pfd = contentResolver.openFileDescriptor(uri, "r") ?: return ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_image_open_failed)))
         val fd = pfd.detachFd()
-        RawImage.openReadOnly(fd).use { img -> ImageResult(label = uri.lastPathSegment ?: "image", table = img.partitionTable(), uri = uri) }
+        RawImage.openReadOnly(fd).use { img -> ImageResult(label = UriNames.displayName(this, uri), table = img.partitionTable(), uri = uri) }
     } catch (e: NativeException) {
         ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_image_open_failed), e.message ?: "native error"))
     } catch (e: Exception) {
@@ -672,9 +673,10 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
             ?: Notice(Severity.Warning, getString(R.string.notice_image_shared_fallback, e.label), getString(R.string.notice_image_shared_fallback_detail)))
     } catch (e: WriteConfirmRequired) {
         // ダーティフラグだけの NTFS に書き込み可を要求した: core は何も書かずに保留し、ボリュームは閉じてある (何も公開していない)。確認のダイアログを出す
-        ImageResult(dirtyUri = uri)
+        ImageResult(dirtyUri = uri, dirtyName = UriNames.displayName(this, uri))
     } catch (e: NativeException) {
-        ImageResult(notice = fsRefusalNotice(e) ?: Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.message), noloadUri = if (e.code == 117 && !allowNoload) uri else null)
+        ImageResult(notice = fsRefusalNotice(e) ?: Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.message), noloadUri = if (e.code == 117 && !allowNoload) uri else null,
+            noloadName = if (e.code == 117 && !allowNoload) UriNames.displayName(this, uri) else null)
     } catch (e: Exception) {
         ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.javaClass.simpleName))
     }
@@ -1011,6 +1013,23 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     override fun lockCrypto(id: String) {
         try { VolumeRegistry.remove(this, id) } catch (e: Exception) { android.util.Log.w("usbmem", "lock failed: ${e.javaClass.simpleName}") }
         notifyRoots()
+    }
+
+    override fun imageVolumes(): List<ImageVolumeRow> =
+        VolumeRegistry.all(this).filter { it.crypto == null && it.deviceName == null && it.parentId == null }.map { ImageVolumeRow(it.id, it.label, it.volume.fsName, it.volume.writable) }
+
+    override fun closeImage(id: String): Notice {
+        val wasWritable = try { VolumeRegistry.closeByUser(this, id) } catch (e: Exception) {
+            android.util.Log.w("usbmem", "close image failed: ${e.javaClass.simpleName}")
+            notifyRoots()
+            return Notice(Severity.Error, getString(R.string.image_close_failed), e.javaClass.simpleName)
+        }
+        notifyRoots()
+        return when (wasWritable) {
+            true -> Notice(Severity.Success, getString(R.string.image_closed_write))
+            false -> Notice(Severity.Success, getString(R.string.image_closed_read_only))
+            null -> Notice(Severity.Info, getString(R.string.image_closed_gone))
+        }
     }
 
     // ---- NestedActions: マウント済みのボリュームの中のイメージを、読み取り専用でマウントする (ループバック。docs/nested-mount.md)

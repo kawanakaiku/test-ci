@@ -36,7 +36,7 @@ jobs:
       max-parallel: 4
       matrix:
         # グループの中身は tools/ci_android_tests.sh の group_fs() を参照
-        group: ${{ fromJSON(inputs.groups && format('["{0}"]', inputs.groups) || endsWith(github.ref_name, '-only-crypt-ui') && '["crypt-ui"]' || '["ext-fat","btrfs-xfs","squash-erofs","nested-ntfs","ro-misc","crypt-ui"]') }}
+        group: ${{ fromJSON(inputs.groups && format('["{0}"]', inputs.groups) || endsWith(github.ref_name, '-only-crypt-ui') && '["crypt-ui"]' || endsWith(github.ref_name, '-only-ro-misc') && '["ro-misc"]' || '["ext-fat","btrfs-xfs","squash-erofs","nested-ntfs","ro-misc","crypt-ui"]') }}
     steps:
       - uses: actions/checkout@v7
 

@@ -3,10 +3,13 @@ package org.usbmem.app.ui
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -21,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -40,6 +44,8 @@ data class ImageResult(
     val label: String? = null, val table: PartitionTable? = null, val notice: Notice? = null, val noloadUri: Uri? = null,
     /** 非 null = ダーティフラグだけの NTFS に書き込み可を要求して、確認待ち (何も開いていない)。確認のダイアログを出す */
     val dirtyUri: Uri? = null,
+    /** 確認ダイアログに出す、そのイメージのファイル名 ([dirtyUri] / [noloadUri] の分) */
+    val dirtyName: String? = null, val noloadName: String? = null,
     /** 調べたイメージの URI (暗号ボリュームの解錠で、もう一度開くのに使う)。イメージ内のイメージ (ネスト) は null */
     val uri: Uri? = null,
 )
@@ -68,17 +74,28 @@ interface ImageActions : NestedActions {
     fun cryptoVolumes(): List<CryptoVolumeRow>
     /** ロック: 中のファイルシステムをアンマウントして、鍵を消す。 */
     fun lockCrypto(id: String)
+    /** 公開中の (暗号ではない) イメージのボリューム。USB 由来・ネストした子・暗号ボリュームの中身は含まない。 */
+    fun imageVolumes(): List<ImageVolumeRow>
+    /** 閉じる: クリーンにアンマウントして (書き込みの確定・ダーティフラグを下ろす)、再起動後の復元の一覧からも外す。成功した通知を返す。 */
+    fun closeImage(id: String): Notice
 }
 
+/** 公開中のイメージのボリューム 1 つ。[id] = VolumeRegistry の id (閉じる操作に渡す)。 */
+data class ImageVolumeRow(val id: String, val label: String, val fsName: String, val writable: Boolean)
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val appCtx = LocalContext.current
     var result by remember { mutableStateOf(ImageResult()) }
     var busy by remember { mutableStateOf(false) }
+    // 結果の通知はこの画面の下のほうに出るので、出たら見える所までスクロールする (長い警告を見落とさないように)
+    val noticeInView = remember { BringIntoViewRequester() }
     // ダーティフラグだけの NTFS に書き込み可を要求して、確認待ちのイメージ。何も保持しない (開き直すだけ) ので、画面の作り直し (回転) でも失わないよう保存する
     var dirtyUri by rememberSaveable { mutableStateOf<Uri?>(null) }
-    fun applyShare(r: ImageResult) { result = r; dirtyUri = r.dirtyUri }
+    var dirtyName by rememberSaveable { mutableStateOf<String?>(null) }
+    fun applyShare(r: ImageResult) { result = r; dirtyUri = r.dirtyUri; dirtyName = r.dirtyName }
     var allowWrite by remember { mutableStateOf(false) }   // 書き込みは毎回の起動で明示的に許可する (保存しない)
     val openPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) scope.launch { busy = true; result = withContext(Dispatchers.IO) { a.loadImage(uri) }; busy = false }
@@ -86,12 +103,16 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
     var unlockTarget by remember { mutableStateOf<Triple<Uri, String, UnlockTarget>?>(null) }
     var unlocking by remember { mutableStateOf(false) }
     var cryptoRows by remember { mutableStateOf<List<CryptoVolumeRow>>(emptyList()) }
+    var imageRows by remember { mutableStateOf<List<ImageVolumeRow>>(emptyList()) }
     fun refreshCrypto() { scope.launch { cryptoRows = withContext(Dispatchers.IO) { a.cryptoVolumes() } } }
     var cryptoNoload by remember { mutableStateOf<CryptoNoloadPrompt?>(null) }   // 保留は VolumeRegistry が持つ。画面が作り直されても、下の LaunchedEffect で出し直す
     LaunchedEffect(Unit) {
         cryptoRows = withContext(Dispatchers.IO) { a.cryptoVolumes() }
         cryptoNoload = withContext(Dispatchers.IO) { a.pendingCryptoNoload() }.firstOrNull()
     }
+    LaunchedEffect(result.notice) { if (result.notice != null) { withFrameNanos { }; noticeInView.bringIntoView() } }
+    // 公開中のイメージの一覧は、結果が変わるたび (共有・閉じる・解錠) に取り直す
+    LaunchedEffect(result, busy) { if (!busy) imageRows = withContext(Dispatchers.IO) { a.imageVolumes() } }
     fun askUnlock(uri: Uri, p: org.usbmem.app.Partition, label: String) {
         scope.launch {
             busy = true
@@ -123,6 +144,24 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
                 Text(stringResource(if (allowWrite) R.string.image_share_write else R.string.image_share_read_only))
             }
         }
+        if (imageRows.isNotEmpty()) {
+            SectionCard(stringResource(R.string.image_mounted_title), subtitle = stringResource(R.string.image_mounted_subtitle)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    imageRows.forEach { r ->
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(Modifier.weight(1f)) {
+                                Text(r.label, style = MaterialTheme.typography.titleSmall)
+                                Text(r.fsName.uppercase() + " · " + stringResource(if (r.writable) R.string.image_mounted_mode_write else R.string.common_mode_read_only), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            OutlinedButton(
+                                onClick = { scope.launch { busy = true; val n = withContext(Dispatchers.IO) { a.closeImage(r.id) }; busy = false; result = result.copy(notice = n) } },
+                                enabled = !busy, modifier = Modifier.testTag("image_close"),
+                            ) { Text(stringResource(R.string.image_close_button)) }
+                        }
+                    }
+                }
+            }
+        }
         if (cryptoRows.isNotEmpty()) {
             SectionCard(stringResource(R.string.crypto_section_title), subtitle = stringResource(R.string.crypto_section_subtitle)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -147,6 +186,7 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
                 confirmLabel = stringResource(R.string.noload_dialog_confirm),
                 onConfirm = { scope.launch { busy = true; result = withContext(Dispatchers.IO) { a.shareImageNoload(u) }; busy = false } },
                 onDismiss = { result = result.copy(noloadUri = null) },
+                subject = result.noloadName,
             )
         }
         dirtyUri?.let { u ->
@@ -155,6 +195,7 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
                 onOpenReadOnly = { dirtyUri = null; scope.launch { busy = true; applyShare(withContext(Dispatchers.IO) { a.shareImage(u, false) }); busy = false } },
                 onOpenWrite = { dirtyUri = null; scope.launch { busy = true; applyShare(withContext(Dispatchers.IO) { a.shareImageDirty(u) }); busy = false } },
                 onCancel = { dirtyUri = null; result = result.copy(notice = Notice(Severity.Info, appCtx.getString(R.string.dirty_cancelled))) },
+                subject = dirtyName,
             )
         }
         cryptoNoload?.let { p ->
@@ -201,7 +242,7 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
                 },
             )
         }
-        result.notice?.let { Banner(it, Modifier.testTag("image_notice")) }
+        result.notice?.let { Banner(it, Modifier.testTag("image_notice").bringIntoViewRequester(noticeInView)) }
         result.table?.let { t ->
             SectionCard(stringResource(R.string.common_partitions_title), subtitle = stringResource(R.string.common_partitions_subtitle, result.label ?: "image", t.kind.uppercase(), formatBytes(t.diskBytes), t.sectorSize)) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

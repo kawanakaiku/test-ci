@@ -145,6 +145,7 @@ fun NestedMountSection(a: NestedActions, modifier: Modifier = Modifier) {
             confirmLabel = stringResource(R.string.noload_dialog_confirm),
             onConfirm = { ask = null; pick?.let { mount(it, q.start, q.size, q.label, true) } },
             onDismiss = { ask = null },
+            subject = q.label,
         )
     }
 }

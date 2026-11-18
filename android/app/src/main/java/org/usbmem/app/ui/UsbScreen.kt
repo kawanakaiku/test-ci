@@ -206,6 +206,7 @@ private fun DeviceCard(d: UsbDeviceState, a: UsbActions, canRelease: Boolean = f
             confirmLabel = stringResource(R.string.noload_dialog_confirm),
             onConfirm = { a.publishPartitionNoload(d.key, p.startBytes, p.sizeBytes, p.label) },
             onDismiss = { a.cancelNoload(d.key) },
+            subject = p.label,
         )
     }
     d.dirtyPrompt?.let { p ->
@@ -214,6 +215,7 @@ private fun DeviceCard(d: UsbDeviceState, a: UsbActions, canRelease: Boolean = f
             onOpenReadOnly = { a.publishPartitionDirty(d.key, p.startBytes, p.sizeBytes, p.label, write = false) },
             onOpenWrite = { a.publishPartitionDirty(d.key, p.startBytes, p.sizeBytes, p.label, write = true) },
             onCancel = { a.cancelDirty(d.key) },
+            subject = p.label,
         )
     }
     d.cryptoNoload?.let { p ->

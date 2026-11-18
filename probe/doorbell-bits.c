@@ -49,7 +49,7 @@ int main(void)
         if(ready<0){printf("NO_AREA %ld\n",ready);return 2;}
         prev=SuspendThread(h);ctx.ContextFlags=CONTEXT_FULL;ok=GetThreadContext(h,&ctx);after=synthetic;
         printf("flag=%u initial=%08lx requested=%08lx after=%08lx prev=%lu ok=%d\n",which_flag,masks[i],requested,after,prev,ok);
-        if(prev!=0 || !ok)bad++;
+        if(prev!=0 || !ok || requested!=(masks[i]|1) || after!=masks[i])bad++;
         ResumeThread(h);
         if(WaitForSingleObject(h,3000)!=WAIT_OBJECT_0)return 5;
         CloseHandle(h);

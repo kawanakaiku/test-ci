@@ -40,3 +40,12 @@ jobs:
           Get-Content translation-err.txt
           "exit=$($p.ExitCode)"
           if ($p.ExitCode -ne 0) { exit 1 }
+      - name: Doorbell の他ビットの保持を測定
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath probe\doorbell-bits.exe -NoNewWindow -PassThru -RedirectStandardOutput bits.txt -RedirectStandardError bits-err.txt
+          if (-not $p.WaitForExit(100000)) { $p.Kill(); 'TIMEOUT' }
+          Get-Content bits.txt
+          Get-Content bits-err.txt
+          "exit=$($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }

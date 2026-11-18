@@ -13,6 +13,24 @@ jobs:
         run: |
           [Environment]::OSVersion.VersionString
           (Get-Item C:\Windows\System32\xtajit64.dll).VersionInfo.FileVersion
+      - name: 拡張領域の長さごとの復元を測定
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath probe\continue-xstate.exe -NoNewWindow -PassThru -RedirectStandardOutput cx.txt -RedirectStandardError cx-err.txt
+          if (-not $p.WaitForExit(35000)) { $p.Kill(); 'TIMEOUT' }
+          Get-Content cx.txt
+          Get-Content cx-err.txt
+          "exit=$($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: x64の拡張領域の復元を測定
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath probe\continue-xstate-x64.exe -NoNewWindow -PassThru -RedirectStandardOutput cx.txt -RedirectStandardError cx-err.txt
+          if (-not $p.WaitForExit(35000)) { $p.Kill(); 'TIMEOUT' }
+          Get-Content cx.txt
+          Get-Content cx-err.txt
+          "exit=$($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
       - name: 待機中の協調停止を測定
         shell: pwsh
         run: |
@@ -74,14 +92,5 @@ jobs:
           if (-not $p.WaitForExit(35000)) { $p.Kill(); 'TIMEOUT' }
           Get-Content continue-x64.txt
           Get-Content continue-x64-err.txt
-          "exit=$($p.ExitCode)"
-          if ($p.ExitCode -ne 0) { exit 1 }
-      - name: 拡張領域の長さごとの復元を測定
-        shell: pwsh
-        run: |
-          $p = Start-Process -FilePath probe\continue-xstate.exe -NoNewWindow -PassThru -RedirectStandardOutput cx.txt -RedirectStandardError cx-err.txt
-          if (-not $p.WaitForExit(35000)) { $p.Kill(); 'TIMEOUT' }
-          Get-Content cx.txt
-          Get-Content cx-err.txt
           "exit=$($p.ExitCode)"
           if ($p.ExitCode -ne 0) { exit 1 }

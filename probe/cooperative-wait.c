@@ -6,6 +6,7 @@
 __declspec(dllimport) LONG NTAPI NtWaitForAlertByThreadId(const void *, const LARGE_INTEGER *);
 __declspec(dllimport) LONG NTAPI NtWaitForSingleObject(HANDLE, BOOLEAN, const LARGE_INTEGER *);
 __declspec(dllimport) LONG NTAPI NtDelayExecution(BOOLEAN, const LARGE_INTEGER *);
+__declspec(dllimport) LONG NTAPI NtSetEvent(HANDLE, LONG *);
 __declspec(dllimport) LONG NTAPI NtContinue(CONTEXT *, BOOLEAN);
 static volatile LONG ready, pass;
 static volatile unsigned char *area;
@@ -36,7 +37,12 @@ static DWORD WINAPI worker(void *arg)
     ready = 1;
     switch (mode & 3)
     {
-    case 0: while (!*bell) YieldProcessor(); wait_status = 0; break;
+    case 0:
+        while (!*bell) YieldProcessor();
+        /* 予約後も翻訳中のまま通知と既に成立する待ちを実行する。 */
+        wait_status = NtSetEvent(event, NULL);
+        if (!wait_status) wait_status = NtWaitForSingleObject(event, FALSE, &timeout);
+        break;
     case 1: wait_status = NtWaitForAlertByThreadId(NULL, &timeout); break;
     case 2: wait_status = NtWaitForSingleObject(event, FALSE, &timeout); break;
     case 3: wait_status = NtDelayExecution(FALSE, &timeout); break;

@@ -462,3 +462,5 @@ GitHub Actions `crypt-write.yml` (usbmem-crypt-write、ubuntu-latest) run **4359
 2. 画面ロックが無い端末では、記憶の機能が黙って消える (理由の案内なし)。「記憶するには画面ロックまたは指紋の登録が要ります」のような一言があるとよい。
 3. 記憶の「保存」の認証 (BiometricPrompt) は解錠に**成功したあと**に出る。保存のときにプロンプトを取り消したときの文言・挙動は確認していない (取り消しは取り出し側だけ確認)。
 4. エミュレータで試せなかったもの: StrongBox・指紋の認証失敗 (`emu finger touch` は登録済みの指として常に成功する)、複数ユーザー・ロックアウト (認証失敗を繰り返したときの文言)。**docs の 5 章の「実機が必要」のうち、BiometricPrompt の画面と認証必須の鍵の動作は、AVD (API 37) で確認できた** (ただし上の権限の不具合を直したビルドで)。
+
+**修正 (2026-11-19)**: 上の AVD 確認で見つかった「AndroidManifest に `USE_BIOMETRIC` が無く、`BiometricManager.canAuthenticate` が SecurityException を投げて、記憶の機能が一切出ない」不具合を、`USE_BIOMETRIC` の追加で直した。CI の計装テストは `VaultProvider.override` で偽の vault を差すため、この不具合を検出できなかった (本物の Keystore と BiometricPrompt の経路は、AVD での手動確認が要る)。

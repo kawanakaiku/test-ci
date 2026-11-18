@@ -53,8 +53,15 @@ static DWORD WINAPI worker(void *arg)
     NtContinue(&ctx, FALSE);
     ExitProcess(4);
 }
-int main(void)
+int main(int argc, char **argv)
 {
+    CONTEXT *extended=NULL; void *extended_mem=NULL; DWORD extended_size=0;
+    (void)argv;
+    if (argc>1) {
+        InitializeContext(NULL, CONTEXT_FULL|0x100040, NULL, &extended_size);
+        extended_mem=malloc(extended_size);
+        if (!extended_mem || !InitializeContext(extended_mem, CONTEXT_FULL|0x100040, &extended, &extended_size)) return 11;
+    }
     unsigned bad=0;
     setvbuf(stdout, NULL, _IONBF, 0);
     QueryPerformanceFrequency(&freq);
@@ -62,21 +69,21 @@ int main(void)
     event = CreateEventW(NULL, FALSE, FALSE, NULL);
     for (unsigned mode = 0; mode < 8; mode++) for (unsigned i = 0; i < 5; i++)
     {
-        HANDLE th; CONTEXT ctx; LONGLONG a,b,c; DWORD prev; BOOL ok;
+        HANDLE th; CONTEXT ctx, *captured=extended ? extended : &ctx; LONGLONG a,b,c; DWORD prev; BOOL ok;
         ready = pass = 0; wait_start=wait_end=0; wait_status = 0xdead; observed_bell = 0;
         th = CreateThread(NULL, 0, worker, (void *)(uintptr_t)mode, 0, NULL);
         while (!ready) Sleep(1);
         if (ready < 0) { printf("no area/bell %ld\n",ready); return 2; }
         Sleep(10);
-        ctx.ContextFlags = CONTEXT_FULL;
+        captured->ContextFlags = CONTEXT_FULL | (extended ? 0x100040 : 0);
         a=now(); prev=SuspendThread(th); b=now();
-        ok=GetThreadContext(th,&ctx); c=now();
+        ok=GetThreadContext(th,captured); c=now();
         printf("mode=%u iter=%u suspend_us=%lld context_us=%lld prev=%lu ok=%d status=%08lx wait_us=%lld bell=%08lx after=%08lx sim=%u callback=%u rip=%llx\n",
-               mode,i,b-a,c-b,prev,ok,(ULONG)wait_status,wait_end-wait_start,observed_bell,*bell,area[0],area[1],(unsigned long long)ctx.Rip);
+               mode,i,b-a,c-b,prev,ok,(ULONG)wait_status,wait_end-wait_start,observed_bell,*bell,area[0],area[1],(unsigned long long)captured->Rip);
         if (!ok || prev != 0 || wait_end <= wait_start || area[0] || area[1]) bad++;
         ResumeThread(th);
         if (WaitForSingleObject(th,3000)!=WAIT_OBJECT_0) { puts("JOIN_TIMEOUT"); return 5; }
         CloseHandle(th);
     }
-    printf("DONE bad=%u\n",bad); return bad ? 10 : 0;
+    printf("DONE bad=%u xstate=%u\n",bad,extended!=NULL); free(extended_mem); return bad ? 10 : 0;
 }

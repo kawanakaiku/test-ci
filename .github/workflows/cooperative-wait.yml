@@ -22,6 +22,15 @@ jobs:
           Get-Content err.txt
           "exit=$($p.ExitCode)"
           if ($p.ExitCode -ne 0) { exit 1 }
+      - name: XSTATE を指定した文脈取得を測定
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath probe\cooperative-wait.exe -ArgumentList xstate -NoNewWindow -PassThru -RedirectStandardOutput xstate.txt -RedirectStandardError xstate-err.txt
+          if (-not $p.WaitForExit(100000)) { $p.Kill(); 'TIMEOUT' }
+          Get-Content xstate.txt
+          Get-Content xstate-err.txt
+          "exit=$($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
       - name: 実際の並列翻訳の停止を測定
         shell: pwsh
         run: |

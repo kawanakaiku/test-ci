@@ -22,3 +22,12 @@ jobs:
           Get-Content err.txt
           "exit=$($p.ExitCode)"
           if ($p.ExitCode -ne 0) { exit 1 }
+      - name: 実際の並列翻訳の停止を測定
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath probe\translation-wait.exe -NoNewWindow -PassThru -RedirectStandardOutput translation.txt -RedirectStandardError translation-err.txt
+          if (-not $p.WaitForExit(100000)) { $p.Kill(); 'TIMEOUT' }
+          Get-Content translation.txt
+          Get-Content translation-err.txt
+          "exit=$($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }

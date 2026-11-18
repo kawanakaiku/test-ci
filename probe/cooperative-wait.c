@@ -63,10 +63,10 @@ int main(int argc, char **argv)
         if (!extended_mem || !InitializeContext(extended_mem, CONTEXT_FULL|0x100040, &extended, &extended_size)) return 11;
         /* 未対応ならInitializeContextがXSTATEを外す。その返却フラグに従う。 */
         capture_flags=extended->ContextFlags;
-        printf("INIT_CONTEXT requested=%08lx actual=%08lx size=%lu\n",(DWORD)(CONTEXT_FULL|0x100040),capture_flags,extended_size);
     }
     unsigned bad=0;
     setvbuf(stdout, NULL, _IONBF, 0);
+    if (extended) printf("INIT_CONTEXT requested=%08lx actual=%08lx size=%lu\n",(DWORD)(CONTEXT_FULL|0x100040),capture_flags,extended_size);
     QueryPerformanceFrequency(&freq);
     CreateThread(NULL, 0, watchdog, NULL, 0, NULL);
     event = CreateEventW(NULL, FALSE, FALSE, NULL);

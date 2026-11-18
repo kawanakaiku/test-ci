@@ -49,3 +49,12 @@ jobs:
           Get-Content bits-err.txt
           "exit=$($p.ExitCode)"
           if ($p.ExitCode -ne 0) { exit 1 }
+      - name: 協調停止中のイベント成立を測定
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath probe\cooperative-event.exe -NoNewWindow -PassThru -RedirectStandardOutput event.txt -RedirectStandardError event-err.txt
+          if (-not $p.WaitForExit(110000)) { $p.Kill(); 'TIMEOUT' }
+          Get-Content event.txt
+          Get-Content event-err.txt
+          "exit=$($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }

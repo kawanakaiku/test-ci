@@ -70,7 +70,8 @@ jobs:
             smoke=0; case "$name" in *-smoke) smoke=1; name=${name%-smoke} ;; esac
             # -t<番号>_<番号>... : 指定した generic テストだけ (例 usbmem-xfstests-xfs-t023_024)
             case "$name" in *-t[0-9]*) sel=${name##*-t}; name=${name%-t*}; tests=$(echo "$sel" | tr '_' '\n' | sed 's|^|generic/|' | paste -sd,); smoke=1; trace=1; custom=1 ;; esac
-            case "$name" in *-noremkfs) extra=--no-remkfs; name=${name%-noremkfs} ;; esac
+            case "$name" in *-loop) extra="$extra --loop"; name=${name%-loop} ;; esac
+            case "$name" in *-noremkfs) extra="$extra --no-remkfs"; name=${name%-noremkfs} ;; esac
             case "$name" in *-trace) trace=1; smoke=1; name=${name%-trace} ;; esac
             case "$name" in
               all) fs=$ALL ;;

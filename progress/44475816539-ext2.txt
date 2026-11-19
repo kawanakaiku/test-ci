@@ -1,25 +1,25 @@
-07:01:53
-ext2 generic/028 24/652 61s
-Mem:           15983        1040        9961          47        5373       14942
+07:02:24
+ext2 generic/069 52/652 81s
+Mem:           15983         997       10000          47        5376       14985
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 07:01:53 up 8 min,  0 users,  load average: 1.36, 1.03, 0.49
+ 07:02:24 up 9 min,  0 users,  load average: 1.87, 1.20, 0.56
 --- dmesg
-[  505.011047] run fstests generic/011 at 2026-11-19 07:01:30
-[  509.906299] run fstests generic/012 at 2026-11-19 07:01:35
-[  510.429012] run fstests generic/013 at 2026-11-19 07:01:36
-[  520.361177] run fstests generic/014 at 2026-11-19 07:01:46
-[  520.869789] run fstests generic/015 at 2026-11-19 07:01:46
-[  521.377584] run fstests generic/016 at 2026-11-19 07:01:47
-[  521.956387] run fstests generic/018 at 2026-11-19 07:01:47
-[  522.475656] run fstests generic/020 at 2026-11-19 07:01:48
-[  523.002082] run fstests generic/021 at 2026-11-19 07:01:48
-[  523.529288] run fstests generic/022 at 2026-11-19 07:01:49
-[  524.045636] run fstests generic/023 at 2026-11-19 07:01:49
-[  525.099012] run fstests generic/024 at 2026-11-19 07:01:50
-[  526.180773] run fstests generic/025 at 2026-11-19 07:01:52
-[  526.696108] run fstests generic/026 at 2026-11-19 07:01:52
-[  527.285114] run fstests generic/028 at 2026-11-19 07:01:53
+[  540.077743] run fstests generic/052 at 2026-11-19 07:02:05
+[  540.591490] run fstests generic/053 at 2026-11-19 07:02:06
+[  541.096231] run fstests generic/056 at 2026-11-19 07:02:06
+[  541.603829] run fstests generic/057 at 2026-11-19 07:02:07
+[  542.108306] run fstests generic/058 at 2026-11-19 07:02:07
+[  542.639006] run fstests generic/059 at 2026-11-19 07:02:08
+[  543.137519] run fstests generic/060 at 2026-11-19 07:02:09
+[  543.642850] run fstests generic/061 at 2026-11-19 07:02:09
+[  544.147687] run fstests generic/062 at 2026-11-19 07:02:10
+[  544.661719] run fstests generic/063 at 2026-11-19 07:02:10
+[  545.161402] run fstests generic/064 at 2026-11-19 07:02:11
+[  545.770436] run fstests generic/065 at 2026-11-19 07:02:11
+[  546.317302] run fstests generic/066 at 2026-11-19 07:02:12
+[  546.824662] run fstests generic/067 at 2026-11-19 07:02:12
+[  547.332445] run fstests generic/069 at 2026-11-19 07:02:13
 --- fuse/dm
-1
+2
 No devices found

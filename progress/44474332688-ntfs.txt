@@ -1,25 +1,25 @@
-06:54:43
-ntfs generic/355 272/652 467s
-Mem:           15983        1064       14840          48         405       14918
+06:55:15
+ntfs generic/367 282/652 498s
+Mem:           15983         935       14886          48         488       15047
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 06:54:43 up 11 min,  0 users,  load average: 1.84, 1.67, 0.99
+ 06:55:15 up 12 min,  0 users,  load average: 1.80, 1.68, 1.02
 --- dmesg
-[  675.209265] run fstests generic/336 at 2026-11-19 06:54:14
-[  675.798598] run fstests generic/337 at 2026-11-19 06:54:15
-[  676.375113] run fstests generic/338 at 2026-11-19 06:54:16
-[  676.581066] Buffer I/O error on dev dm-0, logical block 262128, async page read
-[  676.582397] Buffer I/O error on dev dm-0, logical block 262128, async page read
-[  677.191267] 338 (168870): drop_caches: 3
-[  677.228619] Buffer I/O error on dev dm-0, logical block 0, async page read
-[  677.848177] run fstests generic/341 at 2026-11-19 06:54:17
-[  678.632262] run fstests generic/342 at 2026-11-19 06:54:18
-[  679.407301] run fstests generic/343 at 2026-11-19 06:54:19
-[  680.045404] run fstests generic/346 at 2026-11-19 06:54:19
-[  702.290226] run fstests generic/347 at 2026-11-19 06:54:42
 [  702.887503] run fstests generic/348 at 2026-11-19 06:54:42
 [  703.465126] run fstests generic/353 at 2026-11-19 06:54:43
 [  704.080918] run fstests generic/355 at 2026-11-19 06:54:43
+[  704.910291] run fstests generic/356 at 2026-11-19 06:54:44
+[  705.088701] swapon: swapfile has holes
+[  705.530479] run fstests generic/357 at 2026-11-19 06:54:45
+[  705.712597] swapon: swapfile has holes
+[  706.169740] run fstests generic/358 at 2026-11-19 06:54:45
+[  706.786983] run fstests generic/359 at 2026-11-19 06:54:46
+[  707.392733] run fstests generic/360 at 2026-11-19 06:54:47
+[  707.950974] run fstests generic/361 at 2026-11-19 06:54:47
+[  708.520746] run fstests generic/362 at 2026-11-19 06:54:48
+[  709.111012] run fstests generic/364 at 2026-11-19 06:54:48
+[  719.710197] run fstests generic/366 at 2026-11-19 06:54:59
+[  735.159774] run fstests generic/367 at 2026-11-19 06:55:14
 --- fuse/dm
-1
+0
 No devices found

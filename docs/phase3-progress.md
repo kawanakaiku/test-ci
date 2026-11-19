@@ -113,7 +113,7 @@ MFT は `ntfs_mft_writepages` (別系統) で書く。
   "rw" の途中書き込み / 既存ファイルの上書き / rename / 削除 / 不正名の拒否 / 読み取り専用ボリュームでの create・delete 拒否 → すべて成功。
   結果イメージを `adb exec-out run-as` で取り出し、ホストの `ntfsfix -n` と ntfs-3g (ro) で全 812 エントリの名前・サイズ・sha256 を期待値と照合 → **不一致 0**。
   既定 (書き込み無効) ビルドでは書き込みテストがスキップされ、既存の 8 件は成功。arm64-v8a は書き込み有効でもビルド成功 (実行は未検証)。
-- 環境メモ: JDK は `/run/media/u/disk9/usr` (JAVA_HOME)、SDK は `/run/media/u/disk31/android_home`。エミュレータは `-port 5556` で自前起動し、`ANDROID_SERIAL=emulator-5556` を必ず指定 (他のデバイスには触れない)。
+- 環境メモ: JDK は `<JDK のディレクトリ>` (JAVA_HOME)、SDK は `<Android SDK のディレクトリ>` (ANDROID_HOME)。エミュレータは `-port 5556` で自前起動し、`ANDROID_SERIAL=emulator-5556` を必ず指定 (他のデバイスには触れない)。
 
 
 ## USB 書き込み (作成のみ) と実機での発見 (2026-11-11)

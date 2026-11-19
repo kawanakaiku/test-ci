@@ -235,7 +235,7 @@ class DeviceValidationTests(unittest.TestCase):
 
     def test_mounted_partition_refused(self):
         tree = make_tree()
-        tree[3]["children"][0]["mountpoints"] = ["/run/media/u/STICK"]
+        tree[3]["children"][0]["mountpoints"] = ["/run/media/user/STICK"]
         r = self.v("/dev/sdc", "B", tree)
         self.assertTrue(any("マウントされている" in w for w in r), r)
 
@@ -304,8 +304,8 @@ class DeviceValidationTests(unittest.TestCase):
         self.assertFalse(M.confirm_typed("y", "/dev/sdb"))
 
     def test_parse_mounts_octal_escape(self):
-        m = M.parse_mounts("/dev/sdb1 /run/media/u/My\\040Disk vfat rw 0 0\n")
-        self.assertEqual(m[0][1], "/run/media/u/My Disk")
+        m = M.parse_mounts("/dev/sdb1 /run/media/user/My\\040Disk vfat rw 0 0\n")
+        self.assertEqual(m[0][1], "/run/media/user/My Disk")
 
     def test_image_target_check(self):
         self.assertTrue(M.check_image_target("/dev/null"))                       # キャラクタデバイス
@@ -1227,7 +1227,7 @@ class ImageModeIntegration(unittest.TestCase):
 class WorkdirRamTests(unittest.TestCase):
     def test_overlay_with_tmpfs_upper_is_ram(self):
         mi = M.parse_mountinfo(LIVE_MI_FOR_RAM)
-        self.assertTrue(M.workdir_is_ram(mi, "/home/u/Downloads/usbmem_testset_work"))
+        self.assertTrue(M.workdir_is_ram(mi, "/home/user/Downloads/usbmem_testset_work"))
 
     def test_real_disk_is_not_ram(self):
         mi = M.parse_mountinfo(LIVE_MI_FOR_RAM + "40 38 259:1 / /mnt/data rw - ext4 /dev/nvme0n1p3 rw\n")

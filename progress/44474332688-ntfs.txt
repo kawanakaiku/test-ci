@@ -1,25 +1,25 @@
-07:02:30
-ntfs generic/756 607/652 933s
-Mem:           15983         983       14810          49         516       14999
+07:03:01
+ntfs generic/793 639/652 965s
+Mem:           15983        1016       14880          49         412       14966
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 07:02:30 up 19 min,  0 users,  load average: 0.63, 1.16, 1.06
+ 07:03:01 up 20 min,  0 users,  load average: 0.99, 1.19, 1.08
 --- dmesg
-[ 1165.149311] raid6: using algorithm avx2x2 gen() 49797 MB/s
-[ 1165.166296] raid6: .... xor() 27658 MB/s, rmw enabled
-[ 1165.166302] raid6: using avx512x2 recovery algorithm
-[ 1165.167726] xor: automatically using best checksumming function   avx       
-[ 1165.327584] Btrfs loaded, zoned=yes, fsverity=yes
-[ 1166.118017] run fstests generic/741 at 2026-11-19 07:02:25
-[ 1166.329854] /dev/loop1: Can't open blockdev
-[ 1166.347456] /dev/loop1: Can't open blockdev
-[ 1166.913739] run fstests generic/742 at 2026-11-19 07:02:26
-[ 1167.505522] run fstests generic/745 at 2026-11-19 07:02:27
-[ 1168.109152] run fstests generic/748 at 2026-11-19 07:02:27
-[ 1168.690713] run fstests generic/749 at 2026-11-19 07:02:28
-[ 1169.265704] run fstests generic/752 at 2026-11-19 07:02:29
-[ 1169.852107] run fstests generic/755 at 2026-11-19 07:02:29
-[ 1170.409584] run fstests generic/756 at 2026-11-19 07:02:30
+[ 1192.998869] run fstests generic/779 at 2026-11-19 07:02:52
+[ 1193.577732] run fstests generic/780 at 2026-11-19 07:02:53
+[ 1194.155458] run fstests generic/781 at 2026-11-19 07:02:53
+[ 1194.729817] run fstests generic/782 at 2026-11-19 07:02:54
+[ 1195.389404] run fstests generic/783 at 2026-11-19 07:02:55
+[ 1196.297794] run fstests generic/784 at 2026-11-19 07:02:56
+[ 1197.072809] run fstests generic/785 at 2026-11-19 07:02:56
+[ 1197.821430] run fstests generic/786 at 2026-11-19 07:02:57
+[ 1198.384634] run fstests generic/787 at 2026-11-19 07:02:58
+[ 1198.954283] run fstests generic/788 at 2026-11-19 07:02:58
+[ 1199.526514] run fstests generic/789 at 2026-11-19 07:02:59
+[ 1200.112334] run fstests generic/790 at 2026-11-19 07:02:59
+[ 1200.720297] run fstests generic/791 at 2026-11-19 07:03:00
+[ 1201.366798] run fstests generic/792 at 2026-11-19 07:03:01
+[ 1202.058248] run fstests generic/793 at 2026-11-19 07:03:01
 --- fuse/dm
-1
+0
 No devices found

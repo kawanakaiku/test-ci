@@ -1,9 +1,9 @@
-07:00:26
+07:00:57
 ntfs generic/732 592/652 799s
-Mem:           15983         943       14856          48         511       15039
+Mem:           15983         931       14868          49         511       15051
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 07:00:26 up 17 min,  0 users,  load average: 1.30, 1.58, 1.17
+ 07:00:57 up 17 min,  0 users,  load average: 0.79, 1.43, 1.13
 --- dmesg
 [ 1035.859381] scsi host3: scsi_debug: version 0191 [20210520]
                  dev_size_mb=256, opts=0x0, submit_queues=1, statistics=0

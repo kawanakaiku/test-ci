@@ -139,6 +139,19 @@ APK は main 22695e3 の GitHub Actions ビルド (run 44192340281、`-PusbmemNt
 5. 通知はイメージ画面の一番下のカード (スクロールの末尾) に出る。画面の下端に半分見える程度で、自動でスクロールしないので、見落としやすい (特に長い警告)。
 6. ボタンの名前が「NTFS イメージをマウント (読み取り専用 / 書き込み可)」のまま、exFAT / FAT / ext4 のイメージも通る (下の 2 項のとおり)。
 
+### 1 の見つけた点を直した (2026-11-19、CI + AVD で再確認)
+
+| 項 | 対応 |
+|---|---|
+| 1 横向きで本文が切れる | 確認ダイアログ共通の `DialogBody` (Components.kt) を `verticalScroll` にした (`ConfirmDialog` / `DirtyWriteDialog` / `CryptoPendingDialog` / ネストの noload が共通)。ボタンは AlertDialog が下に固定するので常に見える。AVD (横 2400x1080) で、本文は 3 行ぶんの窓だが、スワイプで最後の「何も書き込みません」まで読めた。縦 → 横 → 縦の回転でダイアログは出し直される |
+| 2 どのイメージの確認か出ない | 本文の先頭に対象の名前 (太字) を出す。USB のパーティションは既存のラベル、イメージは下の 3 と同じ表示名。AVD: 「ntfs_dirty.img」「ext_needs_recovery.img」「nl.img」(暗号の中の確認も) |
+| 3 `msf:19` のような名前 | `UriNames.displayName` が `OpenableColumns.DISPLAY_NAME` を ContentResolver に問い合わせ、取れなければ URI の末尾 (`raw:/…/x.img` → `x.img`)。公開ボリュームのラベル・パーティション一覧の見出し・暗号ボリュームの行・解錠ダイアログの見出しが同じ名前になる |
+| 4 閉じる導線が無い | イメージ画面に「マウント中のイメージ」の節を足した (名前・FS・読み取り専用 / 書き込み可 + 「閉じる (アンマウント)」)。確認なしでクリーンにアンマウントし (`VolumeRegistry.closeByUser`)、再起動後の復元の一覧からも外す。通知は書き込み可だったとき「閉じました。書き込みを確定しました」、読み取り専用なら「閉じました (アンマウントしました)」。AVD: 書き込み可で開いた `ntfs_dirty.img` の `$Volume` flags が、マウント中は 0x1、閉じたあと pull したイメージは 0x0 |
+| 5 通知が下端で見落とす | イメージ画面の通知は、出たら見える所まで自動でスクロールする (`BringIntoViewRequester`)。AVD: 書き込み可で開いた直後に警告カードの全文が画面内に入った |
+| 6 ボタン名 | 「イメージをマウント (読み取り専用 / 書き込み可)」に変えた |
+
+計装テスト (CI): `DirtyConfirmUiTest` に `image_dialogNamesTheImage_andScrollsInLandscape` (横向き固定で本文が末尾までスクロールでき、ボタンが見える・対象名の表示)、`image_closeButton_unmountsCleanlyAndLowersDirtyFlag` (閉じる → ダーティフラグが下りる)、`image_closeButton_readOnly` を足した。ro-misc (`usbmem-ci-only-ro-misc` の run 44423733365) で `ntfs_read` の 21 件が成功 (従来 18 件 + 3 件)。
+
 ### 2. ダーティ / 未再生ログ / 休止状態の原因別の案内 — 確認できた (すべて見た文言のとおり、docs の表と一致)
 
 通知はすべて、イメージ画面の下に出る警告カード。タイトルと詳細 (要点)。

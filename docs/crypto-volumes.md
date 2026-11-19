@@ -440,6 +440,13 @@ GitHub Actions `crypt-write.yml` (usbmem-crypt-write、ubuntu-latest) run **4359
 3. 確認の本文が、ext4 だと分かっているのに「ext3 / ext4 / XFS のジャーナル、Btrfs のログ、F2FS の直近の fsync の記録」と全 FS の列挙で長い。ボリュームの名前も内部の表現 (`raw:/storage/emulated/0/Download/nl.img`、または `msf:30`) のまま出る (dirty-volumes.md の「見つけた点 3」)。
 4. 解錠ダイアログの注意書き「下の「記憶する」を選ばない限り保存しません」は、記憶できない端末 (下の項目 4 の不具合) でも出るので、指す先が無い文になる。
 
+### 3 の見つけた点を直した (2026-11-19、CI + AVD で再確認)
+
+- 項 2 (横向きで本文が切れる): `CryptoPendingDialog` も共通の `DialogBody` (縦スクロール) になった。CI `journalNeedsRecovery_dialogScrollsInLandscape` (横向き固定で最後までスクロールでき、「読み取り専用で開く」「キャンセル」が見える)。
+- 項 3 (名前): 確認ダイアログの先頭に対象名 (`nl.img`) を出し、`msf:30` のような内部表記は表示名 (`OpenableColumns.DISPLAY_NAME`) に変えた。CI は `dialog_subject` が `nl.img` であることを確認。ジャーナル未再生の文が全 FS の列挙で長い点は直していない。
+- 項 1 (キーボードで「解錠」が隠れる): 解錠ダイアログに `imePadding` + `DialogProperties(decorFitsSystemWindows = false)`。AVD (API 37) でキーボードを出したまま、ダイアログがキーボードの上に縮み、「キャンセル」「解錠」が見えた (本文は縮んだ分だけスクロール)。
+- 項 4 (指す先が無い文): 「記憶する」を出せないとき、または記憶済みのときは「入力した内容は保存しません。…」(`unlock_not_saved_plain`) に変えた。
+
 ### 4. パスワードの記憶 (Android Keystore + BiometricPrompt) — **出荷ビルドでは機能が一切出ない (不具合)。権限を足せば AVD で一通り動く**
 
 **不具合: `AndroidManifest.xml` に `USE_BIOMETRIC` が無い**。`VaultProvider.canAuthenticate` の `BiometricManager.canAuthenticate(...)` は `USE_BIOMETRIC` (または `USE_FINGERPRINT`) が無いと `SecurityException` を投げる。`SecretVault.isSupported()` が例外を握って `false` にするので、**解錠ダイアログに「記憶する」のチェックが出ない** (原因が画面にも例外にも出ない)。CI の計装テストは `VaultProvider.override` で偽の `SecretVault` (対応ありと答える) を差すので、この経路を通らず気づけなかった。確かめ方: AVD に PIN (`adb shell locksettings set-pin 1234`) と指紋 (設定の指紋登録 + `adb emu finger touch 1`) を入れても、main 22695e3 の APK では解錠ダイアログに「記憶する」が出ない。`dumpsys package` の requested permissions に `USE_BIOMETRIC` が無い。**`<uses-permission android:name="android.permission.USE_BIOMETRIC" />` を 1 行足した実験ビルド (ブランチ `usbmem-wt-avdperm` のコミット c82b743。採用していない。CI の APK 用ブランチは確認後に消した) では、同じ AVD でチェックが出て、以下がすべて動いた。**
@@ -464,3 +471,10 @@ GitHub Actions `crypt-write.yml` (usbmem-crypt-write、ubuntu-latest) run **4359
 4. エミュレータで試せなかったもの: StrongBox・指紋の認証失敗 (`emu finger touch` は登録済みの指として常に成功する)、複数ユーザー・ロックアウト (認証失敗を繰り返したときの文言)。**docs の 5 章の「実機が必要」のうち、BiometricPrompt の画面と認証必須の鍵の動作は、AVD (API 37) で確認できた** (ただし上の権限の不具合を直したビルドで)。
 
 **修正 (2026-11-19)**: 上の AVD 確認で見つかった「AndroidManifest に `USE_BIOMETRIC` が無く、`BiometricManager.canAuthenticate` が SecurityException を投げて、記憶の機能が一切出ない」不具合を、`USE_BIOMETRIC` の追加で直した。CI の計装テストは `VaultProvider.override` で偽の vault を差すため、この不具合を検出できなかった (本物の Keystore と BiometricPrompt の経路は、AVD での手動確認が要る)。
+
+### 4 の見つけた点を直した (2026-11-19、CI + AVD で再確認)
+
+- 項 2 (記憶が理由なしで消える): `SecretVault.supportState()` (`VaultSupport`: Supported / OsTooOld / NoCredential / Unavailable) を足し (`isSupported()` はこれの `== Supported`)、本番の判定 (`VaultProvider.supportState`) は API 30 未満 → OsTooOld、`BIOMETRIC_ERROR_NONE_ENROLLED` → NoCredential、そのほか → Unavailable。解錠ダイアログのパスワード欄の下に、小さい文字で「この端末では画面ロックまたは生体認証が未設定のため、パスワードを記憶できません。」(OsTooOld は「Android 11 未満のため」、Unavailable は「生体認証 / 画面ロックが使えないため」)。AVD: 画面ロックなしで表示、`locksettings set-pin` のあとは消えて「記憶する」が出た。CI `vault_unsupportedDeviceShowsWhy` (偽の `support` で NoCredential / OsTooOld)。
+- 「記憶を削除」の確認: 「記憶を削除しますか？」/「このボリュームの記憶したパスワードを削除します。次回からパスワードの入力が必要です。」(削除 / キャンセル、対象名つき)。AVD: キャンセルで `usbmem_vault.xml` の項目は 1 件のまま、「削除」で 0 件になり、通常の入力 + 「記憶する」に戻った。CI `vault_rememberUnlockForget` に、キャンセルで残る・削除で消えるを足した。
+- 項 3 (保存の認証の取り消し)、項 1 (`USE_BIOMETRIC` の検査)、2 本目の指紋で鍵が無効化されない点は、引き続き未対応。
+- CI: `usbmem-ci-only-crypt-ui` run 44423731717 で 12 件成功 (従来 10 件 + 横向き + 記憶不可の理由)。

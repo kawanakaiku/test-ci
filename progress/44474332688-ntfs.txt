@@ -1,25 +1,25 @@
-06:47:27
-ntfs generic/011 10/652 29s
-Mem:           15983        1052        9987          47        5335       14930
+06:47:58
+ntfs generic/053 39/652 62s
+Mem:           15983        1080        9960          47        5334       14902
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 06:47:27 up 4 min,  0 users,  load average: 2.03, 1.18, 0.48
+ 06:47:58 up 4 min,  0 users,  load average: 2.10, 1.26, 0.53
 --- dmesg
-[  131.002394] audit: type=1400 audit(1795070710.764:194): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=9079 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
-[  131.002404] audit: type=1400 audit(1795070710.764:195): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9079 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
-[  177.621111] loop0: detected capacity change from 0 to 131072
-[  236.488217] loop0: detected capacity change from 0 to 2097152
-[  236.667614] loop1: detected capacity change from 0 to 2097152
-[  237.371228] run fstests generic/001 at 2026-11-19 06:46:57
-[  242.673376] run fstests generic/002 at 2026-11-19 06:47:02
-[  243.281772] run fstests generic/003 at 2026-11-19 06:47:03
-[  253.512683] run fstests generic/004 at 2026-11-19 06:47:13
-[  254.122876] run fstests generic/005 at 2026-11-19 06:47:13
-[  254.707723] run fstests generic/006 at 2026-11-19 06:47:14
-[  257.315718] run fstests generic/007 at 2026-11-19 06:47:17
-[  264.701434] run fstests generic/008 at 2026-11-19 06:47:24
-[  265.277336] run fstests generic/009 at 2026-11-19 06:47:25
-[  265.886754] run fstests generic/011 at 2026-11-19 06:47:25
+[  283.825644] run fstests generic/028 at 2026-11-19 06:47:43
+[  289.451677] run fstests generic/029 at 2026-11-19 06:47:49
+[  290.227194] run fstests generic/030 at 2026-11-19 06:47:49
+[  291.363458] run fstests generic/031 at 2026-11-19 06:47:51
+[  291.965805] run fstests generic/032 at 2026-11-19 06:47:51
+[  292.581111] run fstests generic/033 at 2026-11-19 06:47:52
+[  293.192033] run fstests generic/034 at 2026-11-19 06:47:52
+[  293.987991] run fstests generic/035 at 2026-11-19 06:47:53
+[  294.619008] run fstests generic/037 at 2026-11-19 06:47:54
+[  295.242175] run fstests generic/039 at 2026-11-19 06:47:55
+[  295.845362] run fstests generic/040 at 2026-11-19 06:47:55
+[  296.461832] run fstests generic/041 at 2026-11-19 06:47:56
+[  297.076431] run fstests generic/042 at 2026-11-19 06:47:56
+[  297.702772] run fstests generic/050 at 2026-11-19 06:47:57
+[  298.325045] run fstests generic/052 at 2026-11-19 06:47:58
 --- fuse/dm
 1
 No devices found

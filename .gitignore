@@ -14,3 +14,7 @@ captures/
 *.keystore
 ci-logs/
 real_usb_reports/
+
+# Python のバイトコード (誤ってコミットされていたので除外)
+__pycache__/
+*.pyc

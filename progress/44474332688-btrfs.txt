@@ -1,25 +1,25 @@
-06:58:00
-btrfs generic/346 268/652 549s
-Mem:           15700         961       13694          46        1367       14738
+06:58:32
+btrfs generic/366 281/652 578s
+Mem:           15700         931       14564          48         522       14769
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 06:58:00 up 16 min,  0 users,  load average: 1.49, 1.07, 0.73
+ 06:58:32 up 16 min,  0 users,  load average: 1.41, 1.09, 0.75
 --- dmesg
-[  970.587828] run fstests generic/338 at 2026-11-19 06:57:50
-[  970.757790] Buffer I/O error on dev dm-1, logical block 0, async page read
-[  970.759669] Buffer I/O error on dev dm-1, logical block 0, async page read
-[  970.759720] Buffer I/O error on dev dm-1, logical block 1, async page read
-[  971.005342] 338 (200883): drop_caches: 3
-[  971.041817] Buffer I/O error on dev dm-1, logical block 9492, async page read
-[  971.041842] Buffer I/O error on dev dm-1, logical block 22596, async page read
-[  971.041864] Buffer I/O error on dev dm-1, logical block 9512, async page read
-[  971.041872] Buffer I/O error on dev dm-1, logical block 22616, async page read
-[  971.052769] Buffer I/O error on dev dm-1, logical block 3328, lost async page write
-[  971.054459] Buffer I/O error on dev dm-1, logical block 0, async page read
-[  971.589658] run fstests generic/341 at 2026-11-19 06:57:51
-[  972.217300] run fstests generic/342 at 2026-11-19 06:57:52
-[  972.813306] run fstests generic/343 at 2026-11-19 06:57:53
-[  973.432186] run fstests generic/346 at 2026-11-19 06:57:53
+[  985.966377] run fstests generic/347 at 2026-11-19 06:58:06
+[  986.416611] run fstests generic/348 at 2026-11-19 06:58:06
+[  987.017053] run fstests generic/353 at 2026-11-19 06:58:07
+[  987.493716] run fstests generic/355 at 2026-11-19 06:58:07
+[  988.121972] run fstests generic/356 at 2026-11-19 06:58:08
+[  988.271507] swapon: swapfile has holes
+[  988.583761] run fstests generic/357 at 2026-11-19 06:58:08
+[  988.731772] swapon: swapfile has holes
+[  989.049957] run fstests generic/358 at 2026-11-19 06:58:09
+[  989.534324] run fstests generic/359 at 2026-11-19 06:58:09
+[  989.992488] run fstests generic/360 at 2026-11-19 06:58:10
+[  990.471782] run fstests generic/361 at 2026-11-19 06:58:10
+[  990.917685] run fstests generic/362 at 2026-11-19 06:58:11
+[  991.362178] run fstests generic/364 at 2026-11-19 06:58:11
+[ 1001.810766] run fstests generic/366 at 2026-11-19 06:58:22
 --- fuse/dm
 2
 cow-root	(252:0)

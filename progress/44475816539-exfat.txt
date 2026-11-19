@@ -1,11 +1,10 @@
-07:11:01
-exfat generic/731 591/652 653s
-Mem:           15700         968       14531          48         517       14731
+07:11:32
+exfat generic/732 592/652 653s
+Mem:           15700         900       14599          48         518       14800
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 07:11:01 up 16 min,  0 users,  load average: 1.57, 1.26, 0.83
+ 07:11:32 up 16 min,  0 users,  load average: 0.88, 1.12, 0.80
 --- dmesg
-[  963.648363] run fstests generic/717 at 2026-11-19 07:10:56
 [  964.030803] run fstests generic/718 at 2026-11-19 07:10:56
 [  964.397930] run fstests generic/719 at 2026-11-19 07:10:57
 [  964.768988] run fstests generic/720 at 2026-11-19 07:10:57
@@ -20,6 +19,7 @@ Mem:           15700         968       14531          48         517       14731
 [  968.254950] run fstests generic/729 at 2026-11-19 07:11:01
 [  968.657683] run fstests generic/730 at 2026-11-19 07:11:01
 [  969.023261] run fstests generic/731 at 2026-11-19 07:11:01
+[  969.393720] run fstests generic/732 at 2026-11-19 07:11:02
 --- fuse/dm
-1
+4
 cow-root	(252:0)

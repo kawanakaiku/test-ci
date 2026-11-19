@@ -186,6 +186,16 @@ jobs:
             --group "$FSTESTS_GROUP" --tests "$FSTESTS_TESTS" --mount-opts "$MOUNT_OPTS" --timeout "$TEST_TIMEOUT" --max-seconds 18000 $EXTRA
           cat "$RUNNER_TEMP/out/summary.md" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Cleanup (fuse / dm / loop)
+        if: always()
+        run: |
+          # ランナーが原因不明で止まる・後始末の git が SIGBUS (135) で落ちることがあったので、アップロードの前に FUSE のマウント・dm・ループを確実に外す
+          sudo pkill -x usbmem_fuse || true
+          for m in $(awk '$3 ~ /^fuse/ {print $2}' /proc/mounts); do sudo umount -l "$m" || true; done
+          sudo dmsetup remove_all --force 2>/dev/null || true
+          sudo losetup -D 2>/dev/null || true
+          sudo dmesg 2>/dev/null | tail -30 > "$RUNNER_TEMP/out/dmesg-tail.txt" || true
+
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4

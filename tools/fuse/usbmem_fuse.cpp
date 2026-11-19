@@ -15,7 +15,7 @@
 // core が持たない操作は、そのとおりに返す (対応しているふりをしない):
 //   - chmod / chown / utimes (setattr の mode / uid / gid / atime / mtime): core に API が無い。既定は EOPNOTSUPP。
 //     ただし要求が「今の値と同じ」なら成功する。-o quiet_setattr を付けると、FAT の quiet マウントと同じく黙って成功させる (値は変わらない。近似)。
-//   - xattr / ACL / fallocate / ioctl / lseek(SEEK_DATA/HOLE) / copy_file_range / mknod (通常ファイル以外) / rename の EXCHANGE・WHITEOUT: 未対応 (ENOSYS / EOPNOTSUPP)。
+//   - xattr の設定 / ACL / fallocate / ioctl / lseek(SEEK_DATA/HOLE) / copy_file_range / mknod (通常ファイル以外) / rename の EXCHANGE・WHITEOUT: 未対応 (ENOSYS / EOPNOTSUPP)。
 //   - statfs: core に空き容量の API が無い。総容量 = イメージのサイズ、空き = 総容量の 95% からツリーのファイル大きさの合計を引いた見積もり (疎ファイル・メタデータは見ない近似)。
 //   - 所有者・時刻: core は mode / nlink / size / mtime だけ返す。uid / gid は固定、atime / ctime は mtime と同じ。
 // アダプター側の補完 (core の機能ではない): 開いたまま unlink / rename で上書きされたファイルを、最後に閉じるまで隠し名 (.usbmem_hidden_N) で残す (libfuse の hard_remove 無し相当)。
@@ -724,6 +724,14 @@ void op_access(fuse_req_t req, fuse_ino_t, int) { fuse_reply_err(req, 0); }   //
 
 void op_fallocate(fuse_req_t req, fuse_ino_t, int, off_t, off_t, struct fuse_file_info*) { fuse_reply_err(req, EOPNOTSUPP); }
 
+// xattr: core に無いので「どのファイルも xattr を持たない」と正直に答える (一覧は空、取得は ENODATA)。設定 / 削除は未登録のまま (ENOSYS → カーネルが EOPNOTSUPP)。
+// 登録しないと listxattr / getxattr も EOPNOTSUPP になり、fssum (generic/547, 785) のように「xattr が無い FS」でも一覧を読もうとするツールが失敗する。
+void op_listxattr(fuse_req_t req, fuse_ino_t, size_t size) {
+  if (size == 0) fuse_reply_xattr(req, 0);
+  else fuse_reply_buf(req, "", 0);
+}
+void op_getxattr(fuse_req_t req, fuse_ino_t, const char*, size_t) { fuse_reply_err(req, ENODATA); }
+
 // ---- マウント
 std::unique_ptr<FsVolume> mount_volume(BlockDevicePtr dev, const std::string& type, bool rw, int* err, std::string* why) {
   *err = 0;
@@ -885,8 +893,10 @@ int main(int argc, char** argv) {
     if (lfd >= 0) {
       int op = (c.ro ? LOCK_SH : LOCK_EX) | LOCK_NB;
       int waited = 0;
-      while (flock(lfd, op) != 0 && errno == EWOULDBLOCK && waited < 120000) { usleep(10000); waited += 10; }
-      if (waited >= 120000) return die("the image " + c.image + " is still in use by another usbmem_fuse (waited 120 s)");
+      const char* lw = getenv("USBMEM_FUSE_LOCK_WAIT_MS");   // 既定 120000。0 なら待たずに失敗する (同じイメージの二重マウントを試すテストを素早く落とす)
+      int max_wait = lw && *lw ? atoi(lw) : 120000;
+      while (flock(lfd, op) != 0 && errno == EWOULDBLOCK && waited < max_wait) { usleep(10000); waited += 10; }
+      if (waited >= max_wait) return die("the image " + c.image + " is still in use by another usbmem_fuse (waited " + std::to_string(max_wait / 1000) + " s)");
       trace("lock: acquired %s after %d ms", c.image.c_str(), waited);
       // lfd は開いたままにする (プロセス終了で解放)
     }
@@ -961,6 +971,8 @@ int main(int argc, char** argv) {
   ops.access = op_access;
   ops.create = op_create;
   ops.fallocate = op_fallocate;
+  ops.listxattr = op_listxattr;
+  ops.getxattr = op_getxattr;
 
   struct fuse_session* se = fuse_session_new(&args, &ops, sizeof ops, nullptr);
   if (!se) return die("fuse_session_new failed");

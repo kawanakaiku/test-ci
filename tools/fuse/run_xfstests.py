@@ -188,8 +188,15 @@ def main():
             f.write("USBMEM_FUSE_TRACE=1\n")
     shutil.copy(os.path.join(HERE, "mount.fuse.usbmem"), "/sbin/mount.fuse.usbmem")
     os.chmod("/sbin/mount.fuse.usbmem", 0o755)
-
     mopts = "-o fstype=%s,%s" % (a.fs, a.mount_opts) if a.mount_opts else "-o fstype=%s" % a.fs
+    if a.loop:
+        # `mount -t fuse` (サブタイプなし) で mount する fstests (dm-error を使うもの / 同じデバイスを二重に mount するもの) のため、fuse3 の mount.fuse (デバイスをコマンドとして実行しようとする) を差し替える
+        if os.path.exists("/sbin/mount.fuse") and not os.path.exists("/sbin/mount.fuse.orig"):
+            shutil.copy("/sbin/mount.fuse", "/sbin/mount.fuse.orig")
+        shutil.copy(os.path.join(HERE, "mount.fuse.usbmem"), "/sbin/mount.fuse")
+        os.chmod("/sbin/mount.fuse", 0o755)
+        with open("/etc/usbmem_fuse.env", "a") as f:
+            f.write("USBMEM_FUSE_DEFAULT_OPTS=fstype=%s%s\n" % (a.fs, "," + a.mount_opts if a.mount_opts else ""))
     with open(os.path.join(a.fstests, "local.config"), "w") as f:
         f.write("export FSTYP=fuse\nexport FUSE_SUBTYP=.usbmem\n")
         f.write("export TEST_DEV=%s\nexport TEST_DIR=%s\n" % (imgs["test"], test_mnt))
@@ -209,6 +216,7 @@ def main():
     print("fs=%s tests=%d" % (a.fs, len(tests)), flush=True)
 
     results = {}
+    expected = load_expected(a.fs)
     t_start = time.time()
     results_dir = os.path.join(a.fstests, "results")
     env = dict(os.environ)
@@ -286,7 +294,8 @@ def main():
         # アンマウント時の fsck の失敗 (テストが pass でも記録する)
         newlog = read_tail(fsck_log, 100000).splitlines()[fsck_before:]
         if newlog:
-            r["fsck_fail"] = len(newlog)
+            # テストが SCRATCH を作り直す / LVM に載せるなどで壊す (期待リストの "fsck_ignore") ものは、fsck の失敗を数えない
+            r["fsck_fail_ignored" if expected.get(t, {}).get("fsck_ignore") else "fsck_fail"] = len(newlog)
         results[t] = r
         # 状態をリセット (マウントが残っていたら外す)
         for d in (test_mnt, scratch_mnt):
@@ -304,7 +313,6 @@ def main():
     fsck_fails = sum(1 for r in results.values() if r.get("fsck_fail"))
     lines = ["# xfstests on usbmem_fuse: fs=%s" % a.fs, "",
              "total %d: %s; tests with fsck failure after unmount: %d" % (len(results), ", ".join("%s=%d" % kv for kv in sorted(cnt.items())), fsck_fails), ""]
-    expected = load_expected(a.fs)
     for st in ("fail", "hang"):
         names = [t for t, r in results.items() if r["status"] == st]
         if names:
@@ -316,9 +324,12 @@ def main():
             for cat in sorted({expected[t]["cat"] for t in exp}):
                 lines += ["expected (%s): " % cat + " ".join(t for t in exp if expected[t]["cat"] == cat)]
             lines += [""]
-    fixed = [t for t, r in results.items() if r["status"] == "pass" and t in expected]
+    fixed = [t for t, r in results.items() if r["status"] == "pass" and t in expected and not expected[t].get("fsck_ignore")]
     if fixed:
         lines += ["## expected-failure list entries that now pass (%d)" % len(fixed), " ".join(fixed), ""]
+    fi = [t for t, r in results.items() if r.get("fsck_fail_ignored")]
+    if fi:
+        lines += ["## fsck failed after unmount, expected (%d): the test destroys the device (fsck_ignore)" % len(fi), " ".join(fi), ""]
     ff = [t for t, r in results.items() if r.get("fsck_fail")]
     if ff:
         lines += ["## fsck failed after unmount (%d)" % len(ff), " ".join(ff), ""]

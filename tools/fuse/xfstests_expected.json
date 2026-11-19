@@ -60,6 +60,40 @@
   "generic/798": {
    "cat": "premise_mismatch",
    "why": "ページキャッシュの Dirty 数を mincore / cachestat で見る。FUSE は書き込みを即座にデーモンへ送るので dirty ページが残らない"
+  },
+  "generic/108": {
+   "cat": "premise_mismatch",
+   "why": "テストが SCRATCH を LVM の物理ボリュームにして _scratch_mkfs で作り直す前提 (FSTYP=fuse の mkfs は何もしない) ので、空の論理ボリュームをマウントできない。SCRATCH のシグネチャも壊れる (--loop のときだけ動く)",
+   "fsck_ignore": true
+  },
+  "generic/740": {
+   "cat": "premise_mismatch",
+   "why": "テストが SCRATCH に ext 以外のいろいろな FS を mkfs して mkfs の他 FS 検出を見る。通るが、終わった後の SCRATCH は別の FS (fsck が失敗するのは正しい)",
+   "fsck_ignore": true
+  },
+  "generic/563": {
+   "cat": "premise_mismatch",
+   "why": "テストが fstests の FS の上のファイルを loop デバイスにして、その中に mkfs + mount する前提 (FSTYP=fuse の mkfs は何もしないので空のデバイスをマウントできない)"
+  },
+  "generic/704": {
+   "cat": "premise_mismatch",
+   "why": "テストが scsi_debug のデバイスに mkfs して mount する前提 (FSTYP=fuse の mkfs は何もしない。--loop のときだけ scsi_debug が見える)"
+  },
+  "generic/731": {
+   "cat": "premise_mismatch",
+   "why": "テストが scsi_debug のデバイスに mkfs して mount する前提 (同上)"
+  },
+  "generic/409": {
+   "cat": "premise_mismatch",
+   "why": "TEST_DEV を TEST_DIR の下へもう一度マウント (bind マウントの共有・伝播を見る) する前提。アダプターは同じイメージを二重に開かない (排他ロック。generic/732 と同じ)"
+  },
+  "generic/410": {
+   "cat": "premise_mismatch",
+   "why": "TEST_DEV を TEST_DIR の下へもう一度マウント (bind マウントの共有・伝播を見る) する前提。アダプターは同じイメージを二重に開かない (排他ロック。generic/732 と同じ)"
+  },
+  "generic/411": {
+   "cat": "premise_mismatch",
+   "why": "TEST_DEV を TEST_DIR の下へもう一度マウント (bind マウントの共有・伝播を見る) する前提。アダプターは同じイメージを二重に開かない (排他ロック。generic/732 と同じ)"
   }
  },
  "fat": {
@@ -92,6 +126,16 @@
   "generic/490": {
    "cat": "core_unsupported",
    "why": "lseek(SEEK_DATA / SEEK_HOLE): アダプターは常に全体をデータとして返す (core に穴の問い合わせが無い)"
+  }
+ },
+ "btrfs": {
+  "generic/040": {
+   "cat": "core_unsupported",
+   "why": "同じディレクトリの同じファイルへの 3000 個のハードリンク。Btrfs の core は INODE_REF の 1 項目 (葉 1 枚、約 350 件) にしか入れられず、拡張 ref (INODE_EXTREF) は未実装なので EMLINK。(以前は EMLINK が add_entry の途中で出てトランザクションが中止され、以後すべて ENOENT になった。事前検査にして、EMLINK だけ返す)"
+  },
+  "generic/041": {
+   "cat": "core_unsupported",
+   "why": "同じディレクトリの同じファイルへの 3000 個のハードリンク。Btrfs の core は INODE_REF の 1 項目 (葉 1 枚、約 350 件) にしか入れられず、拡張 ref (INODE_EXTREF) は未実装なので EMLINK。(以前は EMLINK が add_entry の途中で出てトランザクションが中止され、以後すべて ENOENT になった。事前検査にして、EMLINK だけ返す)"
   }
  }
 }

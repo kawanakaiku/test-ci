@@ -108,16 +108,27 @@ jobs:
           sudo apt-get install -y --no-install-recommends cmake ninja-build g++ pkg-config python3 zlib1g-dev libfuse3-dev fuse3 \
             e2fsprogs xfsprogs btrfs-progs f2fs-tools dosfstools exfatprogs ntfs-3g \
             build-essential libtool-bin automake autoconf gawk bc acl attr psmisc uuid-dev libuuid1 xfslibs-dev libacl1-dev libattr1-dev libaio-dev \
-            libgdbm-dev libcap-dev liburing-dev libssl-dev libgdbm-compat-dev fio dbench sqlite3 indent libmount-dev
+            libgdbm-dev libcap-dev liburing-dev libssl-dev libgdbm-compat-dev fio dbench sqlite3 indent libmount-dev dmsetup
           ls -l /dev/fuse; uname -r; id
           mkfs.ext4 -V 2>&1 | head -1; mkfs.xfs -V; mkfs.btrfs --version; mkfs.f2fs -V 2>&1 | head -1 || true
 
       - name: Build usbmem_fuse
         run: |
           cmake -S core -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSBMEM_NTFS_WRITE=ON -DUSBMEM_BUILD_TESTS=OFF -DUSBMEM_BUILD_FUSE=ON
-          cmake --build build --target usbmem_fuse -j"$(nproc)"
+          cmake --build build --target usbmem_fuse usbmem_fscheck -j"$(nproc)"
           sudo install -m 0755 build/usbmem_fuse /usr/local/bin/usbmem_fuse
+          sudo install -m 0755 build/usbmem_fscheck /usr/local/bin/usbmem_fscheck
           usbmem_fuse --help || true
+
+      - name: Probe loop / device-mapper support
+        continue-on-error: true
+        run: |
+          # ブロックデバイス前提の fstests (valid block disk / dm-flakey など) を動かせるかの確認 (docs/xfstests.md「ブロックデバイス」)
+          sudo losetup -f --show /dev/null 2>&1 | head -2 || true
+          truncate -s 64M "$RUNNER_TEMP/probe.img"; L=$(sudo losetup -f --show "$RUNNER_TEMP/probe.img") && echo "loop: $L" && sudo blockdev --getsz "$L" && sudo blkdiscard -f "$L" && echo "blkdiscard ok"; sudo losetup -d "$L" || true
+          sudo modprobe dm-flakey 2>&1 | head -2; sudo modprobe dm-error 2>&1 | head -2; sudo modprobe dm-snapshot 2>&1 | head -2
+          sudo dmsetup targets 2>&1 | head -30
+          ls /lib/modules/$(uname -r)/kernel/drivers/md 2>&1 | head -30
 
       - name: Smoke test
         continue-on-error: true

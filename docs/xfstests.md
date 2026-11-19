@@ -115,7 +115,7 @@ CI: **run 44461561567** (`usbmem-xfstests-all`、8 FS の quick グループ 652
 | FAT (FAT32) | 108 | 27 | 2 | 515 | 0 (785 は期待リストへ) | 2 (hang で殺した 346 / 394 のみ。hang は fsck の失敗に数えないようにした) |
 | exFAT | 91 | 46 | 0 | 515 | 0 | 0 |
 | NTFS (書き込みビルド) | 113 | 22 | 0 | 517 | 0 | 0 (**検査あり**: 下の「NTFS の fsck」) |
-| XFS (Full) | 144 | 24 | 0 | 484 | 0 | 1 (generic/411。下の「XFS の 1024 文字の symlink」。`fsck_ignore` にした) |
+| XFS (Full) | 144 | 24 | 0 | 484 | 0 | 1 (generic/411。下の「XFS の 1024 文字の symlink」。原因を直した。`fsck_ignore` は外した。確認の run は同節) |
 | Btrfs | 142 | 26 | 0 | 484 | 0 | 0 |
 | F2FS | 144 | 24 | 0 | 484 | 0 | 0 |
 
@@ -126,9 +126,15 @@ XFS・FAT・Btrfs・F2FS・exFAT の数字は、ランナーが落ちなかっ�
 fsck は各テストの後 (TEST と SCRATCH の両方) に独立ツール (e2fsck / fsck.fat / fsck.exfat / xfs_repair / btrfs check / fsck.f2fs。NTFS は `fsck_ntfs.sh`) で調べていて、pass したテストも含めて壊れたイメージは残らなかった。
 NTFS は 1304 回 (652 件 × TEST / SCRATCH) の検査のうち、失敗したのは「テストが SCRATCH の中身を壊す」generic/108・740 の 2 件 (期待リストの `fsck_ignore`) だけで、3 つの検査 (下記) が一致して「NTFS ではない」と報告した。
 
-### XFS の 1024 文字の symlink (未確定)
+### XFS の 1024 文字の symlink (原因を特定して修正、2026-11-19)
 
-全体の run (44469300735) で一度だけ、generic/411 の後の SCRATCH を `xfs_repair -n` が「symlink in inode N too long (1024 chars)」と報告して fsck が失敗した。411 自身は symlink を作らない (二重マウントで失敗するテスト) ので、**直前までのテスト (fsstress の symlink あり) が作った 1024 文字ちょうどの symlink を、xfs_repair が too long とした**可能性と、テストごとの mkfs の取りこぼしの可能性がある。単独 (`-t411`、run 44480161924) では再現しなかった。core は kernel と同じく 1024 文字まで許して remote (XSLM) ブロックに書く (`ino_symlink_body`)。境界が xfs_repair と食い違うなら、直すのは 1023 文字までにする最小の変更。確かめるには 1024 文字の symlink だけを作った XFS を `xfs_repair -n` に通す小さな CI ジョブが要る。期待リスト (xfs) の 411 に `fsck_ignore` を付けて、他の run を止めないようにしてある。
+全体の run (44469300735) で一度だけ、generic/411 の後の SCRATCH を `xfs_repair -n` が「symlink in inode N too long (1024 chars)」と報告して fsck が失敗した。411 自身は symlink を作らない (二重マウントで失敗するテスト) ので、SCRATCH に残っていた直前までのテスト (fsstress の symlink) の産物で、単独 (`-t411`、run 44480161924) では出ない。
+
+**原因**: xfs_repair (xfsprogs 7.2.0) は **1024 文字の symlink を不正とする** (許すのは 1023 文字まで)。手元で `mkfs.xfs -p` の protofile に 1023 / 1024 / 1025 文字の symlink を入れて試すと、1023 は clean、1024 は「symlink in inode N too long (1024 chars)」、1025 も同じ。mkfs.xfs 自身 (libxfs) も 1024 文字以上の symlink は「corrupt buffer」で書けない。一方 core の `ino_symlink_body` は `kMaxSymlink = 1024` まで許し、1024 文字を remote (XSLM) ブロックに書いていた。ヘッダは `kSymlinkHdr = 56`、NUL は書かない (サイズは文字数そのもの) ので、書き方自体は正しく、**上限の判定が 1 文字多かっただけ**。fsstress が 1024 文字の symlink を作ったと推測する (未確認。直前のテストの産物)。
+
+**修正**: 作るときの上限を `kMaxSymlinkCreate = 1023` にした (超えると `ENAMETOOLONG`。`core/compat/src/xfs_volume.cpp` / `xfs_write_ops.inc`)。読む側 (`read_symlink`) の上限は 1024 のまま (他の実装が作ったものを読む寛容さは残す)。
+
+**検査**: `usbmem_xfs_write_tests --symlinks` (`tools/run_xfs_write_tests.sh` の 4b。既定と isize=1024 の 2 構成)。1 .. 1023 文字 (inode 内 / 別ブロックの境目 335 / 336 / 337 / 847 / 848 / 849 を含む 12 通り) は作れて `readlink` / サイズが一致し再マウント後も読める、1024 / 1025 / 1500 / 4095 / 4096 / 5000 は `ENAMETOOLONG` で何も残らない、のあとに `xfs_repair -n` が clean でログが CLEAN。ctest `xfs_write` と `usbmem-ci-xfs` (`xfs-write.yml`) に入る。
 
 ### 初回 (ループなし、2026-11-15)
 

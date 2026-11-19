@@ -208,6 +208,17 @@ if [ $r = 0 ]; then
   [ $found = 1 ] || fail "dirty-log image not produced"
 fi
 
+# ---------- 4b. symlink の長さの境界 (xfs_repair は 1024 文字の symlink を "too long" とする。1023 までは clean、1024 以上は ENAMETOOLONG) ----------
+for cfg in "default:" "isize1024:-i size=1024"; do
+  name=${cfg%%:*}; opts=${cfg#*:}
+  # shellcheck disable=SC2086
+  r=0; mk "$W/sl.img" 320M "" $opts || r=$?
+  [ $r = 0 ] || { [ $r = 3 ] || fail "mkfs (symlinks $name)"; continue; }
+  run_t "symlinks $name (1..1023 ok, >=1024 ENAMETOOLONG)" --symlinks "$W/sl.img"
+  fsck_clean "$W/sl.img" "symlinks $name" || true
+done
+rm -f "$W/sl.img"
+
 # ---------- 5. 壊したイメージを書き込みマウントして操作する (ファジング) ----------
 r=0; mk "$W/fz.img" 320M "$W/seed" || r=$?
 if [ $r = 0 ]; then

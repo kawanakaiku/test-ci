@@ -1,0 +1,24 @@
+06:59:20
+Mem:           15982         991       10135          46        5246       14990
+/dev/root       145G   60G   85G  42% /
+/dev/root       145G   60G   85G  42% /
+ 06:59:20 up 3 min,  0 users,  load average: 1.86, 1.19, 0.49
+--- dmesg
+[   10.191663] Adding 3145724k swap on /swapfile.  Priority:-1 extents:8 across:57606140k 
+[   10.269277] Initializing XFRM netlink socket
+[   10.284099] bridge: filtering via arp/ip/ip6tables is no longer available by default. Update your scripts to load br_netfilter if you need this.
+[   11.328330] systemd-fstab-generator[1972]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
+[   11.578317] systemd-fstab-generator[2066]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
+[   11.814883] systemd-fstab-generator[2132]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
+[   26.442816] systemd-fstab-generator[2995]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
+[   35.403932] NET: Registered PF_ALG protocol family
+[   41.148439] kauditd_printk_skb: 180 callbacks suppressed
+[   41.148444] audit: type=1400 audit(1795071414.917:192): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=9316 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[   41.148449] audit: type=1400 audit(1795071414.917:193): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9316 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[   41.269621] audit: type=1400 audit(1795071415.038:194): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=9321 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[   41.269627] audit: type=1400 audit(1795071415.038:195): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9321 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[   48.953612] hv_balloon: Max. dynamic memory size: 16384 MB
+[   95.889760] loop0: detected capacity change from 0 to 131072
+--- fuse/dm
+0
+No devices found

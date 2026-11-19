@@ -1,25 +1,25 @@
-07:01:13
-exfat generic/013 12/652 60s
-Mem:           15700        1634        8391          47        6058       14066
-/dev/mapper/cow-root  145G   58G   88G  40% /
-/dev/mapper/cow-root  145G   58G   88G  40% /
- 07:01:13 up 6 min,  0 users,  load average: 1.59, 1.05, 0.45
+07:01:44
+exfat generic/069 52/652 94s
+Mem:           15700        1088        9640          47        5355       14612
+/dev/mapper/cow-root  145G   57G   88G  40% /
+/dev/mapper/cow-root  145G   57G   88G  40% /
+ 07:01:44 up 6 min,  0 users,  load average: 1.33, 1.04, 0.47
 --- dmesg
-[  213.451798] audit: type=1400 audit(1795071506.192:195): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=8998 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
-[  213.451806] audit: type=1400 audit(1795071506.192:196): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=8998 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
-[  257.231129] loop2: detected capacity change from 0 to 131072
-[  316.557629] run fstests generic/001 at 2026-11-19 07:00:09
-[  321.756942] run fstests generic/002 at 2026-11-19 07:00:14
-[  322.124012] run fstests generic/003 at 2026-11-19 07:00:14
-[  331.862102] run fstests generic/004 at 2026-11-19 07:00:24
-[  332.234143] run fstests generic/005 at 2026-11-19 07:00:24
-[  332.611459] run fstests generic/006 at 2026-11-19 07:00:25
-[  350.288328] run fstests generic/007 at 2026-11-19 07:00:43
-[  365.544013] run fstests generic/008 at 2026-11-19 07:00:58
-[  365.912957] run fstests generic/009 at 2026-11-19 07:00:58
-[  366.287865] run fstests generic/011 at 2026-11-19 07:00:59
-[  375.676907] run fstests generic/012 at 2026-11-19 07:01:08
-[  376.051046] run fstests generic/013 at 2026-11-19 07:01:08
+[  404.994701] run fstests generic/052 at 2026-11-19 07:01:37
+[  405.390326] run fstests generic/053 at 2026-11-19 07:01:38
+[  405.766581] run fstests generic/056 at 2026-11-19 07:01:38
+[  406.151498] run fstests generic/057 at 2026-11-19 07:01:38
+[  406.548510] run fstests generic/058 at 2026-11-19 07:01:39
+[  406.934221] run fstests generic/059 at 2026-11-19 07:01:39
+[  407.313944] run fstests generic/060 at 2026-11-19 07:01:40
+[  407.689652] run fstests generic/061 at 2026-11-19 07:01:40
+[  408.072808] run fstests generic/062 at 2026-11-19 07:01:40
+[  408.459123] run fstests generic/063 at 2026-11-19 07:01:41
+[  408.843138] run fstests generic/064 at 2026-11-19 07:01:41
+[  409.217022] run fstests generic/065 at 2026-11-19 07:01:41
+[  409.605718] run fstests generic/066 at 2026-11-19 07:01:42
+[  409.995618] run fstests generic/067 at 2026-11-19 07:01:42
+[  410.377780] run fstests generic/069 at 2026-11-19 07:01:43
 --- fuse/dm
-1
+2
 cow-root	(252:0)

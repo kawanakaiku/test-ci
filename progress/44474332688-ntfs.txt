@@ -1,25 +1,25 @@
-06:55:46
-ntfs generic/410 320/652 527s
-Mem:           15983        1089       14720          48         501       14893
+06:56:17
+ntfs generic/451 353/652 559s
+Mem:           15983         991       14916          48         401       14991
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 06:55:46 up 12 min,  0 users,  load average: 1.45, 1.60, 1.02
+ 06:56:17 up 13 min,  0 users,  load average: 1.64, 1.63, 1.04
 --- dmesg
-[  749.971819] run fstests generic/394 at 2026-11-19 06:55:29
-[  750.685901] run fstests generic/395 at 2026-11-19 06:55:30
-[  751.336417] run fstests generic/396 at 2026-11-19 06:55:31
-[  751.957740] run fstests generic/397 at 2026-11-19 06:55:31
-[  752.592812] run fstests generic/398 at 2026-11-19 06:55:32
-[  753.221753] run fstests generic/400 at 2026-11-19 06:55:32
-[  753.787714] run fstests generic/401 at 2026-11-19 06:55:33
-[  754.369677] run fstests generic/402 at 2026-11-19 06:55:34
-[  754.983617] run fstests generic/403 at 2026-11-19 06:55:34
-[  755.559793] run fstests generic/404 at 2026-11-19 06:55:35
-[  756.364872] run fstests generic/406 at 2026-11-19 06:55:36
-[  758.875550] run fstests generic/407 at 2026-11-19 06:55:38
-[  759.465783] run fstests generic/408 at 2026-11-19 06:55:39
-[  760.063232] run fstests generic/409 at 2026-11-19 06:55:39
-[  764.260638] run fstests generic/410 at 2026-11-19 06:55:44
+[  791.073161] Buffer I/O error on dev dm-0, logical block 32880, lost async page write
+[  791.073173] Buffer I/O error on dev dm-0, logical block 32881, lost async page write
+[  791.073185] Buffer I/O error on dev dm-0, logical block 32882, lost async page write
+[  791.073196] Buffer I/O error on dev dm-0, logical block 32883, lost async page write
+[  791.073207] Buffer I/O error on dev dm-0, logical block 32884, lost async page write
+[  791.073218] Buffer I/O error on dev dm-0, logical block 32885, lost async page write
+[  791.073229] Buffer I/O error on dev dm-0, logical block 32886, lost async page write
+[  791.702596] run fstests generic/443 at 2026-11-19 06:56:11
+[  792.289321] run fstests generic/444 at 2026-11-19 06:56:12
+[  792.890800] run fstests generic/445 at 2026-11-19 06:56:12
+[  793.485020] run fstests generic/446 at 2026-11-19 06:56:13
+[  794.084249] run fstests generic/448 at 2026-11-19 06:56:13
+[  794.682548] run fstests generic/449 at 2026-11-19 06:56:14
+[  795.275665] run fstests generic/450 at 2026-11-19 06:56:15
+[  795.911004] run fstests generic/451 at 2026-11-19 06:56:15
 --- fuse/dm
-2
+1
 No devices found

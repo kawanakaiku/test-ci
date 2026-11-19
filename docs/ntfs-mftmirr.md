@@ -73,7 +73,7 @@ Windows イメージが要る。手順の見積もり: (1) `torn0`..`torn3` と�
 ## CI の結果
 - 修正前 (テストだけのコミット、wrel): run 44505055906。`ntfs_mirror` が失敗 — `win` / `win_mid` は `writable=0 want=1`、`torn0` / `torn3` / `torn03` は `fill_super failed: -22`。対照 (`plain` / `plain4k` / `bad0` / `bad3` / `torn3m`) は期待どおり。
 - 修正後 (wrel): run 44509397523 成功 (`ntfs_mirror` 通過)。
-- 最終確認 `usbmem-ci-full-mftmirr` (コミット 5d305a0): Host tests run 44512729677 は plain / san / wsan / wrel の 4 構成すべて成功 (146 分)。Android emulator tests run 44512729772 は、初回の ext-fat (Gradle の依存解決が HTTP 429) と crypt-ui (既知の `CalledFromWrongThreadException`、docs/ci.md) の失敗を `gh run rerun --failed` して全グループ成功。
+- 最終確認 `usbmem-ci-full-mftmirr` (コミット 5d305a0): Host tests run 44512729677 は plain / san / wsan / wrel の 4 構成すべて成功 (146 分)。Android emulator tests run 44512729772 は、初回の ext-fat (Gradle の依存解決が HTTP 429) と crypt-ui (`CalledFromWrongThreadException`。後に原因 (compose-test で IO ワーカーが再コンポーズする) を特定して修正、docs/ci.md の「crypt-ui の CalledFromWrongThreadException」) の失敗を `gh run rerun --failed` して全グループ成功。
 
 ## 未検証・残る課題
 - **実 Windows 製の 64 KiB クラスタのイメージでの確認** (`win` は mkntfs 製のイメージに Windows の状態を模した編集をしたもの。ctest `ntfs_windows_images` は Windows 製イメージが無く skip のまま)。レコード 4-15 を Windows が実際にどう更新するかも未確認 (修正は 0-3 だけを見るので、どちらでも通る)。

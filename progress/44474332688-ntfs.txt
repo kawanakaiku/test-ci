@@ -1,25 +1,25 @@
-06:56:48
-ntfs generic/456 357/652 592s
-Mem:           15983         971       14887          48         451       15011
+06:57:19
+ntfs generic/478 372/652 614s
+Mem:           15983         941       14970          48         396       15041
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 06:56:48 up 13 min,  0 users,  load average: 2.29, 1.79, 1.12
+ 06:57:19 up 14 min,  0 users,  load average: 1.70, 1.70, 1.11
 --- dmesg
-[  791.073207] Buffer I/O error on dev dm-0, logical block 32884, lost async page write
-[  791.073218] Buffer I/O error on dev dm-0, logical block 32885, lost async page write
-[  791.073229] Buffer I/O error on dev dm-0, logical block 32886, lost async page write
-[  791.702596] run fstests generic/443 at 2026-11-19 06:56:11
-[  792.289321] run fstests generic/444 at 2026-11-19 06:56:12
-[  792.890800] run fstests generic/445 at 2026-11-19 06:56:12
-[  793.485020] run fstests generic/446 at 2026-11-19 06:56:13
-[  794.084249] run fstests generic/448 at 2026-11-19 06:56:13
-[  794.682548] run fstests generic/449 at 2026-11-19 06:56:14
-[  795.275665] run fstests generic/450 at 2026-11-19 06:56:15
-[  795.911004] run fstests generic/451 at 2026-11-19 06:56:15
-[  826.753254] run fstests generic/452 at 2026-11-19 06:56:46
-[  827.482522] run fstests generic/453 at 2026-11-19 06:56:47
-[  828.067939] run fstests generic/454 at 2026-11-19 06:56:47
-[  828.655303] run fstests generic/456 at 2026-11-19 06:56:48
+[  841.250258] sh (243006): drop_caches: 3
+[  841.304564] sh (243016): drop_caches: 3
+[  842.011128] run fstests generic/468 at 2026-11-19 06:57:01
+[  842.738888] run fstests generic/469 at 2026-11-19 06:57:02
+[  843.461167] run fstests generic/470 at 2026-11-19 06:57:03
+[  844.172200] run fstests generic/471 at 2026-11-19 06:57:03
+[  848.838670] run fstests generic/472 at 2026-11-19 06:57:08
+[  849.025974] swapon: swapfile has holes
+[  849.484521] run fstests generic/474 at 2026-11-19 06:57:09
+[  850.102695] run fstests generic/477 at 2026-11-19 06:57:09
+[  850.305080] sh (246486): drop_caches: 3
+[  850.392177] sh (246501): drop_caches: 3
+[  850.481501] sh (246516): drop_caches: 3
+[  850.567290] sh (246532): drop_caches: 3
+[  851.174426] run fstests generic/478 at 2026-11-19 06:57:10
 --- fuse/dm
-0
+1
 No devices found

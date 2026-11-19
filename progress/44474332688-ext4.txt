@@ -1,25 +1,25 @@
-06:52:37
-ext4 generic/041 35/652 81s
-Mem:           15983        1119        9898          48        5358       14863
+06:53:08
+ext4 generic/069 52/652 106s
+Mem:           15983        1011        9962          48        5402       14971
 /dev/root       145G   61G   85G  42% /
 /dev/root       145G   61G   85G  42% /
- 06:52:37 up 9 min,  0 users,  load average: 1.43, 1.25, 0.67
+ 06:53:08 up 10 min,  0 users,  load average: 1.39, 1.26, 0.70
 --- dmesg
-[  539.799169] run fstests generic/024 at 2026-11-19 06:51:58
-[  540.970918] run fstests generic/025 at 2026-11-19 06:51:59
-[  541.561422] run fstests generic/026 at 2026-11-19 06:51:59
-[  542.207057] run fstests generic/028 at 2026-11-19 06:52:00
-[  547.853735] run fstests generic/029 at 2026-11-19 06:52:06
-[  548.642572] run fstests generic/030 at 2026-11-19 06:52:07
-[  549.940445] run fstests generic/031 at 2026-11-19 06:52:08
-[  550.547942] run fstests generic/032 at 2026-11-19 06:52:08
-[  551.140343] run fstests generic/033 at 2026-11-19 06:52:09
-[  551.763842] run fstests generic/034 at 2026-11-19 06:52:10
-[  552.600800] run fstests generic/035 at 2026-11-19 06:52:10
-[  553.243626] run fstests generic/037 at 2026-11-19 06:52:11
-[  553.845986] run fstests generic/039 at 2026-11-19 06:52:12
-[  554.663048] run fstests generic/040 at 2026-11-19 06:52:13
-[  566.374762] run fstests generic/041 at 2026-11-19 06:52:24
+[  583.903536] run fstests generic/057 at 2026-11-19 06:52:42
+[  584.728850] run fstests generic/058 at 2026-11-19 06:52:43
+[  585.333838] run fstests generic/059 at 2026-11-19 06:52:43
+[  585.973591] run fstests generic/060 at 2026-11-19 06:52:44
+[  586.581474] run fstests generic/061 at 2026-11-19 06:52:44
+[  587.187165] run fstests generic/062 at 2026-11-19 06:52:45
+[  587.801552] run fstests generic/063 at 2026-11-19 06:52:46
+[  588.422053] run fstests generic/064 at 2026-11-19 06:52:46
+[  589.037390] run fstests generic/065 at 2026-11-19 06:52:47
+[  589.911976] run fstests generic/066 at 2026-11-19 06:52:48
+[  590.564851] run fstests generic/067 at 2026-11-19 06:52:48
+[  590.778765] EXT4-fs (loop2): unable to read superblock
+[  590.801155] EXT4-fs (loop1): mounted filesystem d28bb05b-874b-47e8-a94d-661c993e7aa9 r/w with ordered data mode. Quota mode: none.
+[  590.808812] EXT4-fs (loop1): unmounting filesystem d28bb05b-874b-47e8-a94d-661c993e7aa9.
+[  591.344409] run fstests generic/069 at 2026-11-19 06:52:49
 --- fuse/dm
 2
-flakey-test.041	(252:0)
+No devices found

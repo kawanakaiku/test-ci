@@ -1,9 +1,9 @@
-06:52:20
+06:52:51
 btrfs generic/108 82/652 176s
-Mem:           15700        1255        9508          45        5310       14445
+Mem:           15700        1255        9507          45        5310       14444
 /dev/mapper/cow-root  145G   57G   89G  40% /
 /dev/mapper/cow-root  145G   57G   89G  40% /
- 06:52:20 up 10 min,  0 users,  load average: 0.81, 1.14, 0.66
+ 06:52:51 up 11 min,  0 users,  load average: 0.49, 1.03, 0.64
 --- dmesg
 [  600.214998] run fstests generic/108 at 2026-11-19 06:51:40
 [  600.453942] scsi_debug:sdebug_driver_probe: scsi_debug: trim poll_queues to 0. poll_q/nr_hw = (0/1)

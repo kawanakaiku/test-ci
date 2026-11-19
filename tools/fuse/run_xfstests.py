@@ -195,6 +195,10 @@ def main():
         f.write("export TEST_DEV=%s\nexport TEST_DIR=%s\n" % (imgs["test"], test_mnt))
         f.write("export SCRATCH_DEV=%s\nexport SCRATCH_MNT=%s\n" % (imgs["scratch"], scratch_mnt))
         f.write('export TEST_FS_MOUNT_OPTS="%s"\nexport MOUNT_OPTIONS="%s"\n' % (mopts, mopts))
+        if a.loop:
+            # SCRATCH_DEV がブロックデバイスだと、check がテストごとに `wipefs -a $SCRATCH_DEV` する (_try_wipe_scratch_devs)。FSTYP=fuse では _scratch_mkfs が何もしない
+            # (作り直せない) ので、シグネチャが消えたまま SCRATCH のマウントが失敗する。ドライバーが各テストの前に mkfs し直しているので、wipefs は何もしないものに差し替える。
+            f.write("export WIPEFS_PROG=/bin/true\n")
 
     if a.tests:
         tests = [t.strip() for t in a.tests.split(",") if t.strip()]

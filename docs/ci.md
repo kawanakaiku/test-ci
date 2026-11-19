@@ -135,6 +135,22 @@ nbdfuse_stop "$NBDFUSE_ROOT/c"
 
 次の段階: 大きなイメージを使う既存の試験 (host-tests の XFS / Btrfs の大きなフィクスチャ、`xfs-write.yml` など) をこの関数に載せ替える、実際の XFS / Btrfs のイメージを nbdkit に載せてアプリの NBD クライアントで読み書きする通し試験を足す。
 
+## AndroidManifest の権限・機能・コンポーネントの検査 (`manifest` ジョブ、2026-11-19)
+
+背景: `AndroidManifest.xml` に `USE_BIOMETRIC` が無く、`BiometricManager.canAuthenticate` が SecurityException を投げて、パスワードの記憶が実機・AVD で一切出なかった。CI の計装テストは偽の vault を差す (`VaultProvider.override`) ので気づけなかった (docs/crypto-volumes.md 末尾の「修正 (2026-11-19)」)。同種の漏れを、ビルドもエミュレータも要らずに数秒で検出する。
+
+- **`tools/check_manifest_permissions.py`** (標準ライブラリだけの Python): `android/app/src/main/java` の Kotlin / Java (コメントは除く) を、規則表 `RULES` (API の使用 → 要る権限 / uses-feature) と、マニフェストの宣言に突き合わせる。
+  - 漏れ: 例 `BiometricManager` / `BiometricPrompt` → `USE_BIOMETRIC`、`UsbManager` / `UsbDevice` → `uses-feature android.hardware.usb.host` (`required="false"`)、`startForeground` → `FOREGROUND_SERVICE`、`NotificationManager` など → `POST_NOTIFICATIONS`、`java.net.Socket` / `URL` など → `INTERNET`、`Environment.getExternalStorageDirectory` など → `READ/WRITE/MANAGE_EXTERNAL_STORAGE`、そのほか WAKE_LOCK / VIBRATE / CAMERA / RECORD_AUDIO / 位置 / Bluetooth / 起動 / 正確なアラーム / インストール / WRITE_SETTINGS / オーバーレイ (規則は 21 件)。`Manifest.permission.X` や `"android.permission.X"` を名指しした使用も、その権限の宣言を要求する。
+  - 余り: マニフェストの `uses-permission` が、どの規則・名指しの使用でも根拠づけられないと失敗 (使わない権限を残さない)。使う API を足したら、規則表にも足す。
+  - コンポーネント: `Activity` / `Service` / `BroadcastReceiver` / `ContentProvider` / `DocumentsProvider` を継承する名前つきクラスが、マニフェストに `<activity>` などで宣言されていなければ失敗 (匿名の `object : BroadcastReceiver()` は対象外)。
+  - 終了コード 0 = 問題なし / 1 = 問題あり (標準エラーに `NG [規則名] ...` と使用箇所) / 2 = 入力の誤り。`--manifest` / `--src` で対象を差し替えられる。
+  - 限界: ソースの文字列照合なので、リフレクションや間接呼び出しは見ない。core の C++ (NBD のネットワーク接続など) も見ない (アプリは NBD に host を渡さないので `INTERNET` は不要)。権限の要否そのものは API ごとの知識 (規則表) に依存する。
+- **`tools/test_check_manifest_permissions.py`** (unittest、13 件): 実マニフェストが通る / **`USE_BIOMETRIC` の行を消した実マニフェストが実ソースに対して失敗する (過去の漏れの再現)** / 各規則の漏れ・コメントは無視・匿名 receiver は対象外・余りの検出・コンポーネントの宣言漏れ。
+- 実行場所: `android-emulator.yml` の `manifest` ジョブ (ubuntu-latest、約 10 秒。matrix の `android` ジョブとは独立なので、落ちても他は走る。`usbmem-ci*` の push のたびに動く) と、`build-apk.yml` の最初のステップ。手元は `python3 -I tools/test_check_manifest_permissions.py && python3 -I tools/check_manifest_permissions.py` (Gradle 不要)。
+- 過去の漏れの検出の確認: `6ffa362` の 1 つ前のマニフェスト (`USE_BIOMETRIC` なし) を `--manifest` で渡すと `NG [biometric] 権限の宣言漏れ: android.permission.USE_BIOMETRIC が AndroidManifest に無い ... KeystoreVault.kt:5 ...` で終了コード 1。現在のマニフェストは 0。
+
+**本物の (偽でない) Keystore / BiometricManager 経路の計装テスト** (`VaultRealPathTest`、`ro-misc` の `app_misc`): `VaultProvider.override` を使わず、アプリの権限で本物を呼ぶ。(1) `PackageManager.checkPermission(USE_BIOMETRIC)` が GRANTED、(2) `BiometricManager.canAuthenticate(BIOMETRIC_STRONG or DEVICE_CREDENTIAL)` が SecurityException なしで既知の値を返す、(3) `VaultProvider.supportState(ctx)` (`SecretVault` を通さない。通すと例外が `Unavailable` に丸められる) と `VaultProvider.get(ctx).supportState()` が一致し、`KeyguardManager.isDeviceSecure` が偽 (画面ロック未設定の CI のエミュレータ) なら `NoCredential`、真 (AVD で PIN 設定済み) なら `Supported`。`USE_BIOMETRIC` を外したビルドで失敗することは、変異ブランチ `usbmem-ci-mut-only-ro-misc` の CI で確認した (下の結果)。
+
 ## 暗号ボリュームの書き込み (`crypt-write.yml`、`usbmem-crypt-write` ブランチ)
 
 暗号層の書き込み (docs/crypto-volumes.md 9 章) の独立検証。`host-tests.yml` (`usbmem-ci*`) の単体テストに加えて、sudo + loop + `cryptsetup open` が要るものをここで行う。トリガは workflow_dispatch と `usbmem-crypt-write` への push。

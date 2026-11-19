@@ -39,6 +39,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import org.usbmem.app.PartitionTable
 import org.usbmem.app.R
 
@@ -146,6 +147,13 @@ fun Step(number: Int, title: String, body: String? = null, done: Boolean = false
 }
 
 /**
+ * 確認ダイアログの幅。プラットフォームの既定の幅 (横向きの端末で約 320dp) だと、本文の窓が狭く、横並びのボタンも潰れる (AVD で確認した)。
+ * 既定の幅の制限を外し (Material の上限 560dp まで広がる)、画面の端との余白だけ [DIALOG_MARGIN] で取る。
+ */
+private val WIDE_DIALOG = DialogProperties(usePlatformDefaultWidth = false)
+private val DIALOG_MARGIN = 24.dp
+
+/**
  * 確認ダイアログの本文の共通部品。**縦にスクロールできる** (横向きなど、高さが足りない画面で本文が切れても、スクロールして最後まで読める。ボタンは AlertDialog が下に固定するので常に見える)。
  * [subject] = どのイメージ / ボリュームの確認かを本文の先頭に出す (null なら出さない)。
  */
@@ -162,6 +170,7 @@ fun DialogBody(text: String, subject: String? = null, tag: String = "dialog_body
 fun ConfirmDialog(title: String, text: String, confirmLabel: String, onConfirm: () -> Unit, onDismiss: () -> Unit, subject: String? = null) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.padding(horizontal = DIALOG_MARGIN), properties = WIDE_DIALOG,
         title = { Text(title) },
         text = { DialogBody(text, subject) },
         confirmButton = { TextButton(onClick = onConfirm, modifier = Modifier.testTag("confirm_ok")) { Text(confirmLabel) } },
@@ -178,6 +187,7 @@ fun ConfirmDialog(title: String, text: String, confirmLabel: String, onConfirm: 
 fun DirtyWriteDialog(text: String, onOpenReadOnly: () -> Unit, onOpenWrite: () -> Unit, onCancel: () -> Unit, subject: String? = null) {
     AlertDialog(
         onDismissRequest = onCancel,
+        modifier = Modifier.padding(horizontal = DIALOG_MARGIN), properties = WIDE_DIALOG,
         title = { Text(stringResource(R.string.dirty_dialog_title)) },
         text = { DialogBody(text, subject, tag = "dirty_dialog") },
         confirmButton = {

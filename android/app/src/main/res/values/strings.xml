@@ -99,7 +99,7 @@
     <string name="notice_nested_mounted_detail">読み取り専用。ファイルアプリの一覧に表示されます。元のイメージのファイルは、マウント中は書き換えや削除ができません。先にこのマウントを閉じてください。</string>
     <string name="noload_dialog_title">読み取り専用で開きますか？</string>
     <string name="noload_dialog_text">このボリュームには、まだ反映されていない更新 (ext3 / ext4 / XFS のジャーナル、Btrfs のログ、F2FS の直近の fsync の記録) が残っています。書き込み中に取り外された可能性があります。\n\nジャーナルを再生せずに、読み取り専用で開くことはできますが、古い内容が見えたり、一部のファイルやフォルダが欠けたり壊れて見えたりすることがあります。大事なデータは、先にコピーして保存し、あとで PC や Linux 機器で fsck を実行してください。\n\n何も書き込みません。</string>
-    <string name="noload_dialog_text_fs">この%1$s ボリュームには、まだ反映されていない更新 (%2$s) が残っています。書き込み中に取り外された可能性があります。\n\n再生せずに読み取り専用で開くことはできますが、古い内容が見えたり、一部のファイルやフォルダが欠けたり壊れて見えたりすることがあります。大事なデータは先にコピーして保存し、あとで PC や Linux 機器で fsck を実行してください。\n\n何も書き込みません。</string>
+    <string name="noload_dialog_text_fs">この %1$s ボリュームには、まだ反映されていない更新 (%2$s) が残っています。書き込み中に取り外された可能性があります。\n\n再生せずに読み取り専用で開くことはできますが、古い内容が見えたり、一部のファイルやフォルダが欠けたり壊れて見えたりすることがあります。大事なデータは先にコピーして保存し、あとで PC や Linux 機器で fsck を実行してください。\n\n何も書き込みません。</string>
     <string name="noload_what_ext_journal">ジャーナル</string>
     <string name="noload_what_xfs_log">ログ</string>
     <string name="noload_what_btrfs_log">tree-log</string>

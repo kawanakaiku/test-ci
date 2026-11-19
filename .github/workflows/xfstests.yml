@@ -60,6 +60,8 @@ jobs:
           IN_TIMEOUT: ${{ inputs.timeout }}
         run: |
           SMOKE='generic/001,generic/002,generic/005,generic/006,generic/007,generic/010,generic/011,generic/013,generic/023,generic/024,generic/035,generic/075,generic/091,generic/112'
+          # --loop (ループデバイス) にしたときだけ notrun でなくなるテスト (dm-flakey / dm-error / ブロックデバイス前提)。ブランチ名の -loopset で、これだけを --loop で動かす
+          LOOPSET='generic/034,generic/039,generic/040,generic/041,generic/056,generic/057,generic/065,generic/067,generic/073,generic/076,generic/090,generic/101,generic/104,generic/106,generic/107,generic/108,generic/321,generic/322,generic/325,generic/335,generic/336,generic/338,generic/341,generic/342,generic/343,generic/348,generic/366,generic/376,generic/409,generic/410,generic/411,generic/441,generic/450,generic/480,generic/481,generic/484,generic/498,generic/502,generic/510,generic/526,generic/527,generic/534,generic/538,generic/547,generic/552,generic/557,generic/563,generic/640,generic/690,generic/704,generic/731,generic/740,generic/741,generic/764,generic/771,generic/779,generic/782,generic/784,generic/785,generic/789,generic/790'
           ALL='["ext4","ext2","fat","exfat","ntfs","xfs","btrfs","f2fs"]'
           extra=''; custom=''; trace=0; fs='["ext4"]'; tests="$SMOKE"; group=quick; mopts='allow_other,default_permissions,quiet_setattr'; to=300
           if [ "$EVENT" = workflow_dispatch ]; then
@@ -70,6 +72,7 @@ jobs:
             smoke=0; case "$name" in *-smoke) smoke=1; name=${name%-smoke} ;; esac
             # -t<番号>_<番号>... : 指定した generic テストだけ (例 usbmem-xfstests-xfs-t023_024)
             case "$name" in *-t[0-9]*) sel=${name##*-t}; name=${name%-t*}; tests=$(echo "$sel" | tr '_' '\n' | sed 's|^|generic/|' | paste -sd,); smoke=1; trace=1; custom=1 ;; esac
+            case "$name" in *-loopset) extra="$extra --loop"; name=${name%-loopset}; tests=$LOOPSET; smoke=1; custom=1 ;; esac
             case "$name" in *-loop) extra="$extra --loop"; name=${name%-loop} ;; esac
             case "$name" in *-noremkfs) extra="$extra --no-remkfs"; name=${name%-noremkfs} ;; esac
             case "$name" in *-trace) trace=1; smoke=1; name=${name%-trace} ;; esac

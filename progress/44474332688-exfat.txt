@@ -1,9 +1,9 @@
-07:07:17
+07:07:48
 exfat generic/736 595/652 1204s
-Mem:           15983         943       14880          49         488       15039
+Mem:           15983         932       14890          49         488       15050
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 07:07:17 up 26 min,  0 users,  load average: 0.46, 1.10, 1.09
+ 07:07:48 up 27 min,  0 users,  load average: 0.67, 1.09, 1.09
 --- dmesg
 [ 1455.831576] sd 4:0:0:0: [sdb] Write Protect is off
 [ 1455.831582] sd 4:0:0:0: [sdb] Mode Sense: 73 00 10 08

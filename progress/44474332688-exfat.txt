@@ -1,25 +1,25 @@
-06:57:26
-exfat generic/346 268/652 575s
-Mem:           15983        1005       13006          48        2317       14977
-/dev/root       145G   61G   84G  43% /
-/dev/root       145G   61G   84G  43% /
- 06:57:26 up 16 min,  0 users,  load average: 1.22, 1.35, 0.98
+06:57:57
+exfat generic/366 281/652 651s
+Mem:           15983         955       14890          50         467       15027
+/dev/root       145G   60G   85G  42% /
+/dev/root       145G   60G   85G  42% /
+ 06:57:57 up 17 min,  0 users,  load average: 1.44, 1.38, 1.00
 --- dmesg
-[  946.557723] Buffer I/O error on dev dm-0, logical block 1572848, async page read
-[  946.559417] Buffer I/O error on dev dm-0, logical block 1572848, async page read
-[  947.158383] 338 (166514): drop_caches: 3
-[  947.217020] Buffer I/O error on dev dm-0, logical block 536, lost async page write
-[  947.217059] Buffer I/O error on dev dm-0, logical block 537, lost async page write
-[  947.217080] Buffer I/O error on dev dm-0, logical block 538, lost async page write
-[  947.217099] Buffer I/O error on dev dm-0, logical block 539, lost async page write
-[  947.217118] Buffer I/O error on dev dm-0, logical block 540, lost async page write
-[  947.217257] Buffer I/O error on dev dm-0, logical block 541, lost async page write
-[  947.217283] Buffer I/O error on dev dm-0, logical block 542, lost async page write
-[  947.217302] Buffer I/O error on dev dm-0, logical block 543, lost async page write
-[  947.836591] run fstests generic/341 at 2026-11-19 06:56:35
-[  948.680764] run fstests generic/342 at 2026-11-19 06:56:36
-[  949.498900] run fstests generic/343 at 2026-11-19 06:56:37
-[  950.090954] run fstests generic/346 at 2026-11-19 06:56:37
+[ 1008.663162] run fstests generic/347 at 2026-11-19 06:57:36
+[ 1009.259900] run fstests generic/348 at 2026-11-19 06:57:37
+[ 1009.850534] run fstests generic/353 at 2026-11-19 06:57:37
+[ 1010.481177] run fstests generic/355 at 2026-11-19 06:57:38
+[ 1011.325236] run fstests generic/356 at 2026-11-19 06:57:39
+[ 1011.535307] swapon: swapfile has holes
+[ 1011.952361] run fstests generic/357 at 2026-11-19 06:57:39
+[ 1012.168065] swapon: swapfile has holes
+[ 1012.587272] run fstests generic/358 at 2026-11-19 06:57:40
+[ 1013.216378] run fstests generic/359 at 2026-11-19 06:57:40
+[ 1013.829041] run fstests generic/360 at 2026-11-19 06:57:41
+[ 1014.418076] run fstests generic/361 at 2026-11-19 06:57:42
+[ 1015.021746] run fstests generic/362 at 2026-11-19 06:57:42
+[ 1015.633854] run fstests generic/364 at 2026-11-19 06:57:43
+[ 1026.242516] run fstests generic/366 at 2026-11-19 06:57:53
 --- fuse/dm
 2
 No devices found

@@ -1,18 +1,10 @@
-06:54:49
-xfs generic/451 353/652 373s
-Mem:           15700        1007       14589          48         419       14692
+06:55:20
+xfs generic/463 361/652 406s
+Mem:           15700        1000       14546          48         470       14699
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 06:54:49 up 11 min,  0 users,  load average: 1.21, 1.32, 0.78
+ 06:55:20 up 11 min,  0 users,  load average: 1.97, 1.50, 0.86
 --- dmesg
-[  668.065059] Buffer I/O error on dev dm-1, logical block 25, lost async page write
-[  668.065067] Buffer I/O error on dev dm-1, logical block 26, lost async page write
-[  668.065074] Buffer I/O error on dev dm-1, logical block 27, lost async page write
-[  668.065081] Buffer I/O error on dev dm-1, logical block 28, lost async page write
-[  668.065088] Buffer I/O error on dev dm-1, logical block 29, lost async page write
-[  668.065095] Buffer I/O error on dev dm-1, logical block 30, lost async page write
-[  668.065102] Buffer I/O error on dev dm-1, logical block 31, lost async page write
-[  668.549846] run fstests generic/443 at 2026-11-19 06:54:44
 [  668.980559] run fstests generic/444 at 2026-11-19 06:54:44
 [  669.402994] run fstests generic/445 at 2026-11-19 06:54:45
 [  669.828468] run fstests generic/446 at 2026-11-19 06:54:45
@@ -20,6 +12,14 @@ Mem:           15700        1007       14589          48         419       14692
 [  670.713131] run fstests generic/449 at 2026-11-19 06:54:46
 [  671.133511] run fstests generic/450 at 2026-11-19 06:54:46
 [  671.584219] run fstests generic/451 at 2026-11-19 06:54:47
+[  702.124819] run fstests generic/452 at 2026-11-19 06:55:17
+[  702.637263] run fstests generic/453 at 2026-11-19 06:55:18
+[  703.046516] run fstests generic/454 at 2026-11-19 06:55:18
+[  703.461027] run fstests generic/456 at 2026-11-19 06:55:19
+[  703.885661] run fstests generic/458 at 2026-11-19 06:55:19
+[  704.329709] run fstests generic/460 at 2026-11-19 06:55:20
+[  704.760200] run fstests generic/462 at 2026-11-19 06:55:20
+[  705.185747] run fstests generic/463 at 2026-11-19 06:55:20
 --- fuse/dm
 1
 cow-root	(252:0)

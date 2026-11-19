@@ -1,15 +1,10 @@
-06:50:18
-fat generic/007 7/652 31s
-Mem:           15700        1006        9768          47        5309       14694
-/dev/mapper/cow-root  145G   57G   88G  40% /
-/dev/mapper/cow-root  145G   57G   88G  40% /
- 06:50:18 up 13 min,  0 users,  load average: 1.53, 1.01, 0.44
+06:50:49
+fat generic/013 12/652 46s
+Mem:           15700        1018        8109          47        6956       14682
+/dev/mapper/cow-root  145G   59G   86G  41% /
+/dev/mapper/cow-root  145G   59G   86G  41% /
+ 06:50:49 up 14 min,  0 users,  load average: 1.58, 1.07, 0.48
 --- dmesg
-[  679.984933] NET: Registered PF_ALG protocol family
-[  686.749458] audit: type=1400 audit(1795070872.407:193): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=9122 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
-[  686.749467] audit: type=1400 audit(1795070872.407:194): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9122 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
-[  686.842864] audit: type=1400 audit(1795070872.501:195): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=9127 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
-[  686.842873] audit: type=1400 audit(1795070872.501:196): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9127 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
 [  732.815765] loop2: detected capacity change from 0 to 131072
 [  800.347826] loop2: detected capacity change from 0 to 12582912
 [  800.614726] loop3: detected capacity change from 0 to 12582912
@@ -20,6 +15,11 @@ Mem:           15700        1006        9768          47        5309       14694
 [  816.795821] run fstests generic/005 at 2026-11-19 06:50:02
 [  817.371712] run fstests generic/006 at 2026-11-19 06:50:03
 [  831.851877] run fstests generic/007 at 2026-11-19 06:50:17
+[  838.748828] run fstests generic/008 at 2026-11-19 06:50:24
+[  839.288122] run fstests generic/009 at 2026-11-19 06:50:24
+[  839.838643] run fstests generic/011 at 2026-11-19 06:50:25
+[  846.676401] run fstests generic/012 at 2026-11-19 06:50:32
+[  847.270017] run fstests generic/013 at 2026-11-19 06:50:32
 --- fuse/dm
-1
+0
 cow-root	(252:0)

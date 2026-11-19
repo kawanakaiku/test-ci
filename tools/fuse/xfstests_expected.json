@@ -105,13 +105,6 @@
    "fsck_ignore": true
   }
  },
- "xfs": {
-  "generic/411": {
-   "cat": "premise_mismatch",
-   "why": "TEST_DEV / SCRATCH_DEV を二重にマウントする前提 (上の * と同じ)。全体の run で一度だけ、このテストの後の SCRATCH を xfs_repair -n が「symlink in inode N too long (1024 chars)」と報告した (単独の run では出ない。411 自身は symlink を作らないので、原因は直前までのテストの残りか 1024 文字ちょうどの symlink の境界で、未確定。docs/xfstests.md の「XFS の 1024 文字の symlink」)",
-   "fsck_ignore": true
-  }
- },
  "fat": {
   "generic/088": {
    "cat": "core_unsupported",

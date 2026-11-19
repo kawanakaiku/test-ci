@@ -6,6 +6,8 @@
 //   --refuse <img>                    rw を要求したが書き込み不可のイメージ (汚れている/エラー状態/未知の機能): マウントは成功し writable()==false、書き込みは -EROFS、イメージ不変
 //   --enospc <img>                    満杯で安全に失敗し、unlink / truncate で回復すること
 //   --norw <img>                      mount_rw 自体が失敗する (未対応の必須機能・未再生ログなど): イメージ不変
+//   --symlinks <img>                  symlink の長さの境界: 1 .. 1023 文字 (inode 内 / 別ブロックの境目を含む) は作れて readlink が一致し、1024 文字以上は -ENAMETOOLONG で何も残さない
+//                                     (xfs_repair -n は 1024 文字の symlink を "too long" とする。docs/xfs-write.md)。fsck はシェル側
 //   --tree <img> <out>                読み取り専用でマウントして、モデルのダンプと同じ書式でツリーを書く (btrfs restore の結果との比較用)
 //   --fuzzw <img> <n> <seed>          イメージのメタデータ領域をランダムに壊して書き込みマウント・操作する (クラッシュ・ハング・ASan エラーが無いこと)
 // script の各行: mkdir P | create P | write P OFF LEN SEED | truncate P SIZE | unlink P | rmdir P | rename A B | symlink P TARGET | link NEW EXISTING
@@ -586,11 +588,52 @@ static int frag_run(const std::string& img) {
   return g_fail ? 1 : 0;
 }
 
+// ---- --symlinks
+static int symlinks_run(const std::string& img) {
+  BlockDevicePtr dev = open_rw(img); int err = 0; auto vol = XfsVolume::mount_rw(dev, &err);
+  if (!vol || !vol->writable()) { std::fprintf(stderr, "mount_rw failed\n"); return 1; }
+  uint64_t d; CHECK(vol->mkdir(vol->root(), "sl", 0755, &d) == 0);
+  auto target = [](size_t n) { std::string t(n, 'a'); for (size_t i = 0; i < n; i++) t[i] = char('a' + (i * 7 + n) % 26); if (n) t[0] = '/'; return t; };
+  const size_t ok_len[] = {1, 59, 60, 335, 336, 337, 847, 848, 849, 1000, 1022, 1023};
+  const size_t bad_len[] = {1024, 1025, 1500, 4095, 4096, 5000};
+  int made = 0, refused = 0;
+  for (size_t n : ok_len) {
+    std::string nm = "ok" + std::to_string(n), tg = target(n); uint64_t ino = 0;
+    int rc = vol->symlink(d, nm, tg, &ino);
+    if (rc) { std::fprintf(stderr, "symlink %zu -> %d\n", n, rc); g_fail++; continue; }
+    std::string back; FsStat st;
+    CHECK(vol->readlink(ino, &back) == 0 && back == tg);
+    CHECK(vol->stat(ino, &st) == 0 && st.size == n);
+    made++;
+  }
+  for (size_t n : bad_len) {
+    std::string nm = "bad" + std::to_string(n); uint64_t ino = 0;
+    int rc = vol->symlink(d, nm, target(n), &ino);
+    if (rc != -ENAMETOOLONG) { std::fprintf(stderr, "symlink %zu -> %d (want ENAMETOOLONG)\n", n, rc); g_fail++; }
+    uint64_t x; CHECK(vol->resolve("/sl/" + nm, &x) != 0);   // 何も残らない
+    refused++;
+  }
+  uint64_t ino; CHECK(vol->symlink(d, "after", "x/y", &ino) == 0);   // 失敗したあとも書ける
+  CHECK(vol->sync() == 0);
+  vol.reset();
+  // 再マウントしても読める
+  auto vol2 = XfsVolume::mount_rw(open_rw(img), &err);
+  if (!vol2) { std::fprintf(stderr, "remount failed\n"); return 1; }
+  for (size_t n : ok_len) {
+    uint64_t i2; std::string back;
+    CHECK(vol2->resolve("/sl/ok" + std::to_string(n), &i2) == 0 && vol2->readlink(i2, &back) == 0 && back == target(n));
+  }
+  vol2.reset();
+  std::fprintf(stderr, "symlinks: %d made (1..1023), %d refused (>= 1024): %s\n", made, refused, g_fail ? "FAIL" : "ok");
+  return g_fail ? 1 : 0;
+}
+
 int main(int argc, char** argv) {
   if (argc >= 4 && std::string(argv[1]) == "--ops") return ops_run(argv[2], argv[3]);
   if (argc >= 5 && std::string(argv[1]) == "--model") return model_run(argv[2], (unsigned)std::atoi(argv[3]), std::atoi(argv[4]), argc >= 6 ? argv[5] : "");
   if (argc >= 3 && std::string(argv[1]) == "--noop") return noop_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--refuse") return refuse_run(argv[2]);
+  if (argc >= 3 && std::string(argv[1]) == "--symlinks") return symlinks_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--frag") return frag_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--enospc") return enospc_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--post") return post_run(argv[2]);

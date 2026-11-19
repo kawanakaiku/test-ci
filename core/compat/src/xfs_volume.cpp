@@ -83,7 +83,8 @@ constexpr size_t kDirDataHdrV4 = 16, kDirDataHdrV5 = 64, kDirCrcOff = 4;
 constexpr size_t kSymlinkHdr = 56, kSymlinkCrcOff = 12;
 constexpr uint64_t kDirLeafOffsetBytes = 1ULL << 35;   // XFS_DIR2_LEAF_OFFSET: データ空間はこれより手前 (32 GiB)
 constexpr size_t kMaxExtents = 16u << 20;              // 1 ファイルの extent 数の上限 (メモリ保護)
-constexpr size_t kMaxSymlink = 1024;
+constexpr size_t kMaxSymlink = 1024;                   // 読むときに許す上限 (寛容)
+constexpr size_t kMaxSymlinkCreate = 1023;             // 作るときの上限: xfs_repair は 1024 文字の symlink を "too long" とする (libxfs の検査も同じ)。1023 までなら clean
 constexpr unsigned kMaxBtreeLevel = 12;
 
 constexpr uint32_t S_FMT = 0170000, S_DIR = 0040000, S_REG = 0100000, S_LNK = 0120000, S_CHR = 0020000, S_BLK = 0060000, S_FIFO = 0010000, S_SOCK = 0140000;

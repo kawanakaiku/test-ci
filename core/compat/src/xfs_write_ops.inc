@@ -651,7 +651,7 @@
 
   // シンボリックリンクの本体: 短ければ local、長ければ remote (XSLM ブロック)
   int ino_symlink_body(uint64_t ino, uint32_t mode, uint32_t uid, uint32_t gid, const std::string& target) {
-    if (target.empty() || target.size() > kMaxSymlink) return -ENAMETOOLONG;
+    if (target.empty() || target.size() > kMaxSymlinkCreate) return -ENAMETOOLONG;   // 1024 以上は xfs_repair が不正とする (docs/xfstests.md)
     for (char c : target) if (c == '\0') return -EINVAL;
     const uint32_t litino = inodesize - 176;
     int rc;

@@ -97,7 +97,7 @@ mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・
 ## テスト
 | テスト | 内容 |
 |---|---|
-| `tools/run_xfs_write_tests.sh` | 決まった操作列 (Full の操作を含む。`tools/gen_xfs_ops.py`) を複数の mkfs 構成 (既定 / inode 1024 / agcount=2, 8 / finobt=0 / sparse=0 / bigtime=0 inobtcount=0 reflink=0 / nrext64 / 2 GiB / imaxpct=90) で実行し、**自前のリーダーのツリーと POSIX 操作の参照の結果が一致**・`xfs_repair -n` clean・ログ CLEAN。乱数操作 + モデル (構成ごとにシード。truncate / unlink / rmdir / rename / link を含む)。満杯 (`ENOSPC`) からの回復 (unlink / truncate)。多数ファイル (5010 操作)。大きなディレクトリ (ノード形式 3000+ エントリの作成・削除・rename・縮小・全削除 + rmdir。10030 操作)。noop (書き込みマウントのみで不変)。拒否 (V4 / dirblklog / rmapbt / ストライプ / ログのストライプ / ascii-ci / クォータ / 未知の log_incompat / ブロックサイズ 1, 2 KiB) と非マウント (未知の incompat / realtime / dirty log)。書き込みマウントのファジング。実カーネル相互確認 |
+| `tools/run_xfs_write_tests.sh` | 決まった操作列 (Full の操作を含む。`tools/gen_xfs_ops.py`) を複数の mkfs 構成 (既定 / inode 1024 / agcount=2, 8 / finobt=0 / sparse=0 / bigtime=0 inobtcount=0 reflink=0 / nrext64 / 2 GiB / imaxpct=90) で実行し、**自前のリーダーのツリーと POSIX 操作の参照の結果が一致**・`xfs_repair -n` clean・ログ CLEAN。乱数操作 + モデル (構成ごとにシード。truncate / unlink / rmdir / rename / link を含む)。満杯 (`ENOSPC`) からの回復 (unlink / truncate)。多数ファイル (5010 操作)。大きなディレクトリ (ノード形式 3000+ エントリの作成・削除・rename・縮小・全削除 + rmdir。10030 操作)。noop (書き込みマウントのみで不変)。symlink の長さの境界 (1..1023 文字は作れて `xfs_repair -n` clean、1024 文字以上は `ENAMETOOLONG`。xfs_repair は 1024 文字を too long とする)。拒否 (V4 / dirblklog / rmapbt / ストライプ / ログのストライプ / ascii-ci / クォータ / 未知の log_incompat / ブロックサイズ 1, 2 KiB) と非マウント (未知の incompat / realtime / dirty log)。書き込みマウントのファジング。実カーネル相互確認 |
 | `tools/run_xfs_crash_tests.sh` | 電源断の模擬 (後述)。実カーネルで再生 |
 | `tools/run_xfs_mutation_tests.sh` | 安全機構を 1 つずつ外した 9 種のビルドを電源断の模擬で検出 |
 | ctest `xfs_write` / `xfs_crash` | 上の 1・2 (軽量版)。実カーネルのバックエンドが無ければスキップ (終了コード 77) |
@@ -142,6 +142,7 @@ mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・
 - ログが dirty のボリュームの再生は未実装 (カーネルで再生してから使う)。
 - 4Kn デバイス、dirblklog > 0 (V5 でブロックサイズ < 4 KiB)、ストライプ、クォータ、rmapbt、外部ログ、リアルタイム、V4 は書き込み拒否。
 - 実機の USB での書き込みは、CreateOnly (2026-11-14) と Full (2026-11-16、C の p1、PC 側の `xfs_repair -n` clean + マニフェスト全件一致) を確認。reflink 共有ブロックを持つファイルや rmapbt / parent_pointer 付きのボリュームは対象外 (上記の制限のとおり)。
+- symlink の長さは 1023 文字まで (1024 以上は `ENAMETOOLONG`)。xfs_repair / libxfs が 1024 文字を不正とするため (docs/xfstests.md「XFS の 1024 文字の symlink」)。
 - 既存ブロックの上書きはメタデータのコミットと原子的ではない。
 
 ## 実測結果

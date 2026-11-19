@@ -28,7 +28,7 @@
 | `ro-misc` | `ext2_read`、`ext4_read`、`exfat_read`、`iso_read`、`ntfs_read`、`app_misc` | 約 6 分 |
 
 `ro-misc` は専用の `run_android_*_test.sh` が無いクラスを `ci_android_tests.sh` が直接 push して実行する (`am instrument -r` の結果を数え、失敗・スキップ (assumption 失敗 = フィクスチャ未送信) が 1 つでもあれば失敗にする)。
-`app_misc` は DocumentsProviderTest / LinkProviderTest / WriteSelfTestInstrumented / RawImageInstrumentedTest / TransferTuningTest をまとめて実行する。
+`app_misc` は DocumentsProviderTest / LinkProviderTest / WriteSelfTestInstrumented / RawImageInstrumentedTest / TransferTuningTest / VaultRealPathTest (本物の BiometricManager 経路。下の「AndroidManifest の権限…」節) をまとめて実行する。`ntfs_read` の `DirtyConfirmUiTest` はジャーナル未再生の ext4 (`ext4_e4_needs_recovery.img`) も使うので、`ext4` のフィクスチャも端末へ送る。
 
 ## ローカルとの違い
 
@@ -149,7 +149,12 @@ nbdfuse_stop "$NBDFUSE_ROOT/c"
 - 実行場所: `android-emulator.yml` の `manifest` ジョブ (ubuntu-latest、約 10 秒。matrix の `android` ジョブとは独立なので、落ちても他は走る。`usbmem-ci*` の push のたびに動く) と、`build-apk.yml` の最初のステップ。手元は `python3 -I tools/test_check_manifest_permissions.py && python3 -I tools/check_manifest_permissions.py` (Gradle 不要)。
 - 過去の漏れの検出の確認: `6ffa362` の 1 つ前のマニフェスト (`USE_BIOMETRIC` なし) を `--manifest` で渡すと `NG [biometric] 権限の宣言漏れ: android.permission.USE_BIOMETRIC が AndroidManifest に無い ... KeystoreVault.kt:5 ...` で終了コード 1。現在のマニフェストは 0。
 
-**本物の (偽でない) Keystore / BiometricManager 経路の計装テスト** (`VaultRealPathTest`、`ro-misc` の `app_misc`): `VaultProvider.override` を使わず、アプリの権限で本物を呼ぶ。(1) `PackageManager.checkPermission(USE_BIOMETRIC)` が GRANTED、(2) `BiometricManager.canAuthenticate(BIOMETRIC_STRONG or DEVICE_CREDENTIAL)` が SecurityException なしで既知の値を返す、(3) `VaultProvider.supportState(ctx)` (`SecretVault` を通さない。通すと例外が `Unavailable` に丸められる) と `VaultProvider.get(ctx).supportState()` が一致し、`KeyguardManager.isDeviceSecure` が偽 (画面ロック未設定の CI のエミュレータ) なら `NoCredential`、真 (AVD で PIN 設定済み) なら `Supported`。`USE_BIOMETRIC` を外したビルドで失敗することは、変異ブランチ `usbmem-ci-mut-only-ro-misc` の CI で確認した (下の結果)。
+**本物の (偽でない) Keystore / BiometricManager 経路の計装テスト** (`VaultRealPathTest`、`ro-misc` の `app_misc`): `VaultProvider.override` を使わず、アプリの権限で本物を呼ぶ。(1) `PackageManager.checkPermission(USE_BIOMETRIC)` が GRANTED、(2) `BiometricManager.canAuthenticate(BIOMETRIC_STRONG or DEVICE_CREDENTIAL)` が SecurityException なしで既知の値を返す、(3) `VaultProvider.supportState(ctx)` (`SecretVault` を通さない。通すと例外が `Unavailable` に丸められる) と `VaultProvider.get(ctx).supportState()` が一致し、`KeyguardManager.isDeviceSecure` が偽 (画面ロック未設定の CI のエミュレータ) なら `NoCredential`、真 (AVD で PIN 設定済み) なら `Supported`。`USE_BIOMETRIC` を外したビルドで失敗することは、変異ブランチ `usbmem-ci-mut-only-ro-misc` の CI で確認した。
+
+結果 (2026-11-19、コミット dfaa738):
+- 通常: `usbmem-ci-only-ro-misc` run 44442949470 成功 (`manifest` ジョブ成功、`ntfs_read` 22 件 (`DirtyConfirmUiTest` の新しい横並び・ext4 の文言の試験を含む)、`app_misc` 15 件 (`VaultRealPathTest` 3 件を含む))、`usbmem-ci-only-crypt-ui` run 44442953102 は 12 件成功 (最初の実行は `journalNeedsRecovery_confirmOpensReadOnly` / `_mixedInnerPartitions` が失敗: compose-test のフレームクロックが worker スレッドで再コンポーズして `CalledFromWrongThreadException` になる競合。同じコミットの失敗ジョブの再実行 (`gh run rerun --failed`) で 12 件成功。直前の b2c99fc では同じ試験が通っていた。ダイアログの幅の変更との関係は未確認で、再発したら調べる)。
+- 変異 (`USE_BIOMETRIC` の行を消したコミット 698867c、ブランチ `usbmem-ci-mut-only-ro-misc`、run 44441291200): `manifest` ジョブが失敗 (`NG [biometric] ...`)、計装テストは `VaultRealPathTest` の 3 件とも失敗 (`SecurityException: Must have USE_BIOMETRIC permission` ×2、`manifestDeclaresUseBiometric` の `expected:<0> but was:<-1>`)。= この仕組みは、過去の漏れを静的にも実機相当の経路でも検出する。
+- ブランチ名の注意: `usbmem-ci-mut-only-ro-misc` のように `-only-ro-misc` で終わる任意の名前は ro-misc だけ回るが、`usbmem-ci-*` なので Host tests も (通常の 2 構成で) 起動する。
 
 ## 暗号ボリュームの書き込み (`crypt-write.yml`、`usbmem-crypt-write` ブランチ)
 

@@ -1,0 +1,24 @@
+06:46:33
+Mem:           15983         980       10125          46        5269       15002
+/dev/root       145G   60G   85G  42% /
+/dev/root       145G   60G   85G  42% /
+ 06:46:33 up 5 min,  0 users,  load average: 2.50, 1.15, 0.45
+--- dmesg
+[   10.628542] audit: type=1400 audit(1795070448.544:191): apparmor="STATUS" operation="profile_load" profile="unconfined" name="docker-default" pid=1383 comm="apparmor_parser"
+[   10.782148] Initializing XFRM netlink socket
+[   10.793710] bridge: filtering via arp/ip/ip6tables is no longer available by default. Update your scripts to load br_netfilter if you need this.
+[   10.906653] Adding 3145724k swap on /swapfile.  Priority:-1 extents:15 across:148414464k SS
+[   10.939425] systemd-fstab-generator[1676]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
+[   11.798637] systemd-fstab-generator[1868]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
+[   12.014453] systemd-fstab-generator[1946]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
+[   49.305729] hv_balloon: Max. dynamic memory size: 16384 MB
+[  229.645781] systemd-fstab-generator[2808]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
+[  255.489987] NET: Registered PF_ALG protocol family
+[  260.773679] audit: type=1400 audit(1795070698.694:192): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=9070 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[  260.773689] audit: type=1400 audit(1795070698.694:193): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9070 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[  260.863464] audit: type=1400 audit(1795070698.784:194): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=9075 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[  260.863474] audit: type=1400 audit(1795070698.784:195): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9075 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[  300.259142] loop0: detected capacity change from 0 to 131072
+--- fuse/dm
+0
+No devices found

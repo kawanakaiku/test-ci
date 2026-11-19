@@ -1,25 +1,25 @@
-06:53:17
-exfat generic/080 60/652 373s
-Mem:           15983        1258       11185          48        3929       14724
+06:53:48
+exfat generic/112 85/652 404s
+Mem:           15983        1048       11322          48        4002       14934
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 06:53:17 up 12 min,  0 users,  load average: 1.61, 1.43, 0.86
+ 06:53:48 up 13 min,  0 users,  load average: 1.44, 1.42, 0.87
 --- dmesg
-[  503.537135] run fstests generic/062 at 2026-11-19 06:49:11
-[  504.123422] run fstests generic/063 at 2026-11-19 06:49:11
-[  504.693333] run fstests generic/064 at 2026-11-19 06:49:12
-[  505.267904] run fstests generic/065 at 2026-11-19 06:49:13
-[  505.858001] run fstests generic/066 at 2026-11-19 06:49:13
-[  506.440642] run fstests generic/067 at 2026-11-19 06:49:14
-[  507.013012] run fstests generic/069 at 2026-11-19 06:49:14
-[  734.897357] run fstests generic/070 at 2026-11-19 06:53:02
-[  735.476242] run fstests generic/071 at 2026-11-19 06:53:03
-[  736.040408] run fstests generic/073 at 2026-11-19 06:53:03
-[  736.850923] run fstests generic/075 at 2026-11-19 06:53:04
-[  742.871883] run fstests generic/076 at 2026-11-19 06:53:10
-[  747.071785] run fstests generic/078 at 2026-11-19 06:53:14
-[  747.655022] run fstests generic/079 at 2026-11-19 06:53:15
-[  748.226343] run fstests generic/080 at 2026-11-19 06:53:15
+[  777.646939] scsi 2:0:0:0: Direct-Access     Linux    scsi_debug       0191 PQ: 0 ANSI: 7
+[  777.647138] scsi 2:0:0:0: Power-on or device reset occurred
+[  777.647470] sd 2:0:0:0: Attached scsi generic sg1 type 0
+[  777.647505] sd 2:0:0:0: [sdb] 614400 512-byte logical blocks: (315 MB/300 MiB)
+[  777.647553] sd 2:0:0:0: [sdb] Write Protect is off
+[  777.647560] sd 2:0:0:0: [sdb] Mode Sense: 73 00 10 08
+[  777.647605] sd 2:0:0:0: [sdb] Write cache: enabled, read cache: enabled, supports DPO and FUA
+[  777.647674] sd 2:0:0:0: [sdb] permanent stream count = 5
+[  777.647712] sd 2:0:0:0: [sdb] Preferred minimum I/O size 512 bytes
+[  777.647718] sd 2:0:0:0: [sdb] Optimal transfer size 524288 bytes
+[  777.660433] sd 2:0:0:0: [sdb] Attached SCSI disk
+[  778.027542] sd 2:0:0:0: [sdb] Synchronizing SCSI cache
+[  778.504448] run fstests generic/110 at 2026-11-19 06:53:46
+[  779.099984] run fstests generic/111 at 2026-11-19 06:53:46
+[  779.691151] run fstests generic/112 at 2026-11-19 06:53:47
 --- fuse/dm
 1
 No devices found

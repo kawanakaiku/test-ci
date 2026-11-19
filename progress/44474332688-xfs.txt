@@ -1,25 +1,25 @@
-06:55:51
-xfs generic/497 390/652 437s
-Mem:           15700        1045       14554          48         417       14655
+06:56:23
+xfs generic/567 451/652 469s
+Mem:           15700        1051       14495          48         470       14649
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 06:55:51 up 12 min,  0 users,  load average: 1.51, 1.43, 0.86
+ 06:56:23 up 12 min,  0 users,  load average: 1.31, 1.39, 0.87
 --- dmesg
-[  731.536021] run fstests generic/486 at 2026-11-19 06:55:47
-[  731.944187] run fstests generic/487 at 2026-11-19 06:55:47
-[  732.357584] run fstests generic/488 at 2026-11-19 06:55:48
-[  732.754923] run fstests generic/489 at 2026-11-19 06:55:48
-[  733.192404] run fstests generic/490 at 2026-11-19 06:55:48
-[  733.629685] run fstests generic/491 at 2026-11-19 06:55:49
-[  734.057859] run fstests generic/492 at 2026-11-19 06:55:49
-[  734.474505] run fstests generic/493 at 2026-11-19 06:55:50
-[  734.627887] swapon: swapfile has holes
-[  734.918477] run fstests generic/494 at 2026-11-19 06:55:50
-[  735.068333] swapon: swapfile has holes
-[  735.369491] run fstests generic/495 at 2026-11-19 06:55:51
-[  735.774969] run fstests generic/496 at 2026-11-19 06:55:51
-[  735.912025] swapon: swapfile has holes
-[  736.215243] run fstests generic/497 at 2026-11-19 06:55:51
+[  763.987075] run fstests generic/554 at 2026-11-19 06:56:19
+[  764.142083] swapon: swapfile has holes
+[  764.447833] run fstests generic/555 at 2026-11-19 06:56:20
+[  764.872283] run fstests generic/556 at 2026-11-19 06:56:20
+[  765.278848] run fstests generic/557 at 2026-11-19 06:56:21
+[  765.550383] 557 (455829): drop_caches: 2
+[  765.943034] run fstests generic/563 at 2026-11-19 06:56:21
+[  766.071121] loop4: detected capacity change from 0 to 131072
+[  766.304210] SGI XFS with ACLs, security attributes, realtime, quota, no debug enabled
+[  766.306751] mount: attempt to access beyond end of device
+               loop4: rw=8392704, sector=2097151, nr_sectors = 1 limit=131072
+[  766.306756] XFS (loop4): last sector read failed
+[  766.673712] run fstests generic/564 at 2026-11-19 06:56:22
+[  767.087891] run fstests generic/565 at 2026-11-19 06:56:22
+[  767.562216] run fstests generic/566 at 2026-11-19 06:56:23
 --- fuse/dm
-1
+0
 cow-root	(252:0)

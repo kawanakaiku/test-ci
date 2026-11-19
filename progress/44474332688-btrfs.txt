@@ -1,25 +1,25 @@
-06:59:33
-btrfs generic/451 353/652 637s
-Mem:           15700         918       14608          46         488       14782
+07:00:05
+btrfs generic/477 371/652 680s
+Mem:           15700         984       14630          46         400       14716
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 06:59:33 up 17 min,  0 users,  load average: 1.90, 1.31, 0.85
+ 07:00:05 up 18 min,  0 users,  load average: 1.98, 1.39, 0.89
 --- dmesg
-[ 1057.163549] Buffer I/O error on dev dm-1, logical block 3498, lost async page write
-[ 1057.163563] Buffer I/O error on dev dm-1, logical block 3499, lost async page write
-[ 1057.163572] Buffer I/O error on dev dm-1, logical block 3500, lost async page write
-[ 1057.163578] Buffer I/O error on dev dm-1, logical block 3501, lost async page write
-[ 1057.163585] Buffer I/O error on dev dm-1, logical block 3502, lost async page write
-[ 1057.163591] Buffer I/O error on dev dm-1, logical block 3503, lost async page write
-[ 1057.163598] Buffer I/O error on dev dm-1, logical block 3504, lost async page write
-[ 1057.703483] run fstests generic/443 at 2026-11-19 06:59:18
-[ 1058.152779] run fstests generic/444 at 2026-11-19 06:59:18
-[ 1058.587924] run fstests generic/445 at 2026-11-19 06:59:18
-[ 1059.027722] run fstests generic/446 at 2026-11-19 06:59:19
-[ 1059.474620] run fstests generic/448 at 2026-11-19 06:59:19
-[ 1059.910590] run fstests generic/449 at 2026-11-19 06:59:20
-[ 1060.345365] run fstests generic/450 at 2026-11-19 06:59:20
-[ 1060.824154] run fstests generic/451 at 2026-11-19 06:59:21
+[ 1100.160873] sh (269470): drop_caches: 3
+[ 1100.192469] sh (269479): drop_caches: 3
+[ 1100.247345] sh (269489): drop_caches: 3
+[ 1100.765573] run fstests generic/468 at 2026-11-19 07:00:01
+[ 1101.242759] run fstests generic/469 at 2026-11-19 07:00:01
+[ 1101.676876] run fstests generic/470 at 2026-11-19 07:00:02
+[ 1102.109034] run fstests generic/471 at 2026-11-19 07:00:02
+[ 1103.417687] run fstests generic/472 at 2026-11-19 07:00:03
+[ 1103.569595] swapon: swapfile has holes
+[ 1103.881308] run fstests generic/474 at 2026-11-19 07:00:04
+[ 1104.336581] run fstests generic/477 at 2026-11-19 07:00:04
+[ 1104.491270] sh (273043): drop_caches: 3
+[ 1104.581118] sh (273060): drop_caches: 3
+[ 1104.669652] sh (273077): drop_caches: 3
+[ 1104.759162] sh (273095): drop_caches: 3
 --- fuse/dm
-1
+0
 cow-root	(252:0)

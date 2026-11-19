@@ -1,17 +1,10 @@
-06:47:09
-Mem:           15983        1011       10114          45        5247       14971
+06:47:41
+f2fs generic/007 7/652 24s
+Mem:           15983        1000       10045          46        5328       14982
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 06:47:09 up 5 min,  0 users,  load average: 2.63, 1.42, 0.57
+ 06:47:41 up 5 min,  0 users,  load average: 2.46, 1.52, 0.64
 --- dmesg
-[   14.386488] systemd-fstab-generator[1810]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
-[   14.395187] Initializing XFRM netlink socket
-[   14.413488] bridge: filtering via arp/ip/ip6tables is no longer available by default. Update your scripts to load br_netfilter if you need this.
-[   15.700610] systemd-fstab-generator[2086]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
-[   16.016210] systemd-fstab-generator[2159]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
-[   17.162615] workqueue: drm_fb_helper_damage_work hogged CPU for >10000us 7 times, consider switching to WQ_UNBOUND
-[   48.994680] hv_balloon: Max. dynamic memory size: 16384 MB
-[  170.331935] systemd-fstab-generator[3007]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
 [  190.360838] NET: Registered PF_ALG protocol family
 [  195.953317] audit: type=1400 audit(1795070705.235:192): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=9315 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
 [  195.953353] audit: type=1400 audit(1795070705.236:193): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9315 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
@@ -19,6 +12,14 @@ Mem:           15983        1011       10114          45        5247       14971
 [  196.096788] audit: type=1400 audit(1795070705.379:195): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9320 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
 [  253.685037] loop0: detected capacity change from 0 to 131072
 [  320.342088] loop0: detected capacity change from 0 to 2097152
+[  320.676986] loop1: detected capacity change from 0 to 2097152
+[  321.665281] run fstests generic/001 at 2026-11-19 06:47:10
+[  326.485484] run fstests generic/002 at 2026-11-19 06:47:15
+[  328.738302] run fstests generic/003 at 2026-11-19 06:47:18
+[  338.728315] run fstests generic/004 at 2026-11-19 06:47:28
+[  339.391631] run fstests generic/005 at 2026-11-19 06:47:28
+[  340.341582] run fstests generic/006 at 2026-11-19 06:47:29
+[  344.705606] run fstests generic/007 at 2026-11-19 06:47:33
 --- fuse/dm
-0
+1
 No devices found

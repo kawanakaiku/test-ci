@@ -1,10 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0 (本ファイル) — 取り込む fs/ntfs は GPL-2.0-or-later
-# LinuxCompat + NTFS Resurrection (無改変) を静的ライブラリ usbmem_ntfs としてビルドする。
+# LinuxCompat + NTFS Resurrection (third_party/ は無改変。super.c だけビルド時の作業コピーにパッチ: ntfs_patch.cmake) を静的ライブラリ usbmem_ntfs としてビルドする。
 set(NTFS_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/ntfs-resurrection)
 set(EXFAT_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/exfat)
 set(EXT2_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/ext2)
 set(EXT4_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/ext4)
 file(GLOB NTFS_SRC ${NTFS_ROOT}/fs-ntfs/*.c ${NTFS_ROOT}/fs-ntfs/lib/*.c)
+# 上流 super.c だけは、ビルド時に作業コピー (ビルドディレクトリ) へ小さなパッチを当てて使う。third_party/ は無改変のまま (patches/README.md、docs/ntfs-mftmirr.md)
+include(${CMAKE_CURRENT_LIST_DIR}/ntfs_patch.cmake)
+list(REMOVE_ITEM NTFS_SRC ${NTFS_ROOT}/fs-ntfs/super.c)
+usbmem_ntfs_patch_super(${NTFS_ROOT}/fs-ntfs/super.c ${CMAKE_CURRENT_BINARY_DIR}/ntfs_patched/super.c)
+list(APPEND NTFS_SRC ${CMAKE_CURRENT_BINARY_DIR}/ntfs_patched/super.c)
 file(GLOB EXFAT_SRC ${EXFAT_ROOT}/fs-exfat/*.c)
 # ext2: カーネルの Makefile の ext2-y (xattr / ACL / security は CONFIG なし = 含めない)
 foreach(f balloc dir file ialloc inode ioctl namei super symlink trace)

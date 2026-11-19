@@ -510,7 +510,7 @@ static int state_run(const std::string& dir) {
 
 // ---- --mirror <dir>: $MFTMirr の扱い (tools/gen_ntfs_mirror_fixture.py)。docs/ntfs-mftmirr.md
 //  (A) 64 KiB クラスタで、先頭 4 レコードより後ろの $MFTMirr が $MFT と違っても (Windows 製の状態) 書き込み可で開けること。先頭 4 レコードの不一致は読み取り専用に落ちること。
-//  (B) torn write で壊れた MFT システムレコード (0-3) を $MFTMirr のコピーで読み出せること。読み取り専用のみで、イメージは 1 バイトも変わらない。$MFTMirr 側も壊れていれば救わない。
+//  (B) torn write で壊れた MFT システムレコード (0-3) を $MFTMirr のコピーで読み出せること (通常のマウントが失敗するもの。1・2 は上流が読み取り専用でマウントできるので使わない)。読み取り専用のみで、イメージは 1 バイトも変わらない。$MFTMirr 側も壊れていれば救わない。
 // 書き込み可で開いて書いたイメージには "<img>.written" の印を残す (run_ntfs_mirror_tests.sh が独立実装で検証する)。
 static bool mirror_content_ok(usbmem::NtfsVolume& v, const char* who) {
   int bad0 = g_fail;
@@ -533,14 +533,15 @@ static bool mirror_content_ok(usbmem::NtfsVolume& v, const char* who) {
   return g_fail == bad0;
 }
 static int mirror_run(const std::string& dir) {
-  enum Kind { Healthy, MirrorMismatch, Recovered, Unmountable };
+  enum Kind { Healthy, MirrorMismatch, Recovered, Tolerated, Unmountable };
   struct Case { const char* name; Kind kind; };
   const Case cases[] = {
     {"plain", Healthy}, {"plain4k", Healthy},
     {"win", Healthy},       // 64 KiB クラスタ: 先頭 4 レコードより後ろの $MFTMirr が古い (Windows 製の状態)。修正前は読み取り専用に落ちた
     {"win_mid", Healthy},   // 先頭 4 レコードの外 (5, 10, 11) も古い
     {"bad0", MirrorMismatch}, {"bad3", MirrorMismatch},   // 先頭 4 レコードの内側の本物の不一致
-    {"torn0", Recovered}, {"torn1", Recovered}, {"torn2", Recovered}, {"torn3", Recovered}, {"torn03", Recovered},
+    {"torn0", Recovered}, {"torn3", Recovered}, {"torn03", Recovered},
+    {"torn1", Tolerated}, {"torn2", Tolerated},   // $MFTMirr / $LogFile のレコードが壊れていても、上流は読み取り専用でマウントできる (壊れたシステムファイルは読めないが利用者のファイルは読める)。通常のマウントが成功するのでミラーは使わない
     {"torn3m", Unmountable},
   };
   auto open_img = [](const std::string& p, bool ro) { usbmem::BlockDevicePtr d; usbmem::RawImageDevice::open_path(p, ro, 512, &d); return d; };
@@ -574,7 +575,7 @@ static int mirror_run(const std::string& dir) {
         if (err == EROFS) { rw_built = false; std::fprintf(stderr, "mirror[%s]: rw not built (EROFS): skip the rw checks\n", c.name); }
         else { std::fprintf(stderr, "mirror[%s]: rw mount failed %d\n", c.name, err); g_fail++; }
       } else if (rw_built) {
-        bool want_rw = c.kind == Healthy;
+        bool want_rw = c.kind == Healthy;   // 他は読み取り専用のまま (ミラーの不一致・ミラー経由・上流がエラーを記録したもの)
         if (v->writable() != want_rw) { std::fprintf(stderr, "mirror[%s]: writable=%d want=%d (state=0x%x)\n", c.name, (int)v->writable(), (int)want_rw, v->state()); g_fail++; }
         uint64_t ino = 0;
         int rc = v->create(v->root(), "new.txt", 0644, &ino);

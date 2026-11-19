@@ -893,10 +893,8 @@ int main(int argc, char** argv) {
     if (lfd >= 0) {
       int op = (c.ro ? LOCK_SH : LOCK_EX) | LOCK_NB;
       int waited = 0;
-      const char* lw = getenv("USBMEM_FUSE_LOCK_WAIT_MS");   // 既定 120000。0 なら待たずに失敗する (同じイメージの二重マウントを試すテストを素早く落とす)
-      int max_wait = lw && *lw ? atoi(lw) : 120000;
-      while (flock(lfd, op) != 0 && errno == EWOULDBLOCK && waited < max_wait) { usleep(10000); waited += 10; }
-      if (waited >= max_wait) return die("the image " + c.image + " is still in use by another usbmem_fuse (waited " + std::to_string(max_wait / 1000) + " s)");
+      while (flock(lfd, op) != 0 && errno == EWOULDBLOCK && waited < 120000) { usleep(10000); waited += 10; }
+      if (waited >= 120000) return die("the image " + c.image + " is still in use by another usbmem_fuse (waited 120 s)");
       trace("lock: acquired %s after %d ms", c.image.c_str(), waited);
       // lfd は開いたままにする (プロセス終了で解放)
     }

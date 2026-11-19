@@ -13,6 +13,12 @@ while [ $# -gt 0 ]; do
     *) shift ;;
   esac
 done
+# `mount -t fuse DEV MNT` (サブタイプなし。一部の fstests が FSTYP をそのまま mount に渡す: generic/338 441 484 409 ... ) は、このスクリプトを /sbin/mount.fuse としても置いた (run_xfstests.py) もので受ける。
+# オプションに fstype= が無ければ既定 (USBMEM_FUSE_DEFAULT_OPTS = マウントの既定のオプション) を足す。同じイメージを二重にマウントするテスト (generic/409 など) は、待たずに失敗させる。
+if [ "${0##*/}" = mount.fuse ]; then
+  case ",$opts," in *,fstype=*) ;; *) opts="${USBMEM_FUSE_DEFAULT_OPTS}${opts:+,$opts}" ;; esac
+  export USBMEM_FUSE_LOCK_WAIT_MS=0
+fi
 # remount (xfstests の _scratch_remount ro / rw): デーモンは同じイメージを二重に開けないので、新しく起動せず、カーネル側の ro / rw だけを切り替える (mount -i = ヘルパーを呼ばない)。
 # デーモンは書き込み可のままだが、ro の間はカーネルが書き込みを止める。FUSE にデーモン側の再マウントの手段は無い (docs/xfstests.md)。
 case ",$opts," in

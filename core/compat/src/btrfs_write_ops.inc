@@ -309,6 +309,16 @@
     v.insert(v.end(), e.begin(), e.end());
     return upd(kFsTreeObj, k, v.data(), static_cast<u32>(v.size()));
   }
+  // inref_add がこの名前を足せるか (INODE_REF は 1 項目 (葉の大きさ) に収まる分しか持てない。拡張 ref (INODE_EXTREF) は未実装)。
+  // add_entry の途中 (dir_item を足した後) で溢れると、変更が始まっているのでトランザクションを中止 (ボリュームが使えなくなる) するので、
+  // 変更の前に調べる。generic/040・041 (同じディレクトリに 3000 個のハードリンク) で見つけた。
+  int inref_room(u64 child, u64 parent, const std::string& name) {
+    std::vector<u8> v;
+    int rc = get_item(kFsTreeObj, Key{child, kInodeRef, parent}, &v);
+    if (rc == -ENOENT) return 0;
+    if (rc) return rc;
+    return v.size() + 10 + name.size() > max_item() ? -EMLINK : 0;
+  }
   int inref_remove(u64 child, u64 parent, const std::string& name, u64* index) {
     Key k{child, kInodeRef, parent};
     std::vector<u8> v;
@@ -927,6 +937,8 @@
     if (rc != -ENOENT) return rc;
     u8 ft = ft_of_mode(mode);
     if (!ft) return -EINVAL;
+    rc = inref_room(target, dir, name);
+    if (rc) return rc;
     rc = add_entry(dir, name, target, ft);
     if (rc) return rc;
     rc = inode_get(target, &tiv);

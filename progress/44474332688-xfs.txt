@@ -1,25 +1,25 @@
-06:57:25
-xfs generic/683 548/652 531s
-Mem:           15700        1001       14506          48         508       14699
+06:57:56
+xfs generic/732 592/652 551s
+Mem:           15700         911       14593          48         512       14789
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 06:57:25 up 13 min,  0 users,  load average: 1.15, 1.33, 0.89
+ 06:57:56 up 14 min,  0 users,  load average: 0.87, 1.25, 0.87
 --- dmesg
-[  820.120282] run fstests generic/665 at 2026-11-19 06:57:15
-[  820.549027] run fstests generic/666 at 2026-11-19 06:57:16
-[  820.991661] run fstests generic/667 at 2026-11-19 06:57:16
-[  821.432400] run fstests generic/668 at 2026-11-19 06:57:17
-[  821.874266] run fstests generic/669 at 2026-11-19 06:57:17
-[  822.302797] run fstests generic/673 at 2026-11-19 06:57:18
-[  822.828600] run fstests generic/674 at 2026-11-19 06:57:18
-[  823.268056] run fstests generic/675 at 2026-11-19 06:57:19
-[  823.704874] run fstests generic/676 at 2026-11-19 06:57:19
-[  827.431517] run fstests generic/677 at 2026-11-19 06:57:23
-[  827.876094] run fstests generic/678 at 2026-11-19 06:57:23
-[  828.326134] run fstests generic/679 at 2026-11-19 06:57:24
-[  828.735572] run fstests generic/680 at 2026-11-19 06:57:24
-[  829.177487] run fstests generic/681 at 2026-11-19 06:57:24
-[  829.592916] run fstests generic/682 at 2026-11-19 06:57:25
+[  849.214694] scsi host2: scsi_debug: version 0191 [20210520]
+                 dev_size_mb=256, opts=0x0, submit_queues=1, statistics=0
+[  849.215119] scsi 2:0:0:0: Direct-Access     Linux    scsi_debug       0191 PQ: 0 ANSI: 7
+[  849.215232] scsi 2:0:0:0: Power-on or device reset occurred
+[  849.217252] sd 2:0:0:0: [sda] 524288 512-byte logical blocks: (268 MB/256 MiB)
+[  849.217278] sd 2:0:0:0: [sda] Write Protect is off
+[  849.217281] sd 2:0:0:0: [sda] Mode Sense: 73 00 10 08
+[  849.217308] sd 2:0:0:0: [sda] Write cache: enabled, read cache: enabled, supports DPO and FUA
+[  849.217329] sd 2:0:0:0: [sda] permanent stream count = 5
+[  849.217340] sd 2:0:0:0: [sda] Preferred minimum I/O size 512 bytes
+[  849.217341] sd 2:0:0:0: [sda] Optimal transfer size 524288 bytes
+[  849.217585] sd 2:0:0:0: Attached scsi generic sg0 type 0
+[  849.230887] sd 2:0:0:0: [sda] Attached SCSI disk
+[  849.313985] sd 2:0:0:0: [sda] Synchronizing SCSI cache
+[  849.663047] run fstests generic/732 at 2026-11-19 06:57:45
 --- fuse/dm
-0
+4
 cow-root	(252:0)

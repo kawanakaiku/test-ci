@@ -1,25 +1,25 @@
-06:49:39
-xfs generic/053 39/652 64s
-Mem:           15700        1100        9686          47        5297       14600
+06:50:09
+xfs generic/069 52/652 70s
+Mem:           15700         973        9734          47        5376       14726
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 06:49:39 up 6 min,  0 users,  load average: 1.61, 1.15, 0.51
+ 06:50:09 up 6 min,  0 users,  load average: 1.43, 1.15, 0.54
 --- dmesg
-[  339.324548] run fstests generic/029 at 2026-11-19 06:49:15
-[  339.830398] run fstests generic/030 at 2026-11-19 06:49:15
-[  340.908681] run fstests generic/031 at 2026-11-19 06:49:16
-[  341.325573] run fstests generic/032 at 2026-11-19 06:49:17
-[  341.733370] run fstests generic/033 at 2026-11-19 06:49:17
-[  342.144510] run fstests generic/034 at 2026-11-19 06:49:17
-[  342.687378] run fstests generic/035 at 2026-11-19 06:49:18
-[  343.137082] run fstests generic/037 at 2026-11-19 06:49:18
-[  343.540917] run fstests generic/039 at 2026-11-19 06:49:19
-[  344.064613] run fstests generic/040 at 2026-11-19 06:49:19
-[  352.286786] run fstests generic/041 at 2026-11-19 06:49:28
-[  361.832140] run fstests generic/042 at 2026-11-19 06:49:37
-[  362.256419] run fstests generic/050 at 2026-11-19 06:49:38
-[  362.676541] run fstests generic/052 at 2026-11-19 06:49:38
-[  363.109348] run fstests generic/053 at 2026-11-19 06:49:38
+[  363.519221] run fstests generic/056 at 2026-11-19 06:49:39
+[  364.053867] run fstests generic/057 at 2026-11-19 06:49:39
+[  364.602585] run fstests generic/058 at 2026-11-19 06:49:40
+[  364.997460] run fstests generic/059 at 2026-11-19 06:49:40
+[  365.424535] run fstests generic/060 at 2026-11-19 06:49:41
+[  365.840197] run fstests generic/061 at 2026-11-19 06:49:41
+[  366.236284] run fstests generic/062 at 2026-11-19 06:49:41
+[  366.659394] run fstests generic/063 at 2026-11-19 06:49:42
+[  367.069394] run fstests generic/064 at 2026-11-19 06:49:42
+[  367.480125] run fstests generic/065 at 2026-11-19 06:49:43
+[  368.046916] run fstests generic/066 at 2026-11-19 06:49:43
+[  368.479184] run fstests generic/067 at 2026-11-19 06:49:44
+[  368.629859] EXT4-fs (loop4): unable to read superblock
+[  368.642812] EXT4-fs (loop3): VFS: Can't find ext4 filesystem
+[  369.011985] run fstests generic/069 at 2026-11-19 06:49:44
 --- fuse/dm
-0
+2
 cow-root	(252:0)

@@ -1,25 +1,25 @@
-07:04:13
-btrfs generic/732 592/652 819s
-Mem:           15700         902       14590          47         523       14797
+07:04:44
+btrfs generic/767 617/652 960s
+Mem:           15700        1372       14207          47         435       14327
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 07:04:13 up 22 min,  0 users,  load average: 0.24, 0.93, 0.84
+ 07:04:44 up 23 min,  0 users,  load average: 0.59, 0.94, 0.84
 --- dmesg
-[ 1242.080266] scsi host2: scsi_debug: version 0191 [20210520]
-                 dev_size_mb=256, opts=0x0, submit_queues=1, statistics=0
-[ 1242.081270] scsi 2:0:0:0: Direct-Access     Linux    scsi_debug       0191 PQ: 0 ANSI: 7
-[ 1242.081345] scsi 2:0:0:0: Power-on or device reset occurred
-[ 1242.081664] sd 2:0:0:0: Attached scsi generic sg0 type 0
-[ 1242.081683] sd 2:0:0:0: [sda] 524288 512-byte logical blocks: (268 MB/256 MiB)
-[ 1242.081694] sd 2:0:0:0: [sda] Write Protect is off
-[ 1242.081696] sd 2:0:0:0: [sda] Mode Sense: 73 00 10 08
-[ 1242.081703] sd 2:0:0:0: [sda] Write cache: enabled, read cache: enabled, supports DPO and FUA
-[ 1242.081717] sd 2:0:0:0: [sda] permanent stream count = 5
-[ 1242.081725] sd 2:0:0:0: [sda] Preferred minimum I/O size 512 bytes
-[ 1242.081727] sd 2:0:0:0: [sda] Optimal transfer size 524288 bytes
-[ 1242.101933] sd 2:0:0:0: [sda] Attached SCSI disk
-[ 1242.191005] sd 2:0:0:0: [sda] Synchronizing SCSI cache
-[ 1242.575169] run fstests generic/732 at 2026-11-19 07:02:22
+[ 1373.409474] run fstests generic/756 at 2026-11-19 07:04:33
+[ 1373.844377] sh (411103): drop_caches: 3
+[ 1374.142862] sh (411111): drop_caches: 3
+[ 1374.540287] sh (411119): drop_caches: 3
+[ 1374.684721] sh (411124): drop_caches: 3
+[ 1375.215496] run fstests generic/757 at 2026-11-19 07:04:35
+[ 1375.685491] run fstests generic/758 at 2026-11-19 07:04:36
+[ 1376.101480] run fstests generic/759 at 2026-11-19 07:04:36
+[ 1378.803813] run fstests generic/760 at 2026-11-19 07:04:39
+[ 1380.380198] run fstests generic/761 at 2026-11-19 07:04:40
+[ 1382.092729] run fstests generic/763 at 2026-11-19 07:04:42
+[ 1382.537163] run fstests generic/764 at 2026-11-19 07:04:42
+[ 1383.102065] run fstests generic/765 at 2026-11-19 07:04:43
+[ 1383.524980] run fstests generic/766 at 2026-11-19 07:04:43
+[ 1383.969705] run fstests generic/767 at 2026-11-19 07:04:44
 --- fuse/dm
-4
+1
 cow-root	(252:0)

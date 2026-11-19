@@ -1,25 +1,25 @@
-06:57:51
-ntfs generic/524 414/652 652s
-Mem:           15983         968       14851          48         490       15014
+06:58:22
+ntfs generic/566 450/652 685s
+Mem:           15983        1009       14848          48         451       14973
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 06:57:51 up 14 min,  0 users,  load average: 1.56, 1.65, 1.11
+ 06:58:22 up 15 min,  0 users,  load average: 1.98, 1.74, 1.16
 --- dmesg
-[  880.386633] run fstests generic/508 at 2026-11-19 06:57:40
-[  880.969939] run fstests generic/509 at 2026-11-19 06:57:40
-[  881.583568] run fstests generic/510 at 2026-11-19 06:57:41
-[  882.353166] run fstests generic/511 at 2026-11-19 06:57:42
-[  882.973536] run fstests generic/512 at 2026-11-19 06:57:42
-[  883.585384] run fstests generic/513 at 2026-11-19 06:57:43
-[  884.229239] run fstests generic/514 at 2026-11-19 06:57:43
-[  884.860466] run fstests generic/515 at 2026-11-19 06:57:44
-[  885.506562] run fstests generic/516 at 2026-11-19 06:57:45
-[  886.128864] run fstests generic/517 at 2026-11-19 06:57:45
-[  886.781759] run fstests generic/518 at 2026-11-19 06:57:46
-[  887.432071] run fstests generic/519 at 2026-11-19 06:57:47
-[  888.190936] run fstests generic/520 at 2026-11-19 06:57:47
-[  888.808525] run fstests generic/523 at 2026-11-19 06:57:48
-[  889.389469] run fstests generic/524 at 2026-11-19 06:57:49
+[  915.199855] run fstests generic/549 at 2026-11-19 06:58:14
+[  915.830042] run fstests generic/550 at 2026-11-19 06:58:15
+[  916.442880] run fstests generic/552 at 2026-11-19 06:58:16
+[  916.771073] 552 (283432): drop_caches: 2
+[  917.367712] run fstests generic/553 at 2026-11-19 06:58:17
+[  917.971529] run fstests generic/554 at 2026-11-19 06:58:17
+[  918.171193] swapon: swapfile has holes
+[  918.602497] run fstests generic/555 at 2026-11-19 06:58:18
+[  919.180643] run fstests generic/556 at 2026-11-19 06:58:18
+[  919.740924] run fstests generic/557 at 2026-11-19 06:58:19
+[  920.051893] 557 (286065): drop_caches: 2
+[  920.640821] run fstests generic/563 at 2026-11-19 06:58:20
+[  920.792206] loop2: detected capacity change from 0 to 131072
+[  921.330045] run fstests generic/564 at 2026-11-19 06:58:21
+[  921.906249] run fstests generic/565 at 2026-11-19 06:58:21
 --- fuse/dm
-2
+0
 No devices found

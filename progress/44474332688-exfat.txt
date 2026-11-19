@@ -1,25 +1,25 @@
-06:56:24
-exfat generic/321 250/652 561s
-Mem:           15983        1029       11349          48        3995       14953
-/dev/root       145G   60G   85G  42% /
-/dev/root       145G   60G   85G  42% /
- 06:56:24 up 15 min,  0 users,  load average: 1.20, 1.39, 0.96
+06:56:55
+exfat generic/346 268/652 575s
+Mem:           15983        1023       14115          48        1179       14959
+/dev/root       145G   61G   85G  42% /
+/dev/root       145G   61G   85G  42% /
+ 06:56:55 up 16 min,  0 users,  load average: 1.15, 1.36, 0.96
 --- dmesg
-[  922.681127] run fstests generic/303 at 2026-11-19 06:56:10
-[  923.283781] run fstests generic/304 at 2026-11-19 06:56:11
-[  923.882699] run fstests generic/305 at 2026-11-19 06:56:11
-[  924.501726] run fstests generic/306 at 2026-11-19 06:56:12
-[  925.105849] run fstests generic/307 at 2026-11-19 06:56:12
-[  925.677505] run fstests generic/308 at 2026-11-19 06:56:13
-[  926.283759] run fstests generic/309 at 2026-11-19 06:56:14
-[  927.917873] run fstests generic/312 at 2026-11-19 06:56:15
-[  928.482100] run fstests generic/313 at 2026-11-19 06:56:16
-[  933.087584] run fstests generic/314 at 2026-11-19 06:56:20
-[  933.904949] run fstests generic/315 at 2026-11-19 06:56:21
-[  934.487677] run fstests generic/316 at 2026-11-19 06:56:22
-[  935.082311] run fstests generic/317 at 2026-11-19 06:56:22
-[  935.701293] run fstests generic/318 at 2026-11-19 06:56:23
-[  936.301096] run fstests generic/319 at 2026-11-19 06:56:24
+[  946.557723] Buffer I/O error on dev dm-0, logical block 1572848, async page read
+[  946.559417] Buffer I/O error on dev dm-0, logical block 1572848, async page read
+[  947.158383] 338 (166514): drop_caches: 3
+[  947.217020] Buffer I/O error on dev dm-0, logical block 536, lost async page write
+[  947.217059] Buffer I/O error on dev dm-0, logical block 537, lost async page write
+[  947.217080] Buffer I/O error on dev dm-0, logical block 538, lost async page write
+[  947.217099] Buffer I/O error on dev dm-0, logical block 539, lost async page write
+[  947.217118] Buffer I/O error on dev dm-0, logical block 540, lost async page write
+[  947.217257] Buffer I/O error on dev dm-0, logical block 541, lost async page write
+[  947.217283] Buffer I/O error on dev dm-0, logical block 542, lost async page write
+[  947.217302] Buffer I/O error on dev dm-0, logical block 543, lost async page write
+[  947.836591] run fstests generic/341 at 2026-11-19 06:56:35
+[  948.680764] run fstests generic/342 at 2026-11-19 06:56:36
+[  949.498900] run fstests generic/343 at 2026-11-19 06:56:37
+[  950.090954] run fstests generic/346 at 2026-11-19 06:56:37
 --- fuse/dm
-0
+2
 No devices found

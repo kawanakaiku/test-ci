@@ -1,9 +1,9 @@
-06:56:55
+06:57:26
 exfat generic/346 268/652 575s
-Mem:           15983        1023       14115          48        1179       14959
-/dev/root       145G   61G   85G  42% /
-/dev/root       145G   61G   85G  42% /
- 06:56:55 up 16 min,  0 users,  load average: 1.15, 1.36, 0.96
+Mem:           15983        1005       13006          48        2317       14977
+/dev/root       145G   61G   84G  43% /
+/dev/root       145G   61G   84G  43% /
+ 06:57:26 up 16 min,  0 users,  load average: 1.22, 1.35, 0.98
 --- dmesg
 [  946.557723] Buffer I/O error on dev dm-0, logical block 1572848, async page read
 [  946.559417] Buffer I/O error on dev dm-0, logical block 1572848, async page read

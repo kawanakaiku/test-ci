@@ -7,7 +7,7 @@ mkntfs + ntfs-3g でクリーンなボリュームを作り (a.txt と d/f00.txt
     Windows が $MFTMirr と同期するのは先頭の少数だけ (ntfsfix のコメント: "Windows 10 does not mirror to full $MFTMirr when using big clusters")。
     mkntfs が作るミラーは先頭 1 クラスタ分すべてが $MFT と同じなので、Windows が書いた後の状態を「$MFT 側だけ更新 (LSN を進める)」で再現する。
   ntfs_mirror_plain.img    64 KiB クラスタ。ミラーは $MFT と一致 (対照)
-  ntfs_mirror_win.img      64 KiB クラスタ。使用中の MFT レコード 16 以降の LSN を $MFT 側だけ進め、ミラーには使用中でない古いレコードの写しも置く (Windows 製の状態の再現)
+  ntfs_mirror_win.img      64 KiB クラスタ。使用中の MFT レコード 16-63 ($Extend の子 24-26 など) の LSN を $MFT 側だけ進め、ミラーには使用中でない古いレコードの写しも置く (Windows 製の状態の再現)
   ntfs_mirror_win_mid.img  win に加え、システムレコード 5 (ルート)・10 ($UpCase)・11 ($Extend) も $MFT 側だけ更新 (ntfs-3g のマウントなら拒否する範囲。先頭 4 レコードの外)
   ntfs_mirror_bad0.img     先頭 4 レコードの内側 ($MFT のレコード 0) が $MFTMirr と食い違う: 本物の不一致なので読み取り専用に落ちる (負の対照)
   ntfs_mirror_bad3.img     同じく $Volume (レコード 3)
@@ -66,7 +66,7 @@ def bump_lsn(x, n, mirror_too=False):
 
 def make_win(x, mid):
     used = [n for n in range(16, 64) if in_use(x.rec(n))]
-    assert len(used) >= 10, "too few user MFT records in the first 64: %s" % used
+    assert used, "no in-use MFT record in 16..63 (expected the $Extend children 24-26)"   # ntfs-3g は利用者のファイルを 64 より後ろに置く。24-26 は $Extend の子 (Windows 製でも最初に食い違うのはここ)
     for n in used:
         bump_lsn(x, n)
     # $MFT では使っていない 16..63 のレコードの位置に、ミラーだけ古い (削除済みの) レコードの写しを置く

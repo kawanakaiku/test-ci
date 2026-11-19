@@ -25,7 +25,7 @@ FS = {
     "ext2": dict(mkfs=["mkfs.ext2", "-q", "-F", "-b", "4096"], fsck='e2fsck -fn "$1"'),
     "fat": dict(mkfs=["mkfs.fat", "-F", "32", "-s", "8"], fsck='fsck.fat -n "$1"'),
     "exfat": dict(mkfs=["mkfs.exfat"], fsck='fsck.exfat -n "$1"'),
-    "ntfs": dict(mkfs=["mkntfs", "-F", "-Q", "-q"], fsck=None),
+    "ntfs": dict(mkfs=["mkntfs", "-F", "-Q", "-q"], fsck='sh "%s/fsck_ntfs.sh" "$1"' % HERE),   # ntfsfix -n + ntfs-3g.probe + 自前の fscheck (tools/fuse/fsck_ntfs.sh)
     "xfs": dict(mkfs=["mkfs.xfs", "-q", "-f", "-m", "rmapbt=0", "-n", "parent=0"], fsck='xfs_repair -n "$1"'),
     "btrfs": dict(mkfs=["mkfs.btrfs", "-q", "-f"], fsck='btrfs check --readonly "$1"'),
     "f2fs": dict(mkfs=["mkfs.f2fs", "-q", "-f"], fsck='fsck.f2fs --dry-run -f "$1"'),

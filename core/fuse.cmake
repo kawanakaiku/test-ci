@@ -9,4 +9,7 @@ if(USBMEM_BUILD_FUSE)
   target_link_libraries(usbmem_fuse PRIVATE
     usbmem_ntfs usbmem_exfat usbmem_ext2 usbmem_ext4 usbmem_fat usbmem_xfs usbmem_btrfs usbmem_f2fs
     usbmem_isofs usbmem_udf usbmem_squashfs usbmem_erofs usbmem_compat_rt usbmem_core PkgConfig::FUSE3 Threads::Threads)
+  # アンマウント後の整合性検査 (自前の fscheck。tests/disktools_cli.cpp と同じ CLI)。xfstests で NTFS の fsck の代わりに使う (tools/fuse/fsck_ntfs.sh)。
+  add_executable(usbmem_fscheck ${CMAKE_CURRENT_LIST_DIR}/tests/disktools_cli.cpp)
+  target_link_libraries(usbmem_fscheck PRIVATE usbmem_disktools)
 endif()

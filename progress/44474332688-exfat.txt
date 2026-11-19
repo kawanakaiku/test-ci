@@ -1,25 +1,25 @@
-07:00:01
-exfat generic/458 358/652 779s
-Mem:           15983         948       14935          48         425       15034
+07:00:32
+exfat generic/471 368/652 792s
+Mem:           15983        1224       14704          48         384       14758
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 07:00:01 up 19 min,  0 users,  load average: 1.95, 1.50, 1.09
+ 07:00:32 up 19 min,  0 users,  load average: 1.74, 1.50, 1.10
 --- dmesg
-[ 1116.175876] Buffer I/O error on dev dm-0, logical block 542, lost async page write
-[ 1116.175889] Buffer I/O error on dev dm-0, logical block 543, lost async page write
-[ 1116.191028] workqueue: drm_fb_helper_damage_work hogged CPU for >10000us 11 times, consider switching to WQ_UNBOUND
-[ 1116.738196] run fstests generic/443 at 2026-11-19 06:59:24
-[ 1117.331192] run fstests generic/444 at 2026-11-19 06:59:25
-[ 1117.912300] run fstests generic/445 at 2026-11-19 06:59:25
-[ 1118.519297] run fstests generic/446 at 2026-11-19 06:59:26
-[ 1119.110793] run fstests generic/448 at 2026-11-19 06:59:26
-[ 1119.780585] run fstests generic/449 at 2026-11-19 06:59:27
-[ 1120.362662] run fstests generic/450 at 2026-11-19 06:59:28
-[ 1121.005189] run fstests generic/451 at 2026-11-19 06:59:28
-[ 1151.711722] run fstests generic/452 at 2026-11-19 06:59:59
-[ 1152.448726] run fstests generic/453 at 2026-11-19 07:00:00
-[ 1153.063615] run fstests generic/454 at 2026-11-19 07:00:00
-[ 1153.705940] run fstests generic/456 at 2026-11-19 07:00:01
+[ 1158.918184] run fstests generic/463 at 2026-11-19 07:00:06
+[ 1159.508965] run fstests generic/465 at 2026-11-19 07:00:07
+[ 1163.904446] run fstests generic/466 at 2026-11-19 07:00:11
+[ 1164.477474] run fstests generic/467 at 2026-11-19 07:00:12
+[ 1164.701182] sh (235263): drop_caches: 3
+[ 1164.745673] sh (235270): drop_caches: 3
+[ 1164.798014] sh (235277): drop_caches: 3
+[ 1164.850063] sh (235288): drop_caches: 3
+[ 1164.895356] sh (235295): drop_caches: 3
+[ 1164.943680] sh (235304): drop_caches: 3
+[ 1165.008304] sh (235314): drop_caches: 3
+[ 1165.607262] run fstests generic/468 at 2026-11-19 07:00:13
+[ 1166.197129] run fstests generic/469 at 2026-11-19 07:00:13
+[ 1166.770665] run fstests generic/470 at 2026-11-19 07:00:14
+[ 1167.346855] run fstests generic/471 at 2026-11-19 07:00:15
 --- fuse/dm
-0
+1
 No devices found

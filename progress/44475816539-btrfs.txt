@@ -1,0 +1,24 @@
+07:00:56
+Mem:           15983        1024       10099          47        5251       14958
+/dev/root       145G   60G   85G  42% /
+/dev/root       145G   60G   85G  42% /
+ 07:00:56 up 9 min,  0 users,  load average: 2.61, 1.42, 0.60
+--- dmesg
+[   33.978526] mlx5_core 088d:00:02.0 eth1: joined to eth0
+[   33.979202] mlx5_core 088d:00:02.0: MLX5E: StrdRq(0) RqSz(1024) StrdSz(256) RxCqeCmprss(0 basic)
+[   33.996913] mlx5_core 088d:00:02.0 enP2189s1: renamed from eth1
+[   34.025561] MACsec IEEE 802.1AE
+[   34.136986] mlx5_core 088d:00:02.0 enP2189s1: Link up
+[   34.165610] hv_netvsc 7c1e5219-cfa8-7c1e-5219-cfa87c1e5219 eth0: Data path switched to VF: enP2189s1
+[   34.165861] mlx5_core 088d:00:02.0 mlx5_0: Port: 1 Link ACTIVE
+[   48.992691] hv_balloon: Max. dynamic memory size: 16384 MB
+[  392.902191] systemd-fstab-generator[3080]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
+[  411.583826] NET: Registered PF_ALG protocol family
+[  417.643810] audit: type=1400 audit(1795071534.345:192): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=9389 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[  417.643819] audit: type=1400 audit(1795071534.345:193): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9389 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[  417.790029] audit: type=1400 audit(1795071534.492:194): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=9394 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[  417.790055] audit: type=1400 audit(1795071534.492:195): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9394 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[  478.015943] loop0: detected capacity change from 0 to 131072
+--- fuse/dm
+0
+No devices found

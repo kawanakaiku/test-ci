@@ -1,15 +1,10 @@
-06:48:07
-exfat generic/007 7/652 43s
-Mem:           15983         996       10013          47        5365       14986
-/dev/root       145G   60G   85G  42% /
-/dev/root       145G   60G   85G  42% /
- 06:48:07 up 7 min,  0 users,  load average: 1.60, 1.26, 0.57
+06:48:38
+exfat generic/013 12/652 83s
+Mem:           15983        2398        5764          47        8213       13584
+/dev/root       145G   62G   84G  43% /
+/dev/root       145G   62G   84G  43% /
+ 06:48:38 up 7 min,  0 users,  load average: 1.84, 1.35, 0.62
 --- dmesg
-[  255.930276] kauditd_printk_skb: 180 callbacks suppressed
-[  255.930280] audit: type=1400 audit(1795070703.681:192): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=9808 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
-[  255.930295] audit: type=1400 audit(1795070703.681:193): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9808 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
-[  256.072354] audit: type=1400 audit(1795070703.823:194): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=9813 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
-[  256.072381] audit: type=1400 audit(1795070703.823:195): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9813 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
 [  312.825909] loop0: detected capacity change from 0 to 131072
 [  374.830951] loop0: detected capacity change from 0 to 12582912
 [  375.031912] loop1: detected capacity change from 0 to 12582912
@@ -20,6 +15,11 @@ Mem:           15983         996       10013          47        5365       14986
 [  393.474378] run fstests generic/005 at 2026-11-19 06:47:21
 [  394.048272] run fstests generic/006 at 2026-11-19 06:47:21
 [  418.085400] run fstests generic/007 at 2026-11-19 06:47:45
+[  442.907546] run fstests generic/008 at 2026-11-19 06:48:10
+[  443.476269] run fstests generic/009 at 2026-11-19 06:48:11
+[  444.054980] run fstests generic/011 at 2026-11-19 06:48:11
+[  457.977669] run fstests generic/012 at 2026-11-19 06:48:25
+[  458.556487] run fstests generic/013 at 2026-11-19 06:48:26
 --- fuse/dm
 1
 No devices found

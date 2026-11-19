@@ -1,25 +1,25 @@
-07:01:07
-btrfs generic/573 457/652 743s
-Mem:           15700         941       14593          46         480       14759
+07:01:38
+btrfs generic/629 504/652 775s
+Mem:           15700         949       14556          47         510       14750
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 07:01:07 up 19 min,  0 users,  load average: 1.19, 1.27, 0.89
+ 07:01:38 up 19 min,  0 users,  load average: 1.19, 1.26, 0.90
 --- dmesg
-[ 1156.662685] BTRFS info (device loop4): first mount of filesystem 54e4a988-2bd2-4143-85db-c5dceeb0eaaf
-[ 1156.662689] BTRFS info (device loop4): using crc32c checksum algorithm
-[ 1156.663689] BTRFS error (device loop4): device total_bytes should be at most 67108864 but found 1073741824
-[ 1156.663862] BTRFS error (device loop4): failed to read chunk tree: -22
-[ 1156.664057] BTRFS error (device loop4): open_ctree failed: -22
-[ 1157.055023] run fstests generic/564 at 2026-11-19 07:00:57
-[ 1157.498319] run fstests generic/565 at 2026-11-19 07:00:57
-[ 1158.010935] run fstests generic/566 at 2026-11-19 07:00:58
-[ 1158.456952] run fstests generic/567 at 2026-11-19 07:00:58
-[ 1158.901320] run fstests generic/568 at 2026-11-19 07:00:59
-[ 1159.331848] run fstests generic/569 at 2026-11-19 07:00:59
-[ 1159.771948] run fstests generic/570 at 2026-11-19 07:01:00
-[ 1160.216814] run fstests generic/571 at 2026-11-19 07:01:00
-[ 1166.702325] run fstests generic/572 at 2026-11-19 07:01:07
-[ 1167.171296] run fstests generic/573 at 2026-11-19 07:01:07
+[ 1183.598517] run fstests generic/609 at 2026-11-19 07:01:23
+[ 1184.080419] run fstests generic/610 at 2026-11-19 07:01:24
+[ 1184.530993] run fstests generic/611 at 2026-11-19 07:01:24
+[ 1184.984256] run fstests generic/612 at 2026-11-19 07:01:25
+[ 1185.453546] run fstests generic/613 at 2026-11-19 07:01:25
+[ 1185.941572] run fstests generic/614 at 2026-11-19 07:01:26
+[ 1186.408105] run fstests generic/615 at 2026-11-19 07:01:26
+[ 1194.904652] run fstests generic/618 at 2026-11-19 07:01:35
+[ 1195.359543] run fstests generic/620 at 2026-11-19 07:01:35
+[ 1195.818323] run fstests generic/621 at 2026-11-19 07:01:36
+[ 1196.298172] run fstests generic/623 at 2026-11-19 07:01:36
+[ 1196.761203] run fstests generic/624 at 2026-11-19 07:01:37
+[ 1197.210426] run fstests generic/625 at 2026-11-19 07:01:37
+[ 1197.668820] run fstests generic/626 at 2026-11-19 07:01:38
+[ 1198.112923] run fstests generic/628 at 2026-11-19 07:01:38
 --- fuse/dm
 0
 cow-root	(252:0)

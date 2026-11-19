@@ -1,9 +1,9 @@
-06:57:56
+06:58:27
 xfs generic/732 592/652 551s
-Mem:           15700         911       14593          48         512       14789
+Mem:           15700         903       14600          48         513       14797
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 06:57:56 up 14 min,  0 users,  load average: 0.87, 1.25, 0.87
+ 06:58:27 up 14 min,  0 users,  load average: 0.53, 1.13, 0.85
 --- dmesg
 [  849.214694] scsi host2: scsi_debug: version 0191 [20210520]
                  dev_size_mb=256, opts=0x0, submit_queues=1, statistics=0

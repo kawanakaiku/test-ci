@@ -5,7 +5,7 @@
 # イメージは mkfs.xfs の最小 (300 MiB) で、adb push は疎ファイルでも全体を送る。端末の空きは 1.5 GiB 以上要る (1 イメージずつ push して消す。dirty-log テストだけアプリのキャッシュへコピーする)。
 set -u
 FIX=${1:?fixture dir}
-ADB=${2:-/run/media/u/disk31/android_home/platform-tools/adb}
+ADB=${2:-${ANDROID_HOME:+$ANDROID_HOME/platform-tools/}adb}
 SER=${ADB_SERIAL:-emulator-5556}
 case "$SER" in emulator-*) ;; *) echo "refusing non-emulator serial $SER"; exit 2;; esac
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

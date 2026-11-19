@@ -1,10 +1,10 @@
 #!/bin/sh
 # 実 Windows 11 (w11 ツール) で EFS / BitLocker のイメージを作る。
-# 使い方: make_encrypted_fixtures.sh [w11 のパス(既定 /run/media/u/Data/win11/w11)] [出力 /dev/shm/usbmem_winntfs_$USER]
+# 使い方: make_encrypted_fixtures.sh [w11 のパス(既定 環境変数 W11、無ければ PATH の w11)] [出力 /dev/shm/usbmem_winntfs_$USER]
 # 前提: w11 のベースイメージが images/ にある。ゲストは --ephemeral で起動し、終わったら停止して破棄する。
 # 出力: win_efs.img (EFS 暗号化ファイル入り NTFS) / win_bitlocker.img (BitLocker XTS-AES-128, パスワード保護)
 set -eu
-W11=${1:-/run/media/u/Data/win11/w11}; OUT=${2:-/dev/shm/usbmem_winntfs_${USER:-u}}
+W11=${1:-${W11:-w11}}; OUT=${2:-/dev/shm/usbmem_winntfs_${USER:-u}}
 HERE=$(cd "$(dirname "$0")" && pwd)
 [ -x "$W11" ] || { echo "skip: w11 not found" >&2; exit 77; }
 mkdir -p "$OUT"; N=ufx$$

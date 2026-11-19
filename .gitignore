@@ -18,3 +18,7 @@ real_usb_reports/
 # Python のバイトコード (誤ってコミットされていたので除外)
 __pycache__/
 *.pyc
+
+# 作業ディレクトリに置きがちなローカル専用ファイル (パスワードのメモ・テストのログ)
+/pw
+usbmem_testset.log

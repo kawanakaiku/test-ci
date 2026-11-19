@@ -401,7 +401,7 @@ tools/run_android_real_usb_verify.sh --serial <adb serial> [--devices 0930:6544[
 
 #### 書き込み試験の状況
 
-`RealUsbWriteTest` は実機 USB で実行済み (2026-11-13〜14、J9260)。**A の p1 NTFS / p2 ext4 / p3 FAT32 / p4 exFAT、B の p1 FAT32 / p2 NTFS / p3 exFAT / p5 ext2 / p6 ext3、C の p1 XFS (CreateOnly) は、すべて合格**。PC に戻した後の独立検証 (読み取りのみ) も全部通った: `ntfsfix -n` / `e2fsck -fn` / `fsck.exfat -n` / `fsck.fat -n` はエラーなし、`verify --allow-extra` は元のファイルの不一致 0・試験フォルダの残骸なし (A: NTFS 3026 / ext4 3029 / exFAT 3023 ファイル、B: FAT32 3022 / NTFS 3026 (4.57 GiB) / exFAT 3024 / ext2・ext3 3028 ファイル)。B の p7 (ext4、`needs_recovery`) は書き込んでいない。C の XFS は PC 側でも `xfs_repair -n` と照合を通した。実機の USB が PC に刺さっていてネットワークが違うときは、`ssh home-notepc` 上で `sudo mount -o ro` して `verify` を走らせると、5 GiB 級の転送が要らない。
+`RealUsbWriteTest` は実機 USB で実行済み (2026-11-13〜14、J9260)。**A の p1 NTFS / p2 ext4 / p3 FAT32 / p4 exFAT、B の p1 FAT32 / p2 NTFS / p3 exFAT / p5 ext2 / p6 ext3、C の p1 XFS (CreateOnly) は、すべて合格**。PC に戻した後の独立検証 (読み取りのみ) も全部通った: `ntfsfix -n` / `e2fsck -fn` / `fsck.exfat -n` / `fsck.fat -n` はエラーなし、`verify --allow-extra` は元のファイルの不一致 0・試験フォルダの残骸なし (A: NTFS 3026 / ext4 3029 / exFAT 3023 ファイル、B: FAT32 3022 / NTFS 3026 (4.57 GiB) / exFAT 3024 / ext2・ext3 3028 ファイル)。B の p7 (ext4、`needs_recovery`) は書き込んでいない。C の XFS は PC 側でも `xfs_repair -n` と照合を通した。実機の USB が PC に刺さっていてネットワークが違うときは、`ssh <pc>` 上で `sudo mount -o ro` して `verify` を走らせると、5 GiB 級の転送が要らない。
 
 再実行する場合は、`tools/run_android_real_usb_verify.sh --serial <serial> --write --devices 0930:6544 --part 1` のように 1 パーティションずつ。終わったら USB を PC に戻し、書き込み前後で壊れていないことを 11 の手順で確認する:
 
@@ -423,7 +423,7 @@ C の p4 (LUKS2・中は ext4、`usbmem-test-pass`) と p5 (BitLocker 風・中�
 | p4 LUKS2 → ext4 | **pass** (全 5 ステージ、119 秒) | 32 MiB の書き込み 5.4 秒 |
 | p5 BitLocker → NTFS | **pass** (全 5 ステージ) | 32 MiB の書き込み 4.8 秒 |
 
-C を PC (`ssh home-notepc`) に戻して、独立に検証した (どちらも読み取り専用で開く):
+C を PC (`ssh <pc>`) に戻して、独立に検証した (どちらも読み取り専用で開く):
 - p4: `cryptsetup open --readonly` → `e2fsck -fn` は rc=0 (clean)、`make_real_usb_testset.py verify` でマニフェスト全件一致 (ファイル 3029・ディレクトリ 43・リンク 4・1.07 GiB)。
 - p5: `bdemount -p` (libbde) で復号 → `ntfsfix -n` OK、ro マウントしてマニフェスト全件一致 (ファイル 3024・ディレクトリ 40・5.96 MiB)。ntfsfix -n は簡易な検査 (完全な NTFS fsck ではない)。
 
@@ -436,7 +436,7 @@ C を PC (`ssh home-notepc`) に戻して、独立に検証した (どちらも�
 | p2 Btrfs | **pass** (全 5 ステージ) | CreateOnly 39.7 秒、Full 7.4 秒 |
 | p3 F2FS | **pass** (全 5 ステージ) | CreateOnly 41.1 秒、Full 7.3 秒 |
 
-PC (`ssh home-notepc`) での独立検証 (読み取り専用): p2 は `btrfs check --readonly` が "no error found"、ro マウントしてマニフェスト全件一致 (ファイル 3029・4.57 GiB)。p3 は `fsck.f2fs --dry-run` が rc=0 (全項目 Ok)、ro マウントしてマニフェスト全件一致 (1.07 GiB)。`usbmem_*` の残りフォルダは無し。
+PC (`ssh <pc>`) での独立検証 (読み取り専用): p2 は `btrfs check --readonly` が "no error found"、ro マウントしてマニフェスト全件一致 (ファイル 3029・4.57 GiB)。p3 は `fsck.f2fs --dry-run` が rc=0 (全項目 Ok)、ro マウントしてマニフェスト全件一致 (1.07 GiB)。`usbmem_*` の残りフォルダは無し。
 
 注意: CreateOnly の 32 MiB 書き込みが約 40 秒 (約 0.8 MB/s) で、Full の約 7 秒より遅い (Btrfs / F2FS とも)。-O0 が原因だった以前の遅さ (読み取り、docs/crypto-volumes.md 6.4) は -O2 で解消済みで、この APK は -O2。
 
@@ -487,7 +487,7 @@ PC (`ssh home-notepc`) での独立検証 (読み取り専用): p2 は `btrfs ch
 | Full | **pass**: 作成・書き込み (300 KB)・途中の上書き (4 KB)・縮小 (300 KB → 100 KB)・名前変更・別フォルダへの移動・小さいファイル 20 個・全削除・32 MiB の書き込みと照合・削除、専用フォルダの残りなし (2026-11-14 の古い専用フォルダも削除) |
 | Full 後の再オープン (全件照合 + 自前の fsck) | pass |
 
-PC (`ssh home-notepc`) での独立検証 (読み取り専用): `xfs_repair -n` (xfsprogs 7.2.0) は rc=0・異常の出力なし。`mount -o ro,nouuid` してマニフェスト全件一致 (ファイル 3029・ディレクトリ 43・シンボリックリンク 4・4.57 GiB)。`usbmem_*` の残りフォルダは無し。カーネルの ro マウントは "Ending clean mount" (ボリュームが 92% 使用中のため "ENOSPC reserving per-AG metadata pool, log recovery may fail" の警告も出たが、ログの再生は不要で正常に終わった)。
+PC (`ssh <pc>`) での独立検証 (読み取り専用): `xfs_repair -n` (xfsprogs 7.2.0) は rc=0・異常の出力なし。`mount -o ro,nouuid` してマニフェスト全件一致 (ファイル 3029・ディレクトリ 43・シンボリックリンク 4・4.57 GiB)。`usbmem_*` の残りフォルダは無し。カーネルの ro マウントは "Ending clean mount" (ボリュームが 92% 使用中のため "ENOSPC reserving per-AG metadata pool, log recovery may fail" の警告も出たが、ログの再生は不要で正常に終わった)。
 
 UI の実機確認 (2026-11-17、J9260、同じ APK): アプリの画面から、USB DISK (C) の書き込みモードを「すべて許可」にする (「変更・削除も許可しますか？」の確認ダイアログ) → 「開く」(USB の許可ダイアログ) → パーティション一覧 (#1 p1_xfs / #2 p2_btrfs / #3 p3_f2fs …) の「マウント (変更・削除も可)」→ p1 (XFS) が「書き込み可 (変更・削除も可)」になり (logcat: `sessionWritable=true volumeWritable=true createOnly=false`)、システムのファイル選択画面 (SAF) の保存先に「USB DISK [2-6] #1 / XFS (読み書き・実験的)」が出て、ルートの中身 (00_sizes … 07_sparse、MANIFEST.sha256、README.txt) が見えた。OS が C のボリュームを 2 個マウントしていると、カードに警告が出る (`sm unmount` で外せる)。メイン画面で戻るキーを押して Activity を終えると、公開中のボリュームを含む全デバイスが閉じられる (`MainActivity.onDestroy` の `closeAll`、設計どおり)。
 
@@ -498,7 +498,7 @@ UI の実機確認 その 2 (2026-11-17、J9260、同じ APK、C の p2 / p3 / p
 - **p5 BitLocker** (同日): 「解錠してマウント」→ 解錠ダイアログ (BitLocker (Windows 7+)・XTS-AES-128)。この合成ボリュームは保護子がパスワードだけなので、入力欄はパスワードだけが出る (回復キー・BEK の切り替えは出ない)。誤ったパスワードは「パスワードが違います。」で拒否され (`CryptoException code=12`)、正しいパスワード (読み取り専用) で解錠でき、「読み取り専用」の表示と「ロック (アンマウント)」が出る。ロックすると「解錠してマウント」に戻る。
 - 未確認: 回復キー (48 桁) と BEK ファイルの実機での入力 (C の p5 は保護子がパスワードだけ。回復パスワード / BEK 付きの構成は `bitlocker_synth.py --protectors pw,rec,bek` で作れる。エミュレータの crypt-ui テストでは確認済み)。
 
-UI 確認後の PC 側の再検査 (2026-11-17、`ssh home-notepc`、読み取り専用): 上の UI 確認 (p1〜p4 を書き込み可でマウントしただけで、ファイルは書いていない) の後に C を PC へ戻し、p1 `xfs_repair -n` rc=0 (異常なし)、p2 `btrfs check --readonly` rc=0 ("no error found")、p3 `fsck.f2fs --dry-run` rc=0 (全項目 Ok)、p4 LUKS2 を `--readonly` で開いて `e2fsck -fn` rc=0 (clean) だった。書き込み可のマウントとロック / アンマウントだけでは、FS は壊れていない。
+UI 確認後の PC 側の再検査 (2026-11-17、`ssh <pc>`、読み取り専用): 上の UI 確認 (p1〜p4 を書き込み可でマウントしただけで、ファイルは書いていない) の後に C を PC へ戻し、p1 `xfs_repair -n` rc=0 (異常なし)、p2 `btrfs check --readonly` rc=0 ("no error found")、p3 `fsck.f2fs --dry-run` rc=0 (全項目 Ok)、p4 LUKS2 を `--readonly` で開いて `e2fsck -fn` rc=0 (clean) だった。書き込み可のマウントとロック / アンマウントだけでは、FS は壊れていない。
 
 ## 11. PC に戻した後 (fsck とマニフェスト照合)
 

@@ -1,17 +1,10 @@
-06:57:47
-ext4 generic/113 86/652 402s
-Mem:           15983        1088        9592          48        5691       14894
+06:58:18
+ext4 generic/120 93/652 420s
+Mem:           15983        1053        9940          48        5378       14929
 /dev/root       145G   61G   85G  42% /
 /dev/root       145G   61G   85G  42% /
- 06:57:47 up 14 min,  0 users,  load average: 1.44, 1.35, 0.89
+ 06:58:18 up 15 min,  0 users,  load average: 1.50, 1.39, 0.92
 --- dmesg
-[  882.385810] scsi 2:0:0:0: Power-on or device reset occurred
-[  882.386160] scsi 2:0:0:0: Attached scsi generic sg1 type 0
-[  882.386351] sd 2:0:0:0: [sdb] 614400 512-byte logical blocks: (315 MB/300 MiB)
-[  882.386371] sd 2:0:0:0: [sdb] Write Protect is off
-[  882.386376] sd 2:0:0:0: [sdb] Mode Sense: 73 00 10 08
-[  882.386403] sd 2:0:0:0: [sdb] Write cache: enabled, read cache: enabled, supports DPO and FUA
-[  882.386474] sd 2:0:0:0: [sdb] permanent stream count = 5
 [  882.386550] sd 2:0:0:0: [sdb] Preferred minimum I/O size 512 bytes
 [  882.386555] sd 2:0:0:0: [sdb] Optimal transfer size 524288 bytes
 [  882.396672] sd 2:0:0:0: [sdb] Attached SCSI disk
@@ -20,6 +13,13 @@ Mem:           15983        1088        9592          48        5691       14894
 [  883.903743] run fstests generic/111 at 2026-11-19 06:57:42
 [  884.518177] run fstests generic/112 at 2026-11-19 06:57:42
 [  887.762763] run fstests generic/113 at 2026-11-19 06:57:46
+[  901.402156] run fstests generic/114 at 2026-11-19 06:57:59
+[  902.001788] run fstests generic/115 at 2026-11-19 06:58:00
+[  902.609209] run fstests generic/116 at 2026-11-19 06:58:00
+[  903.214008] run fstests generic/117 at 2026-11-19 06:58:01
+[  903.815995] run fstests generic/118 at 2026-11-19 06:58:02
+[  904.438160] run fstests generic/119 at 2026-11-19 06:58:02
+[  905.069918] run fstests generic/120 at 2026-11-19 06:58:03
 --- fuse/dm
-1
+2
 No devices found

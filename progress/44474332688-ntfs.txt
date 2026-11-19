@@ -1,25 +1,25 @@
-06:57:19
-ntfs generic/478 372/652 614s
-Mem:           15983         941       14970          48         396       15041
+06:57:51
+ntfs generic/524 414/652 652s
+Mem:           15983         968       14851          48         490       15014
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 06:57:19 up 14 min,  0 users,  load average: 1.70, 1.70, 1.11
+ 06:57:51 up 14 min,  0 users,  load average: 1.56, 1.65, 1.11
 --- dmesg
-[  841.250258] sh (243006): drop_caches: 3
-[  841.304564] sh (243016): drop_caches: 3
-[  842.011128] run fstests generic/468 at 2026-11-19 06:57:01
-[  842.738888] run fstests generic/469 at 2026-11-19 06:57:02
-[  843.461167] run fstests generic/470 at 2026-11-19 06:57:03
-[  844.172200] run fstests generic/471 at 2026-11-19 06:57:03
-[  848.838670] run fstests generic/472 at 2026-11-19 06:57:08
-[  849.025974] swapon: swapfile has holes
-[  849.484521] run fstests generic/474 at 2026-11-19 06:57:09
-[  850.102695] run fstests generic/477 at 2026-11-19 06:57:09
-[  850.305080] sh (246486): drop_caches: 3
-[  850.392177] sh (246501): drop_caches: 3
-[  850.481501] sh (246516): drop_caches: 3
-[  850.567290] sh (246532): drop_caches: 3
-[  851.174426] run fstests generic/478 at 2026-11-19 06:57:10
+[  880.386633] run fstests generic/508 at 2026-11-19 06:57:40
+[  880.969939] run fstests generic/509 at 2026-11-19 06:57:40
+[  881.583568] run fstests generic/510 at 2026-11-19 06:57:41
+[  882.353166] run fstests generic/511 at 2026-11-19 06:57:42
+[  882.973536] run fstests generic/512 at 2026-11-19 06:57:42
+[  883.585384] run fstests generic/513 at 2026-11-19 06:57:43
+[  884.229239] run fstests generic/514 at 2026-11-19 06:57:43
+[  884.860466] run fstests generic/515 at 2026-11-19 06:57:44
+[  885.506562] run fstests generic/516 at 2026-11-19 06:57:45
+[  886.128864] run fstests generic/517 at 2026-11-19 06:57:45
+[  886.781759] run fstests generic/518 at 2026-11-19 06:57:46
+[  887.432071] run fstests generic/519 at 2026-11-19 06:57:47
+[  888.190936] run fstests generic/520 at 2026-11-19 06:57:47
+[  888.808525] run fstests generic/523 at 2026-11-19 06:57:48
+[  889.389469] run fstests generic/524 at 2026-11-19 06:57:49
 --- fuse/dm
-1
+2
 No devices found

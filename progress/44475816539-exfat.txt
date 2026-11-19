@@ -1,9 +1,9 @@
-07:12:03
+07:12:34
 exfat generic/732 592/652 653s
-Mem:           15700         888       14611          48         518       14812
+Mem:           15700         887       14611          48         518       14813
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 07:12:03 up 17 min,  0 users,  load average: 0.53, 1.01, 0.77
+ 07:12:34 up 17 min,  0 users,  load average: 0.32, 0.91, 0.75
 --- dmesg
 [  964.030803] run fstests generic/718 at 2026-11-19 07:10:56
 [  964.397930] run fstests generic/719 at 2026-11-19 07:10:57

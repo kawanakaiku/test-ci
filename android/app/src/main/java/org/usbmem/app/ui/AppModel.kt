@@ -11,7 +11,7 @@ import org.usbmem.app.UsbSlotKey
 import org.usbmem.app.WriteMode
 
 /** 確認待ちのパーティション。ext3/ext4 のジャーナル未再生 (EUCLEAN) で拒否したもの (確認すれば読み取り専用で開き直せる)、または ダーティフラグだけの NTFS に書き込み可を要求したもの (確認すれば、読み取り専用か書き込み可で開き直せる)。何も保持しない (開いたボリュームは閉じてある) */
-data class PartitionPrompt(val startBytes: Long, val sizeBytes: Long, val label: String)
+data class PartitionPrompt(val startBytes: Long, val sizeBytes: Long, val label: String, val fsName: String? = null)
 
 /** ダーティフラグだけの NTFS に書き込み可を要求したときの、利用者の選択。Ask = まだ聞いていない (確認が要れば聞く)、ReadOnly = 読み取り専用で開く、Write = 書き込み可で開く (ダーティを承知のうえ)。 */
 enum class DirtyChoice { Ask, ReadOnly, Write }

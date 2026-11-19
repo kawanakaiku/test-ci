@@ -28,6 +28,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Check AndroidManifest permissions
+        run: python3 -I tools/check_manifest_permissions.py
+
       - uses: actions/setup-java@v6
         with:
           distribution: temurin

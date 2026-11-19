@@ -1,5 +1,7 @@
 package org.usbmem.app.ui
 
+import android.content.res.Configuration
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -22,15 +26,20 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import org.usbmem.app.PartitionTable
 import org.usbmem.app.R
 
 /** 画面に出す通知の重さ。色とアイコンが決まる。 */
@@ -57,11 +66,24 @@ private fun severityIcon(s: Severity) = when (s) {
     Severity.Error -> R.drawable.ic_error
 }
 
-/** 状態・結果の通知。成功/情報/警告/エラーで色とアイコンを変える (以前は成功もエラーと同じ赤字だった)。 */
+/**
+ * [key] が (null でない値に) 変わったときに、このコンポーネントが見える所までスクロールする (スクロールできる親の中で)。
+ * 通知は画面の下のほうに出ることがあるので、出たら見える所まで動かして、長い警告を見落とさないようにする。USB 画面とイメージ画面の通知が共通で使う。
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun Banner(notice: Notice, modifier: Modifier = Modifier, action: (@Composable () -> Unit)? = null) {
+fun Modifier.bringIntoViewWhenChanged(key: Any?): Modifier {
+    val requester = remember { BringIntoViewRequester() }
+    LaunchedEffect(key) { if (key != null) { withFrameNanos { }; requester.bringIntoView() } }   // 1 フレーム待って、配置が済んでから
+    return this.bringIntoViewRequester(requester)
+}
+
+/** 状態・結果の通知。成功/情報/警告/エラーで色とアイコンを変える (以前は成功もエラーと同じ赤字だった)。[scrollIntoView] = 出た (変わった) ときに見える所までスクロールする。 */
+@Composable
+fun Banner(notice: Notice, modifier: Modifier = Modifier, scrollIntoView: Boolean = false, action: (@Composable () -> Unit)? = null) {
     val (bg, fg) = severityColors(notice.severity)
-    Surface(modifier.fillMaxWidth(), color = bg, contentColor = fg, shape = MaterialTheme.shapes.medium) {
+    val m = if (scrollIntoView) modifier.bringIntoViewWhenChanged(notice) else modifier
+    Surface(m.fillMaxWidth(), color = bg, contentColor = fg, shape = MaterialTheme.shapes.medium) {
         Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
             Icon(painterResource(severityIcon(notice.severity)), contentDescription = null, Modifier.size(22.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -159,11 +181,14 @@ fun DirtyWriteDialog(text: String, onOpenReadOnly: () -> Unit, onOpenWrite: () -
         title = { Text(stringResource(R.string.dirty_dialog_title)) },
         text = { DialogBody(text, subject, tag = "dirty_dialog") },
         confirmButton = {
-            Column(horizontalAlignment = Alignment.End) {
-                Button(onClick = onOpenReadOnly, modifier = Modifier.testTag("dirty_open_ro")) { Text(stringResource(R.string.dirty_dialog_read_only)) }
-                TextButton(onClick = onOpenWrite, modifier = Modifier.testTag("dirty_open_rw")) { Text(stringResource(R.string.dirty_dialog_write)) }
-                TextButton(onClick = onCancel, modifier = Modifier.testTag("dirty_cancel")) { Text(stringResource(R.string.common_cancel)) }
-            }
+            // 3 つのボタン。横向き・幅が広い画面 (幅 600dp 以上) では横 1 列にして、縦に並べて本文の窓を狭くしない。縦向きの狭い画面は縦に並べる
+            val cfg = LocalConfiguration.current
+            val wide = cfg.orientation == Configuration.ORIENTATION_LANDSCAPE || cfg.screenWidthDp >= 600
+            val ro: @Composable () -> Unit = { Button(onClick = onOpenReadOnly, modifier = Modifier.testTag("dirty_open_ro")) { Text(stringResource(R.string.dirty_dialog_read_only)) } }
+            val rw: @Composable () -> Unit = { TextButton(onClick = onOpenWrite, modifier = Modifier.testTag("dirty_open_rw")) { Text(stringResource(R.string.dirty_dialog_write)) } }
+            val cancel: @Composable () -> Unit = { TextButton(onClick = onCancel, modifier = Modifier.testTag("dirty_cancel")) { Text(stringResource(R.string.common_cancel)) } }
+            if (wide) Row(Modifier.testTag("dirty_buttons_row"), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { cancel(); rw(); ro() }
+            else Column(Modifier.testTag("dirty_buttons_column"), horizontalAlignment = Alignment.End) { ro(); rw(); cancel() }
         },
     )
 }
@@ -191,6 +216,30 @@ fun CryptoPendingDialog(p: CryptoNoloadPrompt, onOpenReadOnly: () -> Unit, onOpe
             subject = p.label,
         )
     }
+}
+
+/** パーティション表の中の [start, +size) の範囲の FS 名 ("ext4" など)。分からなければ null。パーティションを持たない (全体が 1 つの FS) イメージは、最初の 1 つ。 */
+fun fsNameOfRange(t: PartitionTable?, start: Long, size: Long): String? {
+    t ?: return null
+    val p = t.partitions.firstOrNull { it.startBytes == start && it.sizeBytes == size } ?: (if (t.wholeDeviceVolume) t.partitions.firstOrNull() else null)
+    return p?.fs?.takeIf { it.isNotBlank() && it != "unknown" }
+}
+
+/**
+ * ジャーナル未再生の確認ダイアログの本文。検出した FS ([fsName]) が分かるときは、その FS の未反映の記録だけを挙げた短い文言にする。
+ * 分からないとき (暗号ボリュームの中など、複数の FS がありうるとき) は、従来どおり全 FS を列挙した文言。
+ */
+@Composable
+fun noloadDialogText(fsName: String?): String {
+    val fs = fsName ?: return stringResource(R.string.noload_dialog_text)
+    val what = when (fs) {
+        "ext3", "ext4" -> R.string.noload_what_ext_journal
+        "xfs" -> R.string.noload_what_xfs_log
+        "btrfs" -> R.string.noload_what_btrfs_log
+        "f2fs" -> R.string.noload_what_f2fs_fsync
+        else -> return stringResource(R.string.noload_dialog_text)
+    }
+    return stringResource(R.string.noload_dialog_text_fs, fs.uppercase(), stringResource(what))
 }
 
 @Composable

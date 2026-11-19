@@ -99,6 +99,11 @@
     <string name="notice_nested_mounted_detail">読み取り専用。ファイルアプリの一覧に表示されます。元のイメージのファイルは、マウント中は書き換えや削除ができません。先にこのマウントを閉じてください。</string>
     <string name="noload_dialog_title">読み取り専用で開きますか？</string>
     <string name="noload_dialog_text">このボリュームには、まだ反映されていない更新 (ext3 / ext4 / XFS のジャーナル、Btrfs のログ、F2FS の直近の fsync の記録) が残っています。書き込み中に取り外された可能性があります。\n\nジャーナルを再生せずに、読み取り専用で開くことはできますが、古い内容が見えたり、一部のファイルやフォルダが欠けたり壊れて見えたりすることがあります。大事なデータは、先にコピーして保存し、あとで PC や Linux 機器で fsck を実行してください。\n\n何も書き込みません。</string>
+    <string name="noload_dialog_text_fs">この%1$s ボリュームには、まだ反映されていない更新 (%2$s) が残っています。書き込み中に取り外された可能性があります。\n\n再生せずに読み取り専用で開くことはできますが、古い内容が見えたり、一部のファイルやフォルダが欠けたり壊れて見えたりすることがあります。大事なデータは先にコピーして保存し、あとで PC や Linux 機器で fsck を実行してください。\n\n何も書き込みません。</string>
+    <string name="noload_what_ext_journal">ジャーナル</string>
+    <string name="noload_what_xfs_log">ログ</string>
+    <string name="noload_what_btrfs_log">tree-log</string>
+    <string name="noload_what_f2fs_fsync">直近の fsync の記録</string>
     <string name="noload_dialog_confirm">読み取り専用で開く</string>
     <string name="dirty_dialog_title">書き込み可で開きますか？</string>
     <string name="dirty_dialog_text">このボリュームは前回きれいに取り外されていません (Windows の取り外し忘れ・高速スタートアップなど)。書き込み可で開くと、アプリはダーティフラグを下ろして終了時に NTFS を更新します。Windows で chkdsk を実行してから使う方が安全です。\n\n「読み取り専用で開く」を選ぶと、何も書き込みません。</string>
@@ -323,7 +328,7 @@
     <string name="unlock_bek_none">ファイルが選ばれていません</string>
     <string name="unlock_no_secret">この保護は一時停止中です。資格情報なしで解錠できます。</string>
     <string name="unlock_unusable">このボリュームは解錠できません。%1$s</string>
-    <string name="unlock_not_saved">入力した内容は、下の「記憶する」を選ばない限り保存しません。解錠に使ったあと、メモリ上のバイト列はゼロで消します。</string>
+    <string name="unlock_not_saved">入力した内容は、上の「このボリュームのパスワードを記憶する」を選ばない限り保存しません。解錠に使ったあと、メモリ上のバイト列はゼロで消します。</string>
     <string name="unlock_remember_label">このボリュームのパスワードを記憶する</string>
     <string name="unlock_remember_desc">解錠に成功したあと、パスワードをこの端末の Android Keystore の鍵で暗号化して保存します。次回からは、生体認証または画面ロックで解錠できます (保存のとき 1 回認証を求めます)。回復キーと BEK ファイルは記憶しません。</string>
     <string name="unlock_remembered_hint">このボリュームのパスワードは、この端末に記憶されています。</string>

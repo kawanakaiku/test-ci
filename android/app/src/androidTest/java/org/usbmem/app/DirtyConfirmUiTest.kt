@@ -13,6 +13,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -95,9 +96,9 @@ class DirtyConfirmUiTest {
 
     // ================================================================ イメージ画面
 
-    private fun stubPick() {
+    private fun stubPick(f: File = img) {
         Intents.release(); Intents.init()
-        Intents.intending(hasAction(Intent.ACTION_OPEN_DOCUMENT)).respondWith(Instrumentation.ActivityResult(Activity.RESULT_OK, Intent().setData(Uri.fromFile(img))))
+        Intents.intending(hasAction(Intent.ACTION_OPEN_DOCUMENT)).respondWith(Instrumentation.ActivityResult(Activity.RESULT_OK, Intent().setData(Uri.fromFile(f))))
     }
 
     /** イメージ画面で「書き込みを許可」にして、イメージを共有する (ファイル選択は差し替え)。確認のダイアログが出るまで待つ。 */
@@ -142,17 +143,47 @@ class DirtyConfirmUiTest {
     @Test fun image_dialogNamesTheImage_andScrollsInLandscape() {
         shareImageWritable()
         tag("dialog_subject").assertTextEquals(img.name)   // どのイメージの確認か (内部表記ではなくファイル名)
+        tag("dirty_buttons_column").assertExists()   // 縦向きの狭い画面: 3 つのボタンは縦に並ぶ
         inLandscape {
             tag("dirty_dialog").assertExists()
             assertScrollsToEnd("dirty_dialog")
             // 本文が切れていても、ボタンは常に見える (警告を読まずに押せる状態でも、読める状態でもある)
             tag("dirty_open_ro").assertIsDisplayed()
+            tag("dirty_open_rw").assertIsDisplayed()
             tag("dirty_cancel").assertIsDisplayed()
+            // 横向き: 3 つのボタンは横 1 列 (縦に並べて本文の窓を狭くしない)
+            tag("dirty_buttons_row").assertExists()
+            rule.onAllNodesWithTag("dirty_buttons_column").assertCountEquals(0)
+            val ro = tag("dirty_open_ro").fetchSemanticsNode().boundsInRoot
+            val rw = tag("dirty_open_rw").fetchSemanticsNode().boundsInRoot
+            val cancel = tag("dirty_cancel").fetchSemanticsNode().boundsInRoot
+            assertEquals("buttons are on one line", ro.top, rw.top, 8f)
+            assertEquals("buttons are on one line", ro.top, cancel.top, 8f)
+            assertTrue("buttons do not overlap", cancel.right <= rw.left + 1f && rw.right <= ro.left + 1f)
         }
         waitTag("dirty_dialog")
         clickTag("dirty_cancel")
         waitGone("dirty_dialog")
         assertEquals(before, sha256Of(img))
+    }
+
+    /** ジャーナル未再生の ext4 イメージの確認は、検出した FS (EXT4) のジャーナルだけを挙げる短い文言 (全 FS の列挙ではない)。キャンセルでは何も開かない。 */
+    @Test fun image_noloadDialogNamesOnlyTheDetectedFs() {
+        val ext = File(ctx.cacheDir, "ext4_e4_needs_recovery.img")
+        ext.delete()
+        assumeTrue("fixture not pushed: ext4_e4_needs_recovery.img", shellCopy("/data/local/tmp/ext4_e4_needs_recovery.img", ext))
+        try {
+            stubPick(ext)
+            rule.onNodeWithText(s(R.string.tab_image)).performClick()
+            clickTag("image_share_button")
+            waitText(s(R.string.noload_dialog_title))
+            tag("dialog_subject").assertTextEquals(ext.name)
+            rule.onNodeWithText(ctx.getString(R.string.noload_dialog_text_fs, "EXT4", s(R.string.noload_what_ext_journal)), substring = true).assertExists()
+            rule.onAllNodesWithText(s(R.string.noload_dialog_text), substring = true).assertCountEquals(0)   // 全 FS を列挙した従来の文言ではない
+            clickTag("confirm_cancel")
+            waitGone("confirm_cancel")
+            assertTrue("nothing may be published after cancel", VolumeRegistry.all(ctx).none { it.label == ext.name })
+        } finally { ext.delete() }
     }
 
     /** 平文のイメージを書き込み可で開いたあと、画面の「閉じる」でクリーンにアンマウントでき、ダーティフラグが下りる (閉じる導線)。 */

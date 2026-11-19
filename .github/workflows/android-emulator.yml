@@ -27,6 +27,19 @@ env:
   SDK_ROOT: /usr/local/lib/android/sdk
 
 jobs:
+  # AndroidManifest の権限・機能・コンポーネントの宣言漏れをソースの API 使用と突き合わせる (数秒)。ビルド・エミュレータは要らない。
+  # 計装テストは偽の vault を差すので USE_BIOMETRIC の漏れに気づけなかった、の再発防止 (docs/ci.md)。matrix のジョブとは独立 (落ちても他は走る)。
+  manifest:
+    name: manifest permissions
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check AndroidManifest permissions
+        run: |
+          python3 -I tools/test_check_manifest_permissions.py
+          python3 -I tools/check_manifest_permissions.py
+
   android:
     name: android (${{ matrix.group }})
     runs-on: ubuntu-latest

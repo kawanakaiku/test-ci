@@ -1,25 +1,25 @@
-06:56:23
-xfs generic/567 451/652 469s
-Mem:           15700        1051       14495          48         470       14649
+06:56:54
+xfs generic/615 495/652 495s
+Mem:           15700         984       14517          48         514       14715
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 06:56:23 up 12 min,  0 users,  load average: 1.31, 1.39, 0.87
+ 06:56:54 up 13 min,  0 users,  load average: 1.28, 1.37, 0.88
 --- dmesg
-[  763.987075] run fstests generic/554 at 2026-11-19 06:56:19
-[  764.142083] swapon: swapfile has holes
-[  764.447833] run fstests generic/555 at 2026-11-19 06:56:20
-[  764.872283] run fstests generic/556 at 2026-11-19 06:56:20
-[  765.278848] run fstests generic/557 at 2026-11-19 06:56:21
-[  765.550383] 557 (455829): drop_caches: 2
-[  765.943034] run fstests generic/563 at 2026-11-19 06:56:21
-[  766.071121] loop4: detected capacity change from 0 to 131072
-[  766.304210] SGI XFS with ACLs, security attributes, realtime, quota, no debug enabled
-[  766.306751] mount: attempt to access beyond end of device
-               loop4: rw=8392704, sector=2097151, nr_sectors = 1 limit=131072
-[  766.306756] XFS (loop4): last sector read failed
-[  766.673712] run fstests generic/564 at 2026-11-19 06:56:22
-[  767.087891] run fstests generic/565 at 2026-11-19 06:56:22
-[  767.562216] run fstests generic/566 at 2026-11-19 06:56:23
+[  787.154157] run fstests generic/601 at 2026-11-19 06:56:42
+[  787.565036] run fstests generic/602 at 2026-11-19 06:56:43
+[  788.025160] run fstests generic/603 at 2026-11-19 06:56:43
+[  788.448079] run fstests generic/604 at 2026-11-19 06:56:44
+[  789.963988] run fstests generic/605 at 2026-11-19 06:56:45
+[  790.387296] run fstests generic/606 at 2026-11-19 06:56:46
+[  790.836807] run fstests generic/607 at 2026-11-19 06:56:46
+[  791.254954] run fstests generic/608 at 2026-11-19 06:56:47
+[  791.706029] run fstests generic/609 at 2026-11-19 06:56:47
+[  792.173727] run fstests generic/610 at 2026-11-19 06:56:47
+[  792.581398] run fstests generic/611 at 2026-11-19 06:56:48
+[  793.002540] run fstests generic/612 at 2026-11-19 06:56:48
+[  793.435481] run fstests generic/613 at 2026-11-19 06:56:49
+[  793.883725] run fstests generic/614 at 2026-11-19 06:56:49
+[  794.334546] run fstests generic/615 at 2026-11-19 06:56:50
 --- fuse/dm
-0
+2
 cow-root	(252:0)

@@ -829,6 +829,9 @@ int main(int argc, char** argv) {
   if (pos.size() != 2) { usage(); return 2; }
   char rp[PATH_MAX];
   c.image = realpath(pos[0].c_str(), rp) ? rp : pos[0];
+  // mount の送り元 (fsname) は、絶対パスなら指定されたままにする。/dev/mapper/NAME (dm-flakey など) を realpath すると /dev/dm-0 になり、
+  // fstests の `umount $SCRATCH_DEV` (= /dev/mapper/NAME) が FUSE のマウントと一致せず "not mounted" になる。
+  std::string fsname_arg = !pos[0].empty() && pos[0][0] == '/' ? pos[0] : c.image;
   std::string mnt = realpath(pos[1].c_str(), rp) ? rp : pos[1];
   g.trace = getenv("USBMEM_FUSE_TRACE") && *getenv("USBMEM_FUSE_TRACE") == '1';
 
@@ -912,7 +915,7 @@ int main(int argc, char** argv) {
   }
   g.root = g.vol->root();
 
-  std::string fsname = c.image;
+  std::string fsname = fsname_arg;
   bool has_fsname = false;
   for (auto& o : fuse_opts) if (o.compare(0, 7, "fsname=") == 0) has_fsname = true;
   if (!has_fsname) fuse_opts.push_back("fsname=" + fsname);

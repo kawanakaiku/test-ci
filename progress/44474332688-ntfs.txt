@@ -1,25 +1,25 @@
-06:51:05
-ntfs generic/091 68/652 245s
-Mem:           15983        1032        9971          47        5371       14950
+06:51:37
+ntfs generic/120 93/652 280s
+Mem:           15983        1502        9477          47        5395       14480
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 06:51:05 up 8 min,  0 users,  load average: 1.33, 1.40, 0.74
+ 06:51:37 up 8 min,  0 users,  load average: 1.88, 1.51, 0.80
 --- dmesg
-[  467.243332] run fstests generic/071 at 2026-11-19 06:50:47
-[  467.943928] run fstests generic/073 at 2026-11-19 06:50:47
-[  468.726932] run fstests generic/075 at 2026-11-19 06:50:48
-[  470.903660] run fstests generic/076 at 2026-11-19 06:50:50
-[  473.434619] run fstests generic/078 at 2026-11-19 06:50:53
-[  474.018360] run fstests generic/079 at 2026-11-19 06:50:53
-[  474.719724] run fstests generic/080 at 2026-11-19 06:50:54
-[  477.509049] run fstests generic/081 at 2026-11-19 06:50:57
-[  478.317729] run fstests generic/082 at 2026-11-19 06:50:58
-[  478.891133] run fstests generic/084 at 2026-11-19 06:50:58
-[  479.469490] run fstests generic/086 at 2026-11-19 06:50:59
-[  480.049636] run fstests generic/087 at 2026-11-19 06:50:59
-[  480.692613] run fstests generic/088 at 2026-11-19 06:51:00
-[  481.305307] run fstests generic/090 at 2026-11-19 06:51:01
-[  481.890654] run fstests generic/091 at 2026-11-19 06:51:01
+[  497.342170] sd 1:0:0:0: [sda] Preferred minimum I/O size 512 bytes
+[  497.342173] sd 1:0:0:0: [sda] Optimal transfer size 524288 bytes
+[  497.351606] sd 1:0:0:0: [sda] Attached SCSI disk
+[  498.027763] sd 1:0:0:0: [sda] Synchronizing SCSI cache
+[  498.525064] run fstests generic/110 at 2026-11-19 06:51:18
+[  499.129078] run fstests generic/111 at 2026-11-19 06:51:18
+[  499.701608] run fstests generic/112 at 2026-11-19 06:51:19
+[  501.699395] run fstests generic/113 at 2026-11-19 06:51:21
+[  513.409875] run fstests generic/114 at 2026-11-19 06:51:33
+[  513.988891] run fstests generic/115 at 2026-11-19 06:51:33
+[  514.577521] run fstests generic/116 at 2026-11-19 06:51:34
+[  515.157388] run fstests generic/117 at 2026-11-19 06:51:34
+[  515.729708] run fstests generic/118 at 2026-11-19 06:51:35
+[  516.314440] run fstests generic/119 at 2026-11-19 06:51:36
+[  516.904397] run fstests generic/120 at 2026-11-19 06:51:36
 --- fuse/dm
-1
+2
 No devices found

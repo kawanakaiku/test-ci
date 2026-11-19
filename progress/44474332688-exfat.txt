@@ -1,14 +1,10 @@
-06:59:30
-exfat generic/451 353/652 746s
-Mem:           15983         964       14965          48         379       15018
+07:00:01
+exfat generic/458 358/652 779s
+Mem:           15983         948       14935          48         425       15034
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 06:59:30 up 18 min,  0 users,  load average: 1.39, 1.36, 1.03
+ 07:00:01 up 19 min,  0 users,  load average: 1.95, 1.50, 1.09
 --- dmesg
-[ 1116.175825] Buffer I/O error on dev dm-0, logical block 538, lost async page write
-[ 1116.175838] Buffer I/O error on dev dm-0, logical block 539, lost async page write
-[ 1116.175851] Buffer I/O error on dev dm-0, logical block 540, lost async page write
-[ 1116.175863] Buffer I/O error on dev dm-0, logical block 541, lost async page write
 [ 1116.175876] Buffer I/O error on dev dm-0, logical block 542, lost async page write
 [ 1116.175889] Buffer I/O error on dev dm-0, logical block 543, lost async page write
 [ 1116.191028] workqueue: drm_fb_helper_damage_work hogged CPU for >10000us 11 times, consider switching to WQ_UNBOUND
@@ -20,6 +16,10 @@ Mem:           15983         964       14965          48         379       15018
 [ 1119.780585] run fstests generic/449 at 2026-11-19 06:59:27
 [ 1120.362662] run fstests generic/450 at 2026-11-19 06:59:28
 [ 1121.005189] run fstests generic/451 at 2026-11-19 06:59:28
+[ 1151.711722] run fstests generic/452 at 2026-11-19 06:59:59
+[ 1152.448726] run fstests generic/453 at 2026-11-19 07:00:00
+[ 1153.063615] run fstests generic/454 at 2026-11-19 07:00:00
+[ 1153.705940] run fstests generic/456 at 2026-11-19 07:00:01
 --- fuse/dm
-1
+0
 No devices found

@@ -1,25 +1,25 @@
-06:52:53
-fat generic/090 67/652 186s
-Mem:           15700        1047       11040          48        4007       14653
+06:53:23
+fat generic/113 86/652 212s
+Mem:           15700        1616        9197          48        5294       14084
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 06:52:53 up 16 min,  0 users,  load average: 1.24, 1.13, 0.58
+ 06:53:23 up 16 min,  0 users,  load average: 1.26, 1.15, 0.61
 --- dmesg
-[  966.102609] run fstests generic/070 at 2026-11-19 06:52:31
-[  966.712301] run fstests generic/071 at 2026-11-19 06:52:32
-[  967.306060] run fstests generic/073 at 2026-11-19 06:52:32
-[  968.083030] run fstests generic/075 at 2026-11-19 06:52:33
-[  976.774038] run fstests generic/076 at 2026-11-19 06:52:42
-[  979.897342] run fstests generic/078 at 2026-11-19 06:52:45
-[  980.445150] run fstests generic/079 at 2026-11-19 06:52:46
-[  981.090051] run fstests generic/080 at 2026-11-19 06:52:46
-[  983.699891] run fstests generic/081 at 2026-11-19 06:52:49
-[  984.318859] run fstests generic/082 at 2026-11-19 06:52:49
-[  984.881839] run fstests generic/084 at 2026-11-19 06:52:50
-[  985.478953] run fstests generic/086 at 2026-11-19 06:52:51
-[  986.097420] run fstests generic/087 at 2026-11-19 06:52:51
-[  986.726963] run fstests generic/088 at 2026-11-19 06:52:52
-[  987.320067] run fstests generic/090 at 2026-11-19 06:52:52
+[ 1003.748398] scsi 0:0:0:0: Power-on or device reset occurred
+[ 1003.748588] sd 0:0:0:0: [sda] 614400 512-byte logical blocks: (315 MB/300 MiB)
+[ 1003.748599] sd 0:0:0:0: Attached scsi generic sg0 type 0
+[ 1003.748622] sd 0:0:0:0: [sda] Write Protect is off
+[ 1003.748625] sd 0:0:0:0: [sda] Mode Sense: 73 00 10 08
+[ 1003.748633] sd 0:0:0:0: [sda] Write cache: enabled, read cache: enabled, supports DPO and FUA
+[ 1003.748659] sd 0:0:0:0: [sda] permanent stream count = 5
+[ 1003.748669] sd 0:0:0:0: [sda] Preferred minimum I/O size 512 bytes
+[ 1003.748672] sd 0:0:0:0: [sda] Optimal transfer size 524288 bytes
+[ 1003.763038] sd 0:0:0:0: [sda] Attached SCSI disk
+[ 1004.069132] sd 0:0:0:0: [sda] Synchronizing SCSI cache
+[ 1004.616570] run fstests generic/110 at 2026-11-19 06:53:10
+[ 1005.213836] run fstests generic/111 at 2026-11-19 06:53:10
+[ 1005.784254] run fstests generic/112 at 2026-11-19 06:53:11
+[ 1013.520744] run fstests generic/113 at 2026-11-19 06:53:19
 --- fuse/dm
 1
 cow-root	(252:0)

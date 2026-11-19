@@ -72,7 +72,15 @@ def load_expected(fsname):
     return {k: v for k, v in out.items() if not k.startswith("_")}
 
 
-def mk_one(fsname, p, size):
+def mk_one(fsname, p, size, loop_dev=None):
+    """イメージを作り直して mkfs する。loop_dev があるときは、ループデバイスを付けたまま (ファイルを作り直すとループが古い inode を指す) ブロックデバイスを丸ごと破棄 (穴あけ) して、デバイスに mkfs する。"""
+    if loop_dev:
+        r = sh(["blkdiscard", "-f", loop_dev])
+        if r.returncode != 0:
+            r = sh(["blkdiscard", "-f", "-z", loop_dev])   # 穴あけが使えない (バッキングが疎でない) ときはゼロ書き込み
+            if r.returncode != 0:
+                return r
+        return sh(FS[fsname]["mkfs"] + [loop_dev])
     if os.path.exists(p):
         os.unlink(p)
     with open(p, "wb") as f:
@@ -80,15 +88,26 @@ def mk_one(fsname, p, size):
     return sh(FS[fsname]["mkfs"] + [p])
 
 
-def mk_images(fsname, work, size):
-    imgs = {}
+def mk_images(fsname, work, size, loop=False):
+    """TEST / SCRATCH のイメージ。loop=True なら、ファイルにループデバイスを付けて、そのデバイス (/dev/loopN) を返す (fstests の _require_block_device / dm-flakey などを満たすため)。"""
+    imgs, loops = {}, {}
     for role in ("test", "scratch"):
         p = os.path.join(work, role + ".img")
-        r = mk_one(fsname, p, size)
+        if os.path.exists(p):
+            os.unlink(p)
+        with open(p, "wb") as f:
+            f.truncate(size)
+        if loop:
+            r = sh(["losetup", "-f", "--show", p])
+            if r.returncode != 0:
+                sys.exit("losetup failed for %s: %s" % (p, r.stdout))
+            loops[role] = imgs[role] = r.stdout.strip()
+        else:
+            imgs[role] = p
+        r = mk_one(fsname, p, size, loops.get(role)) if loop else sh(FS[fsname]["mkfs"] + [p])
         if r.returncode != 0:
-            sys.exit("mkfs failed for %s: %s" % (p, r.stdout))
-        imgs[role] = p
-    return imgs
+            sys.exit("mkfs failed for %s: %s" % (imgs[role], r.stdout))
+    return imgs, loops
 
 
 def group_tests(fstests, group):
@@ -115,6 +134,8 @@ def umount_all(dirs):
     for d in dirs:
         sh(["umount", "-l", d])
     sh(["pkill", "-9", "-f", "usbmem_fuse"])
+    # dm-flakey などのテスト用デバイスが残っていると、ループデバイスへの mkfs (排他 open) が失敗する
+    sh("dmsetup ls 2>/dev/null | awk '{print $1}' | xargs -r -n1 dmsetup remove -f", shell=True)
 
 
 def read_tail(path, n=40):
@@ -139,6 +160,7 @@ def main():
     ap.add_argument("--size", default="", help="イメージの大きさ。既定は 1G、疎ファイルを持てない FAT / exFAT は 6G (fsstress の穴のあるファイルが実際に領域を食うため。generic/013 で ENOSPC になる)")
     ap.add_argument("--mount-opts", default="allow_other,default_permissions", help="usbmem_fuse の -o (quiet_setattr など)")
     ap.add_argument("--no-remkfs", action="store_true", help="テストごとにイメージを作り直さない (既定は作り直す。FSTYP=fuse の fstests は mkfs をしないので、前のテストの残りや破損が次へ持ち越される)")
+    ap.add_argument("--loop", action="store_true", help="TEST_DEV / SCRATCH_DEV をループデバイスにする (イメージファイルに losetup)。fstests の _require_block_device / dm-flakey / dm-error を使うテストが notrun でなくなる。既定はイメージファイルそのもの")
     ap.add_argument("--max-seconds", type=int, default=0, help="全体の上限 (0 = 無制限)。超えたら残りは skipped-by-budget")
     a = ap.parse_args()
 
@@ -150,7 +172,7 @@ def main():
     test_mnt, scratch_mnt = os.path.join(a.work, "mnt_test"), os.path.join(a.work, "mnt_scratch")
     os.makedirs(test_mnt, exist_ok=True)
     os.makedirs(scratch_mnt, exist_ok=True)
-    imgs = mk_images(a.fs, a.work, size)
+    imgs, loops = mk_images(a.fs, a.work, size, a.loop)
 
     fsck_log = os.path.join(a.out, "fsck.log")
     fuse_log = os.path.join(a.out, "usbmem_fuse.log")
@@ -194,7 +216,7 @@ def main():
         shutil.rmtree(results_dir, ignore_errors=True)
         if not a.no_remkfs and i > 0:
             for role in ("test", "scratch"):
-                r = mk_one(a.fs, imgs[role], size)
+                r = mk_one(a.fs, imgs[role], size, loops.get(role))
                 if r.returncode != 0:
                     print("remkfs failed %s: %s" % (role, r.stdout[:300]), flush=True)
         fsck_before = len(read_tail(fsck_log, 100000).splitlines())
@@ -312,6 +334,8 @@ def main():
     open(os.path.join(a.out, "summary.md"), "w").write("\n".join(lines) + "\n")
     print("\n".join(lines))
     umount_all([test_mnt, scratch_mnt])
+    for dev in loops.values():
+        sh(["losetup", "-d", dev])
 
 
 if __name__ == "__main__":

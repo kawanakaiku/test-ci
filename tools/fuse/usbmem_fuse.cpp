@@ -15,7 +15,7 @@
 // core が持たない操作は、そのとおりに返す (対応しているふりをしない):
 //   - chmod / chown / utimes (setattr の mode / uid / gid / atime / mtime): core に API が無い。既定は EOPNOTSUPP。
 //     ただし要求が「今の値と同じ」なら成功する。-o quiet_setattr を付けると、FAT の quiet マウントと同じく黙って成功させる (値は変わらない。近似)。
-//   - xattr / ACL / fallocate / ioctl / lseek(SEEK_DATA/HOLE) / copy_file_range / mknod (通常ファイル以外) / rename の EXCHANGE・WHITEOUT: 未対応 (ENOSYS / EOPNOTSUPP)。
+//   - xattr の設定 / ACL / fallocate / ioctl / lseek(SEEK_DATA/HOLE) / copy_file_range / mknod (通常ファイル以外) / rename の EXCHANGE・WHITEOUT: 未対応 (ENOSYS / EOPNOTSUPP)。
 //   - statfs: core に空き容量の API が無い。総容量 = イメージのサイズ、空き = 総容量の 95% からツリーのファイル大きさの合計を引いた見積もり (疎ファイル・メタデータは見ない近似)。
 //   - 所有者・時刻: core は mode / nlink / size / mtime だけ返す。uid / gid は固定、atime / ctime は mtime と同じ。
 // アダプター側の補完 (core の機能ではない): 開いたまま unlink / rename で上書きされたファイルを、最後に閉じるまで隠し名 (.usbmem_hidden_N) で残す (libfuse の hard_remove 無し相当)。
@@ -724,6 +724,14 @@ void op_access(fuse_req_t req, fuse_ino_t, int) { fuse_reply_err(req, 0); }   //
 
 void op_fallocate(fuse_req_t req, fuse_ino_t, int, off_t, off_t, struct fuse_file_info*) { fuse_reply_err(req, EOPNOTSUPP); }
 
+// xattr: core に無いので「どのファイルも xattr を持たない」と正直に答える (一覧は空、取得は ENODATA)。設定 / 削除は未登録のまま (ENOSYS → カーネルが EOPNOTSUPP)。
+// 登録しないと listxattr / getxattr も EOPNOTSUPP になり、fssum (generic/547, 785) のように「xattr が無い FS」でも一覧を読もうとするツールが失敗する。
+void op_listxattr(fuse_req_t req, fuse_ino_t, size_t size) {
+  if (size == 0) fuse_reply_xattr(req, 0);
+  else fuse_reply_buf(req, "", 0);
+}
+void op_getxattr(fuse_req_t req, fuse_ino_t, const char*, size_t) { fuse_reply_err(req, ENODATA); }
+
 // ---- マウント
 std::unique_ptr<FsVolume> mount_volume(BlockDevicePtr dev, const std::string& type, bool rw, int* err, std::string* why) {
   *err = 0;
@@ -829,6 +837,9 @@ int main(int argc, char** argv) {
   if (pos.size() != 2) { usage(); return 2; }
   char rp[PATH_MAX];
   c.image = realpath(pos[0].c_str(), rp) ? rp : pos[0];
+  // mount の送り元 (fsname) は、絶対パスなら指定されたままにする。/dev/mapper/NAME (dm-flakey など) を realpath すると /dev/dm-0 になり、
+  // fstests の `umount $SCRATCH_DEV` (= /dev/mapper/NAME) が FUSE のマウントと一致せず "not mounted" になる。
+  std::string fsname_arg = !pos[0].empty() && pos[0][0] == '/' ? pos[0] : c.image;
   std::string mnt = realpath(pos[1].c_str(), rp) ? rp : pos[1];
   g.trace = getenv("USBMEM_FUSE_TRACE") && *getenv("USBMEM_FUSE_TRACE") == '1';
 
@@ -912,7 +923,7 @@ int main(int argc, char** argv) {
   }
   g.root = g.vol->root();
 
-  std::string fsname = c.image;
+  std::string fsname = fsname_arg;
   bool has_fsname = false;
   for (auto& o : fuse_opts) if (o.compare(0, 7, "fsname=") == 0) has_fsname = true;
   if (!has_fsname) fuse_opts.push_back("fsname=" + fsname);
@@ -958,6 +969,8 @@ int main(int argc, char** argv) {
   ops.access = op_access;
   ops.create = op_create;
   ops.fallocate = op_fallocate;
+  ops.listxattr = op_listxattr;
+  ops.getxattr = op_getxattr;
 
   struct fuse_session* se = fuse_session_new(&args, &ops, sizeof ops, nullptr);
   if (!se) return die("fuse_session_new failed");

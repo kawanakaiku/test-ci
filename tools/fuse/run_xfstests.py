@@ -25,7 +25,7 @@ FS = {
     "ext2": dict(mkfs=["mkfs.ext2", "-q", "-F", "-b", "4096"], fsck='e2fsck -fn "$1"'),
     "fat": dict(mkfs=["mkfs.fat", "-F", "32", "-s", "8"], fsck='fsck.fat -n "$1"'),
     "exfat": dict(mkfs=["mkfs.exfat"], fsck='fsck.exfat -n "$1"'),
-    "ntfs": dict(mkfs=["mkntfs", "-F", "-Q", "-q"], fsck=None),
+    "ntfs": dict(mkfs=["mkntfs", "-F", "-Q", "-q"], fsck='sh "%s/fsck_ntfs.sh" "$1"' % HERE),   # ntfsfix -n + ntfs-3g.probe + 自前の fscheck (tools/fuse/fsck_ntfs.sh)
     "xfs": dict(mkfs=["mkfs.xfs", "-q", "-f", "-m", "rmapbt=0", "-n", "parent=0"], fsck='xfs_repair -n "$1"'),
     "btrfs": dict(mkfs=["mkfs.btrfs", "-q", "-f"], fsck='btrfs check --readonly "$1"'),
     "f2fs": dict(mkfs=["mkfs.f2fs", "-q", "-f"], fsck='fsck.f2fs --dry-run -f "$1"'),
@@ -39,17 +39,17 @@ def sh(cmd, **kw):
 # notrun の理由 → 分類 (正規表現は小文字化した理由に当てる)。
 #   saf_unusable   : SAF (Android の Storage Access Framework) 経由では使えない操作 (シンボリックリンク / ハードリンク / fallocate / 開いたままの ftruncate / 直接 I/O など)。core が対応しても
 #                    アプリからは届かないので、対応を急がない
-#   core_unsupported: 自前実装 (core の FS API) に無い操作 (権限・所有者・ACL・xattr・時刻の細かい制御・クォータ・SEEK_DATA / HOLE など)。FUSE アダプターは正直に ENOSYS / EOPNOTSUPP を返す
+#   core_unsupported: 自前実装 (core の FS API) に無い操作 (権限・所有者・ACL・xattr・時刻の細かい制御・クォータ・SEEK_DATA / HOLE・FAT / exFAT / NTFS のハードリンクとシンボリックリンクなど)。FUSE アダプターは正直に ENOSYS / EOPNOTSUPP を返す
 #   environment    : 前提 (実デバイス・別のデバイス・カーネルの機能・ツール) が FUSE / この runner に無い
 NOTRUN_RULES = [
     # fstests の環境・前提の都合 (ブロックデバイスが要る / ツールが無い / カーネルの機能)。自前実装とは関係ない
     ("environment", r"valid block disk|local device|not installed|utility required|does not support shutdown|does not support freezing|logwrites|logdev|scratch device|device too small|scratch_mkfs_sized|"
                     r"dax|fitrim|fstrim|kernel doesn't support|logical block size|sector size|extsize|delayed allocation|huge file|free on|fcntl setdeleg|write atomic|"
-                    r"xfs_io (fzero|label|shutdown)|creation time not supported"),
+                    r"xfs_io (fzero|fwzero|label|shutdown)|creation time not supported|atomic writes|xfs_io pwrite .* -u"),
     # SAF (Android のストレージアクセスフレームワーク) では使えない操作 / FUSE ではカーネルに任せられない操作
     ("saf_unusable", r"reflink|dedupe|falloc|fpunch|punch|fcollapse|finsert|exchange|swap|mknod|mkfifo|fifo|o_tmpfile|dio alignment|startupdate|defragmentation|renameat"),
     # core が持っていない機能 (権限・所有者・時刻の細部・xattr・ACL・暗号・クォータ・chattr 系・疎ファイルの探索)
-    ("core_unsupported", r"chmod|chown|attr namespace|acl|encryption|casefold|quota|chattr|lsattr|sparse|fiemap|timestamp|verity|idmapped|project|inlinecrypt|unrestricted byte streams|sector size"),
+    ("core_unsupported", r"no hardlink support|require symlinks support|chmod|chown|attr namespace|acl|encryption|casefold|quota|chattr|lsattr|sparse|fiemap|timestamp|verity|idmapped|project|inlinecrypt|unrestricted byte streams|sector size"),
 ]
 
 
@@ -72,7 +72,15 @@ def load_expected(fsname):
     return {k: v for k, v in out.items() if not k.startswith("_")}
 
 
-def mk_one(fsname, p, size):
+def mk_one(fsname, p, size, loop_dev=None):
+    """イメージを作り直して mkfs する。loop_dev があるときは、ループデバイスを付けたまま (ファイルを作り直すとループが古い inode を指す) ブロックデバイスを丸ごと破棄 (穴あけ) して、デバイスに mkfs する。"""
+    if loop_dev:
+        r = sh(["blkdiscard", "-f", loop_dev])
+        if r.returncode != 0:
+            r = sh(["blkdiscard", "-f", "-z", loop_dev])   # 穴あけが使えない (バッキングが疎でない) ときはゼロ書き込み
+            if r.returncode != 0:
+                return r
+        return sh(FS[fsname]["mkfs"] + [loop_dev])
     if os.path.exists(p):
         os.unlink(p)
     with open(p, "wb") as f:
@@ -80,15 +88,26 @@ def mk_one(fsname, p, size):
     return sh(FS[fsname]["mkfs"] + [p])
 
 
-def mk_images(fsname, work, size):
-    imgs = {}
+def mk_images(fsname, work, size, loop=False):
+    """TEST / SCRATCH のイメージ。loop=True なら、ファイルにループデバイスを付けて、そのデバイス (/dev/loopN) を返す (fstests の _require_block_device / dm-flakey などを満たすため)。"""
+    imgs, loops = {}, {}
     for role in ("test", "scratch"):
         p = os.path.join(work, role + ".img")
-        r = mk_one(fsname, p, size)
+        if os.path.exists(p):
+            os.unlink(p)
+        with open(p, "wb") as f:
+            f.truncate(size)
+        if loop:
+            r = sh(["losetup", "-f", "--show", p])
+            if r.returncode != 0:
+                sys.exit("losetup failed for %s: %s" % (p, r.stdout))
+            loops[role] = imgs[role] = r.stdout.strip()
+        else:
+            imgs[role] = p
+        r = mk_one(fsname, p, size, loops.get(role)) if loop else sh(FS[fsname]["mkfs"] + [p])
         if r.returncode != 0:
-            sys.exit("mkfs failed for %s: %s" % (p, r.stdout))
-        imgs[role] = p
-    return imgs
+            sys.exit("mkfs failed for %s: %s" % (imgs[role], r.stdout))
+    return imgs, loops
 
 
 def group_tests(fstests, group):
@@ -115,6 +134,8 @@ def umount_all(dirs):
     for d in dirs:
         sh(["umount", "-l", d])
     sh(["pkill", "-9", "-f", "usbmem_fuse"])
+    # dm-flakey などのテスト用デバイスが残っていると、ループデバイスへの mkfs (排他 open) が失敗する
+    sh("dmsetup ls 2>/dev/null | awk '{print $1}' | xargs -r -n1 dmsetup remove -f", shell=True)
 
 
 def read_tail(path, n=40):
@@ -139,6 +160,7 @@ def main():
     ap.add_argument("--size", default="", help="イメージの大きさ。既定は 1G、疎ファイルを持てない FAT / exFAT は 6G (fsstress の穴のあるファイルが実際に領域を食うため。generic/013 で ENOSPC になる)")
     ap.add_argument("--mount-opts", default="allow_other,default_permissions", help="usbmem_fuse の -o (quiet_setattr など)")
     ap.add_argument("--no-remkfs", action="store_true", help="テストごとにイメージを作り直さない (既定は作り直す。FSTYP=fuse の fstests は mkfs をしないので、前のテストの残りや破損が次へ持ち越される)")
+    ap.add_argument("--loop", action="store_true", help="TEST_DEV / SCRATCH_DEV をループデバイスにする (イメージファイルに losetup)。fstests の _require_block_device / dm-flakey / dm-error を使うテストが notrun でなくなる。既定はイメージファイルそのもの")
     ap.add_argument("--max-seconds", type=int, default=0, help="全体の上限 (0 = 無制限)。超えたら残りは skipped-by-budget")
     a = ap.parse_args()
 
@@ -150,7 +172,7 @@ def main():
     test_mnt, scratch_mnt = os.path.join(a.work, "mnt_test"), os.path.join(a.work, "mnt_scratch")
     os.makedirs(test_mnt, exist_ok=True)
     os.makedirs(scratch_mnt, exist_ok=True)
-    imgs = mk_images(a.fs, a.work, size)
+    imgs, loops = mk_images(a.fs, a.work, size, a.loop)
 
     fsck_log = os.path.join(a.out, "fsck.log")
     fuse_log = os.path.join(a.out, "usbmem_fuse.log")
@@ -166,13 +188,24 @@ def main():
             f.write("USBMEM_FUSE_TRACE=1\n")
     shutil.copy(os.path.join(HERE, "mount.fuse.usbmem"), "/sbin/mount.fuse.usbmem")
     os.chmod("/sbin/mount.fuse.usbmem", 0o755)
-
     mopts = "-o fstype=%s,%s" % (a.fs, a.mount_opts) if a.mount_opts else "-o fstype=%s" % a.fs
+    if a.loop:
+        # `mount -t fuse` (サブタイプなし) で mount する fstests (dm-error を使うもの / 同じデバイスを二重に mount するもの) のため、fuse3 の mount.fuse (デバイスをコマンドとして実行しようとする) を差し替える
+        if os.path.exists("/sbin/mount.fuse") and not os.path.exists("/sbin/mount.fuse.orig"):
+            shutil.copy("/sbin/mount.fuse", "/sbin/mount.fuse.orig")
+        shutil.copy(os.path.join(HERE, "mount.fuse.usbmem"), "/sbin/mount.fuse")
+        os.chmod("/sbin/mount.fuse", 0o755)
+        with open("/etc/usbmem_fuse.env", "a") as f:
+            f.write("USBMEM_FUSE_DEFAULT_OPTS=fstype=%s%s\n" % (a.fs, "," + a.mount_opts if a.mount_opts else ""))
     with open(os.path.join(a.fstests, "local.config"), "w") as f:
         f.write("export FSTYP=fuse\nexport FUSE_SUBTYP=.usbmem\n")
         f.write("export TEST_DEV=%s\nexport TEST_DIR=%s\n" % (imgs["test"], test_mnt))
         f.write("export SCRATCH_DEV=%s\nexport SCRATCH_MNT=%s\n" % (imgs["scratch"], scratch_mnt))
         f.write('export TEST_FS_MOUNT_OPTS="%s"\nexport MOUNT_OPTIONS="%s"\n' % (mopts, mopts))
+        if a.loop:
+            # SCRATCH_DEV がブロックデバイスだと、check がテストごとに `wipefs -a $SCRATCH_DEV` する (_try_wipe_scratch_devs)。FSTYP=fuse では _scratch_mkfs が何もしない
+            # (作り直せない) ので、シグネチャが消えたまま SCRATCH のマウントが失敗する。ドライバーが各テストの前に mkfs し直しているので、wipefs は何もしないものに差し替える。
+            f.write("export WIPEFS_PROG=/bin/true\n")
 
     if a.tests:
         tests = [t.strip() for t in a.tests.split(",") if t.strip()]
@@ -183,6 +216,7 @@ def main():
     print("fs=%s tests=%d" % (a.fs, len(tests)), flush=True)
 
     results = {}
+    expected = load_expected(a.fs)
     t_start = time.time()
     results_dir = os.path.join(a.fstests, "results")
     env = dict(os.environ)
@@ -194,11 +228,13 @@ def main():
         shutil.rmtree(results_dir, ignore_errors=True)
         if not a.no_remkfs and i > 0:
             for role in ("test", "scratch"):
-                r = mk_one(a.fs, imgs[role], size)
+                r = mk_one(a.fs, imgs[role], size, loops.get(role))
                 if r.returncode != 0:
                     print("remkfs failed %s: %s" % (role, r.stdout[:300]), flush=True)
         fsck_before = len(read_tail(fsck_log, 100000).splitlines())
         t0 = time.time()
+        with open(os.path.join(a.out, "current.txt"), "w") as cf:   # 実行中のテスト (CI の進捗の送信 tools/ci/push_progress.sh が読む。ランナーごと落ちたときに、どのテストだったかを残す)
+            cf.write("%s %s %d/%d %.0fs\n" % (a.fs, t, i + 1, len(tests), t0 - t_start))
         proc = subprocess.Popen(["./check", t], cwd=a.fstests, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
         try:
             out, _ = proc.communicate(timeout=a.timeout)
@@ -260,7 +296,9 @@ def main():
         # アンマウント時の fsck の失敗 (テストが pass でも記録する)
         newlog = read_tail(fsck_log, 100000).splitlines()[fsck_before:]
         if newlog:
-            r["fsck_fail"] = len(newlog)
+            # テストが SCRATCH を作り直す / LVM に載せるなどで壊す (期待リストの "fsck_ignore") ものは、fsck の失敗を数えない
+            # タイムアウトで止めた (hang) テストは、デーモンを強制終了したイメージ (FAT のダーティビットなど) なので fsck の失敗は想定内
+            r["fsck_fail_ignored" if expected.get(t, {}).get("fsck_ignore") or r.get("status") == "hang" else "fsck_fail"] = len(newlog)
         results[t] = r
         # 状態をリセット (マウントが残っていたら外す)
         for d in (test_mnt, scratch_mnt):
@@ -270,7 +308,8 @@ def main():
                     sh(["umount", "-l", d])
         if (i + 1) % 25 == 0:
             print("[%d/%d] %.0fs" % (i + 1, len(tests), time.time() - t_start), flush=True)
-            json.dump(results, open(os.path.join(a.out, "results.json"), "w"), indent=1, ensure_ascii=False)
+        # 途中で打ち切られても (ステップの timeout) 結果を残す
+        json.dump(results, open(os.path.join(a.out, "results.json"), "w"), indent=1, ensure_ascii=False)
 
     cnt = {}
     for r in results.values():
@@ -278,7 +317,6 @@ def main():
     fsck_fails = sum(1 for r in results.values() if r.get("fsck_fail"))
     lines = ["# xfstests on usbmem_fuse: fs=%s" % a.fs, "",
              "total %d: %s; tests with fsck failure after unmount: %d" % (len(results), ", ".join("%s=%d" % kv for kv in sorted(cnt.items())), fsck_fails), ""]
-    expected = load_expected(a.fs)
     for st in ("fail", "hang"):
         names = [t for t, r in results.items() if r["status"] == st]
         if names:
@@ -290,9 +328,12 @@ def main():
             for cat in sorted({expected[t]["cat"] for t in exp}):
                 lines += ["expected (%s): " % cat + " ".join(t for t in exp if expected[t]["cat"] == cat)]
             lines += [""]
-    fixed = [t for t, r in results.items() if r["status"] == "pass" and t in expected]
+    fixed = [t for t, r in results.items() if r["status"] == "pass" and t in expected and not expected[t].get("fsck_ignore")]
     if fixed:
         lines += ["## expected-failure list entries that now pass (%d)" % len(fixed), " ".join(fixed), ""]
+    fi = [t for t, r in results.items() if r.get("fsck_fail_ignored")]
+    if fi:
+        lines += ["## fsck failed after unmount, expected (%d): the test destroys the device, or was killed on timeout (fsck_ignore / hang)" % len(fi), " ".join(fi), ""]
     ff = [t for t, r in results.items() if r.get("fsck_fail")]
     if ff:
         lines += ["## fsck failed after unmount (%d)" % len(ff), " ".join(ff), ""]
@@ -312,6 +353,8 @@ def main():
     open(os.path.join(a.out, "summary.md"), "w").write("\n".join(lines) + "\n")
     print("\n".join(lines))
     umount_all([test_mnt, scratch_mnt])
+    for dev in loops.values():
+        sh(["losetup", "-d", dev])
 
 
 if __name__ == "__main__":

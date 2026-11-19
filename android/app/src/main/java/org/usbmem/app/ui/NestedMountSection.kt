@@ -141,7 +141,7 @@ fun NestedMountSection(a: NestedActions, modifier: Modifier = Modifier) {
     ask?.let { q ->
         ConfirmDialog(
             title = stringResource(R.string.noload_dialog_title),
-            text = stringResource(R.string.noload_dialog_text),
+            text = noloadDialogText(fsNameOfRange(pick?.table, q.start, q.size)),
             confirmLabel = stringResource(R.string.noload_dialog_confirm),
             onConfirm = { ask = null; pick?.let { mount(it, q.start, q.size, q.label, true) } },
             onDismiss = { ask = null },

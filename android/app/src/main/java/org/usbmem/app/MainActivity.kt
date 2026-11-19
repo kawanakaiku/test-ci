@@ -11,6 +11,7 @@ import org.usbmem.app.ui.AppModel
 import org.usbmem.app.ui.AppScaffold
 import org.usbmem.app.ui.AppTheme
 import org.usbmem.app.ui.CryptoNoloadPrompt
+import org.usbmem.app.ui.fsNameOfRange
 import org.usbmem.app.ui.CryptoProbeResult
 import org.usbmem.app.ui.CryptoUnlockResult
 import org.usbmem.app.ui.CryptoVolumeRow
@@ -378,7 +379,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
                 if (st != null) {
                     st.busy = null
                     if (p != null && st.open) st.published = st.published.filter { it.volumeKey != p.volumeKey } + p
-                    st.notice = n; st.noloadPrompt = np
+                    st.notice = n; st.noloadPrompt = np?.let { it.copy(fsName = fsNameOfRange(st.table, it.startBytes, it.sizeBytes)) }   // 確認の文言を、検出した FS のものだけにする
                     if (pd != null && st.open) st.dirtyPrompt = pd   // 抜かれて閉じられていたら出さない (保留しているものは何も無い)
                 }
             }
@@ -659,6 +660,12 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     /** ダーティフラグだけの NTFS の確認のあと、書き込み可で開く (ダーティフラグを承知のうえ)。読み取り専用で開くほうは [shareImage] (writable = false)。 */
     override fun shareImageDirty(uri: Uri): ImageResult = shareImage(uri, writable = true, allowNoload = false, allowDirty = true)
 
+    /** 確認ダイアログの文言用に、イメージ全体 (パーティションを持たないイメージ) の FS 名を調べる ("ext4" など)。調べられなければ null。何も書かない。 */
+    private fun imageFsName(uri: Uri): String? = try {
+        if (VolumeRegistry.ownDocument(uri) != null) null
+        else contentResolver.openFileDescriptor(uri, "r")?.let { RawImage.openReadOnly(it.detachFd()).use { img -> img.partitionTable().let { t -> fsNameOfRange(t, 0, t.diskBytes) } } }
+    } catch (_: Exception) { null }
+
     private fun shareImage(uri: Uri, writable: Boolean, allowNoload: Boolean, allowDirty: Boolean): ImageResult = try {
         val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or (if (writable) android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
         if (VolumeRegistry.ownDocument(uri) == null) try { contentResolver.takePersistableUriPermission(uri, flags) } catch (_: RuntimeException) { }   // 永続の許可が取れない URI (file:// など) はそのまま開く
@@ -675,8 +682,9 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         // ダーティフラグだけの NTFS に書き込み可を要求した: core は何も書かずに保留し、ボリュームは閉じてある (何も公開していない)。確認のダイアログを出す
         ImageResult(dirtyUri = uri, dirtyName = UriNames.displayName(this, uri))
     } catch (e: NativeException) {
-        ImageResult(notice = fsRefusalNotice(e) ?: Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.message), noloadUri = if (e.code == 117 && !allowNoload) uri else null,
-            noloadName = if (e.code == 117 && !allowNoload) UriNames.displayName(this, uri) else null)
+        val ask = e.code == 117 && !allowNoload
+        ImageResult(notice = fsRefusalNotice(e) ?: Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.message), noloadUri = if (ask) uri else null,
+            noloadName = if (ask) UriNames.displayName(this, uri) else null, noloadFs = if (ask) imageFsName(uri) else null)
     } catch (e: Exception) {
         ImageResult(notice = Notice(Severity.Error, getString(R.string.notice_ntfs_open_failed), e.javaClass.simpleName))
     }

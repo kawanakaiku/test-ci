@@ -476,5 +476,12 @@ GitHub Actions `crypt-write.yml` (usbmem-crypt-write、ubuntu-latest) run **4359
 
 - 項 2 (記憶が理由なしで消える): `SecretVault.supportState()` (`VaultSupport`: Supported / OsTooOld / NoCredential / Unavailable) を足し (`isSupported()` はこれの `== Supported`)、本番の判定 (`VaultProvider.supportState`) は API 30 未満 → OsTooOld、`BIOMETRIC_ERROR_NONE_ENROLLED` → NoCredential、そのほか → Unavailable。解錠ダイアログのパスワード欄の下に、小さい文字で「この端末では画面ロックまたは生体認証が未設定のため、パスワードを記憶できません。」(OsTooOld は「Android 11 未満のため」、Unavailable は「生体認証 / 画面ロックが使えないため」)。AVD: 画面ロックなしで表示、`locksettings set-pin` のあとは消えて「記憶する」が出た。CI `vault_unsupportedDeviceShowsWhy` (偽の `support` で NoCredential / OsTooOld)。
 - 「記憶を削除」の確認: 「記憶を削除しますか？」/「このボリュームの記憶したパスワードを削除します。次回からパスワードの入力が必要です。」(削除 / キャンセル、対象名つき)。AVD: キャンセルで `usbmem_vault.xml` の項目は 1 件のまま、「削除」で 0 件になり、通常の入力 + 「記憶する」に戻った。CI `vault_rememberUnlockForget` に、キャンセルで残る・削除で消えるを足した。
-- 項 3 (保存の認証の取り消し)、項 1 (`USE_BIOMETRIC` の検査)、2 本目の指紋で鍵が無効化されない点は、引き続き未対応。
+- 項 3 (保存の認証の取り消し)、2 本目の指紋で鍵が無効化されない点は、引き続き未対応。項 1 (`USE_BIOMETRIC` の検査) は下の「権限漏れの検査 (2026-11-19)」で対応した。
 - CI: `usbmem-ci-only-crypt-ui` run 44423731717 で 12 件成功 (従来 10 件 + 横向き + 記憶不可の理由)。
+
+### 権限漏れの検査 (2026-11-19、項 1 への対応)
+
+`USE_BIOMETRIC` の漏れと同種のものを CI で検出する仕組みを足した (詳細は docs/ci.md「AndroidManifest の権限・機能・コンポーネントの検査」)。
+
+- **静的な検査** `tools/check_manifest_permissions.py` (Gradle・エミュレータ不要、`android-emulator.yml` の `manifest` ジョブと `build-apk.yml`): コードが使う API (`BiometricManager` / `BiometricPrompt` → `USE_BIOMETRIC`、`UsbManager` → `uses-feature usb.host`、フォアグラウンドサービス・通知・ネットワーク・外部ストレージなど) が要る権限・機能が `AndroidManifest.xml` に無ければ失敗する。余分な `uses-permission` と、マニフェストに無い Activity / Service / Receiver / Provider も失敗にする。`tools/test_check_manifest_permissions.py` が、`USE_BIOMETRIC` を消した実マニフェストが失敗すること (過去の漏れの再現) を含めて検査する。
+- **本物の経路の計装テスト** `VaultRealPathTest` (`ro-misc` の `app_misc`): 偽の vault を差さずに、`BiometricManager.canAuthenticate` が SecurityException を出さないこと、`VaultProvider.supportState()` が画面ロックなしの端末で `NoCredential` (例外・`Unavailable` ではない) になることを確かめる。`SecretVault.supportState()` は例外を `Unavailable` に丸めるので、試験は `VaultProvider.supportState(ctx)` を直接呼ぶ。

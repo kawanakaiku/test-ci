@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -24,7 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -46,6 +43,8 @@ data class ImageResult(
     val dirtyUri: Uri? = null,
     /** 確認ダイアログに出す、そのイメージのファイル名 ([dirtyUri] / [noloadUri] の分) */
     val dirtyName: String? = null, val noloadName: String? = null,
+    /** [noloadUri] のイメージの FS 名 ("ext4" など。分からなければ null): 確認の文言を、その FS のものだけにする */
+    val noloadFs: String? = null,
     /** 調べたイメージの URI (暗号ボリュームの解錠で、もう一度開くのに使う)。イメージ内のイメージ (ネスト) は null */
     val uri: Uri? = null,
 )
@@ -90,8 +89,6 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
     val appCtx = LocalContext.current
     var result by remember { mutableStateOf(ImageResult()) }
     var busy by remember { mutableStateOf(false) }
-    // 結果の通知はこの画面の下のほうに出るので、出たら見える所までスクロールする (長い警告を見落とさないように)
-    val noticeInView = remember { BringIntoViewRequester() }
     // ダーティフラグだけの NTFS に書き込み可を要求して、確認待ちのイメージ。何も保持しない (開き直すだけ) ので、画面の作り直し (回転) でも失わないよう保存する
     var dirtyUri by rememberSaveable { mutableStateOf<Uri?>(null) }
     var dirtyName by rememberSaveable { mutableStateOf<String?>(null) }
@@ -110,7 +107,6 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
         cryptoRows = withContext(Dispatchers.IO) { a.cryptoVolumes() }
         cryptoNoload = withContext(Dispatchers.IO) { a.pendingCryptoNoload() }.firstOrNull()
     }
-    LaunchedEffect(result.notice) { if (result.notice != null) { withFrameNanos { }; noticeInView.bringIntoView() } }
     // 公開中のイメージの一覧は、結果が変わるたび (共有・閉じる・解錠) に取り直す
     LaunchedEffect(result, busy) { if (!busy) imageRows = withContext(Dispatchers.IO) { a.imageVolumes() } }
     fun askUnlock(uri: Uri, p: org.usbmem.app.Partition, label: String) {
@@ -182,7 +178,7 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
         result.noloadUri?.let { u ->
             ConfirmDialog(
                 title = stringResource(R.string.noload_dialog_title),
-                text = stringResource(R.string.noload_dialog_text),
+                text = noloadDialogText(result.noloadFs),
                 confirmLabel = stringResource(R.string.noload_dialog_confirm),
                 onConfirm = { scope.launch { busy = true; result = withContext(Dispatchers.IO) { a.shareImageNoload(u) }; busy = false } },
                 onDismiss = { result = result.copy(noloadUri = null) },
@@ -242,7 +238,8 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
                 },
             )
         }
-        result.notice?.let { Banner(it, Modifier.testTag("image_notice").bringIntoViewRequester(noticeInView)) }
+        // 結果の通知はこの画面の下のほうに出るので、出たら見える所までスクロールする (長い警告を見落とさないように)
+        result.notice?.let { Banner(it, Modifier.testTag("image_notice"), scrollIntoView = true) }
         result.table?.let { t ->
             SectionCard(stringResource(R.string.common_partitions_title), subtitle = stringResource(R.string.common_partitions_subtitle, result.label ?: "image", t.kind.uppercase(), formatBytes(t.diskBytes), t.sectorSize)) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

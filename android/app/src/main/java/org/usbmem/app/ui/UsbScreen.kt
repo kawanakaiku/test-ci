@@ -79,7 +79,7 @@ interface UsbActions : LinkActions {
 fun UsbScreen(m: AppModel, a: UsbActions, modifier: Modifier = Modifier) {
     val anyOpen = m.usbDevices.any { it.open }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        m.usbNotice?.let { Banner(it) }
+        m.usbNotice?.let { Banner(it, Modifier.testTag("usb_notice"), scrollIntoView = true) }
 
         // ---- デバイス (1 本ごとのカード。カードのタイトルが、どのデバイスの操作かを示す)
         if (m.usbDevices.isEmpty()) {
@@ -171,7 +171,7 @@ private fun DeviceCard(d: UsbDeviceState, a: UsbActions, canRelease: Boolean = f
                 Text(d.busy ?: "", style = MaterialTheme.typography.bodySmall)
             }
         }
-        d.notice?.let { Banner(it) }
+        d.notice?.let { Banner(it, Modifier.testTag("usb_device_notice"), scrollIntoView = true) }
 
         val t = d.table
         if (d.open && t != null) {
@@ -202,7 +202,7 @@ private fun DeviceCard(d: UsbDeviceState, a: UsbActions, canRelease: Boolean = f
     d.noloadPrompt?.let { p ->
         ConfirmDialog(
             title = stringResource(R.string.noload_dialog_title),
-            text = stringResource(R.string.noload_dialog_text),
+            text = noloadDialogText(p.fsName),
             confirmLabel = stringResource(R.string.noload_dialog_confirm),
             onConfirm = { a.publishPartitionNoload(d.key, p.startBytes, p.sizeBytes, p.label) },
             onDismiss = { a.cancelNoload(d.key) },

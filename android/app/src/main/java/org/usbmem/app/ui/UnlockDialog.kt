@@ -305,7 +305,8 @@ fun UnlockDialog(
                         onCheckedChange = { if (it) confirmWrite = true else write = false },
                     )
                 }
-                Text(stringResource(if (prompt.canRemember && !prompt.remembered) R.string.unlock_not_saved else R.string.unlock_not_saved_plain), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // 「記憶する」のチェックボックスはパスワードの入力欄の下 (この文より上) にあり、回復キー / BEK の入力のときは出ない: そのときは「記憶する」に触れない文にする
+                Text(stringResource(if (prompt.canRemember && !prompt.remembered && method == CryptoMount.Method.Password) R.string.unlock_not_saved else R.string.unlock_not_saved_plain), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                     Text(stringResource(R.string.unlock_progress), style = MaterialTheme.typography.bodySmall)

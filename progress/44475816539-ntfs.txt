@@ -1,25 +1,25 @@
-07:03:29
-ntfs generic/308 240/652 218s
-Mem:           15700        1029        9693          47        5361       14671
+07:04:00
+ntfs generic/346 268/652 245s
+Mem:           15700        1221        9154          48        5708       14478
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 07:03:29 up 9 min,  0 users,  load average: 1.13, 1.08, 0.57
+ 07:04:00 up 10 min,  0 users,  load average: 1.10, 1.07, 0.59
 --- dmesg
-[  574.934049] run fstests generic/290 at 2026-11-19 07:03:23
-[  575.348639] run fstests generic/291 at 2026-11-19 07:03:24
-[  575.758693] run fstests generic/292 at 2026-11-19 07:03:24
-[  576.169363] run fstests generic/293 at 2026-11-19 07:03:25
-[  576.579165] run fstests generic/294 at 2026-11-19 07:03:25
-[  576.961475] run fstests generic/295 at 2026-11-19 07:03:25
-[  577.371763] run fstests generic/296 at 2026-11-19 07:03:26
-[  577.773950] run fstests generic/301 at 2026-11-19 07:03:26
-[  578.182542] run fstests generic/302 at 2026-11-19 07:03:27
-[  578.588525] run fstests generic/303 at 2026-11-19 07:03:27
-[  578.988508] run fstests generic/304 at 2026-11-19 07:03:27
-[  579.389634] run fstests generic/305 at 2026-11-19 07:03:28
-[  579.797053] run fstests generic/306 at 2026-11-19 07:03:28
-[  580.196976] run fstests generic/307 at 2026-11-19 07:03:29
-[  580.576821] run fstests generic/308 at 2026-11-19 07:03:29
+[  602.275527] run fstests generic/326 at 2026-11-19 07:03:51
+[  602.683141] run fstests generic/327 at 2026-11-19 07:03:51
+[  603.102624] run fstests generic/328 at 2026-11-19 07:03:51
+[  603.518892] run fstests generic/329 at 2026-11-19 07:03:52
+[  603.945820] run fstests generic/330 at 2026-11-19 07:03:52
+[  604.352812] run fstests generic/331 at 2026-11-19 07:03:53
+[  604.774456] run fstests generic/332 at 2026-11-19 07:03:53
+[  605.179645] run fstests generic/335 at 2026-11-19 07:03:54
+[  605.558390] run fstests generic/336 at 2026-11-19 07:03:54
+[  605.939025] run fstests generic/337 at 2026-11-19 07:03:54
+[  606.321973] run fstests generic/338 at 2026-11-19 07:03:55
+[  606.714342] run fstests generic/341 at 2026-11-19 07:03:55
+[  607.111393] run fstests generic/342 at 2026-11-19 07:03:56
+[  607.497817] run fstests generic/343 at 2026-11-19 07:03:56
+[  607.890336] run fstests generic/346 at 2026-11-19 07:03:56
 --- fuse/dm
-1
+2
 cow-root	(252:0)

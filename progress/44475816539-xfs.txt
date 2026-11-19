@@ -1,0 +1,24 @@
+06:59:47
+Mem:           15983         993       10103          45        5276       14989
+/dev/root       145G   60G   85G  42% /
+/dev/root       145G   60G   85G  42% /
+ 06:59:47 up 4 min,  0 users,  load average: 2.39, 1.24, 0.50
+--- dmesg
+[   19.954311] audit: type=1400 audit(1795071331.494:191): apparmor="STATUS" operation="profile_load" profile="unconfined" name="docker-default" pid=1543 comm="apparmor_parser"
+[   20.465790] Initializing XFRM netlink socket
+[   20.564443] bridge: filtering via arp/ip/ip6tables is no longer available by default. Update your scripts to load br_netfilter if you need this.
+[   21.454182] workqueue: drm_fb_helper_damage_work hogged CPU for >10000us 4 times, consider switching to WQ_UNBOUND
+[   21.671179] workqueue: drm_fb_helper_damage_work hogged CPU for >10000us 5 times, consider switching to WQ_UNBOUND
+[   23.622076] systemd-fstab-generator[1894]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
+[   23.882768] systemd-fstab-generator[1958]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
+[   48.962428] hv_balloon: Max. dynamic memory size: 16384 MB
+[  135.756811] systemd-fstab-generator[2825]: 'ephemeral0' is not a device path, ignoring x-systemd.device-timeout= option.
+[  157.770498] NET: Registered PF_ALG protocol family
+[  164.058988] audit: type=1400 audit(1795071475.601:192): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=9085 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[  164.058997] audit: type=1400 audit(1795071475.601:193): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9085 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[  164.176795] audit: type=1400 audit(1795071475.719:194): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/nsswitch.conf" pid=9090 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[  164.176814] audit: type=1400 audit(1795071475.719:195): apparmor="DENIED" operation="open" class="file" profile="who" name="/etc/passwd" pid=9090 comm="who" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+[  210.163335] loop0: detected capacity change from 0 to 131072
+--- fuse/dm
+0
+No devices found

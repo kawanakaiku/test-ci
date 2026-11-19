@@ -1,25 +1,25 @@
-06:51:19
-btrfs generic/080 60/652 154s
-Mem:           15700         994        9757          45        5330       14705
+06:51:50
+btrfs generic/108 82/652 176s
+Mem:           15700        1266        9497          45        5310       14434
 /dev/mapper/cow-root  145G   57G   89G  40% /
 /dev/mapper/cow-root  145G   57G   89G  40% /
- 06:51:19 up 9 min,  0 users,  load average: 1.22, 1.21, 0.64
+ 06:51:50 up 10 min,  0 users,  load average: 1.46, 1.29, 0.69
 --- dmesg
-[  487.357207] run fstests generic/064 at 2026-11-19 06:49:47
-[  487.805001] run fstests generic/065 at 2026-11-19 06:49:48
-[  488.413740] run fstests generic/066 at 2026-11-19 06:49:48
-[  488.884199] run fstests generic/067 at 2026-11-19 06:49:49
-[  489.028556] EXT4-fs (loop4): unable to read superblock
-[  489.040807] EXT4-fs (loop3): VFS: Can't find ext4 filesystem
-[  489.447045] run fstests generic/069 at 2026-11-19 06:49:49
-[  572.498893] run fstests generic/070 at 2026-11-19 06:51:12
-[  572.938222] run fstests generic/071 at 2026-11-19 06:51:13
-[  573.376474] run fstests generic/073 at 2026-11-19 06:51:13
-[  573.968863] run fstests generic/075 at 2026-11-19 06:51:14
-[  575.415011] run fstests generic/076 at 2026-11-19 06:51:15
-[  576.633731] run fstests generic/078 at 2026-11-19 06:51:16
-[  577.085419] run fstests generic/079 at 2026-11-19 06:51:17
-[  577.519695] run fstests generic/080 at 2026-11-19 06:51:17
+[  600.214998] run fstests generic/108 at 2026-11-19 06:51:40
+[  600.453942] scsi_debug:sdebug_driver_probe: scsi_debug: trim poll_queues to 0. poll_q/nr_hw = (0/1)
+[  600.453949] scsi host0: scsi_debug: version 0191 [20210520]
+                 dev_size_mb=300, opts=0x0, submit_queues=1, statistics=0
+[  600.454483] scsi 0:0:0:0: Direct-Access     Linux    scsi_debug       0191 PQ: 0 ANSI: 7
+[  600.454556] scsi 0:0:0:0: Power-on or device reset occurred
+[  600.454724] sd 0:0:0:0: [sda] 614400 512-byte logical blocks: (315 MB/300 MiB)
+[  600.454732] sd 0:0:0:0: [sda] Write Protect is off
+[  600.454734] sd 0:0:0:0: [sda] Mode Sense: 73 00 10 08
+[  600.454741] sd 0:0:0:0: [sda] Write cache: enabled, read cache: enabled, supports DPO and FUA
+[  600.454757] sd 0:0:0:0: [sda] permanent stream count = 5
+[  600.454766] sd 0:0:0:0: [sda] Preferred minimum I/O size 512 bytes
+[  600.454768] sd 0:0:0:0: [sda] Optimal transfer size 524288 bytes
+[  600.455812] sd 0:0:0:0: Attached scsi generic sg0 type 0
+[  600.462237] sd 0:0:0:0: [sda] Attached SCSI disk
 --- fuse/dm
 1
 cow-root	(252:0)

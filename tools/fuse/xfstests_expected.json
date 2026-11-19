@@ -105,6 +105,13 @@
    "fsck_ignore": true
   }
  },
+ "xfs": {
+  "generic/411": {
+   "cat": "core_bug",
+   "why": "疑い: fsstress が 1024 文字ちょうどの symlink を作ると xfs_repair -n が \"symlink too long (1024 chars)\" と報告する (テストは pass。長さが乱数なので出たり出なかったりする)。core は kernel と同じ 1024 まで許すが、xfs_repair の境界の扱いと食い違う。原因 (core の書き方か xfs_repair の境界か) は未確定で、docs/xfstests.md の残課題",
+   "fsck_ignore": true
+  }
+ },
  "fat": {
   "generic/088": {
    "cat": "core_unsupported",

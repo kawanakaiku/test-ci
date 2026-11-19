@@ -297,7 +297,8 @@ def main():
         newlog = read_tail(fsck_log, 100000).splitlines()[fsck_before:]
         if newlog:
             # テストが SCRATCH を作り直す / LVM に載せるなどで壊す (期待リストの "fsck_ignore") ものは、fsck の失敗を数えない
-            r["fsck_fail_ignored" if expected.get(t, {}).get("fsck_ignore") else "fsck_fail"] = len(newlog)
+            # タイムアウトで止めた (hang) テストは、デーモンを強制終了したイメージ (FAT のダーティビットなど) なので fsck の失敗は想定内
+            r["fsck_fail_ignored" if expected.get(t, {}).get("fsck_ignore") or r.get("status") == "hang" else "fsck_fail"] = len(newlog)
         results[t] = r
         # 状態をリセット (マウントが残っていたら外す)
         for d in (test_mnt, scratch_mnt):
@@ -332,7 +333,7 @@ def main():
         lines += ["## expected-failure list entries that now pass (%d)" % len(fixed), " ".join(fixed), ""]
     fi = [t for t, r in results.items() if r.get("fsck_fail_ignored")]
     if fi:
-        lines += ["## fsck failed after unmount, expected (%d): the test destroys the device (fsck_ignore)" % len(fi), " ".join(fi), ""]
+        lines += ["## fsck failed after unmount, expected (%d): the test destroys the device, or was killed on timeout (fsck_ignore / hang)" % len(fi), " ".join(fi), ""]
     ff = [t for t, r in results.items() if r.get("fsck_fail")]
     if ff:
         lines += ["## fsck failed after unmount (%d)" % len(ff), " ".join(ff), ""]

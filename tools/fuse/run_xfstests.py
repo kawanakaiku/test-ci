@@ -233,6 +233,8 @@ def main():
                     print("remkfs failed %s: %s" % (role, r.stdout[:300]), flush=True)
         fsck_before = len(read_tail(fsck_log, 100000).splitlines())
         t0 = time.time()
+        with open(os.path.join(a.out, "current.txt"), "w") as cf:   # 実行中のテスト (CI の進捗の送信 tools/ci/push_progress.sh が読む。ランナーごと落ちたときに、どのテストだったかを残す)
+            cf.write("%s %s %d/%d %.0fs\n" % (a.fs, t, i + 1, len(tests), t0 - t_start))
         proc = subprocess.Popen(["./check", t], cwd=a.fstests, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
         try:
             out, _ = proc.communicate(timeout=a.timeout)

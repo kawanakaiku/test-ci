@@ -33,7 +33,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write   # ブランチ名の末尾が -progress のときだけ、進捗を ci-progress ブランチへ書く (tools/ci/push_progress.sh)
 
 env:
   FSTESTS_TAG: v2026.11.10
@@ -51,6 +51,7 @@ jobs:
       timeout: ${{ steps.p.outputs.timeout }}
       trace: ${{ steps.p.outputs.trace }}
       extra: ${{ steps.p.outputs.extra }}
+      progress: ${{ steps.p.outputs.progress }}
     steps:
       - id: p
         env:
@@ -67,11 +68,12 @@ jobs:
           # --loop (ループデバイス) にしたときだけ notrun でなくなるテスト (dm-flakey / dm-error / ブロックデバイス前提)。ブランチ名の -loopset で、これだけを --loop で動かす
           LOOPSET='generic/034,generic/039,generic/040,generic/041,generic/056,generic/057,generic/065,generic/067,generic/073,generic/076,generic/090,generic/101,generic/104,generic/106,generic/107,generic/108,generic/321,generic/322,generic/325,generic/335,generic/336,generic/338,generic/341,generic/342,generic/343,generic/348,generic/366,generic/376,generic/409,generic/410,generic/411,generic/441,generic/450,generic/480,generic/481,generic/484,generic/498,generic/502,generic/510,generic/526,generic/527,generic/534,generic/538,generic/547,generic/552,generic/557,generic/563,generic/640,generic/690,generic/704,generic/731,generic/740,generic/741,generic/764,generic/771,generic/779,generic/782,generic/784,generic/785,generic/789,generic/790'
           ALL='["ext4","ext2","fat","exfat","ntfs","xfs","btrfs","f2fs"]'
-          extra='--loop'; custom=''; trace=0; fs='["ext4"]'; tests="$SMOKE"; group=quick; mopts='allow_other,default_permissions,quiet_setattr'; to=300
+          progress=0; extra='--loop'; custom=''; trace=0; fs='["ext4"]'; tests="$SMOKE"; group=quick; mopts='allow_other,default_permissions,quiet_setattr'; to=300
           if [ "$EVENT" = workflow_dispatch ]; then
             fs=$IN_FS; tests=$IN_TESTS; group=$IN_GROUP; mopts=$IN_MOUNT; to=$IN_TIMEOUT; if [ "$IN_LOOP" = false ]; then extra=''; fi
           else
             name=${REF#usbmem-xfstests-}
+            case "$name" in *-progress) progress=1; name=${name%-progress} ;; esac
             strict=0; case "$name" in *-strict) strict=1; name=${name%-strict} ;; esac
             smoke=0; case "$name" in *-smoke) smoke=1; name=${name%-smoke} ;; esac
             # -t<番号>_<番号>... : 指定した generic テストだけ (例 usbmem-xfstests-xfs-t023_024)
@@ -98,6 +100,7 @@ jobs:
           echo "timeout=$to" >> "$GITHUB_OUTPUT"
           echo "trace=$trace" >> "$GITHUB_OUTPUT"
           echo "extra=$extra" >> "$GITHUB_OUTPUT"
+          echo "progress=$progress" >> "$GITHUB_OUTPUT"
           echo "fs=$fs tests=$tests group=$group mount_opts=$mopts"
 
   xfstests:
@@ -172,8 +175,12 @@ jobs:
           TEST_TIMEOUT: ${{ needs.plan.outputs.timeout }}
           TRACE: ${{ needs.plan.outputs.trace }}
           EXTRA: ${{ needs.plan.outputs.extra }}
+          PROGRESS: ${{ needs.plan.outputs.progress }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/out"
+          # ランナーごと止まったとき (The hosted runner lost communication) の原因調査用: 実行中のテストなどを 30 秒ごとに ci-progress ブランチへ書く
+          if [ "$PROGRESS" = 1 ]; then tools/ci/push_progress.sh "${{ github.run_id }}-${{ matrix.fs }}" "$RUNNER_TEMP/out" 30 >/dev/null 2>&1 & fi
           TR=USBMEM_FUSE_TRACE=0; [ "$TRACE" = 1 ] && TR=USBMEM_FUSE_TRACE=1
           sudo env "$TR" python3 tools/fuse/run_xfstests.py --fs ${{ matrix.fs }} --fstests "$RUNNER_TEMP/fstests" --out "$RUNNER_TEMP/out" \
             --group "$FSTESTS_GROUP" --tests "$FSTESTS_TESTS" --mount-opts "$MOUNT_OPTS" --timeout "$TEST_TIMEOUT" --max-seconds 18000 $EXTRA

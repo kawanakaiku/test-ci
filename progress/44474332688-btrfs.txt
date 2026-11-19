@@ -1,25 +1,25 @@
-06:49:46
-btrfs generic/061 45/652 62s
-Mem:           15700        1179        9611          45        5290       14520
+06:50:17
+btrfs generic/069 52/652 65s
+Mem:           15700         978        9766          45        5337       14722
 /dev/mapper/cow-root  145G   57G   89G  40% /
 /dev/mapper/cow-root  145G   57G   89G  40% /
- 06:49:46 up 8 min,  0 users,  load average: 1.64, 1.27, 0.60
+ 06:50:17 up 8 min,  0 users,  load average: 1.32, 1.23, 0.60
 --- dmesg
-[  463.421281] run fstests generic/034 at 2026-11-19 06:49:23
-[  464.018816] run fstests generic/035 at 2026-11-19 06:49:24
-[  464.478256] run fstests generic/037 at 2026-11-19 06:49:24
-[  464.908304] run fstests generic/039 at 2026-11-19 06:49:25
-[  465.486666] run fstests generic/040 at 2026-11-19 06:49:25
-[  473.060383] run fstests generic/041 at 2026-11-19 06:49:33
-[  481.726969] run fstests generic/042 at 2026-11-19 06:49:42
-[  482.190411] run fstests generic/050 at 2026-11-19 06:49:42
-[  482.637324] run fstests generic/052 at 2026-11-19 06:49:42
-[  483.094638] run fstests generic/053 at 2026-11-19 06:49:43
 [  483.547757] run fstests generic/056 at 2026-11-19 06:49:43
 [  484.112516] run fstests generic/057 at 2026-11-19 06:49:44
 [  484.698051] run fstests generic/058 at 2026-11-19 06:49:45
 [  485.143165] run fstests generic/059 at 2026-11-19 06:49:45
 [  485.617503] run fstests generic/060 at 2026-11-19 06:49:45
+[  486.057196] run fstests generic/061 at 2026-11-19 06:49:46
+[  486.483821] run fstests generic/062 at 2026-11-19 06:49:46
+[  486.925929] run fstests generic/063 at 2026-11-19 06:49:47
+[  487.357207] run fstests generic/064 at 2026-11-19 06:49:47
+[  487.805001] run fstests generic/065 at 2026-11-19 06:49:48
+[  488.413740] run fstests generic/066 at 2026-11-19 06:49:48
+[  488.884199] run fstests generic/067 at 2026-11-19 06:49:49
+[  489.028556] EXT4-fs (loop4): unable to read superblock
+[  489.040807] EXT4-fs (loop3): VFS: Can't find ext4 filesystem
+[  489.447045] run fstests generic/069 at 2026-11-19 06:49:49
 --- fuse/dm
-0
+2
 cow-root	(252:0)

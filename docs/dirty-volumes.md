@@ -31,6 +31,7 @@ Windows の「高速スタートアップ」「休止状態」「取り外し忘
 | `USBMEM_VOL_LOG_UNCLEAN` (2) | NTFS の `$LogFile` に未再生のログ | `$LogFile` の先頭 2 ページ (restart page) の restart area に「クリーン」の印も「クライアントなし」もない。判定は `core/include/usbmem/ntfs_logstate.h` (自前の検査 `fscheck_ntfs.cpp` と共通) |
 | `USBMEM_VOL_HIBERNATED` (4) | NTFS: Windows が休止状態 (高速スタートアップを含む) | 上流の `check_windows_hibernation_status` の結果 (`NVolHibernated`。`hiberfil.sys` が `hibr`、または 4 KiB 未満・判定不能) |
 | `USBMEM_VOL_MEDIA_ERROR` (8) | exFAT MediaFailure / FAT のメディアエラー bit | ブートセクタ |
+| `USBMEM_VOL_MFT_FROM_MIRROR` (32) | NTFS: MFT の先頭 4 レコードのどれかが壊れていたので `$MFTMirr` のコピーで読み出している (読み取り専用) | ミラー経由のマウントが成功したとき (docs/ntfs-mftmirr.md)。ダーティ・ログの状態とは別の話 |
 
 読み取り専用で開いたときも返す。`FsVolume::state()` (既定 0) → `NtfsVolume` / `ExfatVolume` / `FatVolume` → `LockedFsVolume` (入れ子・暗号の中も同じ) → JNI `nativeFsState` → Kotlin `NtfsVolume.state` (`VolState`)。
 

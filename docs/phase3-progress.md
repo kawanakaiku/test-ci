@@ -67,7 +67,7 @@ MFT は `ntfs_mft_writepages` (別系統) で書く。
   結果: MBR/4KiB クラスタの Windows 製イメージに `big.bin` の 70000B 上書き → **chkdsk「問題は見つかりませんでした」、Windows が読んだ 1019 ファイル全て期待どおり**。
   `ntfsfix -n` / `ntfs-3g` と合わせ、独立した 3 つの検証者が一致。
 - 観測:
-  - `win_gpt64k`: 上流が `$MFTMirr` 不一致 (64KiB クラスタで比較範囲が広すぎる偽陽性) を理由に**自動で読み取り専用マウントに落ちる** (`write_inplace -> -EROFS`)。データは壊さず安全側だが、64KiB クラスタの Windows ボリュームには書けない。対処 (上流の比較を先頭 4 レコードに限る等) は別途判断。
+  - `win_gpt64k`: 上流が `$MFTMirr` 不一致 (64KiB クラスタで比較範囲が広すぎる偽陽性) を理由に**自動で読み取り専用マウントに落ちる** (`write_inplace -> -EROFS`)。データは壊さず安全側だが、64KiB クラスタの Windows ボリュームには書けない。**対処済み (2026-11-19)**: 比較を MFT レコード 0-3 だけにするパッチをビルド時の作業コピーに当てた。docs/ntfs-mftmirr.md。
   - `win_dirty` (ダーティフラグ付き): rw マウントし、クリーンなアンマウントでダーティフラグを下ろす (`$Volume` flags 0x0181→0x0180)。これは上流の方針。`$LogFile` が静止状態のため許容されたが、未再生ログのあるボリュームでの挙動は別途確認が必要 → 上流の rw マウントは `$LogFile` を空にして書くため、`mount_rw` が先に読み取り専用で調べて止めるようにした (docs/dirty-volumes.md)。
   - 4Kn (4096B ブロック) の書き込みも成功。
 
@@ -82,7 +82,7 @@ MFT は `ntfs_mft_writepages` (別系統) で書く。
 - **Windows による検証**: Windows 製 MBR イメージ (WinPE の `diskpart` で作成) に 1615 操作 (作成・削除・rename・書き込み・600+ ファイルの索引拡張) を実行 →
   WinPE の **`chkdsk` が「問題は見つかりませんでした」**、Windows がボリュームから読み戻した 1215 ファイルが ntfs-3g の見たツリーと sha256 まで一致。
 - UBSan: 上流の `memcpy(NULL, ..., 0)` (nonnull-attribute) だけ上流 C で除外。
-- 未対応/次: 64KiB クラスタの `$MFTMirr` 偽陽性 (自動で読み取り専用)、電源断模擬、圧縮・疎ファイルへの書き込み、fsync/flush の意味づけ、`usbmem_ntfs_write` の mtime 等の属性、
+- 未対応/次: (64KiB クラスタの `$MFTMirr` 偽陽性は 2026-11-19 に解消: docs/ntfs-mftmirr.md)、電源断模擬、圧縮・疎ファイルへの書き込み、fsync/flush の意味づけ、`usbmem_ntfs_write` の mtime 等の属性、
   書き込み中の USB 抜去時の整合性、実機 USB。
 
 ### 電源断の模擬 (2026-11-11)
@@ -100,7 +100,7 @@ MFT は `ntfs_mft_writepages` (別系統) で書く。
   (データを失うのは電源断で書きかけだった新規ファイルだけ。)
 - 既知の限界: MFT レコード (1024B) がセクタ境界で途中までしか書かれると (`torn=1`) `$Volume` の fixup が食い違いマウントできないことがある (80 試行中 2)。
   `ntfsfix` も「Incomplete multi sector transfer detected in $Volume」で拒否 = ジャーナル無しの書き込みに共通の限界。
-  緩和案 (TODO): MFT のシステムレコード 0-3 の fixup 失敗時は `$MFTMirr` のコピーで読む (読み取り専用)。Windows の `chkdsk` が直せるかは未確認。
+  緩和 (2026-11-19 実装): MFT のシステムレコード 0-3 の fixup 失敗時は `$MFTMirr` のコピーで読む (読み取り専用)。docs/ntfs-mftmirr.md。Windows の `chkdsk` が直せるかは未確認。
 
 ### Android (SAF) 経由の書き込み (2026-11-11, 実験的・既定は無効)
 - **二重の安全弁**: (1) ビルド: `-PusbmemNtfsWrite=true` を付けたビルドだけ書き込み可能 (既定は無効 → `mount_rw` が -EROFS)。(2) 実行時: UI の「書き込みを許可」スイッチ (保存しない = 起動のたびに明示許可)。

@@ -1,25 +1,25 @@
-06:48:13
-f2fs generic/030 26/652 63s
-Mem:           15983        1018       10043          46        5312       14964
+06:48:44
+f2fs generic/041 35/652 81s
+Mem:           15983        1087        9969          46        5317       14895
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 06:48:13 up 6 min,  0 users,  load average: 2.32, 1.58, 0.69
+ 06:48:44 up 6 min,  0 users,  load average: 1.86, 1.54, 0.70
 --- dmesg
-[  361.142455] run fstests generic/012 at 2026-11-19 06:47:50
-[  361.804316] run fstests generic/013 at 2026-11-19 06:47:51
-[  369.084894] run fstests generic/014 at 2026-11-19 06:47:58
-[  369.742442] run fstests generic/015 at 2026-11-19 06:47:59
-[  370.403086] run fstests generic/016 at 2026-11-19 06:47:59
-[  371.062383] run fstests generic/018 at 2026-11-19 06:48:00
-[  371.753196] run fstests generic/020 at 2026-11-19 06:48:01
-[  372.386472] run fstests generic/021 at 2026-11-19 06:48:01
-[  373.035935] run fstests generic/022 at 2026-11-19 06:48:02
-[  373.694536] run fstests generic/023 at 2026-11-19 06:48:02
 [  374.948140] run fstests generic/024 at 2026-11-19 06:48:04
 [  376.166237] run fstests generic/025 at 2026-11-19 06:48:05
 [  376.805032] run fstests generic/026 at 2026-11-19 06:48:06
 [  377.500498] run fstests generic/028 at 2026-11-19 06:48:06
 [  383.175246] run fstests generic/029 at 2026-11-19 06:48:12
+[  384.005841] run fstests generic/030 at 2026-11-19 06:48:13
+[  385.385604] run fstests generic/031 at 2026-11-19 06:48:14
+[  386.057205] run fstests generic/032 at 2026-11-19 06:48:15
+[  386.685782] run fstests generic/033 at 2026-11-19 06:48:15
+[  387.341911] run fstests generic/034 at 2026-11-19 06:48:16
+[  388.222063] run fstests generic/035 at 2026-11-19 06:48:17
+[  388.926560] run fstests generic/037 at 2026-11-19 06:48:18
+[  389.567551] run fstests generic/039 at 2026-11-19 06:48:18
+[  390.409189] run fstests generic/040 at 2026-11-19 06:48:19
+[  402.568603] run fstests generic/041 at 2026-11-19 06:48:31
 --- fuse/dm
-1
-No devices found
+2
+flakey-test.041	(252:0)

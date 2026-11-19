@@ -66,7 +66,7 @@ jobs:
       - name: Build APKs (write-enabled)
         working-directory: android
         run: |
-          ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true
+          "$GITHUB_WORKSPACE/tools/ci/retry_gradle.sh" ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true
           find app/build/outputs/apk -name '*.apk' -exec ls -l {} +
 
       - name: Collect

@@ -1,9 +1,9 @@
-07:08:08
+07:08:39
 ntfs generic/732 592/652 462s
-Mem:           15700         892       14615          48         509       14807
+Mem:           15700         891       14616          48         509       14809
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 07:08:08 up 14 min,  0 users,  load average: 0.57, 0.99, 0.69
+ 07:08:39 up 14 min,  0 users,  load average: 0.35, 0.90, 0.67
 --- dmesg
 [  819.276089] run fstests generic/718 at 2026-11-19 07:07:28
 [  819.672672] run fstests generic/719 at 2026-11-19 07:07:28

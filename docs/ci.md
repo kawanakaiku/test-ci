@@ -103,6 +103,30 @@ Java は Temurin 17、Gradle は 9.0.0 (ラッパー)、NDK 30.0.16248370、CMak
 - Actions のキャッシュ (Gradle / SDK / AVD) は同じリポジトリの他のワークフローのキャッシュを押し出す可能性がある。キー: AVD は `v5` を上げると作り直し。
 - push で起動するのは `usbmem-ci` ブランチだけ。テスト専用リポジトリ (公開) に push する運用で、このリポジトリのフィクスチャや鍵は含まれない。
 
+## Gradle の一時失敗の再試行 (`tools/ci/retry_gradle.sh`、2026-11-20)
+
+依存解決の一時失敗 (Google / Maven Central への HTTP 429、`Could not find org.jetbrains.kotlin:kotlin-stdlib:2.2.0` がどのリポジトリからも取れない、接続リセット、タイムアウト) で「Build APKs」が落ちることが直近の run で複数回あった (ext-fat など。`gh run rerun --failed` で成功する)。ワークフロー側で自動的に吸収する。
+
+- 呼び出し: `tools/ci/retry_gradle.sh ./gradlew --no-daemon ...` の形で Gradle を包む。対象は `android-emulator.yml` の「Build APKs」と「JVM unit tests (VaultTest)」、`build-apk.yml` の「Build APKs (write-enabled)」。`tools/ci_android_tests.sh` と `tools/run_android_*_test.sh` は CI では `USBMEM_SKIP_BUILD=1` でビルドしないので、Gradle を呼ぶのはこの 3 ステップだけ。
+- 再試行する条件: コマンドが失敗し、ログに一時失敗のしるし (`Could not resolve `、`Could not find group:artifact:version`、`Could not GET/HEAD/download`、`status code 429/5xx`、`Too Many Requests`、`Connection reset`、`Connect/Read timed out`、`UnknownHostException`、`SSLHandshakeException` など) があり、かつ本当の失敗のしるし (Kotlin の `e: `、`: error:` (C++ / Java)、`Compilation error`、`There were failing tests`、`Unresolved reference`) が無いとき。
+  本当の失敗のしるしが同居していれば再試行しない (同じ失敗が繰り返されるだけ)。`Execution failed for task ':app:compileDebugKotlin'` は依存解決の失敗でも出るので、判定には使わない。`Could not find method ...` のようなビルドスクリプトの誤りは再試行しない。
+- 回数と待ち: 最大 3 回実行 (失敗 → 30 秒待ち → 失敗 → 90 秒待ち → 最後の 1 回)。再試行のたびに `::warning::` を出す (どのしるしで再試行したかが run の注釈に残る)。3 回続けて失敗したら `::error::` で諦め、終了コードは Gradle のものをそのまま返す。環境変数 `RETRY_GRADLE_DELAYS` (既定 `30 90`) で待ちを変えられる (要素数 = やり直しの回数)。
+- `--refresh-dependencies` は使わない: キャッシュ済みの依存を全部取り直すので、リモートへの要求が増えて 429 を悪化させる。再試行は同じ `~/.gradle/caches` のまま、取れなかった分だけ取り直す。
+- 単体試験: `bash tools/test_retry_gradle.sh` (fake のコマンドで 14 ケース。429 で再試行して成功、ずっと 429 なら 3 回でやめる、Kotlin / C++ のコンパイルエラーとテスト失敗では再試行しない、など。Gradle もネットワークも不要で 1 秒未満)。
+
+### 効いているキャッシュと `--offline` を使えない理由
+
+- Gradle のキャッシュ (`actions/cache`、キーは `gradle-<OS>-<*.gradle.kts と wrapper の hash>`、`restore-keys` で前のキーに fallback) は効いている。ただしキーが変わる (依存の更新や `*.gradle.kts` の編集) 最初の run は、fallback のキャッシュに無い分だけ取りに行く。また `actions/cache` はジョブが成功したときだけ保存するので、依存取得で落ちた run のあとも同じキーは未保存のまま (再実行で成功すれば保存される)。
+- `--offline` はキャッシュ未命中・部分命中のとき確実に落ちるので使わない。
+
+### 提案 (入れていない)
+
+- リポジトリの優先順位は `android/settings.gradle.kts` の `google()` → `mavenCentral()` (plugin は後ろに `gradlePluginPortal()`)。入れるなら次の案:
+  - `mavenCentral()` のミラー (例: Google の Maven Central ミラー `https://maven-central.storage-download.googleapis.com/maven2/`) を `mavenCentral()` の後ろに足す。Maven Central が 429 のとき、同じ成果物をミラーから取れる。`FAIL_ON_PROJECT_REPOS` なので `settings.gradle.kts` の 2 か所 (`pluginManagement` と `dependencyResolutionManagement`) に書く。最後の候補にするので、ミラーが古くても通常のビルドは変わらない。
+  - `exclusiveContent` / `content { includeGroupByRegex(...) }` で `google()` には `androidx.*` / `com.android.*` / `com.google.*` だけを聞くようにする。無駄な問い合わせ (と 429 の機会) が減る。
+  - Gradle の組み込みの HTTP 再試行を伸ばす `-Dorg.gradle.internal.repository.max.retries=<回数>` / `-Dorg.gradle.internal.repository.initial.backoff=<ミリ秒>` (内部プロパティ。Gradle のバージョンが上がると効かなくなる可能性があるので、入れるなら `gradle.properties` ではなく CI の `GRADLE_OPTS` で)。
+  再試行スクリプトで足りなければ、この順に検討する。
+
 ## Host tests (host-tests.yml) が赤かった原因と対処 (2026-11-14)
 
 `.github/workflows/host-tests.yml` は ctest を 4 構成 (plain / san / wsan / wrel) で走らせる。ubuntu-latest が 26.04 になってから ctest 130 件中 13 件 (wrel は 148 件中 20 件) が落ちていた。直近の変更ではなく環境の変化が原因で、1 件だけ製品コードの不具合が隠れていた。

@@ -1,25 +1,25 @@
-06:58:53
-ntfs generic/607 487/652 716s
-Mem:           15983        1003       14839          48         466       14979
+06:59:24
+ntfs generic/640 514/652 747s
+Mem:           15983         987       14842          48         479       14995
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 06:58:53 up 15 min,  0 users,  load average: 1.56, 1.65, 1.14
+ 06:59:24 up 16 min,  0 users,  load average: 1.67, 1.67, 1.17
 --- dmesg
-[  942.708642] run fstests generic/593 at 2026-11-19 06:58:42
-[  943.325479] run fstests generic/594 at 2026-11-19 06:58:43
-[  943.884310] run fstests generic/595 at 2026-11-19 06:58:43
-[  944.480904] run fstests generic/596 at 2026-11-19 06:58:44
-[  945.053306] run fstests generic/597 at 2026-11-19 06:58:44
-[  945.801977] run fstests generic/598 at 2026-11-19 06:58:45
-[  946.629996] run fstests generic/599 at 2026-11-19 06:58:46
-[  947.238090] run fstests generic/600 at 2026-11-19 06:58:46
-[  947.802079] run fstests generic/601 at 2026-11-19 06:58:47
-[  948.414157] run fstests generic/602 at 2026-11-19 06:58:48
-[  949.055473] run fstests generic/603 at 2026-11-19 06:58:48
-[  949.629040] run fstests generic/604 at 2026-11-19 06:58:49
-[  951.604926] run fstests generic/605 at 2026-11-19 06:58:51
-[  952.212962] run fstests generic/606 at 2026-11-19 06:58:51
-[  952.842205] run fstests generic/607 at 2026-11-19 06:58:52
+[  973.652427] run fstests generic/625 at 2026-11-19 06:59:13
+[  974.223006] run fstests generic/626 at 2026-11-19 06:59:13
+[  974.792404] run fstests generic/628 at 2026-11-19 06:59:14
+[  975.437893] run fstests generic/629 at 2026-11-19 06:59:15
+[  976.100938] run fstests generic/630 at 2026-11-19 06:59:15
+[  976.720020] run fstests generic/632 at 2026-11-19 06:59:16
+[  979.756187] run fstests generic/633 at 2026-11-19 06:59:19
+[  980.325659] run fstests generic/634 at 2026-11-19 06:59:20
+[  981.097344] run fstests generic/635 at 2026-11-19 06:59:20
+[  981.676163] run fstests generic/636 at 2026-11-19 06:59:21
+[  982.237557] run fstests generic/637 at 2026-11-19 06:59:21
+[  983.109005] run fstests generic/638 at 2026-11-19 06:59:22
+[  983.692096] run fstests generic/639 at 2026-11-19 06:59:23
+[  984.319491] run fstests generic/640 at 2026-11-19 06:59:24
+[  984.540872] 640 (333726): drop_caches: 2
 --- fuse/dm
-0
-No devices found
+1
+flakey-test.640	(252:0)

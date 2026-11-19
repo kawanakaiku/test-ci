@@ -1,25 +1,25 @@
-06:55:58
-fat generic/302 234/652 371s
-Mem:           15700        1154       10863          48        4077       14546
+06:56:29
+fat generic/346 268/652 398s
+Mem:           15700        1125       14382          48         522       14575
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 06:55:58 up 19 min,  0 users,  load average: 1.20, 1.18, 0.71
+ 06:56:29 up 20 min,  0 users,  load average: 1.20, 1.18, 0.72
 --- dmesg
-[ 1163.914521] run fstests generic/283 at 2026-11-19 06:55:49
-[ 1164.534091] run fstests generic/284 at 2026-11-19 06:55:50
-[ 1165.086542] run fstests generic/286 at 2026-11-19 06:55:50
-[ 1165.708356] run fstests generic/287 at 2026-11-19 06:55:51
-[ 1166.351489] run fstests generic/288 at 2026-11-19 06:55:52
-[ 1166.971584] run fstests generic/289 at 2026-11-19 06:55:52
-[ 1167.554708] run fstests generic/290 at 2026-11-19 06:55:53
-[ 1168.176833] run fstests generic/291 at 2026-11-19 06:55:53
-[ 1168.744270] run fstests generic/292 at 2026-11-19 06:55:54
-[ 1169.339987] run fstests generic/293 at 2026-11-19 06:55:55
-[ 1169.932242] run fstests generic/294 at 2026-11-19 06:55:55
-[ 1170.558272] run fstests generic/295 at 2026-11-19 06:55:56
-[ 1171.197009] run fstests generic/296 at 2026-11-19 06:55:56
-[ 1171.814916] run fstests generic/301 at 2026-11-19 06:55:57
-[ 1172.375153] run fstests generic/302 at 2026-11-19 06:55:58
+[ 1192.579733] run fstests generic/330 at 2026-11-19 06:56:18
+[ 1193.260470] run fstests generic/331 at 2026-11-19 06:56:18
+[ 1193.825661] run fstests generic/332 at 2026-11-19 06:56:19
+[ 1194.429717] run fstests generic/335 at 2026-11-19 06:56:20
+[ 1195.164686] run fstests generic/336 at 2026-11-19 06:56:20
+[ 1195.735081] run fstests generic/337 at 2026-11-19 06:56:21
+[ 1196.294843] run fstests generic/338 at 2026-11-19 06:56:21
+[ 1196.464401] Buffer I/O error on dev dm-1, logical block 1572848, async page read
+[ 1196.466414] Buffer I/O error on dev dm-1, logical block 1572848, async page read
+[ 1196.746187] 338 (167774): drop_caches: 3
+[ 1196.806841] Buffer I/O error on dev dm-1, logical block 0, async page read
+[ 1197.445190] run fstests generic/341 at 2026-11-19 06:56:23
+[ 1198.182131] run fstests generic/342 at 2026-11-19 06:56:23
+[ 1198.857224] run fstests generic/343 at 2026-11-19 06:56:24
+[ 1199.416404] run fstests generic/346 at 2026-11-19 06:56:25
 --- fuse/dm
-0
+2
 cow-root	(252:0)

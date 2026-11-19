@@ -1,25 +1,25 @@
-07:13:48
-xfs generic/723 583/652 840s
-Mem:           15983         999       14820          48         488       14983
+07:14:19
+xfs generic/732 592/652 846s
+Mem:           15983         934       14884          48         489       15048
 /dev/root       145G   61G   85G  42% /
 /dev/root       145G   61G   85G  42% /
- 07:13:48 up 18 min,  0 users,  load average: 1.42, 1.56, 1.16
+ 07:14:19 up 19 min,  0 users,  load average: 1.02, 1.46, 1.14
 --- dmesg
-[ 1106.992434] run fstests generic/708 at 2026-11-19 07:13:38
-[ 1107.618422] run fstests generic/709 at 2026-11-19 07:13:39
-[ 1108.239499] run fstests generic/710 at 2026-11-19 07:13:39
-[ 1108.857252] run fstests generic/711 at 2026-11-19 07:13:40
-[ 1109.612531] run fstests generic/712 at 2026-11-19 07:13:41
-[ 1110.380253] run fstests generic/713 at 2026-11-19 07:13:41
-[ 1110.965400] run fstests generic/714 at 2026-11-19 07:13:42
-[ 1111.707340] run fstests generic/715 at 2026-11-19 07:13:43
-[ 1112.388677] run fstests generic/716 at 2026-11-19 07:13:43
-[ 1113.331362] run fstests generic/717 at 2026-11-19 07:13:44
 [ 1114.007838] run fstests generic/718 at 2026-11-19 07:13:45
 [ 1114.692358] run fstests generic/719 at 2026-11-19 07:13:46
 [ 1115.332855] run fstests generic/720 at 2026-11-19 07:13:46
 [ 1115.904647] run fstests generic/721 at 2026-11-19 07:13:47
 [ 1116.495802] run fstests generic/722 at 2026-11-19 07:13:48
+[ 1117.081576] run fstests generic/723 at 2026-11-19 07:13:48
+[ 1117.618970] run fstests generic/724 at 2026-11-19 07:13:49
+[ 1118.155465] run fstests generic/725 at 2026-11-19 07:13:49
+[ 1118.717219] run fstests generic/726 at 2026-11-19 07:13:50
+[ 1119.436383] run fstests generic/727 at 2026-11-19 07:13:50
+[ 1120.002548] run fstests generic/728 at 2026-11-19 07:13:51
+[ 1120.647596] run fstests generic/729 at 2026-11-19 07:13:52
+[ 1121.470514] run fstests generic/730 at 2026-11-19 07:13:53
+[ 1122.035495] run fstests generic/731 at 2026-11-19 07:13:53
+[ 1122.654116] run fstests generic/732 at 2026-11-19 07:13:54
 --- fuse/dm
-1
+4
 No devices found

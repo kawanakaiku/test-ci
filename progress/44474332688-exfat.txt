@@ -1,9 +1,9 @@
-07:05:43
+07:06:14
 exfat generic/732 592/652 1081s
-Mem:           15983         928       14898          49         483       15054
+Mem:           15983         923       14903          49         483       15059
 /dev/root       145G   60G   85G  42% /
 /dev/root       145G   60G   85G  42% /
- 07:05:43 up 24 min,  0 users,  load average: 1.08, 1.44, 1.19
+ 07:06:14 up 25 min,  0 users,  load average: 0.60, 1.28, 1.14
 --- dmesg
 [ 1455.831178] scsi 4:0:0:0: Power-on or device reset occurred
 [ 1455.831540] sd 4:0:0:0: Attached scsi generic sg1 type 0

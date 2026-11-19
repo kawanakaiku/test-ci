@@ -107,8 +107,8 @@
  },
  "xfs": {
   "generic/411": {
-   "cat": "core_bug",
-   "why": "疑い: fsstress が 1024 文字ちょうどの symlink を作ると xfs_repair -n が \"symlink too long (1024 chars)\" と報告する (テストは pass。長さが乱数なので出たり出なかったりする)。core は kernel と同じ 1024 まで許すが、xfs_repair の境界の扱いと食い違う。原因 (core の書き方か xfs_repair の境界か) は未確定で、docs/xfstests.md の残課題",
+   "cat": "premise_mismatch",
+   "why": "TEST_DEV / SCRATCH_DEV を二重にマウントする前提 (上の * と同じ)。全体の run で一度だけ、このテストの後の SCRATCH を xfs_repair -n が「symlink in inode N too long (1024 chars)」と報告した (単独の run では出ない。411 自身は symlink を作らないので、原因は直前までのテストの残りか 1024 文字ちょうどの symlink の境界で、未確定。docs/xfstests.md の「XFS の 1024 文字の symlink」)",
    "fsck_ignore": true
   }
  },

@@ -128,7 +128,7 @@ NTFS は 1304 回 (652 件 × TEST / SCRATCH) の検査のうち、失敗した�
 
 ### XFS の 1024 文字の symlink (未確定)
 
-generic/411 (fsstress の symlink あり) の SCRATCH を `xfs_repair -n` が「symlink in inode N too long (1024 chars)」と報告して fsck が失敗した (テスト自体は pass。symlink の長さが乱数なので毎回は出ない)。core は kernel と同じく 1024 文字まで許して remote (XSLM) ブロックに書いている (`ino_symlink_body`)。xfs_repair の境界の扱い (>= か >) との食い違いと思われるが、core の書き方の誤りかどうかは確かめていない。期待リスト (xfs) に `core_bug` + `fsck_ignore` で入れてある。確かめるには、1024 文字の symlink を作った XFS のイメージを `xfs_repair -n` に通す小さな CI ジョブが要る。直すなら 1023 文字までにするのが最小の変更。
+全体の run (44469300735) で一度だけ、generic/411 の後の SCRATCH を `xfs_repair -n` が「symlink in inode N too long (1024 chars)」と報告して fsck が失敗した。411 自身は symlink を作らない (二重マウントで失敗するテスト) ので、**直前までのテスト (fsstress の symlink あり) が作った 1024 文字ちょうどの symlink を、xfs_repair が too long とした**可能性と、テストごとの mkfs の取りこぼしの可能性がある。単独 (`-t411`、run 44480161924) では再現しなかった。core は kernel と同じく 1024 文字まで許して remote (XSLM) ブロックに書く (`ino_symlink_body`)。境界が xfs_repair と食い違うなら、直すのは 1023 文字までにする最小の変更。確かめるには 1024 文字の symlink だけを作った XFS を `xfs_repair -n` に通す小さな CI ジョブが要る。期待リスト (xfs) の 411 に `fsck_ignore` を付けて、他の run を止めないようにしてある。
 
 ### 初回 (ループなし、2026-11-15)
 

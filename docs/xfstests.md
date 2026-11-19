@@ -136,6 +136,8 @@ NTFS は 1304 回 (652 件 × TEST / SCRATCH) の検査のうち、失敗した�
 
 **検査**: `usbmem_xfs_write_tests --symlinks` (`tools/run_xfs_write_tests.sh` の 4b。既定と isize=1024 の 2 構成)。1 .. 1023 文字 (inode 内 / 別ブロックの境目 335 / 336 / 337 / 847 / 848 / 849 を含む 12 通り) は作れて `readlink` / サイズが一致し再マウント後も読める、1024 / 1025 / 1500 / 4095 / 4096 / 5000 は `ENAMETOOLONG` で何も残らない、のあとに `xfs_repair -n` が clean でログが CLEAN。ctest `xfs_write` と `usbmem-ci-xfs` (`xfs-write.yml`) に入る。
 
+**確認 (2026-11-19、コミット 7f268f5)**: `usbmem-ci-xfs` の xfs-write.yml (run 44483373110、xfs_repair 76 回・カーネル相互確認 30 回、`symlinks default` / `symlinks isize1024` とも 12 作成・6 拒否で ok、all passed、突然変異 7/7 も成功)、同じブランチの Host tests (run 44483372958、plain / wrel 成功。ctest `xfs_write` / `xfs_crash` 通過)。xfstests (`usbmem-xfstests-xfs`、期待リストから 411 の `fsck_ignore` を外した版) は run 44483382774 の最初の試行がランナー切断 (「The hosted runner lost communication」、既知の件) で落ちたが、再試行で成功: 652 件中 pass=144 / fail=24 (全部期待どおり、期待外 0) / notrun=484、fsck の失敗は 108 (期待リストの `fsck_ignore`) のみで 411 の後の fsck は clean。ただし 411 の後の失敗は元々 1 回しか出ていないので、この run の成功だけでは再発しないことの証明にはならない (確かな根拠は 1024 文字が xfs_repair で不正になる手元の再現と上の境界検査)。
+
 ### 初回 (ループなし、2026-11-15)
 
 run 43665002548 / 43747052912 (`usbmem-xfstests-all`、所要 32 分)。ext4 だけ `-strict` (`quiet_setattr` なし) の run 43665047439 も取った。途中の run (43659182212、43662498331) の失敗は、下の「見つけた不具合」で直したもの。

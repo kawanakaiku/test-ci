@@ -112,18 +112,23 @@ CI: **run 44461561567** (`usbmem-xfstests-all`、8 FS の quick グループ 652
 |---|---|---|---|---|---|---|
 | ext4 | 144 | 24 | 0 | 484 | 0 | 0 |
 | ext2 | 100 | 68 | 0 | 484 | 0 (再確認 run) | 0 |
-| FAT (FAT32) | 107 | 28 | 2 | 515 | 1 → 期待リストへ (generic/785) | 2 (hang で殺した 346 / 394 のみ) |
+| FAT (FAT32) | 108 | 27 | 2 | 515 | 0 (785 は期待リストへ) | 2 (hang で殺した 346 / 394 のみ。hang は fsck の失敗に数えないようにした) |
 | exFAT | 91 | 46 | 0 | 515 | 0 | 0 |
 | NTFS (書き込みビルド) | 113 | 22 | 0 | 517 | 0 | 0 (**検査あり**: 下の「NTFS の fsck」) |
-| XFS (Full) | XFS_PASS | XFS_FAIL | 0 | XFS_NOTRUN | XFS_UNEXP | XFS_FSCK |
+| XFS (Full) | 144 | 24 | 0 | 484 | 0 | 1 (generic/411。下の「XFS の 1024 文字の symlink」。`fsck_ignore` にした) |
 | Btrfs | 142 | 26 | 0 | 484 | 0 | 0 |
 | F2FS | 144 | 24 | 0 | 484 | 0 | 0 |
 
+XFS・FAT・Btrfs・F2FS・exFAT の数字は、ランナーが落ちなかった run 44469300735 (同じ内容の再実行。`usbmem-xfstests-all`) のもの。run 44461561567 では XFS のジョブが「The hosted runner lost communication with the server」で落ち、44469300735 では ext4 / ext2 / NTFS が同じ理由で落ちた (**特定のテスト・FS に限らない**。ジョブのログもアーティファクトも残らない)。原因は未確定で、ブランチ名の末尾に `-progress` を付けると 30 秒ごとに実行中のテスト名・メモリ・dmesg・dm の状態を `ci-progress` ブランチへ書く (`tools/ci/push_progress.sh`) ようにした。これを付けた run 44474332688 では ext2 / ext4 / f2fs / NTFS / exFAT が最後まで走り (メモリは 10 GB 以上空き、dmesg に異常なし)、落ちた run との差は見つかっていない。ext4 / ext2 / NTFS の数字は 44474332688 のもの (期待外 0)。
 (「期待外」は `xfstests_expected.json` に載っていない失敗。FAT の 785 と ext2 の 44 件は、この run で初めて動いたテストで、原因を調べて分類つきで期待リストに入れた。)
 `--loop` にする前 (run 43747052912) は pass 92 (NTFS 85)・notrun 545 だった。**ブロックデバイス前提 / dm-flakey / dm-error のテストが動くようになり、pass が ext4 / F2FS で +52、NTFS で +28 になった。** 新しく動いたテストの中身は下の「ブロックデバイス (`--loop`)」。
 
 fsck は各テストの後 (TEST と SCRATCH の両方) に独立ツール (e2fsck / fsck.fat / fsck.exfat / xfs_repair / btrfs check / fsck.f2fs。NTFS は `fsck_ntfs.sh`) で調べていて、pass したテストも含めて壊れたイメージは残らなかった。
 NTFS は 1304 回 (652 件 × TEST / SCRATCH) の検査のうち、失敗したのは「テストが SCRATCH の中身を壊す」generic/108・740 の 2 件 (期待リストの `fsck_ignore`) だけで、3 つの検査 (下記) が一致して「NTFS ではない」と報告した。
+
+### XFS の 1024 文字の symlink (未確定)
+
+generic/411 (fsstress の symlink あり) の SCRATCH を `xfs_repair -n` が「symlink in inode N too long (1024 chars)」と報告して fsck が失敗した (テスト自体は pass。symlink の長さが乱数なので毎回は出ない)。core は kernel と同じく 1024 文字まで許して remote (XSLM) ブロックに書いている (`ino_symlink_body`)。xfs_repair の境界の扱い (>= か >) との食い違いと思われるが、core の書き方の誤りかどうかは確かめていない。期待リスト (xfs) に `core_bug` + `fsck_ignore` で入れてある。確かめるには、1024 文字の symlink を作った XFS のイメージを `xfs_repair -n` に通す小さな CI ジョブが要る。直すなら 1023 文字までにするのが最小の変更。
 
 ### 初回 (ループなし、2026-11-15)
 

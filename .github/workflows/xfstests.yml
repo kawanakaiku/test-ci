@@ -154,6 +154,8 @@ jobs:
           df -h /mnt | cat
 
       - name: Run fstests
+        # 通常は 1 FS 30 分ほど。止まったテストがあっても結果を拾えるように、ステップに上限を付ける (打ち切られても次の Upload は always() で動く。results.json は 1 件ごとに書く)
+        timeout-minutes: 120
         env:
           FSTESTS_GROUP: ${{ needs.plan.outputs.group }}
           FSTESTS_TESTS: ${{ needs.plan.outputs.tests }}

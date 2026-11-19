@@ -1,25 +1,25 @@
-07:10:40
-xfs generic/471 368/652 651s
-Mem:           15983        1004       14917          47         386       14978
+07:11:12
+xfs generic/496 389/652 684s
+Mem:           15983         987       14933          47         387       14995
 /dev/root       145G   61G   85G  42% /
 /dev/root       145G   61G   85G  42% /
- 07:10:40 up 15 min,  0 users,  load average: 1.77, 1.59, 1.07
+ 07:11:12 up 16 min,  0 users,  load average: 1.45, 1.53, 1.07
 --- dmesg
-[  921.440393] run fstests generic/465 at 2026-11-19 07:10:32
-[  923.762433] run fstests generic/466 at 2026-11-19 07:10:35
-[  924.531704] run fstests generic/467 at 2026-11-19 07:10:36
-[  924.726691] sh (342134): drop_caches: 3
-[  924.847250] sh (342141): drop_caches: 3
-[  924.885055] sh (342148): drop_caches: 3
-[  924.929859] sh (342155): drop_caches: 3
-[  924.954235] sh (342160): drop_caches: 3
-[  924.993226] sh (342167): drop_caches: 3
-[  925.052811] sh (342176): drop_caches: 3
-[  925.108963] sh (342186): drop_caches: 3
-[  925.841546] run fstests generic/468 at 2026-11-19 07:10:37
-[  926.505935] run fstests generic/469 at 2026-11-19 07:10:38
-[  927.321859] run fstests generic/470 at 2026-11-19 07:10:38
-[  928.125586] run fstests generic/471 at 2026-11-19 07:10:39
+[  953.853405] run fstests generic/485 at 2026-11-19 07:11:05
+[  954.449525] run fstests generic/486 at 2026-11-19 07:11:06
+[  954.954396] run fstests generic/487 at 2026-11-19 07:11:06
+[  955.465695] run fstests generic/488 at 2026-11-19 07:11:07
+[  955.961084] run fstests generic/489 at 2026-11-19 07:11:07
+[  956.683865] run fstests generic/490 at 2026-11-19 07:11:08
+[  957.473640] run fstests generic/491 at 2026-11-19 07:11:09
+[  957.994809] run fstests generic/492 at 2026-11-19 07:11:09
+[  958.565674] run fstests generic/493 at 2026-11-19 07:11:10
+[  958.790230] swapon: swapfile has holes
+[  959.195353] run fstests generic/494 at 2026-11-19 07:11:10
+[  959.367217] swapon: swapfile has holes
+[  959.805761] run fstests generic/495 at 2026-11-19 07:11:11
+[  960.453153] run fstests generic/496 at 2026-11-19 07:11:12
+[  960.674171] swapon: swapfile has holes
 --- fuse/dm
 1
 No devices found

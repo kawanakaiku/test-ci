@@ -1,9 +1,9 @@
-07:03:42
+07:04:13
 btrfs generic/732 592/652 819s
-Mem:           15700         902       14590          47         522       14797
+Mem:           15700         902       14590          47         523       14797
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 07:03:42 up 22 min,  0 users,  load average: 0.40, 1.03, 0.86
+ 07:04:13 up 22 min,  0 users,  load average: 0.24, 0.93, 0.84
 --- dmesg
 [ 1242.080266] scsi host2: scsi_debug: version 0191 [20210520]
                  dev_size_mb=256, opts=0x0, submit_queues=1, statistics=0

@@ -1,25 +1,25 @@
-06:59:03
-btrfs generic/410 320/652 614s
-Mem:           15700        1002       14477          46         537       14698
+06:59:33
+btrfs generic/451 353/652 637s
+Mem:           15700         918       14608          46         488       14782
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 06:59:03 up 17 min,  0 users,  load average: 2.07, 1.28, 0.82
+ 06:59:33 up 17 min,  0 users,  load average: 1.90, 1.31, 0.85
 --- dmesg
-[ 1028.045350] run fstests generic/394 at 2026-11-19 06:58:48
-[ 1028.611212] run fstests generic/395 at 2026-11-19 06:58:48
-[ 1029.085037] run fstests generic/396 at 2026-11-19 06:58:49
-[ 1029.576579] run fstests generic/397 at 2026-11-19 06:58:49
-[ 1030.049035] run fstests generic/398 at 2026-11-19 06:58:50
-[ 1030.512717] run fstests generic/400 at 2026-11-19 06:58:50
-[ 1030.948298] run fstests generic/401 at 2026-11-19 06:58:51
-[ 1031.411315] run fstests generic/402 at 2026-11-19 06:58:51
-[ 1031.888860] run fstests generic/403 at 2026-11-19 06:58:52
-[ 1032.349847] run fstests generic/404 at 2026-11-19 06:58:52
-[ 1032.796753] run fstests generic/406 at 2026-11-19 06:58:53
-[ 1033.732848] run fstests generic/407 at 2026-11-19 06:58:54
-[ 1034.171796] run fstests generic/408 at 2026-11-19 06:58:54
-[ 1034.637383] run fstests generic/409 at 2026-11-19 06:58:54
-[ 1038.008822] run fstests generic/410 at 2026-11-19 06:58:58
+[ 1057.163549] Buffer I/O error on dev dm-1, logical block 3498, lost async page write
+[ 1057.163563] Buffer I/O error on dev dm-1, logical block 3499, lost async page write
+[ 1057.163572] Buffer I/O error on dev dm-1, logical block 3500, lost async page write
+[ 1057.163578] Buffer I/O error on dev dm-1, logical block 3501, lost async page write
+[ 1057.163585] Buffer I/O error on dev dm-1, logical block 3502, lost async page write
+[ 1057.163591] Buffer I/O error on dev dm-1, logical block 3503, lost async page write
+[ 1057.163598] Buffer I/O error on dev dm-1, logical block 3504, lost async page write
+[ 1057.703483] run fstests generic/443 at 2026-11-19 06:59:18
+[ 1058.152779] run fstests generic/444 at 2026-11-19 06:59:18
+[ 1058.587924] run fstests generic/445 at 2026-11-19 06:59:18
+[ 1059.027722] run fstests generic/446 at 2026-11-19 06:59:19
+[ 1059.474620] run fstests generic/448 at 2026-11-19 06:59:19
+[ 1059.910590] run fstests generic/449 at 2026-11-19 06:59:20
+[ 1060.345365] run fstests generic/450 at 2026-11-19 06:59:20
+[ 1060.824154] run fstests generic/451 at 2026-11-19 06:59:21
 --- fuse/dm
 1
 cow-root	(252:0)

@@ -1,25 +1,25 @@
-06:59:29
-xfs generic/732 592/652 551s
-Mem:           15700         896       14605          48         515       14804
+07:00:00
+xfs generic/755 606/652 686s
+Mem:           15700         976       14523          48         517       14724
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 06:59:29 up 15 min,  0 users,  load average: 0.19, 0.92, 0.79
+ 07:00:00 up 16 min,  0 users,  load average: 0.33, 0.87, 0.78
 --- dmesg
-[  849.214694] scsi host2: scsi_debug: version 0191 [20210520]
-                 dev_size_mb=256, opts=0x0, submit_queues=1, statistics=0
-[  849.215119] scsi 2:0:0:0: Direct-Access     Linux    scsi_debug       0191 PQ: 0 ANSI: 7
-[  849.215232] scsi 2:0:0:0: Power-on or device reset occurred
-[  849.217252] sd 2:0:0:0: [sda] 524288 512-byte logical blocks: (268 MB/256 MiB)
-[  849.217278] sd 2:0:0:0: [sda] Write Protect is off
-[  849.217281] sd 2:0:0:0: [sda] Mode Sense: 73 00 10 08
-[  849.217308] sd 2:0:0:0: [sda] Write cache: enabled, read cache: enabled, supports DPO and FUA
-[  849.217329] sd 2:0:0:0: [sda] permanent stream count = 5
-[  849.217340] sd 2:0:0:0: [sda] Preferred minimum I/O size 512 bytes
-[  849.217341] sd 2:0:0:0: [sda] Optimal transfer size 524288 bytes
-[  849.217585] sd 2:0:0:0: Attached scsi generic sg0 type 0
-[  849.230887] sd 2:0:0:0: [sda] Attached SCSI disk
-[  849.313985] sd 2:0:0:0: [sda] Synchronizing SCSI cache
-[  849.663047] run fstests generic/732 at 2026-11-19 06:57:45
+[  981.922878] raid6: avx2x2   gen() 45994 MB/s
+[  981.939883] raid6: avx2x1   gen() 31511 MB/s
+[  981.939885] raid6: using algorithm avx512x4 gen() 46120 MB/s
+[  981.956883] raid6: .... xor() 7840 MB/s, rmw enabled
+[  981.956887] raid6: using avx512x2 recovery algorithm
+[  981.958593] xor: automatically using best checksumming function   avx       
+[  982.074844] Btrfs loaded, zoned=yes, fsverity=yes
+[  982.488422] run fstests generic/741 at 2026-11-19 06:59:58
+[  982.653492] /dev/loop3: Can't open blockdev
+[  982.664546] /dev/loop3: Can't open blockdev
+[  983.024520] run fstests generic/742 at 2026-11-19 06:59:58
+[  983.440508] run fstests generic/745 at 2026-11-19 06:59:59
+[  983.879401] run fstests generic/748 at 2026-11-19 06:59:59
+[  984.302563] run fstests generic/749 at 2026-11-19 07:00:00
+[  984.714704] run fstests generic/752 at 2026-11-19 07:00:00
 --- fuse/dm
-4
+1
 cow-root	(252:0)

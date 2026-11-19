@@ -14,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,7 +52,7 @@ private data class NestedAsk(val volumeId: String, val path: String, val start: 
 
 @Composable
 fun NestedMountSection(a: NestedActions, modifier: Modifier = Modifier) {
-    val scope = rememberCoroutineScope()
+    val scope = rememberUiScope()
     var busy by remember { mutableStateOf(false) }
     var volumes by remember { mutableStateOf<List<NestedVolumeRow>?>(null) }   // null = 選び始めていない
     var volume by remember { mutableStateOf<NestedVolumeRow?>(null) }

@@ -17,11 +17,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -52,7 +50,7 @@ fun LinkDialog(a: LinkActions, volumeKey: String, allowHard: Boolean, onDone: (S
     var error by remember { mutableStateOf<String?>(null) }
     var working by remember { mutableStateOf(false) }
     var pick by remember { mutableStateOf<Int?>(null) }   // 1 = 作る場所を選ぶ, 2 = リンク先/元のファイルを選ぶ
-    val scope = rememberCoroutineScope()
+    val scope = rememberUiScope()
 
     AlertDialog(
         onDismissRequest = { if (!working) onDismiss() },
@@ -102,7 +100,7 @@ private fun PathPicker(a: LinkActions, volumeKey: String, start: String, folders
     var dir by remember { mutableStateOf(if (start.startsWith("/")) start else "/") }
     var items by remember { mutableStateOf<List<NtfsEntry>>(emptyList()) }
     var err by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(dir) {
+    LaunchedEffectUi(dir) {
         err = null
         items = try { withContext(Dispatchers.IO) { a.listDir(volumeKey, dir).sortedWith(compareBy({ !it.isDir }, { it.name.lowercase() })) } }
         catch (e: Exception) { err = e.message ?: e.javaClass.simpleName; emptyList() }

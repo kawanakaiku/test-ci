@@ -15,11 +15,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -85,7 +83,7 @@ data class ImageVolumeRow(val id: String, val label: String, val fsName: String,
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
-    val scope = rememberCoroutineScope()
+    val scope = rememberUiScope()
     val appCtx = LocalContext.current
     var result by remember { mutableStateOf(ImageResult()) }
     var busy by remember { mutableStateOf(false) }
@@ -103,12 +101,12 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
     var imageRows by remember { mutableStateOf<List<ImageVolumeRow>>(emptyList()) }
     fun refreshCrypto() { scope.launch { cryptoRows = withContext(Dispatchers.IO) { a.cryptoVolumes() } } }
     var cryptoNoload by remember { mutableStateOf<CryptoNoloadPrompt?>(null) }   // 保留は VolumeRegistry が持つ。画面が作り直されても、下の LaunchedEffect で出し直す
-    LaunchedEffect(Unit) {
+    LaunchedEffectUi(Unit) {
         cryptoRows = withContext(Dispatchers.IO) { a.cryptoVolumes() }
         cryptoNoload = withContext(Dispatchers.IO) { a.pendingCryptoNoload() }.firstOrNull()
     }
     // 公開中のイメージの一覧は、結果が変わるたび (共有・閉じる・解錠) に取り直す
-    LaunchedEffect(result, busy) { if (!busy) imageRows = withContext(Dispatchers.IO) { a.imageVolumes() } }
+    LaunchedEffectUi(result, busy) { if (!busy) imageRows = withContext(Dispatchers.IO) { a.imageVolumes() } }
     fun askUnlock(uri: Uri, p: org.usbmem.app.Partition, label: String) {
         scope.launch {
             busy = true

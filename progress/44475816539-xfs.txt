@@ -1,25 +1,25 @@
-07:10:08
-xfs generic/451 353/652 609s
-Mem:           15983         954       14959          47         395       15028
+07:10:40
+xfs generic/471 368/652 651s
+Mem:           15983        1004       14917          47         386       14978
 /dev/root       145G   61G   85G  42% /
 /dev/root       145G   61G   85G  42% /
- 07:10:09 up 14 min,  0 users,  load average: 1.73, 1.55, 1.04
+ 07:10:40 up 15 min,  0 users,  load average: 1.77, 1.59, 1.07
 --- dmesg
-[  877.108529] run fstests generic/433 at 2026-11-19 07:09:48
-[  877.713617] run fstests generic/434 at 2026-11-19 07:09:49
-[  878.243084] run fstests generic/436 at 2026-11-19 07:09:49
-[  878.781016] run fstests generic/437 at 2026-11-19 07:09:50
-[  879.973772] run fstests generic/439 at 2026-11-19 07:09:51
-[  880.501449] run fstests generic/440 at 2026-11-19 07:09:52
-[  881.052075] run fstests generic/441 at 2026-11-19 07:09:52
-[  881.566223] run fstests generic/443 at 2026-11-19 07:09:53
-[  882.097334] run fstests generic/444 at 2026-11-19 07:09:53
-[  882.614525] run fstests generic/445 at 2026-11-19 07:09:54
-[  883.156400] run fstests generic/446 at 2026-11-19 07:09:54
-[  883.673416] run fstests generic/448 at 2026-11-19 07:09:55
-[  884.240714] run fstests generic/449 at 2026-11-19 07:09:55
-[  884.878070] run fstests generic/450 at 2026-11-19 07:09:56
-[  885.392002] run fstests generic/451 at 2026-11-19 07:09:56
+[  921.440393] run fstests generic/465 at 2026-11-19 07:10:32
+[  923.762433] run fstests generic/466 at 2026-11-19 07:10:35
+[  924.531704] run fstests generic/467 at 2026-11-19 07:10:36
+[  924.726691] sh (342134): drop_caches: 3
+[  924.847250] sh (342141): drop_caches: 3
+[  924.885055] sh (342148): drop_caches: 3
+[  924.929859] sh (342155): drop_caches: 3
+[  924.954235] sh (342160): drop_caches: 3
+[  924.993226] sh (342167): drop_caches: 3
+[  925.052811] sh (342176): drop_caches: 3
+[  925.108963] sh (342186): drop_caches: 3
+[  925.841546] run fstests generic/468 at 2026-11-19 07:10:37
+[  926.505935] run fstests generic/469 at 2026-11-19 07:10:38
+[  927.321859] run fstests generic/470 at 2026-11-19 07:10:38
+[  928.125586] run fstests generic/471 at 2026-11-19 07:10:39
 --- fuse/dm
 1
 No devices found

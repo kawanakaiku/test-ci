@@ -158,6 +158,11 @@ if(USBMEM_BUILD_TESTS)
   # ダーティ / 未再生ログ / 休止状態のボリューム (docs/dirty-volumes.md): state() と、rw を要求しても止まること (書き込みビルドでなければ読み取り専用の部分だけ)
   add_test(NAME ntfs_state COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_ntfs_state_tests.sh $<TARGET_FILE:usbmem_ntfs_tests>)
   set_tests_properties(ntfs_state PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+  # $MFTMirr の扱い (docs/ntfs-mftmirr.md): 64 KiB クラスタの Windows 製の状態 (先頭 4 レコードより後ろのミラーが古い) でも書き込み可で開けること、torn write で壊れた MFT システムレコードを
+  # ミラーのコピーで読めること (読み取り専用)。書き込みビルドでなければ読み取り専用の部分だけ。書いたイメージは ntfsfix -n / ntfs-3g.probe / 自前の fsck で検証
+  add_test(NAME ntfs_mirror COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_ntfs_mirror_tests.sh $<TARGET_FILE:usbmem_ntfs_tests> $<TARGET_FILE:usbmem_disktools_cli>)
+  # 失敗したマウント (壊れたレコードの最初の試行) の後始末は inode 内部の確保物を解放しきれない (既知。fuzz と同じ) ので、リーク検出は切る
+  set_tests_properties(ntfs_mirror PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
   if(USBMEM_NTFS_WRITE)
     add_test(NAME ntfs_write COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_write_tests.sh $<TARGET_FILE:usbmem_ntfs_tests>)
     set_tests_properties(ntfs_write PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")

@@ -17,4 +17,8 @@
  * (writable() == false)。呼び出し側 (UI) が利用者に確認して、「読み取り専用で開く」か、allow_dirty = true で開き直す (書き込み可)。ボリュームの事実ではなく、この層の保留の合図。 */
 #define USBMEM_VOL_CONFIRM_WRITE 16u
 
+/* NTFS: $MFT の先頭 4 レコード (0-3) のどれかが torn write などで壊れていたため、$MFTMirr のコピーで読み出している (読み取り専用で開く。書き込みは許さない)。
+ * コピーは最後に同期された時点のもので、新しい更新が見えないことがある。docs/ntfs-mftmirr.md */
+#define USBMEM_VOL_MFT_FROM_MIRROR 32u
+
 #endif

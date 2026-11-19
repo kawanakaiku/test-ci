@@ -508,11 +508,118 @@ static int state_run(const std::string& dir) {
   return g_fail ? 1 : 0;
 }
 
+// ---- --mirror <dir>: $MFTMirr の扱い (tools/gen_ntfs_mirror_fixture.py)。docs/ntfs-mftmirr.md
+//  (A) 64 KiB クラスタで、先頭 4 レコードより後ろの $MFTMirr が $MFT と違っても (Windows 製の状態) 書き込み可で開けること。先頭 4 レコードの不一致は読み取り専用に落ちること。
+//  (B) torn write で壊れた MFT システムレコード (0-3) を $MFTMirr のコピーで読み出せること (通常のマウントが失敗するもの。1・2 は上流が読み取り専用でマウントできるので使わない)。読み取り専用のみで、イメージは 1 バイトも変わらない。$MFTMirr 側も壊れていれば救わない。
+// 書き込み可で開いて書いたイメージには "<img>.written" の印を残す (run_ntfs_mirror_tests.sh が独立実装で検証する)。
+static bool mirror_content_ok(usbmem::NtfsVolume& v, const char* who) {
+  int bad0 = g_fail;
+  std::vector<usbmem::NtfsDirEntry> es; CHECK(v.readdir(v.root(), &es) == 0);
+  bool has_a = false, has_d = false; for (auto& e : es) { if (e.name == "a.txt") has_a = true; if (e.name == "d") has_d = true; }
+  CHECK(has_a); CHECK(has_d);
+  uint64_t ino = 0; char buf[64] = {0};
+  CHECK(v.resolve("/a.txt", &ino) == 0);
+  CHECK(v.read(ino, 0, buf, sizeof buf) == 6);
+  CHECK(std::memcmp(buf, "hello\n", 6) == 0);
+  CHECK(v.resolve("/d/f07.txt", &ino) == 0);
+  std::memset(buf, 0, sizeof buf);
+  CHECK(v.read(ino, 0, buf, sizeof buf) == 8);
+  CHECK(std::memcmp(buf, "file 07\n", 8) == 0);
+  uint64_t dino = 0; CHECK(v.resolve("/d", &dino) == 0);
+  CHECK(v.readdir(dino, &es) == 0);
+  int n = 0; for (auto& e : es) if (e.name.size() == 7 && e.name[0] == 'f') n++;
+  CHECK(n == 30);
+  if (g_fail != bad0) std::fprintf(stderr, "mirror[%s]: content check failed\n", who);
+  return g_fail == bad0;
+}
+static int mirror_run(const std::string& dir) {
+  enum Kind { Healthy, MirrorMismatch, Recovered, Tolerated, Unmountable };
+  struct Case { const char* name; Kind kind; };
+  const Case cases[] = {
+    {"plain", Healthy}, {"plain4k", Healthy},
+    {"win", Healthy},       // 64 KiB クラスタ: 先頭 4 レコードより後ろの $MFTMirr が古い (Windows 製の状態)。修正前は読み取り専用に落ちた
+    {"win_mid", Healthy},   // 先頭 4 レコードの外 (5, 10, 11) も古い
+    {"bad0", MirrorMismatch}, {"bad3", MirrorMismatch},   // 先頭 4 レコードの内側の本物の不一致
+    {"torn0", Recovered}, {"torn3", Recovered}, {"torn03", Recovered},
+    {"torn1", Tolerated}, {"torn2", Tolerated},   // $MFTMirr / $LogFile のレコードが壊れていても、上流は読み取り専用でマウントできる (壊れたシステムファイルは読めないが利用者のファイルは読める)。通常のマウントが成功するのでミラーは使わない
+    {"torn3m", Unmountable},
+  };
+  auto open_img = [](const std::string& p, bool ro) { usbmem::BlockDevicePtr d; usbmem::RawImageDevice::open_path(p, ro, 512, &d); return d; };
+  bool rw_built = true;
+  for (const Case& c : cases) {
+    std::string img = dir + "/ntfs_mirror_" + c.name + ".img";
+    auto before = slurp_file(img);
+    if (before.empty()) { std::fprintf(stderr, "mirror[%s]: missing image %s\n", c.name, img.c_str()); g_fail++; continue; }
+    int bad0 = g_fail;
+    {  // 読み取り専用
+      auto dev = open_img(img, true); int err = 0;
+      auto v = usbmem::NtfsVolume::mount(dev, &err);
+      if (c.kind == Unmountable) {
+        if (v) { std::fprintf(stderr, "mirror[%s]: ro mount succeeded but the mirror copy is damaged too\n", c.name); g_fail++; }
+        v.reset();
+      } else if (!v) { std::fprintf(stderr, "mirror[%s]: ro mount failed %d\n", c.name, err); g_fail++; }
+      else {
+        CHECK(!v->writable());
+        bool from_mirror = (v->state() & USBMEM_VOL_MFT_FROM_MIRROR) != 0;
+        if (from_mirror != (c.kind == Recovered)) { std::fprintf(stderr, "mirror[%s]: state=0x%x from_mirror=%d want %d\n", c.name, v->state(), (int)from_mirror, (int)(c.kind == Recovered)); g_fail++; }
+        mirror_content_ok(*v, c.name);
+      }
+    }
+    CHECK(slurp_file(img) == before);   // 読み取り専用のマウントはイメージを変えない
+    {  // 読み書きを要求
+      auto dev = open_img(img, false); int err = 0;
+      auto v = usbmem::NtfsVolume::mount_rw(dev, &err);
+      if (c.kind == Unmountable) {
+        if (v) { std::fprintf(stderr, "mirror[%s]: rw mount succeeded\n", c.name); g_fail++; }
+      } else if (!v) {
+        if (err == EROFS) { rw_built = false; std::fprintf(stderr, "mirror[%s]: rw not built (EROFS): skip the rw checks\n", c.name); }
+        else { std::fprintf(stderr, "mirror[%s]: rw mount failed %d\n", c.name, err); g_fail++; }
+      } else if (rw_built) {
+        bool want_rw = c.kind == Healthy;   // 他は読み取り専用のまま (ミラーの不一致・ミラー経由・上流がエラーを記録したもの)
+        if (v->writable() != want_rw) { std::fprintf(stderr, "mirror[%s]: writable=%d want=%d (state=0x%x)\n", c.name, (int)v->writable(), (int)want_rw, v->state()); g_fail++; }
+        uint64_t ino = 0;
+        int rc = v->create(v->root(), "new.txt", 0644, &ino);
+        if (want_rw && v->writable()) {
+          CHECK(rc == 0);
+          std::vector<uint8_t> b(200000); for (size_t i = 0; i < b.size(); i++) b[i] = (uint8_t)((i * 7 + 3) & 255);
+          CHECK(v->write(ino, 0, b.data(), b.size()) == (int64_t)b.size());
+          uint64_t dno = 0; CHECK(v->mkdir(v->root(), "newdir", 0755, &dno) == 0);
+          uint64_t ino2 = 0; CHECK(v->create(dno, "inner.txt", 0644, &ino2) == 0);
+          CHECK(v->write(ino2, 0, "inner\n", 6) == 6);
+          CHECK(v->sync() == 0);
+        } else CHECK(rc == -EROFS);
+      }
+    }
+    if (rw_built && c.kind != Healthy) {
+      CHECK(slurp_file(img) == before);   // 書き込み可にならなかったボリュームは 1 バイトも書かれない
+    } else if (rw_built) {
+      auto dev = open_img(img, true); int err = 0;
+      auto v = usbmem::NtfsVolume::mount(dev, &err);
+      if (!v) { std::fprintf(stderr, "mirror[%s]: remount failed %d\n", c.name, err); g_fail++; }
+      else {
+        CHECK(v->state() == 0);   // クリーンなアンマウントで終わっている
+        mirror_content_ok(*v, c.name);
+        uint64_t ino = 0; CHECK(v->resolve("/new.txt", &ino) == 0);
+        std::vector<uint8_t> b(200000);
+        CHECK(v->read(ino, 0, b.data(), b.size()) == (int64_t)b.size());
+        bool same = true; for (size_t i = 0; i < b.size(); i++) if (b[i] != (uint8_t)((i * 7 + 3) & 255)) { same = false; break; }
+        CHECK(same);
+        CHECK(v->resolve("/newdir/inner.txt", &ino) == 0);
+        std::ofstream(img + ".written").put('\n');
+      }
+    }
+    std::fprintf(stderr, "mirror[%s]: %s\n", c.name, g_fail == bad0 ? "ok" : "FAILED");
+  }
+  std::fprintf(stderr, "mirror: %s%s\n", g_fail ? "FAIL" : "ok", rw_built ? "" : " (read-only build: the rw checks were skipped)");
+  return g_fail ? 1 : 0;
+}
+
 int main(int argc, char** argv) {
   if (argc >= 2 && std::string(argv[1]) == "--bitops") return bitops_test();
   if (argc >= 7 && std::string(argv[1]) == "--wtest") return wtest(argv[2], argv[3], std::strtoull(argv[4], 0, 10), std::strtoull(argv[5], 0, 10), (unsigned)std::atoi(argv[6]));
   if (argc >= 3 && std::string(argv[1]) == "--probe") return probe_img(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--state") return state_run(argv[2]);
+  if (argc >= 3 && std::string(argv[1]) == "--mirror") return mirror_run(argv[2]);
   if (argc >= 4 && std::string(argv[1]) == "--ops") return ops_run(argv[2], argv[3]);
   if (argc >= 4 && std::string(argv[1]) == "--extract") return extract_part(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);
   if (argc >= 4 && std::string(argv[1]) == "--cat") return cat_file(argv[2], argv[3], argc >= 5 ? std::atoi(argv[4]) : 0);

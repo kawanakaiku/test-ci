@@ -85,6 +85,7 @@ object VolState {
     const val HIBERNATED = 4       // NTFS: Windows が休止状態 (高速スタートアップ) のまま
     const val MEDIA_ERROR = 8      // exFAT MediaFailure / FAT のメディアエラー bit
     const val CONFIRM_WRITE = 16   // NTFS: ダーティフラグだけのボリュームに書き込み可を要求され、allowDirty = false なので書き込みマウントせず読み取り専用で保留した (事実ではなく、core の保留の合図)
+    const val MFT_FROM_MIRROR = 32 // NTFS: MFT の先頭 4 レコードのどれかが壊れていたので、$MFTMirr のコピーで読み出している (読み取り専用。内容が最新でないことがある。docs/ntfs-mftmirr.md)
 }
 
 open class NativeException(val code: Int, message: String) : Exception(message)

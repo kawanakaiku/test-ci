@@ -5,8 +5,8 @@
       (実測: 正常ディスマウント後は v1.1、ダーティのままデタッチしたイメージは v2.0)。クリーンな Windows 11 製ボリュームには `ntfs-3g` も自前ドライバも書き込めた。
       v2.0 が問題になるのは **ダーティ (未再生ログあり) のボリューム**だけで、そこは元々書かない (ログ再生が要る) ので現方針で正しい: 読み取り専用で開き、書くなら Windows で安全に取り外してもらう。
 - [x] ダーティ/未再生ログ/休止状態のボリュームの案内 (2026-11-17): NTFS・exFAT・FAT の状態 (`FsVolume::state()`) を UI まで渡し、原因別の Warning 通知 (`VolumeStateNotice`。USB・イメージ・暗号ボリューム・入れ子で共通) に置き換えた。ログ再生はしない。ホスト ctest `ntfs_state` と AVD `VolumeStateInstrumentedTest` で確認済み (CI)。**未**: 実機・実 Windows 製の休止 / ダーティのイメージでの確認、Windows 11 の LFS 2.0 ログの未再生判定 (現状は上流が読めず読み取り専用に落ちる。`DIRTY` だけ出る)。docs/dirty-volumes.md
-- [ ] **64KiB クラスタの `$MFTMirr` 偽陽性** — 上流は 1 クラスタ分 (64 レコード) を比較するが Windows が同期するのは先頭 4 つ。書き込み時に自動で読み取り専用になる。
-      対処案: 比較を先頭 4 レコードに限るパッチ (ntfs-3g と同じ挙動)。`third_party/ntfs-resurrection/patches/` に追加するか判断。
+- [x] **64KiB クラスタの `$MFTMirr` 偽陽性** (2026-11-19 修正): 上流は 1 クラスタ分 (64 レコード) を比較するが Windows が同期するのは先頭の少数。比較を MFT レコード 0-3 だけにするパッチをビルド時の作業コピーに当てた (`core/compat/ntfs_patch.cmake`。`third_party/` は無改変)。
+      mkntfs 製の 64 KiB イメージを「Windows が書いた後」の状態 (先頭 4 レコードより後ろのミラーが古い) にして、書き込み可で開けること・先頭 4 レコードの不一致は読み取り専用のままなことを ctest `ntfs_mirror` で確認。docs/ntfs-mftmirr.md。**未**: 実 Windows 製の 64 KiB イメージでの確認 (`ntfs_windows_images` は Windows 製イメージが無く skip のまま)。
 - [ ] 書き込み段階 3 以降: サイズ拡張・新規作成・削除・rename・mkdir (`iomap_file_buffered_write`、setattr、create/unlink)。
 - [ ] 電源断模擬 (書き込み途中で打ち切り) → `ntfsfix -n` / WinPE chkdsk で確認。
 - [ ] 圧縮 (LZNT1/WOF)・疎ファイルへの書き込み。
@@ -30,7 +30,8 @@
 - [ ] BitLocker / LUKS 復号、他 FS (exFAT, ext4 等) の統合、UAS (USB Attached SCSI) 対応。
 
 ## 電源断・書き込みの残課題 (2026-11-11 追加)
-- [ ] `torn` で壊れた MFT システムレコード (0-3) を `$MFTMirr` のコピーで読み出す緩和 (読み取り専用) と、Windows `chkdsk` による回復可否の確認。
+- [x] `torn` で壊れた MFT システムレコード (0-3) を `$MFTMirr` のコピーで読み出す緩和 (2026-11-19、読み取り専用のみ): 通常のマウントが失敗したときだけ、壊れたレコードの読み取りを `$MFTMirr` のコピーに差し替える読み取り専用デバイス越しにマウントし、`state()` に `USBMEM_VOL_MFT_FROM_MIRROR` を立てる (UI は通知を出す)。ctest `ntfs_mirror`。docs/ntfs-mftmirr.md
+- [ ] 上の緩和で読んだボリュームの、Windows `chkdsk` による回復可否の確認 (Windows イメージが要る。手順の見積もりは docs/ntfs-mftmirr.md)。
 - [ ] 電源断模擬を Windows 製イメージ (gpt64k/4Kn) と、より長い操作列・大きなファイル書き込み (ランダム/シーケンシャル混在) に拡大。フル版 (`run_crash_tests.sh <bin> <dir> 40`) を定期実行。
 - [x] ~~クラスタサイズ < 4096 のボリュームは書き込みマウントを拒否~~ → **解消 (2026-11-11)**: 実機 RAID (7.3 TiB, クラスタ 2048B) で拒否に当たった。原因は互換層の folio 全体 dirty 管理 (1 folio にデータ・未初期化・穴が混在すると書き戻しが失敗)。512B 単位の dirty ビットと、穴/未初期化範囲のゼロ確認スキップで解消。クラスタ 512/2048 で書き込みテスト一式と電源断模擬を通す
 - [ ] 書き込みの `fsync` / SAF 側の flush の意味づけ、書き込み途中の USB 抜去 (I/O エラー) 時の挙動テスト。

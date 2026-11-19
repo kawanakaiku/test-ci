@@ -1,10 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0 (本ファイル) — 取り込む fs/ntfs は GPL-2.0-or-later
-# LinuxCompat + NTFS Resurrection (無改変) を静的ライブラリ usbmem_ntfs としてビルドする。
+# LinuxCompat + NTFS Resurrection (third_party/ は無改変。super.c だけビルド時の作業コピーにパッチ: ntfs_patch.cmake) を静的ライブラリ usbmem_ntfs としてビルドする。
 set(NTFS_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/ntfs-resurrection)
 set(EXFAT_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/exfat)
 set(EXT2_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/ext2)
 set(EXT4_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../third_party/ext4)
 file(GLOB NTFS_SRC ${NTFS_ROOT}/fs-ntfs/*.c ${NTFS_ROOT}/fs-ntfs/lib/*.c)
+# 上流 super.c だけは、ビルド時に作業コピー (ビルドディレクトリ) へ小さなパッチを当てて使う。third_party/ は無改変のまま (patches/README.md、docs/ntfs-mftmirr.md)
+include(${CMAKE_CURRENT_LIST_DIR}/ntfs_patch.cmake)
+list(REMOVE_ITEM NTFS_SRC ${NTFS_ROOT}/fs-ntfs/super.c)
+usbmem_ntfs_patch_super(${NTFS_ROOT}/fs-ntfs/super.c ${CMAKE_CURRENT_BINARY_DIR}/ntfs_patched/super.c)
+list(APPEND NTFS_SRC ${CMAKE_CURRENT_BINARY_DIR}/ntfs_patched/super.c)
 file(GLOB EXFAT_SRC ${EXFAT_ROOT}/fs-exfat/*.c)
 # ext2: カーネルの Makefile の ext2-y (xattr / ACL / security は CONFIG なし = 含めない)
 foreach(f balloc dir file ialloc inode ioctl namei super symlink trace)
@@ -158,6 +163,11 @@ if(USBMEM_BUILD_TESTS)
   # ダーティ / 未再生ログ / 休止状態のボリューム (docs/dirty-volumes.md): state() と、rw を要求しても止まること (書き込みビルドでなければ読み取り専用の部分だけ)
   add_test(NAME ntfs_state COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_ntfs_state_tests.sh $<TARGET_FILE:usbmem_ntfs_tests>)
   set_tests_properties(ntfs_state PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+  # $MFTMirr の扱い (docs/ntfs-mftmirr.md): 64 KiB クラスタの Windows 製の状態 (先頭 4 レコードより後ろのミラーが古い) でも書き込み可で開けること、torn write で壊れた MFT システムレコードを
+  # ミラーのコピーで読めること (読み取り専用)。書き込みビルドでなければ読み取り専用の部分だけ。書いたイメージは ntfsfix -n / ntfs-3g.probe / 自前の fsck で検証
+  add_test(NAME ntfs_mirror COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_ntfs_mirror_tests.sh $<TARGET_FILE:usbmem_ntfs_tests> $<TARGET_FILE:usbmem_disktools_cli>)
+  # 失敗したマウント (壊れたレコードの最初の試行) の後始末は inode 内部の確保物を解放しきれない (既知。fuzz と同じ) ので、リーク検出は切る
+  set_tests_properties(ntfs_mirror PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
   if(USBMEM_NTFS_WRITE)
     add_test(NAME ntfs_write COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_write_tests.sh $<TARGET_FILE:usbmem_ntfs_tests>)
     set_tests_properties(ntfs_write PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")

@@ -5,7 +5,7 @@ import org.usbmem.app.ui.Notice
 import org.usbmem.app.ui.Severity
 
 /**
- * マウントしたボリュームの状態 ([NtfsVolume.state]: ダーティ / NTFS の未再生ログ / NTFS の休止状態 / メディアエラー) を、
+ * マウントしたボリュームの状態 ([NtfsVolume.state]: ダーティ / NTFS の未再生ログ / NTFS の休止状態 / メディアエラー / NTFS の MFT を $MFTMirr で読み出し中) を、
  * 「何が起きていて、何をすればよいか」の通知 (Warning) にする。USB・イメージ・暗号ボリュームの中・入れ子のどの経路も、これを通す (経路ごとに文言を持たない)。
  * 状態が取れていないとき (0) は null を返し、呼び出し側が従来の汎用の通知を出す。docs/dirty-volumes.md
  */
@@ -17,7 +17,9 @@ object VolumeStateNotice {
         val log = state and VolState.LOG_UNCLEAN != 0
         val media = state and VolState.MEDIA_ERROR != 0
         val dirty = state and VolState.DIRTY != 0
+        val mirror = state and VolState.MFT_FROM_MIRROR != 0
         val title = when {
+            mirror -> R.string.notice_vol_mft_mirror
             hib -> R.string.notice_vol_hibernated
             log -> R.string.notice_vol_log_unclean
             media -> R.string.notice_vol_media_error
@@ -26,6 +28,7 @@ object VolumeStateNotice {
         }
         val parts = ArrayList<String>()
         // 原因: 休止状態・未再生ログはダーティフラグの説明を兼ねるので、ダーティだけを別に書くのは、それらが無いときだけ
+        if (mirror) parts += ctx.getString(R.string.vol_cause_mft_mirror)
         if (hib) parts += ctx.getString(R.string.vol_cause_hibernated)
         if (log) parts += ctx.getString(R.string.vol_cause_log_unclean)
         if (dirty && !hib && !log) parts += ctx.getString(when (fsName) {
@@ -40,6 +43,7 @@ object VolumeStateNotice {
         } else {
             parts += ctx.getString(if (writeRequested) R.string.vol_effect_ro_forced else R.string.vol_effect_ro)
             parts += ctx.getString(when {
+                mirror -> R.string.vol_remedy_mft_mirror
                 hib -> R.string.vol_remedy_hibernated
                 log || dirty -> R.string.vol_remedy_dirty
                 else -> R.string.vol_remedy_media_error

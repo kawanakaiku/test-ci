@@ -5,3 +5,4 @@
 - 取り込み範囲: `fs/ntfs/` → `fs-ntfs/`、`include/uapi/linux/ntfs.h` → `include/uapi/linux/ntfs.h`
 - ライセンス: GPL-2.0-or-later (各ファイルの SPDX を参照。COPYING はカーネルのライセンス表記の導入部のみ。GPL-2.0 の全文は third_party/LICENSES/GPL-2.0.txt)
 - **ファイルは無改変**。差分は `core/compat/` 側で吸収する。更新時はコミットを差し替えて本ファイルを更新する。
+- 例外 (ビルド時の作業コピーへのパッチ。`fs-ntfs/` 自体は変えない): `super.c` の `$MFTMirr` 比較範囲 (先頭 4 レコードだけ)。`core/compat/ntfs_patch.cmake`、一覧は `patches/README.md`、根拠は `docs/ntfs-mftmirr.md`。

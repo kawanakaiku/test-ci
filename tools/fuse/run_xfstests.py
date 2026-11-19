@@ -39,17 +39,17 @@ def sh(cmd, **kw):
 # notrun の理由 → 分類 (正規表現は小文字化した理由に当てる)。
 #   saf_unusable   : SAF (Android の Storage Access Framework) 経由では使えない操作 (シンボリックリンク / ハードリンク / fallocate / 開いたままの ftruncate / 直接 I/O など)。core が対応しても
 #                    アプリからは届かないので、対応を急がない
-#   core_unsupported: 自前実装 (core の FS API) に無い操作 (権限・所有者・ACL・xattr・時刻の細かい制御・クォータ・SEEK_DATA / HOLE など)。FUSE アダプターは正直に ENOSYS / EOPNOTSUPP を返す
+#   core_unsupported: 自前実装 (core の FS API) に無い操作 (権限・所有者・ACL・xattr・時刻の細かい制御・クォータ・SEEK_DATA / HOLE・FAT / exFAT / NTFS のハードリンクとシンボリックリンクなど)。FUSE アダプターは正直に ENOSYS / EOPNOTSUPP を返す
 #   environment    : 前提 (実デバイス・別のデバイス・カーネルの機能・ツール) が FUSE / この runner に無い
 NOTRUN_RULES = [
     # fstests の環境・前提の都合 (ブロックデバイスが要る / ツールが無い / カーネルの機能)。自前実装とは関係ない
     ("environment", r"valid block disk|local device|not installed|utility required|does not support shutdown|does not support freezing|logwrites|logdev|scratch device|device too small|scratch_mkfs_sized|"
                     r"dax|fitrim|fstrim|kernel doesn't support|logical block size|sector size|extsize|delayed allocation|huge file|free on|fcntl setdeleg|write atomic|"
-                    r"xfs_io (fzero|label|shutdown)|creation time not supported"),
+                    r"xfs_io (fzero|fwzero|label|shutdown)|creation time not supported|atomic writes|xfs_io pwrite .* -u"),
     # SAF (Android のストレージアクセスフレームワーク) では使えない操作 / FUSE ではカーネルに任せられない操作
     ("saf_unusable", r"reflink|dedupe|falloc|fpunch|punch|fcollapse|finsert|exchange|swap|mknod|mkfifo|fifo|o_tmpfile|dio alignment|startupdate|defragmentation|renameat"),
     # core が持っていない機能 (権限・所有者・時刻の細部・xattr・ACL・暗号・クォータ・chattr 系・疎ファイルの探索)
-    ("core_unsupported", r"chmod|chown|attr namespace|acl|encryption|casefold|quota|chattr|lsattr|sparse|fiemap|timestamp|verity|idmapped|project|inlinecrypt|unrestricted byte streams|sector size"),
+    ("core_unsupported", r"no hardlink support|require symlinks support|chmod|chown|attr namespace|acl|encryption|casefold|quota|chattr|lsattr|sparse|fiemap|timestamp|verity|idmapped|project|inlinecrypt|unrestricted byte streams|sector size"),
 ]
 
 

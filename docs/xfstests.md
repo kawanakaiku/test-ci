@@ -15,6 +15,7 @@ xfstests はカーネルがマウントした FS を VFS 越しに試す。自�
 | `tools/fuse/mount.fuse.usbmem` | `mount -t fuse.usbmem` 用のヘルパー (`/sbin/mount.fuse.usbmem` に置く) |
 | `tools/fuse/run_xfstests.py` | fstests を 1 件ずつ実行して結果を集めるドライバー (mkfs / local.config / 分類 / 要約) |
 | `tools/fuse/xfstests_expected.json` | 期待失敗リスト (分類つき) |
+| `tools/fuse/fsck_ntfs.sh` | NTFS のアンマウント後の検査 (`ntfsfix -n` + `ntfs-3g.probe` + 自前の fscheck) |
 | `tools/fuse/smoke.sh` | ビルド直後の簡単な動作確認 |
 | `.github/workflows/xfstests.yml` | GitHub Actions (ブランチ名で FS とテストの範囲を決める) |
 
@@ -66,8 +67,10 @@ sudo python3 tools/fuse/run_xfstests.py --fs ext4 --fstests ./fstests --out /tmp
 | `...-trace` | テスト 001 002 003 005 を `USBMEM_FUSE_TRACE=1` で |
 | `...-t<番号>[_<番号>]` | 指定した generic/ のテストだけ、トレースつき (例 `usbmem-xfstests-xfs-t023_024`) |
 | `...-noremkfs` | テストごとの mkfs をしない |
+| `...-noloop` | TEST / SCRATCH をループデバイスにしない (既定は `--loop` = ループデバイス。下の「ブロックデバイス」) |
+| `...-loopset` | `--loop` でだけ動くテスト (dm-flakey / dm-error / ブロックデバイス前提。約 60 件) だけ。例 `usbmem-xfstests-exfat-loopset` (5 分) |
 | `...-strict` | `quiet_setattr` を付けない |
-| `workflow_dispatch` | fs / group / tests / mount_opts / timeout を入力 |
+| `workflow_dispatch` | fs / group / tests / mount_opts / timeout / loop を入力 |
 
 fstests は kernel.org が繋がらないことがあるので、3 回 × (kernel.org, googlesource) を各 120 秒で試し、だめなら GitHub の kdave ミラーの既定ブランチを使う (警告を出す)。
 
@@ -80,7 +83,7 @@ core に無い操作は、そのとおりのエラーで返す。近似するも
 | 操作 | 返し方 |
 |---|---|
 | chmod / chown / utimes (setattr の mode / uid / gid / atime / mtime) | 既定は `EOPNOTSUPP`。要求が「今の値と同じ」なら成功。`quiet_setattr` なら黙って成功 (値は変わらない) |
-| xattr / ACL | `ENOSYS` / `EOPNOTSUPP` |
+| xattr / ACL | 設定は `ENOSYS` / `EOPNOTSUPP`。一覧は空、取得は `ENODATA` (「どのファイルも xattr を持たない」と答える。登録しないと fssum のように一覧を読むツールが `EOPNOTSUPP` で失敗する: generic/547, 785) |
 | fallocate / ioctl / `lseek(SEEK_DATA, SEEK_HOLE)` / copy_file_range / reflink | `ENOSYS` / `EOPNOTSUPP` |
 | mknod (通常ファイル以外)、rename の `EXCHANGE` / `WHITEOUT` | `EOPNOTSUPP` |
 | statfs | core に空き容量の API が無い。総容量 = イメージの大きさ、空き = 総容量の 95% からツリーのファイル大きさの合計を引いた見積もり (疎ファイル・メタデータは見ない近似) |

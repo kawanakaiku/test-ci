@@ -7,7 +7,7 @@
   - `include/trace/events/ext4.h` → `include/trace/events/ext4.h` (tracepoint 定義。互換層の TRACE_EVENT マクロで空になる)
   - `include/uapi/linux/ext4.h` → `include/uapi/linux/ext4.h`
   - `include/linux/fscrypt.h`、`include/uapi/linux/fscrypt.h` → `include/linux/`、`include/uapi/linux/` (CONFIG_FS_ENCRYPTION なし = 上流の「無効時」インライン関数で使う)
-- ライセンス: GPL-2.0 / GPL-2.0-or-later (各ファイルの SPDX を参照。COPYING は GPL-2.0 全文)
+- ライセンス: GPL-2.0 / GPL-2.0-or-later (各ファイルの SPDX を参照。COPYING はカーネルのライセンス表記の導入部のみ。GPL-2.0 の全文は third_party/LICENSES/GPL-2.0.txt)
 - **ファイルは無改変**。差分は `core/compat/` 側で吸収する。
 - **ビルドするのは読み取り経路のファイルだけ**: balloc bitmap block_validity dir ext4_jbd2 extents extents_status file fsync hash ialloc indirect inline inode namei readpage super symlink xattr xattr_hurd xattr_trusted xattr_user。
   jbd2 本体 (`fs/jbd2`)、mballoc の割り当て、orphan、fast_commit、ioctl、sysfs、page-io、mmp、resize、migrate、move_extent、fsmap、crypto、verity、acl、xattr_security は

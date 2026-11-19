@@ -9,5 +9,5 @@
 - NLS (文字コード表): 短い名前 (8.3) の文字コード変換用に、上流の `fs/nls/nls_cp437.c` / `nls_cp932.c` を `nls/` にそのまま置いてビルドする (表も含めて無改変)。
   互換層は `register_nls` / `load_nls` の登録簿 (`core/compat/src/rt_pagecache.c`) を持ち、各表の `module_init` を `rt_vfs_fat.c` の `usbmem_module_init_fat` が呼んで登録する。
   既定の iocharset は "utf8" (長い名前は UTF-16 → UTF-8)、短い名前の codepage は 437 (cp932 は表のみ登録済みで、マウントオプションはまだ受け付けない)。
-- ライセンス: GPL-2.0 / GPL-2.0-or-later (各ファイルの SPDX を参照。COPYING は GPL-2.0 全文)
+- ライセンス: GPL-2.0 / GPL-2.0-or-later (各ファイルの SPDX を参照。COPYING はカーネルのライセンス表記の導入部のみ。GPL-2.0 の全文は third_party/LICENSES/GPL-2.0.txt)
 - **ファイルは無改変**。差分は `core/compat/` 側で吸収する。

@@ -1,0 +1,25 @@
+06:49:15
+btrfs generic/028 24/652 30s
+Mem:           15700        1078        9719          45        5283       14622
+/dev/mapper/cow-root  145G   57G   89G  40% /
+/dev/mapper/cow-root  145G   57G   89G  40% /
+ 06:49:15 up 7 min,  0 users,  load average: 1.78, 1.23, 0.56
+--- dmesg
+[  442.824321] run fstests generic/011 at 2026-11-19 06:49:03
+[  444.136739] run fstests generic/012 at 2026-11-19 06:49:04
+[  444.574359] run fstests generic/013 at 2026-11-19 06:49:04
+[  448.309749] run fstests generic/014 at 2026-11-19 06:49:08
+[  448.756609] run fstests generic/015 at 2026-11-19 06:49:09
+[  449.198463] run fstests generic/016 at 2026-11-19 06:49:09
+[  449.641660] run fstests generic/018 at 2026-11-19 06:49:09
+[  450.097129] run fstests generic/020 at 2026-11-19 06:49:10
+[  450.525172] run fstests generic/021 at 2026-11-19 06:49:10
+[  450.969596] run fstests generic/022 at 2026-11-19 06:49:11
+[  451.417612] run fstests generic/023 at 2026-11-19 06:49:11
+[  452.258118] run fstests generic/024 at 2026-11-19 06:49:12
+[  453.044434] run fstests generic/025 at 2026-11-19 06:49:13
+[  453.482772] run fstests generic/026 at 2026-11-19 06:49:13
+[  453.928469] run fstests generic/028 at 2026-11-19 06:49:14
+--- fuse/dm
+1
+cow-root	(252:0)

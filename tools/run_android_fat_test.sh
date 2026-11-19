@@ -7,7 +7,7 @@ set -eu
 : "${ANDROID_SERIAL:?set ANDROID_SERIAL to the emulator (e.g. emulator-5556)}"
 case "$ANDROID_SERIAL" in emulator-*) ;; *) echo "refusing: ANDROID_SERIAL must be an emulator" >&2; exit 2;; esac
 HERE=$(cd "$(dirname "$0")" && pwd); D=${1:-/dev/shm/usbmem_fat_${USER:-u}}
-SDKX=${ANDROID_SDK_EXEC:-/home/u/.local/bin/android-sdk-exec}
+SDKX=${ANDROID_SDK_EXEC:-android-sdk-exec}
 ADB="adb -s $ANDROID_SERIAL"
 # AVD で使うのは小さめの 6 種 (4Kn セクタ・8K クラスタの大きいイメージはホストのテストで検証)
 NAMES="fat12_f1440 fat12_c4k fat16_c512 fat16_c2k fat32_c512 fat32_c4k"

@@ -19,9 +19,9 @@
 set -eu
 
 KVER=$(uname -r)
-SRC=${SRC:-/home/u/Downloads/linux/fs/ntfs}
+SRC=${SRC:-$HOME/Downloads/linux/fs/ntfs}
 # headers package: pass HDR_PKG=... or drop the matching *headers*.pkg.tar.zst in ~/Downloads
-HDR_PKG=${HDR_PKG:-$(ls -1 /home/u/Downloads/linux-cachyos*headers*.pkg.tar.zst 2>/dev/null | head -1 || true)}
+HDR_PKG=${HDR_PKG:-$(ls -1 $HOME/Downloads/linux-cachyos*headers*.pkg.tar.zst 2>/dev/null | head -1 || true)}
 PATCHDIR=$(dirname "$(readlink -f "$0")")
 WITH_WINNAMES=${WITH_WINNAMES:-0}
 export TMPDIR=${TMPDIR:-/tmp}        # keep work off the (inode-tight) NTFS scratch

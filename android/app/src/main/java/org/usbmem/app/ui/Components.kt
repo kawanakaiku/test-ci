@@ -28,7 +28,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,6 +69,21 @@ private fun severityIcon(s: Severity) = when (s) {
     Severity.Success -> R.drawable.ic_check
     Severity.Warning -> R.drawable.ic_warning
     Severity.Error -> R.drawable.ic_error
+}
+
+/**
+ * 画面の操作から始める非同期処理 (IO で処理して、戻ってから画面の状態を書き換える) 用の CoroutineScope。コルーチンを必ずメインスレッドで再開する。
+ * 素の `rememberCoroutineScope()` は製品ではメインのディスパッチャーだが、compose-test の中では recomposer のコンテキスト (呼び出したスレッドでそのまま再開する)
+ * になる。すると `withContext(Dispatchers.IO) { ... }` から戻った IO のワーカースレッドで、state の更新と、それに続く再コンポーズ・レイアウトまで走り、
+ * ときどき `CalledFromWrongThreadException` になる (CI の crypt-ui、docs/ci.md)。メインを明示すれば、どちらでも同じ動きになる。
+ */
+@Composable
+fun rememberUiScope(): CoroutineScope = rememberCoroutineScope { Dispatchers.Main }
+
+/** [LaunchedEffect] の本体をメインスレッドで走らせる ([rememberUiScope] と同じ理由。IO から戻ったあとの state の更新がメインで行われる)。 */
+@Composable
+fun LaunchedEffectUi(key1: Any?, key2: Any? = null, block: suspend CoroutineScope.() -> Unit) {
+    LaunchedEffect(key1, key2) { withContext(Dispatchers.Main, block) }
 }
 
 /**

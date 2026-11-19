@@ -305,7 +305,8 @@ def main():
                     sh(["umount", "-l", d])
         if (i + 1) % 25 == 0:
             print("[%d/%d] %.0fs" % (i + 1, len(tests), time.time() - t_start), flush=True)
-            json.dump(results, open(os.path.join(a.out, "results.json"), "w"), indent=1, ensure_ascii=False)
+        # 途中で打ち切られても (ステップの timeout) 結果を残す
+        json.dump(results, open(os.path.join(a.out, "results.json"), "w"), indent=1, ensure_ascii=False)
 
     cnt = {}
     for r in results.values():

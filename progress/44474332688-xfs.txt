@@ -1,25 +1,25 @@
-06:51:11
-xfs generic/095 71/652 155s
-Mem:           15700        1031        9693          57        5368       14668
+06:51:42
+xfs generic/120 93/652 175s
+Mem:           15700         985        9753          48        5338       14714
 /dev/mapper/cow-root  145G   57G   88G  40% /
 /dev/mapper/cow-root  145G   57G   88G  40% /
- 06:51:11 up 7 min,  0 users,  load average: 1.50, 1.20, 0.59
+ 06:51:42 up 8 min,  0 users,  load average: 1.89, 1.33, 0.66
 --- dmesg
-[  437.154860] run fstests generic/076 at 2026-11-19 06:50:52
-[  438.374649] run fstests generic/078 at 2026-11-19 06:50:54
-[  438.771159] run fstests generic/079 at 2026-11-19 06:50:54
-[  439.176181] run fstests generic/080 at 2026-11-19 06:50:54
-[  441.617723] run fstests generic/081 at 2026-11-19 06:50:57
-[  442.100039] run fstests generic/082 at 2026-11-19 06:50:57
-[  442.508983] run fstests generic/084 at 2026-11-19 06:50:58
-[  447.979577] run fstests generic/086 at 2026-11-19 06:51:03
-[  448.384348] run fstests generic/087 at 2026-11-19 06:51:04
-[  448.835625] run fstests generic/088 at 2026-11-19 06:51:04
-[  449.272512] run fstests generic/090 at 2026-11-19 06:51:05
-[  449.813901] run fstests generic/091 at 2026-11-19 06:51:05
-[  453.270277] run fstests generic/092 at 2026-11-19 06:51:09
-[  453.673519] run fstests generic/094 at 2026-11-19 06:51:09
-[  454.086969] run fstests generic/095 at 2026-11-19 06:51:09
+[  462.176708] sd 0:0:0:0: [sda] Optimal transfer size 524288 bytes
+[  462.177251] sd 0:0:0:0: Attached scsi generic sg0 type 0
+[  462.200530] sd 0:0:0:0: [sda] Attached SCSI disk
+[  462.508622] sd 0:0:0:0: [sda] Synchronizing SCSI cache
+[  462.849304] run fstests generic/110 at 2026-11-19 06:51:18
+[  463.258690] run fstests generic/111 at 2026-11-19 06:51:19
+[  463.672695] run fstests generic/112 at 2026-11-19 06:51:19
+[  465.605033] run fstests generic/113 at 2026-11-19 06:51:21
+[  471.992699] run fstests generic/114 at 2026-11-19 06:51:27
+[  472.398585] run fstests generic/115 at 2026-11-19 06:51:28
+[  472.812247] run fstests generic/116 at 2026-11-19 06:51:28
+[  473.230612] run fstests generic/117 at 2026-11-19 06:51:28
+[  473.630289] run fstests generic/118 at 2026-11-19 06:51:29
+[  474.048951] run fstests generic/119 at 2026-11-19 06:51:29
+[  474.483166] run fstests generic/120 at 2026-11-19 06:51:30
 --- fuse/dm
 2
 cow-root	(252:0)

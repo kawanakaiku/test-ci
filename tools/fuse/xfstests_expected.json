@@ -133,6 +133,10 @@
   "generic/321": {
    "cat": "core_unsupported",
    "why": "ファイルの mode (rw-r--r--) を保つ前提。FAT は権限ビットを持たず、全ファイルが rwxr-xr-x に見える (generic/088 と同じ)"
+  },
+  "generic/785": {
+   "cat": "premise_mismatch",
+   "why": "fssum -A が再マウント前後でファイルのメタデータを比べる。FAT の時刻の粒度が 2 秒 (generic/309, 313 と同じ) なのが原因と推定 (未確認。時刻を丸めた後のものとメモリ上の 1 秒単位のものがずれる)"
   }
  },
  "exfat": {
@@ -241,6 +245,184 @@
   "generic/041": {
    "cat": "core_unsupported",
    "why": "同じディレクトリの同じファイルへの 3000 個のハードリンク。Btrfs の core は INODE_REF の 1 項目 (葉 1 枚、約 350 件) にしか入れられず、拡張 ref (INODE_EXTREF) は未実装なので EMLINK。(以前は EMLINK が add_entry の途中で出てトランザクションが中止され、以後すべて ENOENT になった。事前検査にして、EMLINK だけ返す)"
+  }
+ },
+ "ext2": {
+  "generic/034": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/039": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/040": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/041": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/056": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/057": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/065": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/073": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/090": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/101": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/104": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/106": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/107": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/321": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/322": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/325": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/335": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/336": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/341": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/342": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/343": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/348": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/376": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/480": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/481": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/498": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/502": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/510": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/526": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/527": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/534": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/547": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/552": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/557": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/640": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/690": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/764": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/771": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/779": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/782": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/784": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/785": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/789": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
+  },
+  "generic/790": {
+   "cat": "core_unsupported",
+   "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
   }
  }
 }

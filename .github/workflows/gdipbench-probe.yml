@@ -25,7 +25,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory dump | Out-Null
-          $p = Start-Process -FilePath probe\gdipbench.exe -ArgumentList "7","out.txt" -NoNewWindow -PassThru
+          $p = Start-Process -FilePath probe\gdipbench.exe -ArgumentList "3","out.txt","dump" -NoNewWindow -PassThru
           if (-not $p.WaitForExit(600000)) { $p.Kill() ; "TIMEOUT" }
           "exit=$($p.ExitCode)"
           Get-Content out.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dump-${{ matrix.os }}
+          path: dump

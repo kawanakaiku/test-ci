@@ -1,0 +1,30 @@
+name: maxprobe
+on:
+  push:
+    branches: [mmm-maxprobe]
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: build and run
+        shell: pwsh
+        run: |
+          $csc = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          $r = "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll"
+          & $csc /nologo /target:winexe /platform:x64 /out:maxprobe-x64.exe maxprobe.cs @r
+          & $csc /nologo /target:winexe /platform:x86 /out:maxprobe-x86.exe maxprobe.cs @r
+          & $csc /nologo /target:winexe /out:maxprobe-any.exe maxprobe.cs @r
+          foreach ($exe in "maxprobe-x64.exe", "maxprobe-x86.exe", "maxprobe-any.exe") {
+            foreach ($state in "Maximized", "Normal") {
+              Add-Content maxprobe-form.txt "##### $exe $state"
+              $p = Start-Process -FilePath ".\$exe" -ArgumentList $state, 4 -PassThru -Wait
+              Add-Content maxprobe-form.txt "##### exit $($p.ExitCode)"
+            }
+          }
+          Get-Content maxprobe-form.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maxprobe
+          path: maxprobe-form.txt

@@ -2,6 +2,7 @@ name: maxprobe
 on:
   push:
     branches: [mmm-maxprobe]
+    paths: [maxprobe.cs, .github/workflows/maxprobe.yml]
   workflow_dispatch:
 jobs:
   probe:

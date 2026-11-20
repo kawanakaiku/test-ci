@@ -1,0 +1,28 @@
+name: nchit
+on:
+  push:
+    branches: [mmm-maxprobe]
+    paths: ['nchit.cs', '.github/workflows/nchit.yml']
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: build and run
+        shell: pwsh
+        run: |
+          $csc = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /target:winexe /platform:x64 /out:nchit-x64.exe nchit.cs
+          & $csc /nologo /target:winexe /platform:x86 /out:nchit-x86.exe nchit.cs
+          & $csc /nologo /target:winexe /out:nchit-any.exe nchit.cs
+          foreach ($exe in "nchit-x64.exe", "nchit-x86.exe", "nchit-any.exe") {
+            Add-Content nchit.txt "##### $exe"
+            $p = Start-Process -FilePath ".\$exe" -ArgumentList "$PWD\nchit.txt" -PassThru -Wait
+            Add-Content nchit.txt "##### exit $($p.ExitCode)"
+          }
+          Get-Content nchit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nchit
+          path: nchit.txt

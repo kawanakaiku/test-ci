@@ -1,0 +1,31 @@
+name: gdipbench-probe
+on:
+  push:
+    branches: [gdipbench-probe]
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-11-arm, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: os
+        shell: pwsh
+        run: |
+          [Environment]::OSVersion.VersionString
+          (Get-CimInstance Win32_OperatingSystem).Caption
+          (Get-CimInstance Win32_Processor).Name
+          $env:PROCESSOR_ARCHITECTURE
+          (Get-Item C:\Windows\SysWOW64\gdiplus.dll -ErrorAction SilentlyContinue).VersionInfo.FileVersion
+          Get-ChildItem C:\Windows\WinSxS -Filter "x86_microsoft.windows.gdiplus*" -ErrorAction SilentlyContinue | Select-Object -First 3 -ExpandProperty Name
+      - name: bench
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dump | Out-Null
+          $p = Start-Process -FilePath probe\gdipbench.exe -ArgumentList "7","out.txt" -NoNewWindow -PassThru
+          if (-not $p.WaitForExit(600000)) { $p.Kill() ; "TIMEOUT" }
+          "exit=$($p.ExitCode)"
+          Get-Content out.txt

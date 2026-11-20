@@ -48,6 +48,7 @@ static class NcHit
     static IntPtr parent, creating;     // creating: 今作っている窓の名前の目印 (作る前は 0)
     static bool inCreate, sawNcCreate;
     static int before, nchitBefore;
+    static POINT at;    // 作る窓の左上の 1 つ外の点。親に当たる点を選ぶ
 
     static IntPtr Proc(IntPtr hwnd, uint msg, IntPtr wp, IntPtr lp)
     {
@@ -80,7 +81,7 @@ static class NcHit
     static void Create(string label, uint style, IntPtr owner)
     {
         before = nchitBefore = 0; sawNcCreate = false; inCreate = true;
-        IntPtr hwnd = CreateWindowExW(0, "nchit", label, style, 358, 170, 300, 200, owner, IntPtr.Zero, GetModuleHandleW(IntPtr.Zero), IntPtr.Zero);
+        IntPtr hwnd = CreateWindowExW(0, "nchit", label, style, at.x + 1, at.y + 1, 300, 200, owner, IntPtr.Zero, GetModuleHandleW(IntPtr.Zero), IntPtr.Zero);
         inCreate = false;
         log.AppendLine(label + ": hwnd=" + (hwnd != IntPtr.Zero) + " messages before its WM_NCCREATE (to any window of this thread)=" + before + " WM_NCHITTEST=" + nchitBefore);
         Pump();
@@ -98,11 +99,16 @@ static class NcHit
         parent = CreateWindowExW(0x8 /* WS_EX_TOPMOST: ランナーの画面で他の窓の下にならないように */, "nchit", "nchit parent", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 0, 0, 800, 600, IntPtr.Zero, IntPtr.Zero, wc.inst, IntPtr.Zero);
         ShowWindow(parent, 1); UpdateWindow(parent); SetForegroundWindow(parent);
         for (int i = 0; i < 20; i++) { Pump(); System.Threading.Thread.Sleep(50); }
-        POINT pt; pt.x = 357; pt.y = 169;
-        IntPtr hit = WindowFromPoint(pt);
+        // MMM と同じ (357,169) が親に当たればそこを使う。当たらなければ (Windows のランナーでは CoreWindow が上にかかる)、
+        // 親の中で当たる点を探す。子の窓の位置は親のクライアントの座標だが、Wine は同じ値を画面の座標として引いていた。
+        at.x = 357; at.y = 169;
+        IntPtr hit = WindowFromPoint(at);
         StringBuilder hitClass = new StringBuilder(256);
         GetClassNameW(hit, hitClass, 256);
         log.AppendLine("WindowFromPoint(357,169) is the parent: " + (hit == parent) + " (class " + hitClass + ")");
+        for (int y = 40; hit != parent && y < 560; y += 20)
+            for (int x = 20; hit != parent && x < 760; x += 20) { at.x = x; at.y = y; hit = WindowFromPoint(at); }
+        log.AppendLine("point used: " + at.x + "," + at.y + " hits the parent: " + (hit == parent));
         IntPtr hook = SetWindowsHookExW(4 /* WH_CALLWNDPROC */, hookProc, IntPtr.Zero, GetCurrentThreadId());
         Create("child", WS_CHILD | WS_VISIBLE, parent);
         Create("top-level popup", WS_POPUP | WS_VISIBLE, IntPtr.Zero);

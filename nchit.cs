@@ -33,6 +33,8 @@ static class NcHit
     [DllImport("user32.dll")] static extern bool TranslateMessage(ref MSG msg);
     [DllImport("user32.dll")] static extern IntPtr DispatchMessageW(ref MSG msg);
     [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT pt);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassNameW(IntPtr hwnd, StringBuilder s, int n);
+    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
     [DllImport("kernel32.dll")] static extern IntPtr GetModuleHandleW(IntPtr name);
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int x, y; }
@@ -80,7 +82,7 @@ static class NcHit
         before = nchitBefore = 0; sawNcCreate = false; inCreate = true;
         IntPtr hwnd = CreateWindowExW(0, "nchit", label, style, 358, 170, 300, 200, owner, IntPtr.Zero, GetModuleHandleW(IntPtr.Zero), IntPtr.Zero);
         inCreate = false;
-        log.AppendLine(label + ": hwnd=" + (hwnd != IntPtr.Zero) + " messages to other windows before NCCREATE=" + before + " WM_NCHITTEST=" + nchitBefore);
+        log.AppendLine(label + ": hwnd=" + (hwnd != IntPtr.Zero) + " messages before its WM_NCCREATE (to any window of this thread)=" + before + " WM_NCHITTEST=" + nchitBefore);
         Pump();
         if (hwnd != IntPtr.Zero) DestroyWindow(hwnd);
     }
@@ -93,11 +95,14 @@ static class NcHit
         WNDCLASS wc = new WNDCLASS();
         wc.proc = proc; wc.inst = GetModuleHandleW(IntPtr.Zero); wc.name = "nchit"; wc.brush = (IntPtr)6;
         RegisterClassW(ref wc);
-        parent = CreateWindowExW(0, "nchit", "nchit parent", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 0, 0, 800, 600, IntPtr.Zero, IntPtr.Zero, wc.inst, IntPtr.Zero);
-        ShowWindow(parent, 1); UpdateWindow(parent);
+        parent = CreateWindowExW(0x8 /* WS_EX_TOPMOST: ランナーの画面で他の窓の下にならないように */, "nchit", "nchit parent", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 0, 0, 800, 600, IntPtr.Zero, IntPtr.Zero, wc.inst, IntPtr.Zero);
+        ShowWindow(parent, 1); UpdateWindow(parent); SetForegroundWindow(parent);
         for (int i = 0; i < 20; i++) { Pump(); System.Threading.Thread.Sleep(50); }
         POINT pt; pt.x = 357; pt.y = 169;
-        log.AppendLine("WindowFromPoint(357,169) is the parent: " + (WindowFromPoint(pt) == parent));
+        IntPtr hit = WindowFromPoint(pt);
+        StringBuilder hitClass = new StringBuilder(256);
+        GetClassNameW(hit, hitClass, 256);
+        log.AppendLine("WindowFromPoint(357,169) is the parent: " + (hit == parent) + " (class " + hitClass + ")");
         IntPtr hook = SetWindowsHookExW(4 /* WH_CALLWNDPROC */, hookProc, IntPtr.Zero, GetCurrentThreadId());
         Create("child", WS_CHILD | WS_VISIBLE, parent);
         Create("top-level popup", WS_POPUP | WS_VISIBLE, IntPtr.Zero);

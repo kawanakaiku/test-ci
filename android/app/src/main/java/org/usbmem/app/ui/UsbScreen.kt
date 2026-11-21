@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.usbmem.app.BuildConfig
 import org.usbmem.app.CryptoMount
+import org.usbmem.app.Edition
 import org.usbmem.app.MediaBasis
 import org.usbmem.app.MediaHint
 import org.usbmem.app.MediaKind
@@ -350,7 +351,10 @@ private fun PowerSection(d: UsbDeviceState, a: UsbActions) {
     }
 }
 
-private fun fsMountable(fs: String) = fs == "ntfs" || fs == "exfat" || fs == "ext2" || fs == "ext3" || fs == "ext4" || fs == "fat12" || fs == "fat16" || fs == "fat32" || fs == "iso9660" || fs == "udf" || fs == "squashfs" || fs == "erofs" || fs == "btrfs" || fs == "f2fs" || fs == "xfs"
+/** アプリが知っている、マウントできるファイルシステム (個人版ではこの全部)。 */
+private fun fsKnown(fs: String) = fs == "ntfs" || fs == "exfat" || fs == "ext2" || fs == "ext3" || fs == "ext4" || fs == "fat12" || fs == "fat16" || fs == "fat32" || fs == "iso9660" || fs == "udf" || fs == "squashfs" || fs == "erofs" || fs == "btrfs" || fs == "f2fs" || fs == "xfs"
+/** この版 (Edition) で実際にマウントできるか。公開版は GPL 系を含まないので、入っているものだけ。 */
+private fun fsMountable(fs: String) = fsKnown(fs) && Edition.supports(fs)
 
 /** パーティション一覧。公開中の行にはマウントの状態とアンマウント・リンク作成が出る。1 本の USB の複数のパーティションを同時に公開できる。 */
 @Composable
@@ -382,6 +386,9 @@ private fun PartitionList(d: UsbDeviceState, t: PartitionTable, a: UsbActions, o
                     Button(onClick = { a.publishPartition(d.key, p.startBytes, p.sizeBytes, UsbDeviceNaming.volumeLabel(d.productName, d.shortId, p.index, if (d.lunInfo != null) d.lun else null)) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) {
                         Text(stringResource(when (mode) { WriteMode.ReadOnly -> R.string.usb_publish_read_only; WriteMode.CreateOnly -> R.string.usb_publish_write; WriteMode.Full -> R.string.usb_publish_full }))
                     }
+                } else if (fsKnown(p.fs)) {
+                    // 公開版で、この版に入っていないファイルシステム (NTFS など)。マウントの入口を出さず、理由を示す (docs/editions.md)
+                    Text(stringResource(R.string.edition_fs_unsupported_row, p.fs.uppercase(), Edition.supportedFsLabel()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -390,7 +397,9 @@ private fun PartitionList(d: UsbDeviceState, t: PartitionTable, a: UsbActions, o
             if (CryptoMount.isCryptoFs(t.partitions.firstOrNull()?.fs ?: "")) {
                 CryptoPartitionActions(d, d.published.filter { it.crypto && it.startBytes == 0L }, a, onLink, 0, t.diskBytes, UsbDeviceNaming.volumeLabel(d.productName, d.shortId, null, if (d.lunInfo != null) d.lun else null), canPublish)
             } else if (pub != null) PublishedActions(d, pub, a, onLink)
-            else OutlinedButton(onClick = { a.publishPartition(d.key, 0, t.diskBytes, UsbDeviceNaming.volumeLabel(d.productName, d.shortId, null, if (d.lunInfo != null) d.lun else null)) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_publish_whole_device)) }
+            else if (fsKnown(t.partitions.firstOrNull()?.fs ?: "") && !Edition.supports(t.partitions.first().fs)) {
+                Text(stringResource(R.string.edition_fs_unsupported_row, t.partitions.first().fs.uppercase(), Edition.supportedFsLabel()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else OutlinedButton(onClick = { a.publishPartition(d.key, 0, t.diskBytes, UsbDeviceNaming.volumeLabel(d.productName, d.shortId, null, if (d.lunInfo != null) d.lun else null)) }, enabled = canPublish, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_publish_whole_device)) }
         }
         t.diagnostics.forEach { x -> Text("${x.severity}: ${x.message}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }
     }

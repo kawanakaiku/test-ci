@@ -1,0 +1,22 @@
+build/
+.gradle/
+.idea/
+*.iml
+local.properties
+android/**/build/
+android/.kotlin/
+.cxx/
+*.img
+*.bin
+captures/
+*.jks
+*.keystore
+keystore.properties
+.env
+*.pem
+*.key
+ci-logs/
+
+# Python のバイトコード
+__pycache__/
+*.pyc

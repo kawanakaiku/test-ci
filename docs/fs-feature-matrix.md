@@ -1,6 +1,6 @@
 # 自前実装の FS の対応機能と、上流への追従
 
-XFS・Btrfs・F2FS (と NTFS) は自前の読み取り・書き込み実装で、ext4・FAT・exFAT・squashfs・erofs・isofs・UDF はカーネルのコードを流用している。流用側はカーネルの更新に合わせて移植し直す。**自前側は、新しい機能が mkfs の既定になるたびに、対応するかどうかを決める必要がある**。それを見落とさないための仕組みがこの文書。
+XFS・Btrfs・F2FS は自前の読み取り・書き込み実装で、NTFS (NTFS Resurrection)・ext2・ext4・FAT・exFAT・squashfs・erofs・isofs・UDF はカーネルのコードを流用している (NTFS は自前ではない。docs/editions.md)。流用側はカーネルの更新に合わせて移植し直す。**自前側は、新しい機能が mkfs の既定になるたびに、対応するかどうかを決める必要がある**。それを見落とさないための仕組みがこの文書。
 
 ## 方針
 

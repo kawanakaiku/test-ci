@@ -88,7 +88,7 @@
 | `third_party` (10 ディレクトリ) | すべてに `COPYING` と `UPSTREAM.md` あり (取り込み元のコミット 067c5c24… を記録)。ソースの SPDX: GPL-2.0-or-later 104、GPL-2.0 86、GPL-2.0-only 49、GPL-2.0+ OR BSD-3-Clause 31 (zstd)、GPL-2.0 WITH Linux-syscall-note 16、0BSD 9 (xz)、GPL-2.0+ 9、MIT 3、LGPL-2.1 3、LGPL-2.0+ 1。**SPDX の無い 22 ファイル** は上流にも SPDX が無いもの (`ext4/orphan.c`、`fat/nls/nls_cp437.c` `nls_cp932.c`、`kernel-lib` の lz4 / zlib / xxhash、`udf/ecma_167.h` `osta_udf.h`)。冒頭コメントに BSD-2-Clause (lz4)、zlib ライセンス、GPL の記載がある |
 | `third_party/*/COPYING` | **全 10 個が同一 (496 バイト) の、カーネルの `COPYING` の導入部のみ** (「`LICENSES/preferred/GPL-2.0` に従う」と書いてあるだけ)。**GPL-2.0 の全文は無い。`UPSTREAM.md` の「COPYING は GPL-2.0 全文」は誤り (要対応)**。BSD-3 (zstd)・BSD-2 (lz4)・0BSD (xz)・zlib の条文は各ファイルの冒頭コメントにあるが、`LICENSES/` の個別ファイルは無い |
 | `third_party/ntfs-resurrection/patches` | 上流への自前パッチ 3 本 (適用せず参考保存)。ファイルは無改変方針で、`UPSTREAM.md` の記述と一致 |
-| `docs/licenses.md` | **実態とずれている (要対応)**: 「Linux `fs/ntfs` は未取り込み」だが実際は `third_party/ntfs-resurrection` に取り込み済み。ext2 / ext4 / exFAT / FAT (+ NLS) / ISO 9660 / UDF の取り込みが表に無い。`kernel-lib` の「各ファイルの精査は未了」。「Apache-2.0 (暫定)」の自前コード行と、実際には `core/compat` の大半が GPL-2.0-or-later 表記である点が整合していない |
+| `docs/licenses.md` | **(2026-11-21 に直した: 各 FS の行を足し、「未取り込み」を訂正し、エディションの節を足した)** 旧: 実態とずれていた: 「Linux `fs/ntfs` は未取り込み」だが実際は `third_party/ntfs-resurrection` に取り込み済み。ext2 / ext4 / exFAT / FAT (+ NLS) / ISO 9660 / UDF の取り込みが表に無い。`kernel-lib` の「各ファイルの精査は未了」。「Apache-2.0 (暫定)」の自前コード行と、実際には `core/compat` の大半が GPL-2.0-or-later 表記である点が整合していない |
 | 使い捨てのツール類 (libbde、cryptsetup、nbdkit、qemu-img、ntfs-3g、wimlib など) | docs/licenses.md は「配布物に含めない・テスト時のみ」と記載。リポジトリにソースは無い (`tools/fuseshim/fetch_*.sh` が固定版を取得するだけ) — OK |
 
 ### 3.2 アプリ全体のライセンスの選択肢 (ユーザーの決定が要る)
@@ -101,6 +101,8 @@
 | B. 全体を GPL-3.0-or-later | — | Apache-2.0 とは互換 | **現状は不可** (GPL-2.0-only のカーネル由来ファイルを含むため)。成立させるには、GPL-2.0-only の FS (ext2/ext4/FAT/ISO/UDF/erofs/squashfs) を外すか下記 C の別プロセスにする |
 | C. プロセス分離: GPL 部分を別プロセス (別実行ファイル / 別 APK) に隔離し、アプリ本体は緩いライセンス (Apache-2.0) を維持 | 既に docs/fuse-layer.md が ntfs-3g / wimlib で採る方針 (主案) と同じ考え方を、カーネル由来の FS ドライバ全体に広げる | アプリ本体と公開 API を Apache-2.0 のままにできる | **大きな設計変更**: 現在 `core/compat` のドライバは JNI で同一プロセスにリンクされ、Apache の `core/src` が直接呼ぶ。IPC の層 (AIDL / ソケット) と、子プロセスの配布 (別 .so を `exec` する実行ファイル化、または `:isolated` サービス) が要る。通信の境界を「mere aggregation」と言えるプロトコルにする法務確認。GPL 側のソース提供・ライセンス全文・通知 |
 | D. デュアルライセンス (GPL-2.0-or-later と商用/Apache) | 自前コードのみ | 将来の選択肢を残せる | カーネル由来の部分は GPL のままなので、配布物全体は結局 GPL。実質 A と同じ。自前コードの著作権者が 1 人 (ユーザー) であることを確認 |
+
+**決定: エディション分離 (2026-11-21、ユーザー)**: 「ライセンス的にアプリ全体の公開が必要なものが混ざっているのなら、公開用からは除外し、自分用にだけ使えるようにしたい」。上の A-D のどれでもなく、**公開版 (GPL 系を含まない。Apache-2.0 が既定) と個人版 (全部入り。配布しない) の 2 つのビルドに分ける**。個人版は配布しないので公開義務は生じず、公開版は GPL 系のコードを含まないので全体を Apache-2.0 で出せる。これにより、下の「いずれの案でも必要なこと」のうち、`third_party/*/COPYING` の修正・GPL 全文・SPDX の揃え (カーネル由来のもの) は公開版には関係しなくなる (公開版にはカーネル由来のファイルが一つも入らない)。実装・棚卸し・手順は **docs/editions.md** (`tools/license_inventory.py`, `tools/export_public.sh`, `tools/check_public_tree.py`, `.github/workflows/public-edition.yml`)。公開版に入るファイルの SPDX は書き出しの際に揃える (無いものには Apache-2.0 を付与)。個人版を人に渡す場合は GPL-2.0 の義務が生じる (別の判断)。ネイティブ層をプロセス分離する案 C は、この方針では不要。
 
 **いずれの案でも必要なこと**: ルートの `LICENSE` (決定後)、`third_party/*/COPYING` の実態に合わせた修正 (GPL-2.0 全文の追加、`UPSTREAM.md` の文言の修正、BSD / 0BSD / zlib の条文を `LICENSES/` に置くか冒頭コメントで足りるかの判断)、`docs/licenses.md` の更新 (取り込み済みの FS の行を足し、「未取り込み」を直す)、`core/compat` `android/app` `tools` の SPDX の揃え、アプリ内の「オープンソースライセンス」画面 (配布時の表示義務)。**exFAT の特許・Play ポリシー・targetSdk は docs/licenses.md の未解決事項のまま**。
 

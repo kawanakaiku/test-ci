@@ -1,0 +1,113 @@
+# 公開版 (GPL 系を含まないビルド) を、個人版のリポジトリから書き出して、単独でビルド・テストできることを確認する。docs/editions.md / docs/ci.md
+#   export_public.sh → check_public_tree.py → 書き出したツリーで core の cmake + ctest (plain / san) と、Android の Gradle assemble + JVM 単体テスト (-PusbmemEdition=public)。
+# トリガ: workflow_dispatch、または usbmem-public / usbmem-public-<名前> / usbmem-ci-full-<名前> ブランチへの push
+#   (通常の usbmem-ci-<名前> では動かさない: android-emulator.yml と host-tests.yml も動くので、公開版だけ確認したいときは usbmem-public-<名前> を使う)。
+# 手順は公開版のツリーの tools/ci/{host_tests,android_build}.sh (tools/public_edition/ci_*.sh の雛形) にあり、公開版の ci.yml と共用する。
+name: Public edition
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['usbmem-public', 'usbmem-public-*', 'usbmem-ci-full-*']
+
+concurrency:
+  group: public-edition-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # android/app/build.gradle.kts の ndkVersion / externalNativeBuild.cmake.version と合わせる
+  NDK_VERSION: 30.0.16248370
+  CMAKE_VERSION: 4.1.2
+  SDK_ROOT: /usr/local/lib/android/sdk
+
+jobs:
+  export:
+    name: export + check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Inventory (summary)
+        run: |
+          python3 tools/license_inventory.py --check
+          { echo '### ライセンスの棚卸し (tools/license_inventory.py)'; echo '```'; python3 tools/license_inventory.py; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      # 出力先は tmpfs でなくてよい (CI のランナー)。リポジトリの所有者名がツリーのどこにも無いことも確認する
+      - name: Export public tree and check it
+        run: tools/export_public.sh "$RUNNER_TEMP/public" --allow-any-fs --forbid-word "${{ github.repository_owner }}"
+
+      - name: Pack
+        run: tar -C "$RUNNER_TEMP/public" -czf "$RUNNER_TEMP/public-tree.tar.gz" .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: public-tree
+          path: ${{ runner.temp }}/public-tree.tar.gz
+          retention-days: 3
+
+  host:
+    name: public host (${{ matrix.mode }})
+    needs: export
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [plain, san]
+    steps:
+      - uses: actions/checkout@v7
+
+      # 各ジョブが同じ手順で書き出す (数秒。アーティファクトの受け渡しより単純)
+      - name: Export public tree
+        run: tools/export_public.sh "$RUNNER_TEMP/public" --allow-any-fs --forbid-word "${{ github.repository_owner }}"
+
+      - name: Build and test (public edition)
+        working-directory: ${{ runner.temp }}/public
+        run: bash tools/ci/host_tests.sh ${{ matrix.mode }}
+
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: public-ctest-log-${{ matrix.mode }}
+          path: ${{ runner.temp }}/public/build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+
+  android:
+    name: public android
+    needs: export
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Export public tree
+        run: tools/export_public.sh "$RUNNER_TEMP/public" --allow-any-fs --forbid-word "${{ github.repository_owner }}"
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-public-${{ runner.os }}-${{ github.sha }}
+          restore-keys: gradle-public-${{ runner.os }}-
+
+      - name: Assemble, JVM unit tests, check native library (public edition)
+        working-directory: ${{ runner.temp }}/public
+        run: bash tools/ci/android_build.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: apk-public-debug
+          path: ${{ runner.temp }}/public/android/app/build/outputs/apk/debug/*.apk
+          retention-days: 3

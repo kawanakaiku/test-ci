@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: Apache-2.0
+# 公開版の CI: ホスト (x86_64 Linux) の core のビルドと ctest、Android アプリ (-PusbmemEdition=public) の assemble と JVM 単体テスト。
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # android/app/build.gradle.kts の ndkVersion / externalNativeBuild.cmake.version と合わせる
+  NDK_VERSION: 30.0.16248370
+  CMAKE_VERSION: 4.1.2
+  SDK_ROOT: /usr/local/lib/android/sdk
+
+jobs:
+  host:
+    name: host (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [plain, san]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build and test (public edition)
+        run: bash tools/ci/host_tests.sh ${{ matrix.mode }}
+
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ctest-log-${{ matrix.mode }}
+          path: build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+
+  android:
+    name: android (public)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Assemble, JVM unit tests, check native library (public edition)
+        run: bash tools/ci/android_build.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: apk-public-debug
+          path: android/app/build/outputs/apk/debug/*.apk
+          retention-days: 7

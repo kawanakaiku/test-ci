@@ -38,6 +38,8 @@ object NativeBridge {
     @JvmStatic external fun nativeDeviceSubRangeMode(handle: Long, offset: Long, length: Long, readOnly: Boolean): Long
     @JvmStatic external fun nativeClose(handle: Long)
     @JvmStatic external fun nativeErrcName(code: Int): String
+    /** このネイティブ層のエディションと、マウントできるファイルシステムの一覧 (JSON UTF-8: `{"edition":"public","fs":["f2fs"]}`。[Edition])。 */
+    @JvmStatic external fun nativeEditionInfo(): ByteArray
     @JvmStatic external fun nativeNtfsMount(fd: Int): Long
     @JvmStatic external fun nativeNtfsMountNoload(fd: Int): Long
     @JvmStatic external fun nativeNtfsMountDeviceNoload(devHandle: Long, offset: Long, length: Long): Long

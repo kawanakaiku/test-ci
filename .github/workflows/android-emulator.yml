@@ -10,7 +10,7 @@ on:
         required: false
         default: ''
   push:
-    branches: [usbmem-ci, 'usbmem-ci-*', '!usbmem-ci-apk', '!usbmem-ci-apk-*']
+    branches: [usbmem-ci, 'usbmem-ci-*', '!usbmem-ci-apk', '!usbmem-ci-apk-*', '!usbmem-ci-kfsd-*']
 
 concurrency:
   group: android-emulator-${{ github.ref }}

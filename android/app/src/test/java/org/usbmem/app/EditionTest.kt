@@ -28,4 +28,8 @@ class EditionTest {
     @Test fun unsupportedCode_isEprotonosupport() {
         assertEquals(93, Edition.UNSUPPORTED_CODE)
     }
+
+    @Test fun kfsdRequiredCode_isEnopkg() {
+        assertEquals(65, Edition.KFSD_REQUIRED_CODE)
+    }
 }

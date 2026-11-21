@@ -310,3 +310,17 @@ CI の結果は 12.2。
 
 個人版 (回帰の確認、`usbmem-ci-full-wimint` a0ca0ad): Host tests run 44920529807 (plain / san / wsan / wrel の 4 構成すべて成功、117 分)、Android emulator tests run 44920529823 (全 7 グループ成功。`wim-fuse` は 52 件成功。初回の `ro-misc` の `DirtyConfirmUiTest.image_dialogNamesTheImage_andScrollsInLandscape` の 1 件は散発の UI 試験で、`gh run rerun --failed` で成功。docs/ci.md 末尾)。a0ca0ad 以降のコミットは manifest のコメントと docs だけ。
 
+## 13. kfsd (GPL 系ドライバを別プロセスに分ける。2026-11-22、docs/kfsd.md)
+
+公開版の本体は GPL 系のコードを一切含まず、カーネル由来のドライバは別の実行ファイル `kfsd` (GPL-2.0、ソースは別に公開) に載せて、**RPC だけ**で繋ぐ。公開版に入るのは次のファイルだけ (`tools/public_manifest.txt` の core/kfsd の節)。
+
+| ファイル | 内容 | ライセンス |
+|---|---|---|
+| `core/kfsd/include/usbmem/kfsd_proto.h` | RPC の仕様 (ヘッダ + docs/kfsd.md) | Apache-2.0 |
+| `core/kfsd/include/usbmem/kfsd_client.h`・`src/kfsd_client.cpp` | `RpcVolume` (`FsVolume` を RPC で実装。kfsd を起こす・監視する・止める) | Apache-2.0 |
+| `core/kfsd/include/usbmem/kfsd_server.h`・`src/kfsd_server.cpp`・`src/kfsd_io.h` | kfsd 側の共通部 (RPC のサーバ・デバイスの callback の `BlockDevice`)。GPL のドライバは含まない | Apache-2.0 |
+| `core/kfsd/tests/test_kfsd_proto.cpp`・`core/kfsd/CMakeLists.txt` | プロトコルの試験 (MemFs ベース。kfsd の実行ファイル無しで動く) | Apache-2.0 |
+
+公開版に**入らない** (個人版 / kfsd の配布物だけ): `core/kfsd/src/kfsd_mount.{h,cpp}` (FS の判別とマウント = カーネル由来のドライバを呼ぶ)、`kfsd_main.cpp` (kfsd の実行ファイル)、`tests/test_kfsd_diff.cpp`・`bench_kfsd.cpp` (プロセス内との差分試験・性能測定)。
+公開版の JNI (`jni_ntfs.cpp`) は、kfsd の扱う FS を判別できたら ENOPKG (65) を返し、UI は「この FS には kfsd (プラグイン) が必要です」を出す。Android で kfsd (`libkfsd.so` / プラグイン APK) へ繋ぐ層は段階 3 (docs/kfsd.md 8 章)。
+`tools/license_inventory.py` に kfsd のコンポーネントを足し、`check_public_tree.py` のインクルード走査に `core/kfsd/include`・`core/kfsd/src` を足した (公開版の閉包の検査)。公開版の CI は `usbmem-ci-full-kfsd` で確認 (docs/ci.md)。

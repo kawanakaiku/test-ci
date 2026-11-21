@@ -39,6 +39,8 @@
 | 公開版 (public) | `core/src` の自前コード + F2FS (自前) + 共通 IF・ネストマウント + Android アプリ。カーネル由来の FS ドライバ・LinuxCompat・fuseshim・Btrfs / XFS (自前だが GPL 表記・カーネルの形式定義 / lib 依存で、除外側に倒した) を含まない | Apache-2.0 (既定。ユーザーが変更可) |
 | 個人版 (personal) | 全部入り。**配布しない** (公開義務が生じない) | 表の各行のとおり (配布しないので全体のライセンスは決めない) |
 
+kfsd (docs/kfsd.md): GPL 系のドライバは別プロセスの実行ファイル `kfsd` (GPL-2.0) に載せ、公開版の本体 (Apache-2.0) とは RPC だけで通信する。ライセンスの境界の一覧は docs/kfsd.md 3 章。
+
 ファイル単位の棚卸し・判断の根拠・書き出し手順・公開前チェックリストは **docs/editions.md**、機械可読な結果は `tools/license_inventory.py`。この表の GPL / LGPL の行は、すべて個人版だけのもの (公開版のツリーには `third_party/` が無い)。
 
 ## 未解決の確認事項(推測で断定しない)

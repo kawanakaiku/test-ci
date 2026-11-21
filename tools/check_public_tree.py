@@ -150,7 +150,7 @@ def check(root, forbid_words, closure=True):
                 err("account", rel, "禁止語 '%s' (L%d)" % (w, line_of(text, i)))
     # --- closure
     if closure:
-        inc_dirs = ["core/include", "core/compat/public", "core/src", "core/tests", "core/compat/tests", "android/app/src/main/cpp"]
+        inc_dirs = ["core/include", "core/compat/public", "core/kfsd/include", "core/kfsd/src", "core/src", "core/tests", "core/compat/tests", "android/app/src/main/cpp"]
         inc_rx = re.compile(r'^\s*#\s*include\s+"([^"]+)"', re.M)
         pp_rx = re.compile(r"^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b(.*)")
         personal_macro = re.compile(r"USBMEM_FS_|USBMEM_BENCH_")   # 個人版だけが定義するマクロの中 (jni_ntfs.cpp の FS ごとの include など) は、この版では評価されない

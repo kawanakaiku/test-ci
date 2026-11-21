@@ -15,6 +15,9 @@ object Edition {
     /** ネイティブ層 (jni_ntfs.cpp) が「判別できたが、この版に入っていないファイルシステム」で返す errno (EPROTONOSUPPORT = 93)。[NativeException.code] に入る。 */
     const val UNSUPPORTED_CODE = 93
 
+    /** この FS には kfsd (GPL 系のドライバを載せた別プロセスのプラグイン) が必要、という合図 (ENOPKG = 65。docs/kfsd.md)。公開版のネイティブ層が、kfsd の扱う FS で返す。 */
+    const val KFSD_REQUIRED_CODE = 65
+
     // 公開版だけ、ネイティブ層に問い合わせて持つ。取れなければ空 (= どのファイルシステムもマウントしない。安全側)。
     private val publicFs: Set<String> by lazy {
         runCatching { parseFs(String(NativeBridge.nativeEditionInfo(), Charsets.UTF_8)) }.getOrDefault(emptySet())

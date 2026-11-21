@@ -55,6 +55,19 @@ include  own  core/src/**                                # パーティション
 include  generated core/tests/crypto_vectors.inc         # 公開テストベクタ (hashlib / cryptography / argon2-cffi の出力)。SPDX が無いので書き出しで Apache-2.0 を付ける
 include  own  core/tests/**                              # bench_transform.cpp の btrfs 参照は #ifdef USBMEM_BENCH_BTRFS の中だけ
 
+# ============================================================ core/kfsd (別プロセスの FS ドライバ。docs/kfsd.md)
+# 公開版に入るのは、プロトコル (ヘッダ) と、本体側のクライアント (RpcVolume)、サーバの共通部分 (serve。ドライバを持たない) と、それらの試験だけ (すべて Apache-2.0)。
+# カーネル由来のドライバを呼ぶ部分 (FS の判別 + マウント、kfsd の main、RPC とプロセス内の比較試験) は、kfsd の実行ファイル (GPL-2.0-or-later) として別に配る。
+include   own  core/kfsd/CMakeLists.txt
+include   own  core/kfsd/include/usbmem/kfsd_proto.h
+include   own  core/kfsd/include/usbmem/kfsd_client.h
+include   own  core/kfsd/include/usbmem/kfsd_server.h
+include   own  core/kfsd/src/kfsd_io.h
+include   own  core/kfsd/src/kfsd_client.cpp
+include   own  core/kfsd/src/kfsd_server.cpp
+include   own  core/kfsd/tests/test_kfsd_proto.cpp
+exclude   kernel core/kfsd/**                           # 上以外: kfsd_mount.* (カーネル FS ドライバを呼ぶ)・kfsd_main.cpp (kfsd の実行ファイル)・test_kfsd_diff.cpp (プロセス内のドライバと比べる)
+
 # ============================================================ core/compat (LinuxCompat 層とカーネル由来の FS ドライバ。公開版は自前の一部だけ)
 # 公開版に残るもの: FsVolume 共通 IF (自前の API 定義)、ネストマウント (FsVolume の上の自前コード)、自前の F2FS リーダー / ライター
 relicense own-gpl core/compat/public/usbmem/fs_volume.h      # 自前の共通インタフェース。SPDX の GPL 表記は個人版でカーネル FS と同居するための安全側

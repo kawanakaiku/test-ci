@@ -163,7 +163,15 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
   // 公開版 (NTFS を含まない): 判別できなかったものは EINVAL (ファイルシステムではない)。判別できたが、この版に入っていない FS (上の分岐がビルドされていないもの) は
   // EPROTONOSUPPORT(93) = 「この版では未対応」。UI は Kotlin の Edition (nativeEditionInfo) と合わせて案内する (docs/editions.md)。
   (void)allow_dirty; (void)allow_noload; (void)rw;
-  if (err) *err = (t == usbmem::FsType::Unknown) ? EINVAL : EPROTONOSUPPORT;
+  // GPL 系のドライバは別プロセスの kfsd (プラグイン) に分けてある (docs/kfsd.md)。この版には kfsd へ繋ぐ層 (:kfsd サービス) がまだ無いので、kfsd が扱う FS は
+  // ENOPKG(65) = 「この FS には kfsd (プラグイン) が必要です」を返す。それ以外 (暗号ボリュームなど) は従来どおり EPROTONOSUPPORT(93)。
+  if (err) {
+    switch (t) {
+      case usbmem::FsType::Unknown: *err = EINVAL; break;
+      case usbmem::FsType::BitLocker: case usbmem::FsType::Luks: case usbmem::FsType::F2fs: *err = EPROTONOSUPPORT; break;
+      default: *err = 65 /* ENOPKG = usbmem::kfsd::kErrNoKfsd */; break;
+    }
+  }
   return nullptr;
 #endif
 }

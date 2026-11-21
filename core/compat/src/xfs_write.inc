@@ -146,7 +146,7 @@
 
   // ============ CRC の仕上げ ============
   static bool is_short_btree_magic(uint32_t m) {
-    return m == 0x41423342 || m == 0x41423343 || m == 0x49414233 || m == 0x46494233;
+    return m == 0x41423342 || m == 0x41423343 || m == 0x49414233 || m == 0x46494233 || m == 0x524d4233;
   }
   void finalize(WBuf& b) {
     uint8_t* p = b.d.data();
@@ -418,7 +418,7 @@
     if (incomp & ~(kIncompatFtype | kIncompatSpinodes | kIncompatBigtime | kIncompatNrext64 | kIncompatExchrange))
       return "未対応の incompat 機能がある (meta_uuid / parent pointer / metadir など)";
     if (!has_ftype) return "ftype のないボリュームは未対応";
-    if (comp_ro & ~(1u | 4u | 8u)) return "未対応の ro_compat 機能がある (rmapbt など)";
+    if (comp_ro & ~(1u | 2u | 4u | 8u)) return "未対応の ro_compat 機能がある";
     if (versionnum & 0x4000) return "大文字小文字を区別しない (ascii-ci) ボリュームは未対応";
     if (be16(sb.data() + 176)) return "クォータが有効";
     if (be32(sb.data() + 184) || be32(sb.data() + 188)) return "ストライプ (sunit / swidth) の設定があるボリュームは未対応";
@@ -436,6 +436,7 @@
     has_finobt = (comp_ro & 1) != 0;
     has_reflink = (comp_ro & 4) != 0;
     has_inobtcount = (comp_ro & 8) != 0;
+    has_rmapbt = (comp_ro & 2) != 0;
     imax_pct = sb[127];
     inoalignmt = be32(sb.data() + 180);
     spino_align = be32(sb.data() + 228);
@@ -448,7 +449,10 @@
       if (dev_read(base + sectsize, h.data(), sectsize)) return "AGF を読めない";
       if (be32(h.data()) != 0x58414746 || be32(h.data() + 4) != 1 || be32(h.data() + 8) != ag || be32(h.data() + 12) != alen) return "AGF が不正 (ag " + std::to_string(ag) + ")";
       if (!cksum_ok(h.data(), sectsize, 216) || std::memcmp(h.data() + 64, uuid, 16)) return "AGF の CRC / UUID が不正 (ag " + std::to_string(ag) + ")";
-      if (be32(h.data() + 24) != 0 || be32(h.data() + 36) != 0) return "rmapbt がある";
+      if (has_rmapbt) {
+        uint32_t rr = be32(h.data() + 24), rh = be32(h.data() + 36);
+        if (rr == 0 || rr >= alen || rh < 1 || rh > 12 || be32(h.data() + 80) == 0) return "AGF の rmapbt が不正 (ag " + std::to_string(ag) + ")";
+      } else if (be32(h.data() + 24) != 0 || be32(h.data() + 36) != 0) return "rmapbt のフラグが無いのに AGF に rmapbt の根がある";
       uint32_t fl = be32(h.data() + 40), ll = be32(h.data() + 44), fc = be32(h.data() + 48);
       if (fl >= agfl_slots || ll >= agfl_slots || fc > agfl_slots) return "AGFL の位置が不正";
       if (be32(h.data() + 28) < 1 || be32(h.data() + 28) > 12 || be32(h.data() + 32) < 1 || be32(h.data() + 32) > 12) return "AGF の btree の高さが不正";

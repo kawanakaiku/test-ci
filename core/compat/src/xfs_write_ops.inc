@@ -132,7 +132,7 @@
     if (n * 16 <= dsize) {
       for (uint64_t i = 0; i < n; i++) ext_encode(v[i], fork + i * 16);
       ip[5] = kFmtExtents;
-      for (uint64_t fsb : pool) { rc = fs_free(fsb, 1); if (rc) return rc; }
+      { const Own ob = own_bmbt(ino); for (uint64_t fsb : pool) { rc = fs_free(fsb, 1, &ob); if (rc) return rc; } }
     } else {
       const size_t leaf_max = (bs - 72) / 16, node_max = (bs - 72) / 16, root_max = (dsize - 4) / 16;
       if (root_max < 2) return -ENOSPC;
@@ -150,12 +150,12 @@
           if (pi < pool.size()) fsb = pool[pi++];
           else {
             uint32_t got;
-            rc = fs_alloc(ag_pref, ~0ULL, 1, &fsb, &got, true); if (rc) return rc;
+            const Own ob = own_bmbt(ino); rc = fs_alloc(ag_pref, ~0ULL, 1, &fsb, &got, true, &ob); if (rc) return rc;
           }
           lvblocks[li].push_back(fsb);
         }
       }
-      for (size_t i = pi; i < pool.size(); i++) { rc = fs_free(pool[i], 1); if (rc) return rc; }
+      { const Own ob = own_bmbt(ino); for (size_t i = pi; i < pool.size(); i++) { rc = fs_free(pool[i], 1, &ob); if (rc) return rc; } }
       meta_delta += int64_t(total);
       // 葉 → 上位へ作る
       std::vector<uint64_t> keys;   // 1 つ下のレベルの各ブロックの先頭キー (startoff)
@@ -388,7 +388,7 @@
     uint32_t ag = uint32_t(d->ino >> (agblklog + inopblog));
     uint64_t hint = ~0ULL;
     if (!d->exts->empty()) hint = d->exts->back().fsb + d->exts->back().len;
-    rc = fs_alloc(ag, hint, 1, &fsb, &got, true); if (rc) return rc;
+    const Own ow = own_file(d->ino, lb); rc = fs_alloc(ag, hint, 1, &fsb, &got, true, &ow); if (rc) return rc;
     uint64_t blk; if (!fsb_to_blk(fsb, &blk)) return -EUCLEAN;
     std::vector<Ext> v = *d->exts;
     ext_add(v, Ext{lb, fsb, 1, false});
@@ -420,7 +420,7 @@
     all.push_back({".", dino, 2, 0}); all.push_back({"..", sf.parent, 2, 0});
     for (auto& e : sf.ents) all.push_back(e);
     uint64_t fsb; uint32_t got;
-    rc = fs_alloc(uint32_t(dino >> (agblklog + inopblog)), ~0ULL, 1, &fsb, &got, true); if (rc) return rc;
+    const Own ow = own_file(dino, 0); rc = fs_alloc(uint32_t(dino >> (agblklog + inopblog)), ~0ULL, 1, &fsb, &got, true, &ow); if (rc) return rc;
     uint64_t blk; if (!fsb_to_blk(fsb, &blk)) return -EUCLEAN;
     WBuf* b = bnew(blk * bs, bs, BLFT_DIR_BLOCK);
     if (!block_build(dino, b->d.data(), b->off, all)) return -EUCLEAN;
@@ -670,7 +670,7 @@
     uint32_t ag = uint32_t(ino >> (agblklog + inopblog));
     while (lb < nb) {
       uint64_t fsb; uint32_t got;
-      rc = fs_alloc(ag, ~0ULL, nb - lb, &fsb, &got, true); if (rc) return rc;
+      const Own ow = own_file(ino, lb); rc = fs_alloc(ag, ~0ULL, nb - lb, &fsb, &got, true, &ow); if (rc) return rc;
       for (uint32_t k = 0; k < got; k++, lb++) {
         uint64_t blk; if (!fsb_to_blk(fsb + k, &blk)) return -EUCLEAN;
         WBuf* b = bnew(blk * bs, bs, BLFT_SYMLINK);
@@ -757,7 +757,7 @@
         // 直前の extent の直後を優先 (連続させる)
         if (fb > 0) { const Ext* prev = find_ext(v, fb - 1); if (prev && !prev->unwritten) hint = prev->fsb + (fb - prev->off); }
         uint64_t fsb; uint32_t got;
-        rc = fs_alloc(ag, hint, uint32_t(std::min<uint64_t>(want, 1u << 20)), &fsb, &got); if (rc) return rc;
+        const Own ow = own_file(ino, fb); rc = fs_alloc(ag, hint, uint32_t(std::min<uint64_t>(want, 1u << 20)), &fsb, &got, false, &ow); if (rc) return rc;
         { uint32_t a = uint32_t(fsb >> agblklog), bn = uint32_t(fsb & ((1ULL << agblklog) - 1));
 #ifndef USBMEM_MUTATE_REUSE_FREED   // 突然変異: 解放したばかりのブロックにデータを書く (コミット前の電源断で、削除したはずの古いファイルが壊れる)
           for (auto& x : busy) if (x.ag == a && bn < x.bno + x.len && x.bno < bn + got) return kRetryBusy;

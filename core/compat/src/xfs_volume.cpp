@@ -5,6 +5,7 @@
 #include "usbmem/xfs_volume.h"
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cstring>
 #include <map>
@@ -700,6 +701,7 @@ struct XfsVolume::Impl {
 
 #ifdef USBMEM_NTFS_WRITE
 #include "xfs_write.inc"
+#include "xfs_write_rmap.inc"
 #include "xfs_write_alloc.inc"
 #include "xfs_write_ops.inc"
 #include "xfs_write_full.inc"

@@ -170,14 +170,15 @@ r=0; mk "$W/n.img" 320M "$W/seed" || r=$?
 [ $r != 0 ] || run_t "noop (rw mount, no writes: image unchanged)" --noop "$W/n.img"
 refuse() {  # refuse <label> <mkfs opts...>   (既定の rmapbt=0 / parent=0 を付けずに作る)
   label=$1; shift
-  r=0; mk_xfs_plain "$W/r.img" 1G "" "$@" || r=$?
+  r=0; mk_xfs_plain "$W/r.img" 1G "" "$@" -n parent=0 || r=$?   # parent pointer の拒否と区別するため、無効にして作る (古い mkfs.xfs に無ければ付けない)
+  [ $r = 0 ] || { r=0; mk_xfs_plain "$W/r.img" 1G "" "$@" || r=$?; }
   [ $r != 3 ] || { echo "skip (この mkfs.xfs に無い構成): $label" >&2; nskip=$((nskip + 1)); return 0; }
   [ $r = 0 ] || { [ $r = 3 ] || fail "mkfs ($label)"; return 0; }
   run_t "refuse $label" --refuse "$W/r.img"
 }
 refuse "V4 (crc=0)" -m crc=0,rmapbt=0 -n ftype=1
 refuse "dirblklog>0 (-n size=8192)" -n size=8192 -m rmapbt=0
-refuse "rmapbt=1" -m rmapbt=1
+refuse "parent pointer (-n parent=1)" -m rmapbt=1 -n parent=1
 refuse "stripe unit (-d su=64k,sw=2)" -d su=64k,sw=2 -m rmapbt=0
 refuse "bs=1024 (V5 dir block > fs block)" -b size=1024 -m rmapbt=0
 refuse "bs=2048 (V5 dir block > fs block)" -b size=2048 -m rmapbt=0

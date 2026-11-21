@@ -25,7 +25,7 @@
     return 0;
   }
 
-  uint32_t bt_magic(int k) const { static const uint32_t m[4] = {0x41423342, 0x41423343, 0x49414233, 0x46494233}; return m[k]; }
+  uint32_t bt_magic(int k) const { static const uint32_t m[5] = {0x41423342, 0x41423343, 0x49414233, 0x46494233, 0x524d4233}; return m[k]; }
   uint32_t bt_keylen(int k) const { return k < 2 ? 8 : 4; }
   uint32_t bt_reclen(int k) const { return k < 2 ? 8 : 16; }
   uint32_t bt_nmax(int k) const { return (bs - 56) / (bt_keylen(k) + 4); }
@@ -125,6 +125,7 @@
     uint32_t start, got;
     int rc = ag_alloc_raw(ag, 1, 1, kNullAgbno, &start, &got); if (rc) return rc;
     *bno = start;
+    rc = rm_map(ag, start, 1, kOwnInobt, 0); if (rc) return rc;
     WBuf* b; rc = agi_buf(ag, &b); if (rc) return rc;
     if (has_inobtcount) { uint8_t* p = bw(b); pb32(p + (k == BT_INO ? 336 : 340), be32(p + (k == BT_INO ? 336 : 340)) + 1); }
     return 0;
@@ -139,6 +140,7 @@
     }
     WBuf* b; int rc = agi_buf(ag, &b); if (rc) return rc;
     if (has_inobtcount) { uint8_t* p = bw(b); pb32(p + (k == BT_INO ? 336 : 340), be32(p + (k == BT_INO ? 336 : 340)) - 1); }
+    rc = rm_unmap(ag, bno, 1, kOwnInobt, 0); if (rc) return rc;
     return fs_free_raw(ag, bno, 1);
   }
 
@@ -491,11 +493,12 @@
       WBuf* f; int rc = agf_buf(ag, &f); if (rc) return rc;
       const uint8_t* p = f->d.data();
       uint32_t flcount = be32(p + 48);
-      uint32_t want = be32(p + 28) + 1 + be32(p + 32) + 1 + 2;
+      uint32_t want = be32(p + 28) + 1 + be32(p + 32) + 1 + 2 + (has_rmapbt ? be32(p + 36) + 1 : 0);
       if (want > agfl_slots - 4) want = agfl_slots - 4;
       if (flcount > want + 8) {   // 余分を空き領域に戻す
         uint32_t bno;
         rc = agfl_get(ag, &bno); if (rc) return rc;
+        rc = rm_unmap(ag, bno, 1, kOwnAg, 0); if (rc) return rc;   // AGFL のブロックは OWN_AG の持ち物。空き領域に戻すので外す
         rc = fs_free_raw(ag, bno, 1); if (rc) return rc;
         continue;
       }
@@ -508,6 +511,7 @@
       uint32_t s = be32(r);
       rc = fs_carve(ag, s, 1); if (rc) return rc;
       rc = agfl_put(ag, s); if (rc) return rc;
+      rc = rm_map(ag, s, 1, kOwnAg, 0); if (rc) return rc;
     }
     return -EUCLEAN;
   }
@@ -559,7 +563,9 @@
   }
   uint32_t ag_reserve(uint32_t ag) const { return std::max<uint32_t>(8, ag_len(ag) / 64); }
   // ファイルシステム全体から (ag_pref の AG から順に) 確保して FSB を返す
-  int fs_alloc(uint32_t ag_pref, uint64_t hint_fsb, uint32_t maxlen, uint64_t* fsb, uint32_t* got, bool meta = false) {
+  // own = rmapbt に登録する持ち主 (rmapbt のあるボリュームでは必須)
+  int fs_alloc(uint32_t ag_pref, uint64_t hint_fsb, uint32_t maxlen, uint64_t* fsb, uint32_t* got, bool meta, const Own* own) {
+    if (has_rmapbt && !own) return -EUCLEAN;
     int last = -ENOSPC;
     for (uint32_t i = 0; i < agcount; i++) {
       uint32_t ag = (ag_pref + i) % agcount;
@@ -567,16 +573,25 @@
       if (hint_fsb != ~0ULL && (hint_fsb >> agblklog) == ag) hint = uint32_t(hint_fsb & ((1ULL << agblklog) - 1));
       uint32_t s, g;
       int rc = ag_alloc(ag, 1, maxlen, hint, meta ? 4 : ag_reserve(ag), &s, &g);
-      if (rc == 0) { *fsb = fsb_of(ag, s); *got = g; return 0; }
+      if (rc == 0) {
+        *fsb = fsb_of(ag, s); *got = g;
+        if (has_rmapbt) {
+          rc = rm_map(ag, s, g, own->owner, own->off); if (rc) return rc;
+          rc = fix_freelist(ag); if (rc) return rc;
+        }
+        return 0;
+      }
       if (rc != -ENOSPC) return rc;
       last = rc;
     }
     return last;
   }
-  int fs_free(uint64_t fsb, uint32_t len) {
+  int fs_free(uint64_t fsb, uint32_t len, const Own* own) {
     uint32_t ag = uint32_t(fsb >> agblklog), bno = uint32_t(fsb & ((1ULL << agblklog) - 1));
     if (ag >= agcount || uint64_t(bno) + len > ag_len(ag)) return -EUCLEAN;
+    if (has_rmapbt && !own) return -EUCLEAN;
     int rc = fix_freelist(ag); if (rc) return rc;
+    if (has_rmapbt) { rc = rm_unmap(ag, bno, len, own->owner, own->off); if (rc) return rc; }
     bdrop_range(agb_off(ag, bno), uint64_t(len) * bs);
     rc = fs_free_raw(ag, bno, len); if (rc) return rc;
     return fix_freelist(ag);
@@ -654,6 +669,7 @@
     }
     if (!found) return -ENOSPC;
     rc = fs_carve(ag, cs, chunk_blks); if (rc) return rc;
+    rc = rm_map(ag, cs, chunk_blks, kOwnInodes, 0); if (rc) return rc;
     // inode バッファを初期化 (空き inode: magic / version / ino / uuid / next_unlinked)
     const uint32_t startino = cs * inopblock;
     uint32_t gen = uint32_t(time(nullptr)) * 2654435761u;

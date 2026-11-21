@@ -4,10 +4,11 @@
 # 使い方: tools/fuseshim/fetch_wimlib.sh DEST    → DEST/src、DEST/build/.libs/libwim.a
 set -eu
 DEST=${1:?DEST}
-VER=1.14.4
-SHA256=3633db2b6c8b255eb86d3bf3df3059796bd1f08e50b8c9728c7eb66662e51300
+. "$(dirname "$0")/wimlib_pin.sh"
+VER=$WIMLIB_VER
+SHA256=$WIMLIB_SHA256
 FILE=wimlib-$VER.tar.gz
-URL=https://wimlib.net/downloads/$FILE
+URL=$WIMLIB_URL
 mkdir -p "$DEST"
 curl -fsSL --retry 3 --connect-timeout 20 --max-time 300 -A "Mozilla/5.0 (X11; Linux x86_64)" -o "$DEST/$FILE" "$URL"
 echo "$SHA256  $DEST/$FILE" | sha256sum -c - >/dev/null || { echo "wimlib $VER の sha256 が一致しない" >&2; exit 1; }

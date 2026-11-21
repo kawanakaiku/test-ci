@@ -216,6 +216,18 @@ def check(root, forbid_words, closure=True):
         for rel, ln, t, guarded in refs:
             if t not in relset and not guarded:
                 err("closure", rel, "CMake が参照するファイルがツリーに無い: %s (L%d)" % (t, ln))
+        # Kotlin / マニフェストが参照する自前のサブパッケージ (org.usbmem.app.<小文字>) のディレクトリがあること
+        # (統合前のブランチのパッケージを公開版から除外したのに、参照だけ残るのを検出する。例: wimfuse)
+        pkg_root = "android/app/src/main/java/org/usbmem/app/"
+        have_pkgs = {r[len(pkg_root):].split("/")[0] for r in relset if r.startswith(pkg_root) and r.count("/") > pkg_root.count("/")}
+        pkg_rx = re.compile(r"org\.usbmem\.app\.([a-z][a-z0-9_]*)\.[A-Za-z*]")
+        for rel, full in files:
+            if not (rel.startswith("android/app/src/") and rel.endswith((".kt", ".java", ".xml"))):
+                continue
+            for ln, line in enumerate((read_text(full) or "").splitlines(), 1):
+                for m in pkg_rx.finditer(line):
+                    if m.group(1) not in have_pkgs:
+                        err("closure", rel, "公開版に無いパッケージへの参照: org.usbmem.app.%s (L%d)" % (m.group(1), ln))
         # tools/ の Python / シェルが呼ぶ別のスクリプト (gen_*.py など): 同じ tools/ 配下にあること (コメント行は除く)
         helper_rx = re.compile(r"[\"'/]((?:gen|check|run|make|dt|fetch)_[A-Za-z0-9_]*\.(?:py|sh))\b")   # 引用符かスラッシュの直後 (説明文の言及は除く)
         names = {os.path.basename(r) for r in relset}

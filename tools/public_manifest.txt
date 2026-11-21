@@ -11,6 +11,7 @@
 #   relicense <出所> <glob>          公開版に入れ、SPDX を Apache-2.0 に書き換える。自前のコード (出所は own-gpl) で、GPL 系の表記は「GPL 系のライブラリとリンクするため」
 #                                    の安全側のラベルだったもの。著作権者 (自分) が公開版で Apache-2.0 として出す。カーネルのコードを含むものには使わない
 #   exclude   <出所> <glob>          公開版に入れない
+#   reserve   <出所> <glob>          exclude と同じ。まだ追跡されていないファイル (統合前のブランチにあるもの) を先回りして除外する。当たるファイルが無くても古い規則とは見なさない
 #   overlay   <出所> <元ファイル> <公開版での置き場所>   公開版専用のファイル (tools/public_edition/ の雛形) を置く。元ファイルは追跡されていること
 #   scrub     <出所> s!<正規表現>!<置換>!   書き出す文字ファイルへ全体に当てる置換 (公開版のツリーにだけ効く。個人版のファイルは変えない)
 # glob: * は / を越えない、** は / を越える、? は 1 文字。パスは git ls-files の相対パス。
@@ -106,6 +107,14 @@ include   own  android/app/build.gradle.kts
 include   own  android/app/proguard-rules.pro
 include   own  android/app/src/main/AndroidManifest.xml
 include   own  android/app/src/main/res/**
+# --- wimlib (wimfuse。usbmem-wt-wimlib。main へ統合されたとき公開版に入らないようにする先回りの除外。LGPL-3.0+ / GPL-3.0+ の wimlib を別プロセスで動かす層)
+#     統合後は、ここに書いたパスが実在すれば exclude と同じに働く。パスを足すだけでよい (規則は上から先に当たる: android/app/src/main/java/** の include より前に置く)。
+#     公開版のビルドが通るためには、公開版に残るファイル (VolumeRegistry / MainActivity / NestedMountSection / WimFuseNative.kt など) の org.usbmem.app.wimfuse への参照を
+#     スタブ (WimFuse.available() が常に false) へ差し替える overlay も要る。docs/editions.md 12 章
+reserve   external-gpl android/app/src/main/java/org/usbmem/app/wimfuse/**
+reserve   external-gpl core/fuseshim/wimfuse/**
+reserve   external-gpl tools/wimfuse/**
+reserve   external-gpl .github/workflows/wimfuse-build.yml
 include   own  android/app/src/main/java/**             # Kotlin。AndroidX / Compose (Apache-2.0) に依存する。SPDX は無いので書き出しで Apache-2.0 を付ける
 relicense own-gpl android/app/src/main/cpp/jni_ntfs.cpp   # 自前の JNI (FS の分岐は USBMEM_FS_* の条件コンパイル)。GPL 表記は個人版でカーネル FS をリンクするための安全側
 relicense own-gpl android/app/src/main/cpp/jni_vol.h      # 自前 (Vol ハンドルの定義)

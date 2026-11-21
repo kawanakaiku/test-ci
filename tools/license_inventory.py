@@ -35,7 +35,7 @@ ROOT = os.path.dirname(HERE)
 DEFAULT_MANIFEST = os.path.join(HERE, "public_manifest.txt")
 
 PERMISSIVE = {"apache-2.0", "mit", "bsd-2-clause", "bsd-3-clause", "0bsd", "isc", "zlib", "unlicense", "cc0-1.0", "bsl-1.0"}
-ACTIONS = ("include", "relicense", "exclude", "overlay", "scrub")
+ACTIONS = ("include", "relicense", "exclude", "reserve", "overlay", "scrub")   # reserve = exclude と同じ。まだ無いファイルに先回りして書く (当たらなくても「古い規則」にしない)
 ORIGINS = ("own", "own-gpl", "own-doc", "kernel", "kernel-shim", "kernel-patch", "external-gpl", "external-permissive", "dev", "generated")
 CODE_EXT = {".c", ".h", ".cpp", ".cc", ".hpp", ".inc", ".kt", ".kts", ".java", ".py", ".sh", ".cmake", ".gradle"}
 
@@ -43,6 +43,9 @@ CODE_EXT = {".c", ".h", ".cpp", ".cc", ".hpp", ".inc", ".kt", ".kts", ".java", "
 # ---------------------------------------------------------------- manifest
 class Rule:
     def __init__(self, lineno, action, origin, glob, dest=None, text=""):
+        self.reserved = action == "reserve"
+        if self.reserved:
+            action = "exclude"
         self.lineno, self.action, self.origin, self.glob, self.dest, self.text = lineno, action, origin, glob, dest, text
         self.rx = glob_to_regex(glob) if action != "scrub" else None
         self.hits = 0
@@ -350,7 +353,7 @@ def problems(rules, rows):
         if r.action in ("overlay",):
             if not os.path.isfile(os.path.join(ROOT, r.glob)):
                 msgs.append("manifest:%d: overlay の元ファイルが追跡されていない: %s" % (r.lineno, r.glob))
-        elif r.hits == 0:
+        elif r.hits == 0 and not r.reserved:
             msgs.append("manifest:%d: どのファイルにも当たらない規則 (古い規則?): %s %s" % (r.lineno, r.action, r.glob))
     return msgs
 

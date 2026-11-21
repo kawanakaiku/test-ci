@@ -264,3 +264,15 @@ git log --stat | head                                                   # 履歴
 ## 11. CI の結果
 
 (実行後に記入)
+
+## 12. 別ブランチの機能が個人版へ統合されたときの公開版の扱い (例: wimfuse)
+
+公開版は許可リストなので、統合された新しいファイルは、`include` の glob (主に `android/app/src/main/java/**`、`core/src/**`、`core/include/**`) に当たるものだけが自動で公開版に入る。**GPL / LGPL を動かす層が、これらの glob に当たる場所に入ると、そのまま公開版へ入ってしまう**ので、統合の前後に次を行う。
+
+1. **除外の追加**: `tools/public_manifest.txt` に `exclude`、またはまだ無いファイルなら先回りの `reserve` (当たるファイルが無くても古い規則と見なされない) で、パスを足す。**規則は上から先に当たる**ので、`android/app/src/main/java/**` の `include` より前に置く。wimlib (`usbmem-wt-wimlib`) の分は、先回りで入れてある: `android/app/src/main/java/org/usbmem/app/wimfuse/**`、`core/fuseshim/wimfuse/**`、`tools/wimfuse/**`、`.github/workflows/wimfuse-build.yml`。統合で場所が変わったら、パスを直す。
+2. **参照の差し替え**: 公開版に残るファイルが除外したパッケージを参照すると、公開版のビルドが通らない (`check_public_tree.py` が「公開版に無いパッケージへの参照: org.usbmem.app.<名前>」で検出する)。`VolumeRegistry` / `MainActivity` / `NestedMountSection` / `WimFuseNative.kt` などの参照は、公開版のツリーでだけ別の実装 (`WimFuse.available()` が常に false のスタブ) に差し替える。方法は、`tools/public_edition/` にスタブを置いて `overlay` する。参照元のファイルが個人版と公開版で違ってよいなら、そのファイルも overlay にする (参照元を変えたくないなら、スタブのクラスを同じパッケージ名・同じシグネチャで作る)。
+3. **JNI**: `WimFuseNative.kt` が宣言する `external fun` (`nativeOpenArchive` など) は、公開版のネイティブライブラリに無いので、呼ぶと実行時に `UnsatisfiedLinkError` になる。スタブ (上) へ置き換えるか、Kotlin 側を `Edition.isPublic` で呼ばないようにする。ネイティブ側は `-PusbmemWimFuse` のときだけ入る (公開版では指定しない)。
+4. **AndroidManifest**: `:wimfuse` サービスの宣言は、`android/app/src/main/AndroidManifest.xml` に入る。除外したクラスを指すサービスが残らないよう、`scrub` (サービス要素の削除) か、公開版用のマニフェストの overlay を足す。`tools/check_manifest_permissions.py` (権限の確認) は公開版でも動く。
+5. **確認**: `tools/license_inventory.py --check` (規則の矛盾)、`tools/export_public.sh` (検査)、公開版の CI (`public-edition.yml`、ブランチ `usbmem-public-<名前>`) が通ること。
+
+新しい `third_party/*` や `core/compat/*` の追加は、`include` に当たらない (未分類 = 除外) ので、何もしなくても公開版には入らない。

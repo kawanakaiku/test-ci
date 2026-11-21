@@ -210,7 +210,7 @@
 | 1 | プロトコル・kfsd・RpcVolume・ホストのテスト | 済 (CI run 44924247214 / 44925892263、wrel。全構成は `usbmem-ci-full-kfsd` で確認) |
 | 2 | 性能の測定と最適化 (CI のホストで) | 済 (4 章。先読みとまとめ書きを実装。共有メモリは見送り) |
 | 3 | Android: `:kfsd` サービス + `libkfsd.so`・VolumeRegistry の経路・emulator のテスト・(b) プラグイン APK の最小試作 (`usbmem-wt-wimint` の main への統合後) | 未 |
-| 4 | 公開版への反映 (manifest・UI の「プラグインが必要」・docs・公開版の CI) | manifest は済 (プロトコル・RpcVolume・serve・`kfsd_proto` を公開版へ)。UI は未 |
+| 4 | 公開版への反映 (manifest・UI の「プラグインが必要」・docs・公開版の CI) | 済 (manifest・公開版の JNI の ENOPKG・UI の文言・docs。公開版 CI 成功: run 44936730057)。Android の kfsd への接続は段階 3 |
 
 ## 9. 残る課題 (現時点)
 

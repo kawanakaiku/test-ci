@@ -260,3 +260,8 @@ docs/kfsd.md の開発用。ブランチ名 `usbmem-ci-kfsd-wrel` (構成は pla
 (`kfsd_proto`・`kfsd_read_*`・`kfsd_write_*`・`kfsd_abnormal`・`kfsd_bench`。フィクスチャの生成は ctest の依存で自動的に走る)。結果の出力 (特に `kfsd_bench` の表) は、step「Show kfsd test log」で `LastTest.log` を表示する。
 Android のエミュレータ試験 (`android-emulator.yml`) はこのブランチ名では動かさない。書き込み系 (`kfsd_write_*`・`kfsd_bench`) は `USBMEM_NTFS_WRITE=ON` の構成 (wsan / wrel) だけ。
 統合前の確認は、いつもどおり `usbmem-ci-full-*` で 4 構成すべてを通す。
+
+結果 (kfsd、2026-11-22): `usbmem-ci-full-kfsd` db88c02 で、Host tests run 44936729982 (plain / san / wsan / wrel の 4 構成すべて成功)、Public edition run 44936730057 (成功)、Android emulator tests run 44936730029 (6 群 + manifest 成功。kfsd 無しの本体で回帰なし)。
+1 つ前の run 44926716327 は、wsan だけ「ランナーが応答しなくなった」で失敗 (約 1 時間 37 分。ほかの 3 構成と public・android は成功)。原因の疑いは、サニタイザ構成での `kfsd_bench` (66000 回の callback × 変種 6 つ) なので、サニタイザ構成では測らないようにした。
+`usbmem-ci-kfsd-wsan` run 44935710777 は kfsd の試験だけで成功。初回の `usbmem-ci-kfsd-wrel` は 44923629777 (失敗: large_io の期待値の誤りとデバイス抜去の試験) → 44924247214 (成功) → 44925892263 (成功。性能の表はこの run)。
+

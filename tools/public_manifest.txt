@@ -112,10 +112,9 @@ include   own  android/app/src/main/res/**
 #     統合済み (usbmem-wt-wimint)。公開版に残るファイル (VolumeRegistry / MainActivity / NestedMountSection) の org.usbmem.app.wimfuse への参照は、上の overlay (WimFuseStub.kt。
 #     WimFuse.available() が常に false) が解決する。WimFuseNative.kt (JNI) は公開版に無い (スタブは JNI を使わない)。AndroidManifest の :wimfuse サービスは、下の scrub で公開版から外す。
 #     パスを足すだけでよい (規則は上から先に当たる: android/app/src/main/java/** の include より前に置く)。docs/editions.md 12 章
-reserve   external-gpl android/app/src/main/java/org/usbmem/app/wimfuse/**
-reserve   external-gpl core/fuseshim/wimfuse/**
-reserve   external-gpl tools/wimfuse/**
-reserve   external-gpl .github/workflows/wimfuse-build.yml
+exclude   external-gpl android/app/src/main/java/org/usbmem/app/wimfuse/**
+exclude   external-gpl tools/wimfuse/**
+# (core/fuseshim/wimfuse/** と .github/workflows/wimfuse-build.yml は、上の core/fuseshim/** と .github/** の除外が先に当たる)
 include   own  android/app/src/main/java/**             # Kotlin。AndroidX / Compose (Apache-2.0) に依存する。SPDX は無いので書き出しで Apache-2.0 を付ける
 relicense own-gpl android/app/src/main/cpp/jni_ntfs.cpp   # 自前の JNI (FS の分岐は USBMEM_FS_* の条件コンパイル)。GPL 表記は個人版でカーネル FS をリンクするための安全側
 relicense own-gpl android/app/src/main/cpp/jni_vol.h      # 自前 (Vol ハンドルの定義)

@@ -277,6 +277,8 @@ git log --stat | head                                                   # 履歴
 
 ## 12. 別ブランチの機能が個人版へ統合されたときの公開版の扱い (例: wimfuse)
 
+**wimfuse (wimlib の別プロセス化、`usbmem-wt-wimlib`) は 2026-11-22 に統合し、下の 1〜5 を対応済み** (`usbmem-wt-wimint`。12.1 に中身と CI の結果)。以下は、次に別ブランチの機能を統合するときの手順として残す。
+
 公開版は許可リストなので、統合された新しいファイルは、`include` の glob (主に `android/app/src/main/java/**`、`core/src/**`、`core/include/**`) に当たるものだけが自動で公開版に入る。**GPL / LGPL を動かす層が、これらの glob に当たる場所に入ると、そのまま公開版へ入ってしまう**ので、統合の前後に次を行う。
 
 1. **除外の追加**: `tools/public_manifest.txt` に `exclude`、またはまだ無いファイルなら先回りの `reserve` (当たるファイルが無くても古い規則と見なされない) で、パスを足す。**規則は上から先に当たる**ので、`android/app/src/main/java/**` の `include` より前に置く。wimlib (`usbmem-wt-wimlib`) の分は、先回りで入れてある: `android/app/src/main/java/org/usbmem/app/wimfuse/**`、`core/fuseshim/wimfuse/**`、`tools/wimfuse/**`、`.github/workflows/wimfuse-build.yml`。統合で場所が変わったら、パスを直す。
@@ -286,3 +288,15 @@ git log --stat | head                                                   # 履歴
 5. **確認**: `tools/license_inventory.py --check` (規則の矛盾)、`tools/export_public.sh` (検査)、公開版の CI (`public-edition.yml`、ブランチ `usbmem-public-<名前>`) が通ること。
 
 新しい `third_party/*` や `core/compat/*` の追加は、`include` に当たらない (未分類 = 除外) ので、何もしなくても公開版には入らない。
+
+### 12.1 wimfuse の対応 (2026-11-22、対応済み)
+
+1. **除外**: 先回りの `reserve` (wimfuse の Kotlin パッケージ・`tools/wimfuse/**` ほか) が、統合後のパスにそのまま当たった (パスの修正は不要)。統合後は `exclude` に直した。`core/fuseshim/wimfuse/**` と `wimfuse-build.yml` は、元からある `core/fuseshim/**` と `.github/**` の除外が先に当たるので、`reserve` の行は消した (残すと「古い規則」の NG になる)。
+2. **参照の差し替え**: `tools/public_edition/WimFuseStub.kt` を `overlay` で `org/usbmem/app/wimfuse/WimFuseStub.kt` に置く。`WimFuse.available(ctx)` は常に false、`WimInfo` / `WimImageInfo` / `WimFuseException` (UI が使う型) は個人版と同じ形、`info` / `open` / `openArchive` は ENOSYS の `WimFuseException` を投げる (`available()` が false なので `VolumeRegistry.inspectWim` が null を返し、WIM の画面・マウントには入らない)。参照元 (`VolumeRegistry` / `MainActivity` / `NestedMountSection`) は個人版と同じファイルで、公開版でも変えていない。
+3. **JNI**: `WimFuseNative.kt` は公開版に入らず、スタブは `System.loadLibrary` も `external fun` も持たない (`UnsatisfiedLinkError` の経路が無い)。ネイティブ側 (`core/fuseshim/wimfuse/android/`) も公開版に無い。
+4. **スイッチ**: `android/app/build.gradle.kts` は、公開版 (`-PusbmemEdition=public`) では `-PusbmemWimFuse` を警告つきで無視する (`BuildConfig.WIMFUSE_SUPPORTED` は false、`-DUSBMEM_WIMFUSE=ON` は渡さない、`jniLibs` も足さない)。`android/app/src/main/cpp/CMakeLists.txt` は `USBMEM_WIMFUSE AND NOT USBMEM_EDITION STREQUAL "public"` のときだけ `client.cmake` を読む。
+5. **AndroidManifest**: `scrub` (manifest の末尾) で、`:wimfuse` の `<service>` を直前のコメントごと、公開版のツリーにだけ外す。`check_public_tree.py` が、公開版の manifest に `WimFuseService` / `:wimfuse` が残っていれば NG (scrub の正規表現が manifest の書き方の変更で外れたときの番人)。
+6. **確認** (ローカル): `license_inventory.py --check` OK、`export_public.sh` (/dev/shm へ書き出し → 検査) OK (248 ファイル。GPL 系なし・SPDX あり・個人情報なし・単独で解決可能)。公開版の manifest に service なし、build.gradle.kts / CMakeLists.txt の wimfuse の記述はスイッチと無効化の注記だけ。
+
+CI の結果は 12.2。
+

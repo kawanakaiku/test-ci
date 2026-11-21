@@ -390,4 +390,4 @@ tools/gen_fuseshim_perf_fixture.sh、tools/run_fuseshim_tests.sh、.github/workf
 - ライセンス: プロセスを分けても、**ソースの提供・ライセンス文の表示の義務は消えない** (4 章)。`docs/licenses.md` は編集版の担当が持つので、ここでは触れていない。個人版のビルドにだけ `libwimfuse.so` が入る。
 - 書き込み (WIM の編集) は対象外 (読み取り専用)。
 - LZMS solid の再展開 (10.4)。巨大な WIM (数 GB) の実測はしていない。
-- `wim-fuse` グループは `android-emulator.yml` の既定のグループには入れていない (個人版の統合時に決める)。
+- `wim-fuse` グループは、main への統合 (2026-11-22、`usbmem-wt-wimint`) で `android-emulator.yml` の既定のグループに入れた (docs/ci.md)。公開版には FUSE 層を入れず、スタブにする (docs/editions.md 12.1)。

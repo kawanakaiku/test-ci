@@ -33,34 +33,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install host tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build g++ python3 e2fsprogs dosfstools exfatprogs ntfs-3g mtools f2fs-tools \
-            gdisk fdisk bc cryptsetup-bin nbdkit libnbd-bin qemu-utils partclone gddrescue zlib1g-dev \
-            python3-cryptography python3-numpy squashfs-tools
-
-      # runner の /dev/shm はユーザークォータで 6 GB 程度に制限される。クォータなしの tmpfs を重ねる
-      - name: Larger /dev/shm (no quota)
-        run: sudo mount -t tmpfs -o size=10G,mode=1777,nosuid,nodev tmpfs /dev/shm
-
-      - name: Configure (public edition)
-        run: |
-          flags=""
-          [ "${{ matrix.mode }}" = san ] && flags="-DUSBMEM_SANITIZE=ON"
-          cmake -S core -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DUSBMEM_EDITION=public $flags
-
-      - name: Build
-        run: cmake --build build -j"$(nproc)"
-
-      - name: ctest
-        working-directory: build
-        env:
-          ASAN_OPTIONS: verify_asan_link_order=0:detect_leaks=1
-        run: |
-          export PATH="$PATH:/sbin:/usr/sbin"
-          ctest -j2 --output-on-failure
+      - name: Build and test (public edition)
+        run: bash tools/ci/host_tests.sh ${{ matrix.mode }}
 
       - name: Upload test log on failure
         if: failure()
@@ -77,12 +51,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Check AndroidManifest permissions
-        run: python3 -I tools/check_manifest_permissions.py
-
-      - name: retry_gradle self test
-        run: bash tools/test_retry_gradle.sh
-
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -97,27 +65,8 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}-
 
-      - name: Install SDK components
-        run: |
-          SM="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SM" --licenses >/dev/null || true
-          "$SM" "platforms;android-36" "build-tools;36.0.0" "ndk;$NDK_VERSION" "cmake;$CMAKE_VERSION"
-
-      - name: Assemble + JVM unit tests (public edition)
-        working-directory: android
-        run: |
-          ../tools/ci/retry_gradle.sh ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest -PusbmemEdition=public
-          find app/build/outputs/apk -name '*.apk' -exec ls -l {} +
-
-      - name: Native library of the APK contains only the public set
-        run: |
-          apk=$(ls android/app/build/outputs/apk/debug/*.apk | head -1)
-          mkdir -p /tmp/apkx && cd /tmp/apkx && unzip -o -q "$apk" 'lib/x86_64/*.so'
-          # 個人版の FS ドライバ (カーネル由来) のシンボルが無いこと。公開版が持つ FS は F2FS だけ
-          if nm -D lib/x86_64/libusbmem_jni.so | grep -E 'NtfsVolume|ExfatVolume|Ext2Volume|Ext4Volume|FatVolume|IsofsVolume|UdfVolume|SquashfsVolume|ErofsVolume|BtrfsVolume|XfsVolume|rt_vfs|lzo1x|ZSTD_decompress|xz_dec'; then
-            echo "unexpected personal-edition symbols"; exit 1
-          fi
-          nm -D lib/x86_64/libusbmem_jni.so | grep -q F2fsVolume
+      - name: Assemble, JVM unit tests, check native library (public edition)
+        run: bash tools/ci/android_build.sh
 
       - uses: actions/upload-artifact@v7
         with:

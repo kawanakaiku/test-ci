@@ -32,6 +32,8 @@ overlay  own  tools/public_edition/LICENSE               LICENSE
 overlay  own  tools/public_edition/NOTICE                NOTICE
 overlay  own  tools/public_edition/gitignore             .gitignore
 overlay  own  tools/public_edition/ci.yml                .github/workflows/ci.yml
+overlay  own  tools/public_edition/ci_host.sh               tools/ci/host_tests.sh          # 公開版の CI の手順 (ホスト)。個人版のリポジトリの public-edition.yml と共用
+overlay  own  tools/public_edition/ci_android.sh            tools/ci/android_build.sh       # 同 (Android)
 overlay  own  tools/public_edition/compat_CMakeLists.txt core/compat/CMakeLists.txt   # 公開版の core/compat: FsVolume 共通 IF と自前の F2FS だけ (カーネル由来の LinuxCompat を含まない)
 exclude  dev  README.md                                  # 個人版の README (公開版は上の overlay)
 exclude  dev  .gitignore                                 # 個人用の無視パターン (パスワードのメモなど) を含む。公開版は overlay
@@ -56,8 +58,8 @@ include  own  core/tests/**                              # bench_transform.cpp �
 relicense own-gpl core/compat/public/usbmem/fs_volume.h      # 自前の共通インタフェース。SPDX の GPL 表記は個人版でカーネル FS と同居するための安全側
 relicense own-gpl core/compat/public/usbmem/vol_state.h      # 自前のビット定義 (C / C++ 共通)
 relicense own-gpl core/compat/public/usbmem/nested_mount.h   # 自前 (FsVolume の上の薄い層。カーネル FS には依存しない)
-relicense own-gpl core/compat/src/fs_volume.cpp
-relicense own-gpl core/compat/src/nested_mount.cpp
+relicense own-gpl core/compat/src/fs_volume.cpp               # 自前 (FsVolume::resolve だけ)
+relicense own-gpl core/compat/src/nested_mount.cpp           # 自前 (ネストの系譜・ボリューム単位の mutex。FS ドライバを呼ばない)
 include   own     core/compat/public/usbmem/f2fs_volume.h    # 自前: オンディスク形式から書き起こした実装。fs/f2fs のコードは写していない (docs/f2fs-port.md。カーネルのソースは構造体のレイアウトを確かめる仕様書として読んだだけ)
 include   own     core/compat/src/f2fs_volume.cpp
 include   own     core/compat/src/f2fs_write.inc
@@ -71,12 +73,12 @@ exclude   own-gpl core/compat/src/f2fs_decomp.c              # カーネルの�
 exclude   own-gpl core/compat/tests/test_f2fs_write.cpp      # 書き込みの試験 (GPL-2.0-or-later 表記)。公開版の CI は読み取りビルドのため。必要になったら relicense へ
 exclude   own     core/compat/tests/bench_write_io.cpp       # btrfs (GPL 表記) も測る個人版のベンチ
 exclude   own-gpl core/compat/src/btrfs_volume.cpp           # 自前の Btrfs リーダー / ライター。ただし SPDX は GPL-2.0-or-later、展開はカーネルの lib (btrfs_decomp.c)、形式は uapi ヘッダを参照 → 要確認 = 除外 (docs/btrfs-port.md)
-exclude   own-gpl core/compat/src/btrfs_*.inc
-exclude   own-gpl core/compat/src/btrfs_decomp.c
-exclude   own-gpl core/compat/public/usbmem/btrfs_volume.h
+exclude   own-gpl core/compat/src/btrfs_*.inc                # 上と同じ (書き込みの実装)
+exclude   own-gpl core/compat/src/btrfs_decomp.c              # カーネルの展開ライブラリ (zlib / lzo / zstd。GPL 系) を呼ぶラッパ
+exclude   own-gpl core/compat/public/usbmem/btrfs_volume.h  # 上と同じ
 exclude   own-gpl core/compat/src/xfs_volume.cpp             # 自前の XFS リーダー / ライター。ただし fs/xfs の形式定義 (xfs_format.h など GPL-2.0) を仕様として読んで書いたと明記 → 派生の疑い = 除外 (docs/xfs-port.md)
-exclude   own-gpl core/compat/src/xfs_*.inc
-exclude   own-gpl core/compat/public/usbmem/xfs_volume.h
+exclude   own-gpl core/compat/src/xfs_*.inc                  # 上と同じ (書き込みの実装)
+exclude   own-gpl core/compat/public/usbmem/xfs_volume.h    # 上と同じ
 exclude   kernel-shim core/compat/src/rt_*.c                 # LinuxCompat 実行時 (inode / dentry / ページキャッシュ / bio / buffer_head / jbd2 / VFS のマウント)。カーネルの意味論の再現 (GPL-2.0-or-later)
 exclude   kernel-shim core/compat/src/bdev_bridge.cpp        # LinuxCompat の block_device ↔ BlockDevice ブリッジ (カーネル FS ドライバ専用)
 exclude   kernel-shim core/compat/include/**                 # <linux/*.h> 互換ヘッダ (カーネルのヘッダに倣う。GPL-2.0-or-later / 一部 SPDX なし)
@@ -106,8 +108,8 @@ include   own  android/app/src/main/AndroidManifest.xml
 include   own  android/app/src/main/res/**
 include   own  android/app/src/main/java/**             # Kotlin。AndroidX / Compose (Apache-2.0) に依存する。SPDX は無いので書き出しで Apache-2.0 を付ける
 relicense own-gpl android/app/src/main/cpp/jni_ntfs.cpp   # 自前の JNI (FS の分岐は USBMEM_FS_* の条件コンパイル)。GPL 表記は個人版でカーネル FS をリンクするための安全側
-relicense own-gpl android/app/src/main/cpp/jni_vol.h
-relicense own-gpl android/app/src/main/cpp/jni_nested.cpp
+relicense own-gpl android/app/src/main/cpp/jni_vol.h      # 自前 (Vol ハンドルの定義)
+relicense own-gpl android/app/src/main/cpp/jni_nested.cpp # 自前 (ネストマウントの JNI)
 include   own  android/app/src/main/cpp/**
 include   own  android/app/src/test/**                  # JVM 単体テスト (JUnit)
 exclude   dev  android/app/src/androidTest/**           # 実機・エミュレータの計装テスト。カーネル FS のフィクスチャ・実機 (個人の USB メモリ) を前提にする。公開版の計装テストは今後 (docs/TODO.md)
@@ -128,7 +130,7 @@ include   own  tools/test_check_manifest_permissions.py
 include   own  tools/ci/retry_gradle.sh
 include   own  tools/test_retry_gradle.sh
 exclude   dev  tools/ci/**                              # gh_wait / nbdfuse / push_progress: 開発機・個人のテスト用リポジトリ向け
-exclude   own-gpl tools/fuse/**                         # usbmem_fuse.cpp (GPL-2.0-or-later 表記) と xfstests 実行
+exclude   own-gpl tools/fuse/**                         # 自前の FUSE アダプター usbmem_fuse.cpp (GPL-2.0-or-later 表記。libfuse3 とリンク) と、xfstests の実行・期待値。公開版に FUSE の入口は無い
 exclude   external-gpl tools/fuseshim/**                # ntfs-3g / wimlib の取得と試験
 exclude   external-gpl tools/exfat_fuse_shim.c
 exclude   kernel-shim tools/gen_compat_stubs.py         # LinuxCompat のスタブ生成 (GPL-2.0-or-later の出力)

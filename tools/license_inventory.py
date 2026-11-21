@@ -14,6 +14,7 @@
                                               ・relicense の対象が GPL 系の SPDX を持たない (古くなった規則)
                                               ・どの規則にも当たらない追跡ファイル (未分類 = 要確認)。公開版からは除外されるが、規則に書くことを求める
                                               ・規則が 1 つも当たらない (古くなった規則)
+  license_inventory.py --update-doc FILE    FILE の <!-- inventory:table --> ... <!-- /inventory:table --> と <!-- inventory:lists --> ... の間を、--markdown / --lists の出力で置き換える (docs/editions.md)
   license_inventory.py --plan               公開版の書き出し計画 (export_public.sh が読む。1 行 1 ファイル: <動作>\\t<パス>[\\t<元ファイル>])
 
 SPDX の種別: permissive (Apache-2.0 / MIT / BSD / 0BSD / Zlib ...) / dual (A OR B のどちらかが permissive: 公開版では permissive の側を選ぶ) /
@@ -453,6 +454,7 @@ def main():
     g.add_argument("--json", action="store_true")
     g.add_argument("--check", action="store_true")
     g.add_argument("--plan", action="store_true")
+    g.add_argument("--update-doc", metavar="FILE")
     a = ap.parse_args()
     rules, scrubs, rows = build(a.manifest)
     if a.tsv:
@@ -465,6 +467,17 @@ def main():
         print(report_markdown(rows))
     elif a.lists:
         print(report_lists(rows))
+    elif a.update_doc:
+        with open(a.update_doc, encoding="utf-8") as f:
+            doc = f.read()
+        for name, body in (("table", report_markdown(rows)), ("lists", report_lists(rows))):
+            rx = re.compile(r"(<!-- inventory:%s -->\n).*?(<!-- /inventory:%s -->)" % (name, name), re.S)
+            if not rx.search(doc):
+                raise SystemExit("%s に <!-- inventory:%s --> の組が無い" % (a.update_doc, name))
+            doc = rx.sub(lambda m: m.group(1) + body.rstrip("\n") + "\n" + m.group(2), doc)
+        with open(a.update_doc, "w", encoding="utf-8") as f:
+            f.write(doc)
+        print("更新: " + a.update_doc)
     elif a.plan:
         for r in rows:
             if r["action"] == "overlay":

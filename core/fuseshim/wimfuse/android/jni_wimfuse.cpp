@@ -13,10 +13,14 @@
 
 #include "jni_vol.h"
 #include "usbmem/c_api_internal.h"
+#include "wimfuse/wim_volume.h"
 #include "wimfuse/wimfuse_client.h"
 
 namespace {
 thread_local std::string t_msg;
+JavaVM* g_vm = nullptr;
+jclass g_cls = nullptr;       // org.usbmem.app.wimfuse.WimFuseNative (グローバル参照)
+jmethodID g_spawn_mid = nullptr;  // static int spawnChildFd(long token)
 }
 
 extern "C" {
@@ -53,6 +57,48 @@ JNIEXPORT jlong JNICALL Java_org_usbmem_app_wimfuse_WimFuseNative_nativeMount(JN
     return 0;
   }
   // 子に WIM を読ませるので、デバイスは Vol より長く生きる必要がある (RpcVolume のコールバックが shared_ptr で持つ)
+  return reinterpret_cast<jlong>(new Vol(std::move(v)));
+}
+
+// WIM ファイル全体を、イメージごとのフォルダを並べた 1 つのボリュームとして開く (WimVolume)。子プロセスは、フォルダを最初に開いたときに Kotlin の
+// WimFuseNative.spawnChildFd(token) を呼んで起こす (token は呼び出し側が登録した起こし方)。infoOut[0] にヘッダ・イメージ一覧の JSON を入れる。
+// 戻り値: Vol ハンドル (nativeNtfsUnmount で閉じる)。失敗は 0 と err[0] = errno。dev は返したボリュームを閉じるまで開いておくこと。
+JNIEXPORT jlong JNICALL Java_org_usbmem_app_wimfuse_WimFuseNative_nativeOpenArchive(JNIEnv* env, jclass cls, jlong dev, jlong token, jobjectArray infoOut, jintArray errOut) {
+  auto* d = reinterpret_cast<usbmem_device*>(dev);
+  if (!d || !d->dev) return 0;
+  if (!g_vm) env->GetJavaVM(&g_vm);
+  if (!g_cls) {
+    g_cls = static_cast<jclass>(env->NewGlobalRef(cls));
+    g_spawn_mid = env->GetStaticMethodID(cls, "spawnChildFd", "(J)I");
+  }
+  if (!g_spawn_mid) return 0;
+  auto spawn = [token]() -> int {
+    JNIEnv* e = nullptr;
+    bool attached = false;
+    if (g_vm->GetEnv(reinterpret_cast<void**>(&e), JNI_VERSION_1_6) != JNI_OK) {
+      if (g_vm->AttachCurrentThread(&e, nullptr) != JNI_OK) return -EIO;
+      attached = true;
+    }
+    jint fd = e->CallStaticIntMethod(g_cls, g_spawn_mid, token);
+    if (e->ExceptionCheck()) { e->ExceptionClear(); fd = -EIO; }
+    if (attached) g_vm->DetachCurrentThread();
+    return fd;
+  };
+  int err = 0;
+  std::string msg;
+  auto v = usbmem::wimfuse::WimVolume::open(d->dev, spawn, &err, &msg);
+  if (!v) {
+    t_msg = msg;
+    __android_log_print(ANDROID_LOG_INFO, "usbmem", "wimfuse archive open refused: errno %d (%s)", err, msg.c_str());
+    jint e = err;
+    if (errOut) env->SetIntArrayRegion(errOut, 0, 1, &e);
+    return 0;
+  }
+  if (infoOut) {
+    std::string j = v->info_json();
+    jbyteArray a = env->NewByteArray(static_cast<jsize>(j.size()));
+    if (a) { env->SetByteArrayRegion(a, 0, static_cast<jsize>(j.size()), reinterpret_cast<const jbyte*>(j.data())); env->SetObjectArrayElement(infoOut, 0, a); }
+  }
   return reinterpret_cast<jlong>(new Vol(std::move(v)));
 }
 

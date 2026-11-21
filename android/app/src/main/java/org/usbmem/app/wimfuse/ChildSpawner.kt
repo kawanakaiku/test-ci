@@ -26,11 +26,12 @@ class ChildSpawner(private val exe: File) {
     private val handler = Handler(thread.looper)
 
     /** 子を起こして pid を返す。socketName = 本体が待ち受けている抽象名前空間の UNIX ソケットの名前 (子が connect する)。失敗は IOException (exec できない = EACCES など)。 */
-    fun spawn(socketName: String, pdeathsig: Boolean): Int {
+    fun spawn(socketName: String, pdeathsig: Boolean, cacheMb: Int = 0): Int {
         val task = FutureTask {
             val cmd = ArrayList<String>()
             cmd += exe.path; cmd += "--connect"; cmd += socketName
             if (pdeathsig) cmd += "--pdeathsig"
+            if (cacheMb > 0) { cmd += "--cache-mb"; cmd += cacheMb.toString() }
             val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
             val pid = pidOf(p)
             val c = Child(p, pid)
@@ -76,6 +77,6 @@ class ChildSpawner(private val exe: File) {
     }
 
     private fun pidOf(p: Process): Int =
-        if (Build.VERSION.SDK_INT >= 33) p.pid().toInt()
-        else Regex("pid=(\\d+)").find(p.toString())?.groupValues?.get(1)?.toInt() ?: -1
+        Regex("pid=(\\d+)").find(p.toString())?.groupValues?.get(1)?.toInt()   // Android の Process.toString は "Process[pid=123, hasExited=false]"
+            ?: try { (p.javaClass.getMethod("pid").invoke(p) as Number).toInt() } catch (e: Exception) { -1 }
 }

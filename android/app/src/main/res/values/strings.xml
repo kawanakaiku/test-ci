@@ -94,6 +94,11 @@
     <string name="notice_nested_open_failed">イメージを開けません</string>
     <string name="notice_nested_too_deep">イメージの中のイメージが深すぎます</string>
     <string name="notice_nested_too_deep_detail">イメージの中のイメージは %1$d 段までです。</string>
+    <string name="nested_wim_summary">WIM (Windows イメージ): %1$d 個のイメージ・圧縮 %2$s・%3$s。別プロセスで読み、一時コピーは作りません</string>
+    <string name="nested_wim_mount_all">すべてのイメージをフォルダに分けて公開 (読み取り専用)</string>
+    <string name="nested_wim_image_detail">ファイル %1$d・フォルダ %2$d・%3$s</string>
+    <string name="notice_wim_open_failed">WIM を開けません</string>
+    <string name="notice_wim_mounted_detail">WIM の中身は別プロセスの wimlib が読んでいます。読み取り専用です (書き込みはできません)。閉じるとそのプロセスも終わります</string>
     <string name="notice_nested_not_image">ディスクイメージとして開けません</string>
     <string name="notice_nested_not_image_detail">フォルダやリンク、または小さすぎるファイルです。</string>
     <string name="notice_nested_mounted_detail">読み取り専用。ファイルアプリの一覧に表示されます。元のイメージのファイルは、マウント中は書き換えや削除ができません。先にこのマウントを閉じてください。</string>

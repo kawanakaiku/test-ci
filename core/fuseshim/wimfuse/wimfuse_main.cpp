@@ -15,6 +15,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <list>
+#include <unordered_map>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -39,6 +41,18 @@ constexpr size_t kMaxCb = 4u << 20;  // 1 回のコールバックで受ける�
 
 std::mutex g_size_mu;
 int64_t g_size = -1;
+
+// ---- WIM ファイルの読み取りキャッシュ (子プロセス内の LRU。docs/fuse-layer.md 10 章 段階 C) ----
+// wimlib は圧縮チャンク (LZX は 32 KiB 前後、LZMS の solid は数 MiB) ごとに pread するので、そのつど本体へ往復し、本体は USB の BlockDevice を読む。
+// 1 MiB 単位のブロックで先読みして LRU に置く (上限は --cache-mb。0 = 無効)。ブロックを 1 回の往復で読むので、USB への小さな読みが 1 MiB のまとめ読みになる。
+// 大きな読み (ブロックの 2 倍以上) はキャッシュを通さず直接読む (連続読みで LRU を汚さない)。
+constexpr size_t kBlk = 1u << 20;
+struct Stats { uint64_t cb_calls = 0, cb_bytes = 0, hit = 0, miss = 0, reads = 0, read_bytes = 0; };
+Stats g_st;
+size_t g_cache_blocks = 0;
+std::mutex g_cache_mu;
+std::list<std::pair<uint64_t, std::vector<uint8_t>>> g_lru;  // 先頭 = 最近使った
+std::unordered_map<uint64_t, std::list<std::pair<uint64_t, std::vector<uint8_t>>>::iterator> g_map;
 }  // namespace
 
 extern "C" int64_t wimfuse_src_size(void) {
@@ -47,12 +61,58 @@ extern "C" int64_t wimfuse_src_size(void) {
   return g_size;
 }
 
+static int64_t src_read_raw(void* buf, size_t len, uint64_t off);
+
 extern "C" int64_t wimfuse_src_read(void* buf, size_t len, uint64_t off) {
+  std::lock_guard<std::mutex> l(g_cache_mu);
+  g_st.reads++;
+  if (g_cache_blocks == 0 || len >= 2 * kBlk) {
+    int64_t r = src_read_raw(buf, len, off);
+    if (r > 0) g_st.read_bytes += static_cast<uint64_t>(r);
+    return r;
+  }
+  int64_t total_size = wimfuse_src_size();
+  if (total_size < 0) return total_size;
+  size_t done = 0;
+  while (done < len) {
+    uint64_t pos = off + done;
+    if (pos >= static_cast<uint64_t>(total_size)) break;
+    uint64_t bi = pos / kBlk;
+    auto it = g_map.find(bi);
+    if (it == g_map.end()) {
+      g_st.miss++;
+      std::vector<uint8_t> blk(kBlk);
+      int64_t r = src_read_raw(blk.data(), kBlk, bi * kBlk);
+      if (r < 0) return done ? static_cast<int64_t>(done) : r;
+      blk.resize(static_cast<size_t>(r));
+      g_lru.emplace_front(bi, std::move(blk));
+      g_map[bi] = g_lru.begin();
+      while (g_map.size() > g_cache_blocks) { g_map.erase(g_lru.back().first); g_lru.pop_back(); }
+      it = g_map.find(bi);
+    } else {
+      g_st.hit++;
+      g_lru.splice(g_lru.begin(), g_lru, it->second);
+    }
+    const std::vector<uint8_t>& b = it->second->second;
+    size_t in = static_cast<size_t>(pos - bi * kBlk);
+    if (in >= b.size()) break;  // EOF
+    size_t n = std::min(len - done, b.size() - in);
+    std::memcpy(static_cast<char*>(buf) + done, b.data() + in, n);
+    done += n;
+    if (b.size() < kBlk && in + n >= b.size()) break;
+  }
+  g_st.read_bytes += done;
+  return static_cast<int64_t>(done);
+}
+
+static int64_t src_read_raw(void* buf, size_t len, uint64_t off) {
   size_t done = 0;
   while (done < len) {
     size_t n = std::min(len - done, kMaxCb);
     int64_t r = rpc_callback(g_fd, wimfuse::kCbSrcRead, 0, off + done, n, static_cast<char*>(buf) + done, n);
+    g_st.cb_calls++;
     if (r < 0) return done ? static_cast<int64_t>(done) : r;
+    if (r > 0) g_st.cb_bytes += static_cast<uint64_t>(r);
     if (r == 0) break;
     done += static_cast<size_t>(r);
     if (static_cast<size_t>(r) < n) break;  // EOF
@@ -156,8 +216,10 @@ int main(int argc, char** argv) {
       connect_name = argv[++i];
     } else if (!std::strcmp(argv[i], "--pdeathsig")) {
       pdeathsig = true;
+    } else if (!std::strcmp(argv[i], "--cache-mb") && i + 1 < argc) {
+      g_cache_blocks = static_cast<size_t>(std::max(0, std::atoi(argv[++i])));  // 1 ブロック = 1 MiB
     } else {
-      std::fprintf(stderr, "usage: libwimfuse.so [--version] --connect <abstract-socket-name> [--pdeathsig]\n");
+      std::fprintf(stderr, "usage: libwimfuse.so [--version] --connect <abstract-socket-name> [--pdeathsig] [--cache-mb N]\n");
       return 2;
     }
   }
@@ -209,6 +271,13 @@ int main(int argc, char** argv) {
 
   // 本体が閉じた (EOF) か QUIT: 後始末して終わる。万一アンマウントが詰まっても残らないよう、時限でシグナル終了させる
   alarm(10);
+  {
+    std::lock_guard<std::mutex> l(g_cache_mu);
+    // 終了時の統計 (サービスが子の出力を logcat へ流す。試験は ChildSpawner.tail で読む)
+    std::fprintf(stderr, "wimfuse stats: reads=%llu read_bytes=%llu cb_calls=%llu cb_bytes=%llu cache_hit=%llu cache_miss=%llu cache_blocks=%zu\n",
+                 (unsigned long long)g_st.reads, (unsigned long long)g_st.read_bytes, (unsigned long long)g_st.cb_calls, (unsigned long long)g_st.cb_bytes,
+                 (unsigned long long)g_st.hit, (unsigned long long)g_st.miss, g_cache_blocks);
+  }
   late.t = nullptr;
   session.reset();
   ::close(g_fd);

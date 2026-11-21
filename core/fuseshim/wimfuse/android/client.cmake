@@ -5,6 +5,7 @@ get_filename_component(WIMFUSE_FS_DIR "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE
 target_sources(usbmem_jni PRIVATE
   ${WIMFUSE_FS_DIR}/wimfuse/android/jni_wimfuse.cpp
   ${WIMFUSE_FS_DIR}/wimfuse/wimfuse_client.cpp
+  ${WIMFUSE_FS_DIR}/wimfuse/wim_volume.cpp
   ${WIMFUSE_FS_DIR}/rpc_volume.cpp)
 # jni_vol.h (android/app/src/main/cpp) を jni_wimfuse.cpp から使う: include した側の CMakeLists のディレクトリ
 target_include_directories(usbmem_jni PRIVATE ${WIMFUSE_FS_DIR} ${CMAKE_CURRENT_SOURCE_DIR})

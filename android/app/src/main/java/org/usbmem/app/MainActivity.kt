@@ -1051,7 +1051,12 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     } catch (_: Exception) { emptyList() }
 
     override fun nestedInspect(volumeId: String, path: String): NestedInspectResult = try {
-        NestedInspectResult(table = VolumeRegistry.inspectNested(this, volumeId, path))
+        // WIM (個人版の FUSE 層。入っていないビルド・WIM でないファイルは null) ならイメージの選択へ。それ以外はパーティション表
+        val wim = try { VolumeRegistry.inspectWim(this, volumeId, path) } catch (e: Exception) {
+            android.util.Log.w("usbmem", "wim inspect failed: ${e.javaClass.simpleName}: ${e.message}")
+            return NestedInspectResult(notice = Notice(Severity.Error, getString(R.string.notice_wim_open_failed), (e as? org.usbmem.app.wimfuse.WimFuseException)?.childMessage?.ifEmpty { null } ?: e.message))
+        }
+        if (wim != null) NestedInspectResult(wim = wim) else NestedInspectResult(table = VolumeRegistry.inspectNested(this, volumeId, path))
     } catch (e: NativeException) {
         NestedInspectResult(notice = nestedNotice(e))
     } catch (e: Exception) {
@@ -1068,6 +1073,18 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         NestedMountResult(nestedNotice(e), noload = e.code == 117 && !allowNoload)
     } catch (e: Exception) {
         NestedMountResult(Notice(Severity.Error, getString(R.string.notice_nested_open_failed), e.javaClass.simpleName))
+    }
+
+    /** WIM (個人版) を読み取り専用で公開する。image = イメージ番号 (null = イメージごとのフォルダを並べたボリューム)。一時コピーは作らない。 */
+    override fun nestedMountWim(volumeId: String, path: String, image: Int?, label: String): NestedMountResult = try {
+        val e = VolumeRegistry.mountWim(this, volumeId, path, image, label)
+        notifyRoots()
+        NestedMountResult(Notice(Severity.Success, getString(R.string.notice_image_shared_read_only, e.label), getString(R.string.notice_wim_mounted_detail)))
+    } catch (e: NativeException) {
+        NestedMountResult(nestedNotice(e))
+    } catch (e: Exception) {
+        android.util.Log.w("usbmem", "wim mount failed: ${e.javaClass.simpleName}: ${e.message}")
+        NestedMountResult(Notice(Severity.Error, getString(R.string.notice_wim_open_failed), (e as? org.usbmem.app.wimfuse.WimFuseException)?.childMessage?.ifEmpty { null } ?: e.message))
     }
 
     private fun nestedNotice(e: NativeException): Notice = fsRefusalNotice(e) ?: when (e.code) {

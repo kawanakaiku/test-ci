@@ -227,6 +227,98 @@ class WimFuseTest {
         img.close()
     }
 
+    // ---- 段階 B: イメージごとのフォルダ (WimVolume)・遅延起動 ----
+
+    /** 起動済みの libwimfuse の子プロセスの数 (ps が使えなければ -1)。 */
+    private fun childCount(): Int = try {
+        val p = ProcessBuilder("ps", "-A").redirectErrorStream(true).start()
+        val n = p.inputStream.bufferedReader().readLines().count { it.contains("libwimfuse") }
+        p.waitFor(); n
+    } catch (e: Exception) { -1 }
+
+    private fun waitChildCount(n: Int, ms: Long = 8000): Int {
+        val end = SystemClock.elapsedRealtime() + ms
+        var c = childCount()
+        while (c != n && c >= 0 && SystemClock.elapsedRealtime() < end) { Thread.sleep(100); c = childCount() }
+        return c
+    }
+
+    @Test fun archive_multiImage_foldersMatch_andChildrenStartLazily() {
+        assumeTrue("フィクスチャ無し: multi", File("$tmp/wimfuse_multi.wim").isFile && File("$tmp/wimfuse_expected_multi.txt").isFile)
+        val dev = openDevice("wimfuse_multi.wim")
+        WimFuse.openArchive(ctx, dev).use { arch ->
+            assertEquals(2, arch.info.imageCount)
+            assertEquals(listOf("first", "second image"), arch.info.images.map { it.name })
+            // 開いただけ・ルートの一覧だけでは、イメージの子プロセスは起きない (一覧用の子は終わっている)
+            assertEquals(setOf("1 - first", "2 - second image"), arch.volume.list("/").map { it.name }.toSet())
+            arch.volume.stat("/1 - first")
+            assertEquals("ルートの一覧だけでは子を起こさない", 0, waitChildCount(0))
+            // 1 つめのフォルダを開くと、そのイメージの子が 1 つ起きる
+            assertTrue(arch.volume.list("/1 - first").isNotEmpty())
+            assertEquals(1, waitChildCount(1))
+            val (got, bytes) = dump(arch.volume)
+            val exp = File("$tmp/wimfuse_expected_multi.txt").readLines().filter { it.isNotBlank() }.toSet()
+            assertTrue("missing=${(exp - got).take(5)} extra=${(got - exp).take(5)}", exp == got)
+            metric("archive_multi", "${got.size} entries, $bytes bytes")
+            assertEquals(2, waitChildCount(2))
+            // 同じ名前のファイルがイメージごとに別の中身 (ino の取り違えが無い)
+            val b = ByteArray(64)
+            val n1 = arch.volume.read("/1 - first/same.txt", 0, b); assertTrue(String(b, 0, n1).contains("image 1"))
+            val n2 = arch.volume.read("/2 - second image/same.txt", 0, b); assertTrue(String(b, 0, n2).contains("image 2"))
+        }
+        assertEquals("閉じたら子が全部終わる", 0, waitChildCount(0))
+    }
+
+    @Test fun readCache_reducesCallbacksToTheHost() {
+        WimFuse.hold(ctx).let { hold ->
+            try {
+                fun run(cacheMb: Int): Pair<String, Long> {
+                    val dev = openDevice("wimfuse_lzx.wim")
+                    val t0 = SystemClock.elapsedRealtime()
+                    val img = WimFuse.open(ctx, dev, 1, WimFuse.Mode.SERVICE, cacheMb = cacheMb)
+                    val pid = img.childPid
+                    val buf = ByteArray(64 * 1024)
+                    var off = 0L
+                    while (true) { val n = img.volume.read("/text.bin", off, buf); if (n <= 0) break; off += n }   // 64 KiB ずつ (wimlib の 32 KiB チャンクをまたぐ)
+                    assertEquals(3L * 1024 * 1024 + 777, off)
+                    for (i in 0 until 200) img.volume.read("/many/file_$i.txt", 0, buf)
+                    val ms = SystemClock.elapsedRealtime() - t0
+                    img.close()
+                    assertTrue(waitGone(pid))
+                    Thread.sleep(300)
+                    val line = hold.tail(pid).lines().lastOrNull { it.startsWith("wimfuse stats:") } ?: ""
+                    return line to ms
+                }
+                val (l0, ms0) = run(0)
+                val (l1, ms1) = run(32)
+                metric("cache_off", "$l0 ${ms0}ms")
+                metric("cache_on", "$l1 ${ms1}ms")
+                fun cb(l: String) = Regex("cb_calls=(\\d+)").find(l)?.groupValues?.get(1)?.toLong() ?: -1
+                assertTrue("統計が読めない: [$l0] [$l1]", cb(l0) > 0 && cb(l1) > 0)
+                assertTrue("キャッシュで本体への読みの往復が減らない: ${cb(l0)} -> ${cb(l1)}", cb(l1) < cb(l0))
+            } finally { (hold as AutoCloseable).close() }
+        }
+    }
+
+    @Test fun lzms_solid_partialRead_isCorrect_andTimed() {
+        assumeTrue("フィクスチャ無し: lzms", File("$tmp/wimfuse_lzms.wim").isFile)
+        val exp = expected().filter { it.startsWith("f ") }.associate { l -> val p = l.split(" ", limit = 5); p[4] to (p[3]) }
+        for (cache in listOf(0, 32)) {
+            val dev = openDevice("wimfuse_lzms.wim")
+            WimFuse.open(ctx, dev, 1, WimFuse.Mode.SERVICE, cacheMb = cache).use { img ->
+                val t0 = SystemClock.elapsedRealtime()
+                val buf = ByteArray(1 shl 20)
+                for (path in listOf("/a.txt", "/dir1/sub/c.txt", "/text.bin", "/random.bin") + (0 until 40).map { "/many/file_$it.txt" }) {
+                    val md = MessageDigest.getInstance("SHA-256")
+                    var off = 0L
+                    while (true) { val n = img.volume.read(path, off, buf); if (n <= 0) break; md.update(buf, 0, n); off += n }
+                    assertEquals(path, exp[path], md.digest().joinToString("") { "%02x".format(it) })
+                }
+                metric("lzms_partial_cache${cache}_ms", (SystemClock.elapsedRealtime() - t0).toString())
+            }
+        }
+    }
+
     @Test fun missingFile_returnsEnoent() {
         val dev = openDevice("wimfuse_none.wim")
         WimFuse.open(ctx, dev, 1).use { img ->

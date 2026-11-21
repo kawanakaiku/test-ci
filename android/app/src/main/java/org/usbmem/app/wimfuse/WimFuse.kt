@@ -42,6 +42,21 @@ data class WimInfo(val imageCount: Int, val bootIndex: Int, val compression: Str
     }
 }
 
+/**
+ * WIM ファイル全体を開いたもの。[volume] のルート直下に、イメージごとのフォルダ ("1 - 名前" ...) が並び、各フォルダの中身がそのイメージ ([NtfsVolume] と同じ API。読み取り専用)。
+ * 子プロセスはフォルダを最初に開いたときに起こす (一覧の表示だけでは起こさない)。閉じると、起こした子もすべて終わる。
+ */
+class WimArchive internal constructor(val volume: NtfsVolume, val info: WimInfo, val control: WimFuse.Control, private val finish: () -> Unit) : AutoCloseable {
+    private var closed = false
+
+    @Synchronized
+    override fun close() {
+        if (closed) return
+        closed = true
+        try { volume.close() } finally { finish() }
+    }
+}
+
 /** マウントした WIM のイメージ。[volume] は [NtfsVolume] と同じ API (list / stat / read。読み取り専用)。閉じると子プロセスも終わる。 */
 class WimImage internal constructor(val volume: NtfsVolume, val childPid: Int, val timings: Map<String, Long>, val control: WimFuse.Control, private val release: () -> Unit) : AutoCloseable {
     private var closed = false
@@ -73,7 +88,7 @@ object WimFuse {
 
     /** 子の起動・監督の呼び出し (サービス越し、または同じプロセス)。 */
     interface Control {
-        fun spawn(socketName: String, pdeathsig: Boolean): Int
+        fun spawn(socketName: String, pdeathsig: Boolean, cacheMb: Int): Int
         fun alive(pid: Int): Boolean
         fun exitValue(pid: Int): Int?
         fun kill(pid: Int)
@@ -91,7 +106,7 @@ object WimFuse {
     // ---- Control の実装 ----
     private class LocalControl(ctx: Context) : Control {
         val sp = ChildSpawner(exeFile(ctx))
-        override fun spawn(socketName: String, pdeathsig: Boolean) = sp.spawn(socketName, pdeathsig)
+        override fun spawn(socketName: String, pdeathsig: Boolean, cacheMb: Int) = sp.spawn(socketName, pdeathsig, cacheMb)
         override fun alive(pid: Int) = sp.alive(pid)
         override fun exitValue(pid: Int) = sp.exitValue(pid)
         override fun kill(pid: Int) = sp.kill(pid)
@@ -110,7 +125,7 @@ object WimFuse {
                 return r(p)
             } finally { d.recycle(); p.recycle() }
         }
-        override fun spawn(socketName: String, pdeathsig: Boolean) = tx(WimFuseService.Code.SPAWN, { it.writeString(socketName); it.writeInt(if (pdeathsig) 1 else 0) }, { it.readInt() })
+        override fun spawn(socketName: String, pdeathsig: Boolean, cacheMb: Int) = tx(WimFuseService.Code.SPAWN, { it.writeString(socketName); it.writeInt(if (pdeathsig) 1 else 0); it.writeInt(cacheMb) }, { it.readInt() })
         override fun alive(pid: Int) = tx(WimFuseService.Code.ALIVE, { it.writeInt(pid) }, { it.readInt() != 0 })
         override fun exitValue(pid: Int) = tx(WimFuseService.Code.EXIT, { it.writeInt(pid) }, { val v = it.readInt(); if (v == Int.MIN_VALUE) null else v })
         override fun kill(pid: Int) = tx(WimFuseService.Code.KILL, { it.writeInt(pid) }, { })
@@ -160,6 +175,12 @@ object WimFuse {
         }
     }
 
+    /** 試験・診断用: サービスへの接続を保持する (子が終わったあとにサービス側の子の出力を読めるように、サービスの破棄を止める)。閉じると解放。 */
+    fun hold(ctx: Context, mode: Mode = Mode.SERVICE): Control {
+        val c = acquire(ctx, mode)
+        return object : Control by c, AutoCloseable { override fun close() { release(ctx, mode) } }
+    }
+
     /** exec が成立するか (`libwimfuse.so --version` の出力。例: `wimfuse wimlib 1.14.4 pid 1234 (exit 0)`)。失敗は例外。 */
     fun version(ctx: Context, mode: Mode = Mode.SERVICE): String {
         val c = acquire(ctx, mode)
@@ -167,7 +188,7 @@ object WimFuse {
     }
 
     /** 子を起こして、本体側の接続済みソケットの fd (detach 済み) と子の pid を返す。 */
-    private fun connect(ctx: Context, control: Control, pdeathsig: Boolean, timings: MutableMap<String, Long>): Pair<Int, Int> {
+    private fun connect(ctx: Context, control: Control, pdeathsig: Boolean, cacheMb: Int, timings: MutableMap<String, Long>): Pair<Int, Int> {
         val t0 = SystemClock.elapsedRealtime()
         val name = "usbmem-wimfuse-" + ByteArray(12).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
         val server = LocalServerSocket(name)
@@ -175,7 +196,7 @@ object WimFuse {
         try {
             val accepted = CompletableFuture<LocalSocket>()
             Thread({ try { accepted.complete(server.accept()) } catch (e: Exception) { accepted.completeExceptionally(e) } }, "wimfuse-accept").apply { isDaemon = true; start() }
-            pid = try { control.spawn(name, pdeathsig) } catch (e: java.io.IOException) { throw WimFuseException(13, "libwimfuse.so を exec できない: ${e.message}") }
+            pid = try { control.spawn(name, pdeathsig, cacheMb) } catch (e: java.io.IOException) { throw WimFuseException(13, "libwimfuse.so を exec できない: ${e.message}") }
             timings["spawn_ms"] = SystemClock.elapsedRealtime() - t0
             val sock = try { accepted.get(20, TimeUnit.SECONDS) } catch (e: Exception) {
                 val tail = try { control.tail(pid) } catch (_: Exception) { "" }
@@ -191,6 +212,40 @@ object WimFuse {
         } finally { try { server.close() } catch (_: Exception) {} }
     }
 
+    // ネイティブの WimVolume が、フォルダを最初に開いたときに呼ぶ起こし方 (token で引く)
+    private val spawners = java.util.concurrent.ConcurrentHashMap<Long, () -> Int>()
+    private val nextToken = java.util.concurrent.atomic.AtomicLong(1)
+    internal fun spawnFor(token: Long): Int = spawners[token]?.invoke() ?: -9
+
+    /**
+     * WIM 全体 (dev = WIM を読む device ハンドル) を開く。ルート直下がイメージごとのフォルダのボリューム ([WimArchive.volume])。
+     * 開くときに子を 1 つ起こしてイメージ一覧を読み (すぐ終わらせる)、各イメージの子はフォルダを最初に開いたときに起こす。
+     * [cacheMb] = 子の中の WIM の読み取りキャッシュ (MiB。0 = なし)。dev は [WimArchive] を閉じるまで開いておくこと。
+     */
+    fun openArchive(ctx: Context, dev: Long, mode: Mode = Mode.SERVICE, cacheMb: Int = DEFAULT_CACHE_MB): WimArchive {
+        val control = acquire(ctx, mode)
+        val token = nextToken.getAndIncrement()
+        var ok = false
+        try {
+            spawners[token] = {
+                try { connect(ctx, control, true, cacheMb, HashMap()).first }
+                catch (e: WimFuseException) { -e.errno }
+                catch (e: Exception) { -5 }
+            }
+            val info = arrayOfNulls<ByteArray>(1)
+            val err = IntArray(1)
+            val h = WimFuseNative.nativeOpenArchive(dev, token, info, err)
+            if (h == 0L) fail("wim open", if (err[0] != 0) err[0] else 5)
+            val v = NtfsVolume.adoptHandle(h)
+            val parsed = try { WimInfo.parse(String(info[0]!!, Charsets.UTF_8)) } catch (e: Exception) { v.close(); throw WimFuseException(5, "イメージ一覧を読めない: $e") }
+            ok = true
+            return WimArchive(v, parsed, control) { spawners.remove(token); release(ctx, mode) }
+        } finally { if (!ok) { spawners.remove(token); release(ctx, mode) } }
+    }
+
+    /** 子の WIM 読み取りキャッシュの既定 (MiB)。 */
+    const val DEFAULT_CACHE_MB = 32
+
     private fun fail(op: String, errno: Int): Nothing {
         val msg = String(WimFuseNative.nativeLastMessage(), Charsets.UTF_8)
         throw WimFuseException(errno, "$op failed: errno $errno ${if (msg.isNotEmpty()) "($msg)" else ""}", msg)
@@ -201,7 +256,7 @@ object WimFuse {
         val control = acquire(ctx, mode)
         try {
             val timings = HashMap<String, Long>()
-            val (fd, pid) = connect(ctx, control, true, timings)
+            val (fd, pid) = connect(ctx, control, true, 0, timings)
             val err = IntArray(1)
             val b = WimFuseNative.nativeInfo(fd, dev, err) ?: fail("wim info", err[0])
             return WimInfo.parse(String(b, Charsets.UTF_8))
@@ -209,12 +264,12 @@ object WimFuse {
     }
 
     /** image (1 始まり) を読み取り専用でマウントする。閉じる ([WimImage.close]) と子も終わる。dev は [WimImage] を閉じるまで開いておくこと。 */
-    fun open(ctx: Context, dev: Long, image: Int, mode: Mode = Mode.SERVICE, pdeathsig: Boolean = true): WimImage {
+    fun open(ctx: Context, dev: Long, image: Int, mode: Mode = Mode.SERVICE, pdeathsig: Boolean = true, cacheMb: Int = DEFAULT_CACHE_MB): WimImage {
         val control = acquire(ctx, mode)
         var ok = false
         try {
             val timings = LinkedHashMap<String, Long>()
-            val (fd, pid) = connect(ctx, control, pdeathsig, timings)
+            val (fd, pid) = connect(ctx, control, pdeathsig, cacheMb, timings)
             val t1 = SystemClock.elapsedRealtime()
             val err = IntArray(1)
             val h = WimFuseNative.nativeMount(fd, dev, image, err)

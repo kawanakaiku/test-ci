@@ -119,8 +119,9 @@ APP=org.usbmem.app
 # 個人版の FUSE 層 (wimfuse): .wim と期待のツリーを送って WimFuseTest を実行する。終わったあと、子プロセス (libwimfuse.so) が残っていないことも確かめる
 run_wim_fuse() {
   local d=$FIX/wim v
-  for v in lzx none lzms; do adbs push "$d/$v.wim" "/data/local/tmp/wimfuse_$v.wim" >/dev/null || return 1; done
+  for v in lzx none lzms multi; do adbs push "$d/$v.wim" "/data/local/tmp/wimfuse_$v.wim" >/dev/null || return 1; done
   adbs push "$d/expected.txt" /data/local/tmp/wimfuse_expected.txt >/dev/null || return 1
+  adbs push "$d/expected_multi.txt" /data/local/tmp/wimfuse_expected_multi.txt >/dev/null || return 1
   adbs logcat -c
   instr_classes $APP.wimfuse.WimFuseTest; local r=$?
   echo "--- 測定値 (WIMFUSE_METRIC)"; adbs logcat -d -s WIMFUSE_METRIC:I | sed 's/^.*WIMFUSE_METRIC *: *//' | head -80

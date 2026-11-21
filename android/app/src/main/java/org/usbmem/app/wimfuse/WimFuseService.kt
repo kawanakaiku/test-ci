@@ -14,7 +14,7 @@ import android.os.Process
  */
 class WimFuseService : Service() {
     object Code {
-        const val SPAWN = 1      // in: String socketName, Int pdeathsig → out: Int pid
+        const val SPAWN = 1      // in: String socketName, Int pdeathsig, Int cacheMb → out: Int pid
         const val ALIVE = 2      // in: Int pid → out: Int (1 / 0)
         const val EXIT = 3       // in: Int pid → out: Int (終了コード。生きていれば Int.MIN_VALUE)
         const val KILL = 4       // in: Int pid
@@ -42,7 +42,7 @@ class WimFuseService : Service() {
             val sp = spawner ?: return false
             try {
                 when (code) {
-                    Code.SPAWN -> { val name = data.readString() ?: ""; val pd = data.readInt() != 0; val pid = sp.spawn(name, pd); reply?.writeInt(0); reply?.writeInt(pid) }
+                    Code.SPAWN -> { val name = data.readString() ?: ""; val pd = data.readInt() != 0; val cm = data.readInt(); val pid = sp.spawn(name, pd, cm); reply?.writeInt(0); reply?.writeInt(pid) }
                     Code.ALIVE -> { reply?.writeInt(0); reply?.writeInt(if (sp.alive(data.readInt())) 1 else 0) }
                     Code.EXIT -> { reply?.writeInt(0); reply?.writeInt(sp.exitValue(data.readInt()) ?: Int.MIN_VALUE) }
                     Code.KILL -> { sp.kill(data.readInt()); reply?.writeInt(0) }

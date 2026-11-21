@@ -20,6 +20,9 @@ JOBS=${WIMFUSE_JOBS:-2}
 [ -f "$FUSE3_INC/fuse.h" ] || { echo "libfuse3 のヘッダが無い: $FUSE3_INC/fuse.h (apt install libfuse3-dev)" >&2; exit 1; }
 TC=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin
 [ -x "$TC/clang" ] || { echo "NDK の clang が無い: $TC" >&2; exit 1; }
+SYSROOT=$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include
+have() { [ -f "$SYSROOT/$1" ] && echo あり || echo なし; }
+echo "NDK sysroot: mqueue.h=$(have mqueue.h) (なしなら代用ヘッダ)、glob.h=$(have glob.h) (API 28 以降の宣言だけ。minSdk $API では代用ヘッダ)"
 . "$ROOT/tools/fuseshim/wimlib_pin.sh"
 W=$OUT/work; mkdir -p "$W"
 

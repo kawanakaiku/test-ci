@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: Apache-2.0 (本ファイル)
+# kfsd (docs/kfsd.md): カーネル由来 (GPL) の FS ドライバを別プロセスの実行ファイルに分け、本体 (Apache-2.0) とはソケット越しの RPC だけで通信する。
+#   usbmem_kfsd          プロトコル (kfsd_proto.h) + クライアント (RpcVolume) + サーバの共通部分 (serve)。**Apache-2.0。ドライバを含まない** (公開版にも入る)
+#   usbmem_kfsd (実行体)  個人版だけ: カーネル由来のドライバ + LinuxCompat をリンクした実行ファイル (GPL-2.0-or-later)。公開版には入れない
+# USBMEM_BUILD_KFSD: 既定はホストの単独ビルドだけ ON (Android のビルドは、このオプションを明示したときだけ。段階 3)。
+add_library(usbmem_kfsd STATIC src/kfsd_client.cpp src/kfsd_server.cpp)
+target_include_directories(usbmem_kfsd PUBLIC include ${CMAKE_CURRENT_LIST_DIR}/../compat/public)
+target_link_libraries(usbmem_kfsd PUBLIC usbmem_core Threads::Threads)
+target_compile_options(usbmem_kfsd PRIVATE -Wall -Wextra)
+if(USBMEM_SANITIZE)
+  target_compile_options(usbmem_kfsd PUBLIC -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined)
+  target_link_options(usbmem_kfsd PUBLIC -fsanitize=address,undefined)
+endif()
+
+if(USBMEM_BUILD_TESTS)
+  # プロトコル・クライアント・サーバの試験 (ドライバなし。公開版でも動く)
+  add_executable(usbmem_kfsd_proto_tests tests/test_kfsd_proto.cpp)
+  target_include_directories(usbmem_kfsd_proto_tests PRIVATE src)
+  target_link_libraries(usbmem_kfsd_proto_tests PRIVATE usbmem_kfsd)
+  add_test(NAME kfsd_proto COMMAND usbmem_kfsd_proto_tests)
+  set_tests_properties(kfsd_proto PROPERTIES TIMEOUT 300 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+endif()
+
+# ---- kfsd の実行ファイル (個人版だけ。ドライバのターゲットがあるものだけ載せる)
+if(NOT USBMEM_EDITION STREQUAL "public" AND TARGET usbmem_ntfs)
+  set(KFSD_LIBS "")
+  set(KFSD_DEFS "")
+  foreach(fs ntfs exfat ext2 ext4 fat isofs udf squashfs erofs btrfs f2fs xfs)
+    if(TARGET usbmem_${fs})
+      list(APPEND KFSD_LIBS usbmem_${fs})
+      string(TOUPPER ${fs} FS_UP)
+      list(APPEND KFSD_DEFS USBMEM_FS_${FS_UP}=1)
+    endif()
+  endforeach()
+  add_library(usbmem_kfsd_mount STATIC src/kfsd_mount.cpp)   # FS の判別 + マウント (GPL-2.0-or-later)。テストの「プロセス内」の基準にも使う
+  target_include_directories(usbmem_kfsd_mount PUBLIC src)
+  target_compile_definitions(usbmem_kfsd_mount PUBLIC ${KFSD_DEFS})
+  target_link_libraries(usbmem_kfsd_mount PUBLIC usbmem_kfsd ${KFSD_LIBS} usbmem_core)
+  add_executable(usbmem_kfsd_bin src/kfsd_main.cpp)
+  set_target_properties(usbmem_kfsd_bin PROPERTIES OUTPUT_NAME kfsd)
+  target_link_libraries(usbmem_kfsd_bin PRIVATE usbmem_kfsd_mount)
+
+  if(USBMEM_BUILD_TESTS)
+    # RPC 経由とプロセス内で、同じイメージ・同じ操作列から同じ結果になること (読み取り: 全 FS / 書き込み: ext2・ext4・exFAT・FAT・NTFS)。
+    add_executable(usbmem_kfsd_tests tests/test_kfsd_diff.cpp)
+    target_link_libraries(usbmem_kfsd_tests PRIVATE usbmem_kfsd_mount)
+    set(_kfsd_fixtures "")
+    if(EXISTS /dev/shm)
+      # fs 名 : フィクスチャのディレクトリ (compat/CMakeLists.txt などの *_FIX_DIR と同じ) : フィクスチャ名
+      set(_kfsd_fs ntfs exfat ext2 ext4 fat iso udf squashfs erofs)
+      set(_kfsd_fix_ntfs ntfs_fixture) set(_kfsd_fix_exfat exfat_fixture) set(_kfsd_fix_ext2 ext2_fixture) set(_kfsd_fix_ext4 ext4_fixture)
+      set(_kfsd_fix_fat fat_fixture) set(_kfsd_fix_iso isofs_fixture) set(_kfsd_fix_udf udf_fixture) set(_kfsd_fix_squashfs squashfs_fixture) set(_kfsd_fix_erofs erofs_fixture)
+      foreach(fs ${_kfsd_fs})
+        add_test(NAME kfsd_read_${fs} COMMAND usbmem_kfsd_tests --kfsd $<TARGET_FILE:usbmem_kfsd_bin> read /dev/shm/usbmem_${fs}_$ENV{USER})
+        set_tests_properties(kfsd_read_${fs} PROPERTIES TIMEOUT 900 SKIP_RETURN_CODE 77 FIXTURES_REQUIRED ${_kfsd_fix_${fs}}
+                             ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+      endforeach()
+      if(USBMEM_NTFS_WRITE)
+        foreach(fs ntfs exfat ext2 ext4 fat)
+          add_test(NAME kfsd_write_${fs} COMMAND usbmem_kfsd_tests --kfsd $<TARGET_FILE:usbmem_kfsd_bin> write /dev/shm/usbmem_${fs}_$ENV{USER})
+          set_tests_properties(kfsd_write_${fs} PROPERTIES TIMEOUT 1800 SKIP_RETURN_CODE 77 FIXTURES_REQUIRED ${_kfsd_fix_${fs}}
+                               ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+        endforeach()
+      endif()
+      # 異常終了・EOF・タイムアウト (実際の kfsd プロセスで)。ext4 のフィクスチャを使う
+      add_test(NAME kfsd_abnormal COMMAND usbmem_kfsd_tests --kfsd $<TARGET_FILE:usbmem_kfsd_bin> abnormal /dev/shm/usbmem_ext4_$ENV{USER})
+      set_tests_properties(kfsd_abnormal PROPERTIES TIMEOUT 600 SKIP_RETURN_CODE 77 FIXTURES_REQUIRED ext4_fixture
+                           ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=1")
+    endif()
+  endif()
+endif()

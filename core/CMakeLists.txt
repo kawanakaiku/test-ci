@@ -92,3 +92,11 @@ if(NOT USBMEM_EDITION STREQUAL "public")
   # fuseshim の試作 (ntfs-3g を libfuse 互換の層に載せる。既定 OFF。docs/fuse-layer.md)
   include(${CMAKE_CURRENT_LIST_DIR}/fuseshim.cmake)
 endif()
+
+# kfsd (docs/kfsd.md): カーネル由来の FS ドライバを別プロセス (実行ファイル) に分け、RPC だけで通信する。
+#   usbmem_kfsd (Apache-2.0。プロトコル + クライアント RpcVolume + サーバの共通部分) は公開版にも入る。kfsd の実行ファイルとそのテストは個人版だけ (core/kfsd/CMakeLists.txt)。
+# 既定: ホストの単独ビルドだけ ON。Android のビルドは明示したときだけ (docs/kfsd.md 段階 3)。
+option(USBMEM_BUILD_KFSD "Build the kfsd protocol library (and, in the personal edition, the kfsd executable + tests)" ${_top})
+if(USBMEM_BUILD_KFSD AND EXISTS ${CMAKE_CURRENT_LIST_DIR}/kfsd/CMakeLists.txt)
+  add_subdirectory(kfsd)
+endif()

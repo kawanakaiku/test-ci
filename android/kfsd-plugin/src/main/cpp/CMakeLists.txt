@@ -13,6 +13,7 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../../../../../core core)
 set_target_properties(usbmem_kfsd_bin PROPERTIES OUTPUT_NAME "libkfsd.so" PREFIX "" SUFFIX "" POSITION_INDEPENDENT_CODE ON)
 target_compile_options(usbmem_kfsd_bin PRIVATE -fPIE)
 target_link_options(usbmem_kfsd_bin PRIVATE -pie -Wl,-z,max-page-size=16384)
+target_link_libraries(usbmem_kfsd_bin PRIVATE log)   # LinuxCompat が __android_log_print を使う
 add_library(kfsdspawn SHARED ${CMAKE_CURRENT_LIST_DIR}/../../../../kfsd-common/src/main/cpp/kfsd_spawn.cpp)
 target_link_libraries(kfsdspawn PRIVATE log)
 target_link_options(kfsdspawn PRIVATE -Wl,-z,max-page-size=16384)

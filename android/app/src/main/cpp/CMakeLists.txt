@@ -40,6 +40,7 @@ if(NOT USBMEM_EDITION STREQUAL "public" AND TARGET usbmem_kfsd_bin)
     set_target_properties(usbmem_kfsd_bin PROPERTIES OUTPUT_NAME "libkfsd.so" PREFIX "" SUFFIX "" POSITION_INDEPENDENT_CODE ON)
     target_compile_options(usbmem_kfsd_bin PRIVATE -fPIE)
     target_link_options(usbmem_kfsd_bin PRIVATE -pie -Wl,-z,max-page-size=16384)
+    target_link_libraries(usbmem_kfsd_bin PRIVATE log)   # LinuxCompat が __android_log_print を使う
   else()
     set_target_properties(usbmem_kfsd_bin PROPERTIES EXCLUDE_FROM_ALL ON)
   endif()

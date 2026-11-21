@@ -255,3 +255,14 @@ Host tests (`host-tests.yml`) は、ctest が 1 本ずつ直列で、wsan が 13
 - `wim-fuse` グループだけ、Gradle のビルドの前に `libwimfuse.so` を NDK でビルドする (`tools/wimfuse/build_android.sh`。wimlib 1.14.4 を `tools/fuseshim/wimlib_pin.sh` の sha256 つきで取得、`apt` の `libfuse3-dev` はヘッダだけ使う)。他のグループの手順・APK は変わらない。
 - `.github/workflows/wimfuse-build.yml` (`usbmem-wimfuse*` への push): `libwimfuse.so` のビルドだけの軽いジョブ (約 3 分。arm64-v8a / x86_64、ELF の確認、`libwimfuse.so` を artifact `wimfuse-build` に)。
 - 計測値は logcat の `WIMFUSE_METRIC` と `run_wim_fuse.log` に出る (artifact `logs-wim-fuse`)。
+
+### wim-fuse を既定のグループに入れる判断 (2026-11-22、wimlib の main への統合)
+
+**入れた** (`android-emulator.yml` の既定の matrix は 7 グループ)。判断の材料:
+
+- 実行時間: ジョブ全体で約 8 分 (Gradle のビルド + NDK で `libwimfuse.so` のビルド + フィクスチャ生成 + エミュレータ + テスト 56 秒)。ほかのグループ (約 5〜10 分) と同程度で、最大 4 並列なので全体の所要は 約 20 分のまま (統合後の `usbmem-ci-full-wimint` の run 44920529823 が 20 分)。
+- 安定性: 52 件 (`WimFuseTest` + `WimNestedTest`) が、`usbmem-ci-only-wim-fuse` (run 44906971508) と、統合後の全グループの run (44920529823) で成功。開発中の失敗はコンパイルの誤りや子プロセスの後始末の不備で、いずれも直して以降は再現していない。子プロセスの残り (`libwimfuse` の ps) は 0。
+- 外部依存: wimlib 1.14.4 のソースを取得する (sha256 検証つき、`tools/fuseshim/wimlib_pin.sh`)。配布元が落ちるとこのグループだけが失敗する (他のグループは影響を受けない)。失敗したら `gh run rerun --failed` か、`usbmem-ci-only-wim-fuse` で単独に回す。
+- 公開版 (`public-edition.yml`) には入れない (FUSE 層は個人版専用。docs/editions.md 12.1)。
+
+統合後の run 44920529823 の初回は、`ro-misc` の `ntfs_read` の `DirtyConfirmUiTest.image_dialogNamesTheImage_andScrollsInLandscape` (横向きのダイアログのボタン行 `dirty_buttons_row` が見つからない) が 1 件落ちた (21 件成功 / 1 件失敗)。wimfuse とは無関係の UI 試験で、`gh run rerun --failed` で成功した (散発。再発したら docs/dirty-volumes.md の横向きの記述とあわせて調べる)。

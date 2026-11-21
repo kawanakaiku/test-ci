@@ -261,9 +261,19 @@ git log --stat | head                                                   # 履歴
 - 個人版の `core/compat/f2fs.cmake` の書き込みテストは `test_f2fs_write.cpp` が無いと入らない条件を足した (公開版が書き込み有効でも configure が通るように)。
 - `docs/licenses.md` を実態に合わせた (別途)。`docs/release-audit.md` 3.2 章に「決定: エディション分離」を反映した。
 
-## 11. CI の結果
+## 11. CI の結果 (2026-11-21、kawanakaiku/test-ci)
 
-(実行後に記入)
+公開版 (`public-edition.yml`):
+
+| run | ブランチ / コミット | 結果 |
+|---|---|---|
+| 44905193611 | `usbmem-public-editions` c63c3a5 | 失敗 (取り消し)。android: `UsbScreen.kt` の `Edition` の import 漏れ (**個人版も同じ漏れ。個人版の UI を直した**)。host: 公開版のテストが使う `gen_ext2_fixture.py` (gen_f2fs_fixture.py が共用) と `gen_ntfs_fixture.sh` が公開版に無かった |
+| 44906176223 | 8cb6da7 | 失敗 (export の検査が closure で NG: 説明文中のスクリプト名を拾った。検査の正規表現を直した) |
+| 44906274483 | 77d3894 | android 成功。host (plain) は `disktools_tools` が失敗 (ntfs-3g のフィクスチャの `fusermount3 -u` が AppArmor に拒否された) |
+| 44907419036 | 33eee57 | **全ジョブ成功** (export + check / android / host plain 18 件 / host san) |
+| 44911581265 | cae3de8 (最終) | **全ジョブ成功** |
+
+個人版 (回帰の確認。`usbmem-ci-full-editions` 33eee57): Host tests run 44909403038 (plain / san / wsan / wrel の 4 構成すべて成功)、Android emulator tests run 44909402986 (成功)、public-edition run 44909402984 (成功)。ctest の一覧は main と同一 (ローカルで書き込み OFF 145 件・ON 165 件を確認済み)。cae3de8 は tools / manifest / docs だけの変更で、個人版のビルドには影響しない。
 
 ## 12. 別ブランチの機能が個人版へ統合されたときの公開版の扱い (例: wimfuse)
 

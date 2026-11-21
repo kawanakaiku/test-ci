@@ -233,6 +233,8 @@ Host tests (`host-tests.yml`) は、ctest が 1 本ずつ直列で、wsan が 13
    | `usbmem-ci-only-<構成>` (例 `usbmem-ci-only-wsan`) | その 1 構成だけ |
    | `workflow_dispatch` | 入力 `modes` (空白区切り、既定は全部) |
 
+   公開版 (`.github/workflows/public-edition.yml`、docs/editions.md) は `usbmem-public` / `usbmem-public-<名前>` / `usbmem-ci-full-<名前>` への push と `workflow_dispatch` で動く (通常の `usbmem-ci-<名前>` では動かさない)。公開版ツリーを書き出して単独でビルド・テストする。公開版だけ確認したいときは `usbmem-public-<名前>` に push する。
+
    **統合前の最終確認は、`usbmem-ci-full-*` で 4 構成すべてを通すこと** (通常の push では san / wsan が走らない)。
 2. **ctest を並列 (`-j4`、`CTEST_JOBS` で変更可)**。FIXTURES / RESOURCE_LOCK が宣言済みなので依存は守られる。並列で落ちたテストは `ctest --rerun-failed` で直列にやり直し、直列で通れば警告 (`::warning::`) と step summary に出して通す (並列で干渉するテストの目印)。
 

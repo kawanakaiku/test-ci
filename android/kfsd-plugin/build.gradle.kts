@@ -12,6 +12,7 @@ val abis: List<String> = (providers.gradleProperty("usbmemPluginAbis").orNull ?:
 android {
     namespace = "org.usbmem.kfsd"
     compileSdk = 36
+    ndkVersion = "30.0.16248370"   // app/build.gradle.kts と同じ (CI の android-emulator.yml の NDK_VERSION)
     defaultConfig {
         applicationId = "org.usbmem.kfsd"
         minSdk = 26
@@ -25,7 +26,7 @@ android {
             }
         }
     }
-    externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt") } }
+    externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "4.1.2" } }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

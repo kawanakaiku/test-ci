@@ -42,7 +42,8 @@ if(NOT USBMEM_EDITION STREQUAL "public" AND TARGET usbmem_ntfs)
 
   if(USBMEM_BUILD_TESTS)
     # 性能の測定 (プロセス内と RPC。docs/kfsd.md 4 章)。書き込み有効のビルドだけ。ctest からは tools/run_kfsd_bench.sh を呼ぶ
-    if(USBMEM_NTFS_WRITE)
+    # ASan / UBSan のビルドでは測らない (数字に意味が無く、66000 回の callback × 変種 6 つで長すぎる。全構成の run でランナーが落ちた疑いもある)
+    if(USBMEM_NTFS_WRITE AND NOT USBMEM_SANITIZE)
       add_executable(usbmem_kfsd_bench tests/bench_kfsd.cpp)
       target_link_libraries(usbmem_kfsd_bench PRIVATE usbmem_kfsd_mount)
       add_test(NAME kfsd_bench COMMAND ${CMAKE_CURRENT_LIST_DIR}/../../tools/run_kfsd_bench.sh $<TARGET_FILE:usbmem_kfsd_bench> $<TARGET_FILE:usbmem_kfsd_bin>)

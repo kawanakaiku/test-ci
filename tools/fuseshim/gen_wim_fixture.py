@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # fuseshim の wimlib 試験用: ディレクトリツリーを作り、期待するダンプ (fsdump と同じ行形式) と、wimlib-imagex で作った .wim を出力する。
 # 使い方: python3 -I gen_wim_fixture.py <出力ディレクトリ>   → tree/ expected.txt lzx.wim none.wim lzms.wim、multi.wim (2 イメージ) と expected_multi.txt
-import hashlib, os, random, subprocess, sys
+import hashlib, os, random, shutil, subprocess, sys
 
 out = sys.argv[1]
 tree = os.path.join(out, 'tree')
@@ -80,4 +80,16 @@ if os.path.exists(mw):
     os.remove(mw)
 subprocess.run(['wimlib-imagex', 'capture', trees[0], mw, multi_names[0], '--compress=LZX'], check=True, stdout=subprocess.DEVNULL)
 subprocess.run(['wimlib-imagex', 'append', trees[1], mw, multi_names[1]], check=True, stdout=subprocess.DEVNULL)
+
+# ネスト用の親 (ext2。/wims/multi.wim, /wims/lzx.wim, /wims/plain.txt): VolumeRegistry.mountWim の試験 (WimNestedTest)
+ptree = os.path.join(out, 'parent_tree')
+os.makedirs(os.path.join(ptree, 'wims'), exist_ok=True)
+shutil.copy(mw, os.path.join(ptree, 'wims', 'multi.wim'))
+shutil.copy(os.path.join(out, 'lzx.wim'), os.path.join(ptree, 'wims', 'lzx.wim'))
+with open(os.path.join(ptree, 'wims', 'plain.txt'), 'w') as f:
+    f.write('not a wim\n')
+pimg = os.path.join(out, 'parent.img')
+with open(pimg, 'wb') as f:
+    f.truncate(24 * 1024 * 1024)
+subprocess.run(['mke2fs', '-q', '-t', 'ext2', '-b', '1024', '-L', 'wimparent', '-d', ptree, pimg], check=True)
 print('ok', len(lines), 'multi', len(mlines))

@@ -319,6 +319,18 @@ class WimFuseTest {
         }
     }
 
+    /** アプリの強制終了で子が残らないこと (CI のスクリプトが `-e wimfuse_leave 1` でこのテストだけ回し、終了後に ps で子の数を数える)。通常の実行では飛ばす。 */
+    @Test fun leaveChildOpen_forAppDeath() {
+        assumeTrue("wimfuse_leave=1 のときだけ", InstrumentationRegistry.getArguments().getString("wimfuse_leave") == "1")
+        val pfd = ParcelFileDescriptor.open(File("$tmp/wimfuse_lzx.wim"), ParcelFileDescriptor.MODE_READ_ONLY)
+        val dev = NativeBridge.nativeOpenFd(pfd.detachFd(), true)
+        assertTrue(dev > 0)
+        val img = WimFuse.open(ctx, dev, 1)
+        assertTrue(img.volume.list("/").isNotEmpty())
+        metric("leave_child_pid", img.childPid.toString())
+        // 閉じずに終える: このあと計装が終わってアプリのプロセス (と :wimfuse) が消えると、子も消えるはず
+    }
+
     @Test fun missingFile_returnsEnoent() {
         val dev = openDevice("wimfuse_none.wim")
         WimFuse.open(ctx, dev, 1).use { img ->

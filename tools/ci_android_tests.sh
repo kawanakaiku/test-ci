@@ -130,6 +130,14 @@ run_wim_fuse() {
   echo "テスト後に残っている libwimfuse の子プロセス: $left"
   adbs shell 'ps -A' | grep -E 'wimfuse' || true
   [ "$left" = 0 ] || r=1
+  # アプリの強制終了: 子を開いたまま計装を終える (アプリと :wimfuse が消える) → 子が残らない
+  echo "--- アプリ終了で子が消えるか"
+  adbs shell am instrument -r -w -e wimfuse_leave 1 -e class "$APP.wimfuse.WimFuseTest#leaveChildOpen_forAppDeath" "$RUNNER" | grep -E 'INSTRUMENTATION_STATUS_CODE|stack' | head -5
+  adbs shell 'ps -A' | grep -E 'wimfuse|usbmem' || true
+  sleep 3
+  left=$(adbs shell 'ps -A' | grep -c libwimfuse || true)
+  echo "アプリ終了後に残っている libwimfuse の子プロセス: $left"
+  [ "$left" = 0 ] || r=1
   adbs shell 'rm -f /data/local/tmp/wimfuse_*' >/dev/null
   return $r
 }

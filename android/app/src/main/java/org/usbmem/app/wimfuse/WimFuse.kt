@@ -147,6 +147,11 @@ object WimFuse {
             refs++
             return local ?: LocalControl(app).also { local = it }
         }
+        // サービスのプロセスが死んでいたら (試験の強制終了・クラッシュ)、古い接続を捨てて、つなぎ直す。保持者の数 (refs) はそのまま (全員が release するまで接続を保つ)
+        if (remote != null && !remote!!.b.isBinderAlive) {
+            conn?.let { try { app.unbindService(it) } catch (_: Exception) {} }
+            conn = null; remote = null
+        }
         if (remote == null) {
             val latch = CountDownLatch(1)
             var bound: IBinder? = null

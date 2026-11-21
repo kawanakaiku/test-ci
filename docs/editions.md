@@ -300,3 +300,13 @@ git log --stat | head                                                   # 履歴
 
 CI の結果は 12.2。
 
+### 12.2 CI の結果 (2026-11-22、kawanakaiku/test-ci)
+
+| run | ブランチ / コミット | 結果 |
+|---|---|---|
+| 44920520646 | `usbmem-public-wimint` a0ca0ad | **全ジョブ成功** (export + check / public android / host plain / host san。約 24 分) |
+| 44922993079 | `usbmem-public-wimint` 7de6cf0 (manifest の reserve → exclude の整理と docs。以降は docs だけ) | **全ジョブ成功** |
+| 44920529925 | `usbmem-ci-full-wimint` a0ca0ad | public-edition 成功 |
+
+個人版 (回帰の確認、`usbmem-ci-full-wimint` a0ca0ad): Host tests run 44920529807 (plain / san / wsan / wrel の 4 構成すべて成功、117 分)、Android emulator tests run 44920529823 (全 7 グループ成功。`wim-fuse` は 52 件成功。初回の `ro-misc` の `DirtyConfirmUiTest.image_dialogNamesTheImage_andScrollsInLandscape` の 1 件は散発の UI 試験で、`gh run rerun --failed` で成功。docs/ci.md 末尾)。a0ca0ad 以降のコミットは manifest のコメントと docs だけ。
+

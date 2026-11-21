@@ -57,7 +57,7 @@
 | `core/include` | 26 | Apache-2.0 26 | own 26 | 公開版に入れる | 26 | 自前: 公開 API ヘッダ |
 | `core/src` | 58 | Apache-2.0 58 | own 58 | 公開版に入れる | 58 | 自前: パーティション表・ディスク編集・USB MSC / SCSI・暗号 (AES / SHA / HMAC / PBKDF2 / XTS / Argon2)・LUKS1/2・BitLocker・QCOW2 / VHD / VHDX / VMDK / NBD・DiskTools (fsck / mkfs)・救出 / バックアップ |
 | `core/tests` | 28 | Apache-2.0 27, (なし) 1 | own 27, generated 1 | 公開版に入れる | 28 | 自前: 上のテスト (暗号ベクタは公開値) |
-| `docs` | 46 | (なし) 46 | own-doc 46 | 一部だけ入れる (入る 13 / 除外 33) | 13 | ドキュメント (公開版に入るのは公開版の機能に関するものだけ) |
+| `docs` | 47 | (なし) 47 | own-doc 47 | 一部だけ入れる (入る 13 / 除外 34) | 13 | ドキュメント (公開版に入るのは公開版の機能に関するものだけ) |
 | `third_party/その他` | 1 | (なし) 1 | kernel 1 | 公開版から除外 | 0 | Linux カーネル由来 |
 | `third_party/erofs` | 23 | GPL-2.0-only 13, GPL-2.0-or-later 7, GPL-2.0 WITH Linux-syscall-note 1, (なし) 1, MIT 1 | kernel 23 | 公開版から除外 | 0 | Linux fs/erofs。GPL-2.0 |
 | `third_party/exfat` | 17 | GPL-2.0-or-later 14, GPL-2.0 WITH Linux-syscall-note 2, (なし) 1 | kernel 17 | 公開版から除外 | 0 | Linux fs/exfat。GPL-2.0-or-later |
@@ -69,7 +69,7 @@
 | `third_party/ntfs-resurrection` | 67 | GPL-2.0-or-later 55, (なし) 6, GPL-2.0 WITH Linux-syscall-note 2, MIT 2, GPL-2.0-only 1, ほか 1 種 | kernel 67 | 公開版から除外 | 0 | Linux fs/ntfs (NTFS Resurrection)。GPL-2.0-or-later |
 | `third_party/squashfs` | 34 | GPL-2.0-or-later 24, GPL-2.0-only 8, GPL-2.0 WITH Linux-syscall-note 1, (なし) 1 | kernel 34 | 公開版から除外 | 0 | Linux fs/squashfs。GPL-2.0 |
 | `third_party/udf` | 23 | GPL-2.0-only 14, GPL-2.0 4, (なし) 3, GPL-2.0 WITH Linux-syscall-note 1, LGPL-2.0+ 1 | kernel 23 | 公開版から除外 | 0 | Linux fs/udf。GPL-2.0 (一部 LGPL-2.0+) |
-| `tools` | 158 | (なし) 127, Apache-2.0 30, GPL-2.0-or-later 1 | dev 130, own 22, kernel-patch 3, kernel-shim 2, external-gpl 1 | 一部だけ入れる (入る 22 / 除外 136) | 22 | テスト・フィクスチャ生成・CI の補助 (公開版に入るのは公開版のテストが使うものだけ) |
+| `tools` | 158 | (なし) 127, Apache-2.0 30, GPL-2.0-or-later 1 | dev 128, own 24, kernel-patch 3, kernel-shim 2, external-gpl 1 | 一部だけ入れる (入る 24 / 除外 134) | 24 | テスト・フィクスチャ生成・CI の補助 (公開版に入るのは公開版のテストが使うものだけ) |
 | `tools: FUSE アダプター・fuseshim・xfstests` | 9 | (なし) 8, GPL-2.0-or-later 1 | own-gpl 6, external-gpl 3 | 公開版から除外 | 0 | GPL 表記の自前アダプターと、ntfs-3g / wimlib の取得・試験 |
 <!-- /inventory:table -->
 

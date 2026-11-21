@@ -216,6 +216,18 @@ def check(root, forbid_words, closure=True):
         for rel, ln, t, guarded in refs:
             if t not in relset and not guarded:
                 err("closure", rel, "CMake が参照するファイルがツリーに無い: %s (L%d)" % (t, ln))
+        # tools/ の Python / シェルが呼ぶ別のスクリプト (gen_*.py など): 同じ tools/ 配下にあること (コメント行は除く)
+        helper_rx = re.compile(r"\b((?:gen|check|run|make|dt|fetch)_[A-Za-z0-9_]*\.(?:py|sh))\b")
+        names = {os.path.basename(r) for r in relset}
+        for rel, full in files:
+            if not rel.startswith("tools/") or not rel.endswith((".py", ".sh")):
+                continue
+            for ln, line in enumerate((read_text(full) or "").splitlines(), 1):
+                if line.lstrip().startswith("#"):
+                    continue
+                for m in helper_rx.finditer(line):
+                    if m.group(1) not in names and "usbmem_" not in m.group(1):
+                        err("closure", rel, "呼んでいるスクリプトがツリーに無い: %s (L%d)" % (m.group(1), ln))
     return errs, len(files)
 
 

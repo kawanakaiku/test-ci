@@ -120,6 +120,8 @@ include   own  tools/check_partedit_tools.py
 include   own  tools/gen_blockdev_fixtures.py
 include   own  tools/check_disktools.py
 include   own  tools/dt_*.py
+include   own  tools/gen_ext2_fixture.py                # gen_f2fs_fixture.py / gen_squashfs_fixture.py が共用ヘルパとして読み込む (mke2fs で作る。ext2 ドライバは公開版に無い)
+include   own  tools/gen_ntfs_fixture.sh                # dt_ntfs.py (DiskTools の NTFS 検査の試験) が使う (mkntfs / ntfs-3g はホストのツール。無ければ SKIP)
 include   own  tools/gen_exfat_fixture.py               # DiskTools の exFAT 検査が使う自前の生成器
 include   own  tools/check_recovery_tools.py
 include   own  tools/gen_f2fs_fixture.py

@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.usbmem.app.BuildConfig
 import org.usbmem.app.CryptoMount
+import org.usbmem.app.Edition
 import org.usbmem.app.MediaBasis
 import org.usbmem.app.MediaHint
 import org.usbmem.app.MediaKind

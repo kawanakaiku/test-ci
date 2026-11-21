@@ -16,6 +16,7 @@ TODO.md の「FUSE プログラムを載せる層 (第 3 の方式) の検討」
 | shim の大きさ | ntfs-3g を載せる C は合計 558 行 (論理 約 410 行): libfuse 2.x 系 shim 292、ブロックデバイス接続 201、C API ヘッダ 65。libfuse 3.x 系 (wimlib 用) 215 行。FsVolume アダプター + セッション 約 350 行、RPC 約 200 行 (5.3 章) |
 | 本番の方針 | **別プロセス (RPC) を主案** (ユーザー決定)。試作は同一プロセスで測り、socketpair 越しの形も測った: 連続読み 約 8 → 3.3 GB/s、メタデータ 1 往復 約 9 µs (5.4 章)。理由と設計は 3 章 |
 | 性能の発見 | ntfs-3g は**パスを引くたびに索引ブロックを読み直す**ので、ページキャッシュの無い実機 USB では下位に読み取りキャッシュ層が必須 (64 MiB で解消)。逆に自前の NTFS は下位への読みが 4 KiB 単位で、大きな連続読みは約 3.5 倍遅い (5.4 章) |
+| 製品化 (個人版) | **wimlib の WIM を別プロセス (`:wimfuse` Service + exec) で読む形を Android (AVD) で実測済み** (10 章)。ntfs-3g は製品の経路に載せない |
 | 載せる価値のある FS | ntfs-3g は「独立した参照実装 (NTFS 書き込みの突き合わせ)」としての価値が大きい。製品の経路に載せる価値は、既に自前実装がある NTFS / exFAT / ext では低い。**自前実装のない FS (wimlib の WIM、将来の squashfuse 系や暗号ボリューム系)** が候補 (7 章) |
 
 ## 1. shim が提供する libfuse の範囲
@@ -117,7 +118,7 @@ ntfs-3g は、libntfs-3g の `struct ntfs_device_operations` (open / close / see
   (B) 子 → 本体への block 読み RPC — 本体の BlockDevice (暗号・パーティション・ネスト・キャッシュの層) をそのまま使えるが、ntfs-3g の 4 KiB の索引ブロック読みごとに往復が要る (5 章の「索引ブロックの再読み込み」の問題があり、本体側にキャッシュ層が必須)。
   暗号ボリューム / ネストの上の NTFS を載せるなら (B)、USB 直なら (A)、が自然。**要検討**: 両対応の `BlockDevice` 抽象を子プロセスに持たせる (ntfs3g_io.c の `fuseshim_blkdev` は既に関数ポインタ 3 つ + サイズなので、RPC クライアントでも実装できる)。
 
-### 3.2 Android での別プロセスの起こし方 (調査。**実機・AVD では未検証**)
+### 3.2 Android での別プロセスの起こし方 (調査。**AVD で検証済み (10 章)**: a と c の組み合わせ = `:wimfuse` の Service が `nativeLibraryDir` の ELF を exec。実機は未検証)
 
 | 方式 | 内容 | 長所 / 短所・要確認 |
 |---|---|---|
@@ -314,3 +315,79 @@ tools/gen_fuseshim_perf_fixture.sh、tools/run_fuseshim_tests.sh、.github/workf
 - 初回 run 44188036910: 失敗 (tuxera.com が 403)。User-Agent を付けて取得元を 2 つに (run 44188363565 で ntfs-3g の取得・ビルド・比較が通った)。
 - **run 44189230731 (最終構成: ntfs-3g + 別プロセス RPC + wimlib + キャッシュ実験): 成功**。上記 5・6 章の数字はこの run のもの (1 つ前の run 44188363565 の自前の NTFS の連続読みは 1891 / 1935 MB/s、ntfs-3g は 9156 / 9133 MB/s で、run 間で約 20% 揺れる)。
 - 再現: `git push <リポジトリ> HEAD:refs/heads/usbmem-fuseshim-<名前>`。ローカルでは動かさない (大きなビルド・FUSE のマウントが要る)。
+
+## 10. 製品化 (個人版のみ): wimlib の WIM を別プロセスで読む (Android の実測)
+
+ユーザー決定: FUSE 層 (wimlib → 後で ntfs-3g) は**別プロセス**で動かし、本体とは RPC (列挙 / getattr / read / readlink / statfs) だけで話す。GPL / LGPL のコードを含むので**個人版のみ**の機能 (公開版には `core/fuseshim/` ごと入れない)。
+コードは全部 `core/fuseshim/wimfuse/` (C/C++) と `android/app/.../wimfuse/` (Kotlin) と `tools/wimfuse/` にあり、既定のビルドと `USBMEM_BUILD_FUSESHIM` (既定 OFF) には影響しない。アプリ側は別のスイッチ (Gradle の `-PusbmemWimFuse=<ビルド出力>`、CMake の `USBMEM_WIMFUSE`) が入ったときだけ有効で、無ければ WIM の項目は出ない (`WimFuse.available()` が false)。
+
+### 10.1 構成
+
+```
+アプリ本体 (org.usbmem.app)                 :wimfuse プロセス (Service)             子プロセス (libwimfuse.so。exec)
+ VolumeRegistry.mountWim ─ JNI ─ RpcVolume ──(abstract UNIX ソケットで直結)─────────  wimlib (wimmount) ─ fuseshim (libfuse3 互換)
+   ↑ SAF / UI は既存の経路                  ProcessBuilder で exec (監督だけ)            ↑ open/pread を RPC の callback に差し替え
+ WIM ファイルの読み = 本体の BlockDevice  ←── kind=1 の callback フレーム (SrcSize / SrcRead) ←── WIM の読み
+```
+
+- **子は `libwimfuse.so` という名前の PIE の実行ファイル** (`jniLibs/<abi>/`、`packaging.jniLibs.useLegacyPackaging = true` = `extractNativeLibs=true`)。`nativeLibraryDir` から `ProcessBuilder` で exec する (W^X を避ける定番の形)。`tools/wimfuse/build_android.sh` が NDK (r30、API 26、arm64-v8a / x86_64、16 KiB ページ整列) でビルドする。wimlib 1.14.4 は `tools/fuseshim/wimlib_pin.sh` の URL・sha256 で取得し、**ソースは無改変** (bionic の足りない物 = `mqueue.h` / `glob` (API 28 以降) は代用ヘッダ + スタブで補う。mq は unmount / commit 用で読み取りには使わない)。
+- **`:wimfuse` プロセスの Service は子の起動と監督 (alive / exit / kill / 出力の末尾) だけ**。Binder の `onTransact` で受ける。子へのデータは通らない: 本体が abstract 名前空間の UNIX ソケットを待ち受け、子がそこへつなぎに来る (`SO_PEERCRED` の uid を確認)。ソケットは `ParcelFileDescriptor.dup` + `detachFd` でネイティブへ渡し、既存の socketpair RPC (`rpc_volume.*`) をそのまま使う。
+- **RPC の拡張** (`rpc_volume.*` は共有物なので最小限): 応答に `kind` (0 = 応答、1 = 子 → 本体の callback) を足した。WIM の読みは子 → 本体の callback (`SrcSize` / `SrcRead`) で、本体の `BlockDevice` (USB の fd / SAF の fd / ネストした親) から読む。子の `open` / `close` / `pread` / `read` / `lseek` / `fstat` / `realpath` はリンク時の `--wrap` で差し替え、特別なパス `usbmem-rpc://wim` を仮想の fd (`/dev/null` を開いて得た番号) に結ぶ。
+- **子の終了**: (1) RPC の EOF (本体がソケットを閉じた = ボリュームを閉じた、本体が死んだ) で `rpc_serve` が戻り、`alarm(10)` の保険つきで exit する、(2) `PR_SET_PDEATHSIG(SIGKILL)` (`:wimfuse` プロセスが死んだら子も死ぬ。PDEATHSIG は**起こしたスレッド**に結びつくので、Service は専用の `HandlerThread` から起こす)。
+- **イメージごとに 1 プロセス**: wimlib は 1 プロセスで 1 イメージしかマウントしない (グローバル状態・`exit()`、3 章)。`WimVolume` (`core/fuseshim/wimfuse/wim_volume.*`) が、ルート直下に `1 - 名前` / `2 - 名前` のフォルダを並べ、**フォルダを最初に開いたときにそのイメージの子を起こす** (一覧を見るだけでは起こさない)。ino は `(イメージ番号 << 40) | 子の ino` で名前空間を分ける。
+- **キャッシュ**: 子の中の WIM の読み (callback) に、1 MiB ブロックの LRU (既定 32 MiB。`--cache-mb`) を置いた。wimlib は 32 KiB のチャンクを小さく何度も読むので、本体への往復を減らす (10.4)。
+- **ネスト経路への接続** (段階 B): `VolumeRegistry.inspectWim` (先頭 8 バイトが `MSWIM\0\0\0` なら WIM。子を 1 つ起こして一覧を読み、すぐ終わらせる) と `mountWim` (イメージ番号を指定 = そのイメージがルート、`null` = イメージごとのフォルダ)。閉じる順は 内 → 外 (子プロセス → デバイス → 親のピン解除)。UI は、ネストのマウントの画面でファイルが WIM だと、パーティション表の代わりにイメージの一覧と「読み取り専用で公開」ボタンを出す。**読み取り専用で、一時コピーは作らない** (CI で確認)。
+
+### 10.2 段階 A の結果 (AVD API 34 x86_64、CI の `wim-fuse` グループ、`usbmem-ci-only-wim-fuse`)
+
+| 項目 | 結果 |
+|---|---|
+| ビルド | arm64-v8a / x86_64 とも NDK で無改変の wimlib 1.14.4 + 自前コードがビルドでき、`libwimfuse.so` は PIE (`/system/bin/linker64`)、NEEDED は libc / libm / libdl のみ。ビルド約 3 分 (run 44904471250) |
+| exec (W^X) | **成立**: `nativeLibraryDir` (`/data/app/~~.../lib/x86_64`) の `libwimfuse.so` を `ProcessBuilder` で exec して `--version` が出た (`wimfuse wimlib 1.14.4`)。`useLegacyPackaging = true` (= `extractNativeLibs=true`) が必要 (APK 内のままでは exec できない)。実機では未確認 (AVD のみ) |
+| `:service` | **成立**: アプリ pid と `:wimfuse` pid が別 (`app=4238 service=4423`)、子の PPid は `:wimfuse` (`child_ppid=4423`)。DIRECT (本体プロセスから直接 exec) でも同じ結果 |
+| 一致 | 小さな WIM の LZX / 無圧縮 (813 エントリ、37 MB) の全ツリー (名前・種別・サイズ・sha256) が元のツリーと一致。LZMS (solid) の一部の読みも sha256 一致 |
+| 起動時間 | spawn 2〜22 ms + 接続 13〜26 ms + マウント 19〜63 ms = 開くまで 約 25〜115 ms (`open_*_ms`。run によって揺れる)。イメージ一覧だけ (`info`) は 19〜390 ms |
+| 子のメモリ | VmHWM: LZX マウント直後 6.3 MB、全ツリー読み後 10.5 MB、無圧縮 39 MB (チャンクの読みの大きさ) |
+| スループット | 32 MiB の連続読み (1 ファイル): LZX 180〜800 MiB/s、無圧縮 314〜604 MiB/s (run 間で大きく揺れる)。全ツリー (813 ファイル・37 MB) の読み: 1.8〜2.3 s (LZX) / 1.7〜1.8 s (無圧縮) = 15〜21 MiB/s (ファイルごとの往復が支配) |
+| 後始末 | ボリュームを閉じる / 本体側の RPC が EOF / `:wimfuse` が死ぬ / 閉じずにアプリが終わる、のどれでも子は残らない (`ps` で 0。CI の判定)。子の fd は pipe 2 + ソケット + `/dev/null` だけ (ソケットの fd 以外の USB の fd は渡さない) |
+| 子が死んだあと | 本体の読みは `EPIPE` (32) で失敗し、本体は落ちない |
+| 存在しない画像番号 | 子が終了し、本体は errno 5 と子のエラー文で拒否 (何も登録されない) |
+
+### 10.3 段階 B の結果 (ボリューム API への接続・読み取り専用)
+
+`WimNestedTest` (4 件) と `WimFuseTest` の `archive_*` が成功 (run 44906971508、52 件全部成功):
+
+- `inspectWim`: 2 イメージの WIM は一覧 (`first` / `second image`) が返り、WIM でないファイル (`plain.txt`) は null (パーティション表の経路へ)。一覧用の子は読んだらすぐ終わる (`ps` で 0)。
+- `mountWim` (イメージごとのフォルダ): ルートの一覧 (`1 - first` / `2 - second image`) だけでは子が 0、フォルダを開く / ファイルを読むと**そのイメージの子だけ**が 1 つずつ増える (遅延起動)。同名のファイル (`same.txt`) がイメージごとに別の中身で返る (ino の取り違えなし)。書き込み (`create`) は拒否。**SAF のプロバイダ経由** (`DocumentsContract` の document URI → `openInputStream`) でも読める。
+- 一時コピーなし: 公開の前後で、アプリが書ける場所 (`cacheDir` / `filesDir` / `codeCacheDir` / `externalCacheDir` / `java.io.tmpdir`) のファイルの一覧とサイズが**変わらない**。
+- 閉じる順: 親を閉じると子の公開、そのイメージの子プロセスが全部終わる (0)。1 イメージだけの公開 (`image = 2`) は、そのイメージの中身がルート。存在しない画像番号は拒否され、何も登録されない。
+- 2 イメージの WIM の全ツリー (12 エントリ、フォルダ込み) が期待と一致。
+
+### 10.4 段階 C の結果 (性能・堅牢性)
+
+- **読みキャッシュ**: 1 MiB × 32 の LRU。3 MiB のファイル (64 KiB ずつ) + 200 個の小さいファイルの読みで、本体への callback は **355 回 → 2 回** (cache_hit 353、miss 2)。ただし時間は 0.05〜0.36 s → 0.06〜0.43 s で、AVD では差が出ない (揺れのほうが大きい) (callback が同一マシン内で安いため)。**実機 USB (1 往復が 100 µs〜数 ms) では効く見込みだが未測定** (実機 USB は使っていない)。
+- **LZMS solid** (小さい 4 MB の WIM から 44 ファイルを読む): キャッシュなし 6.5〜10.0 s / あり 6.7〜8.4 s で**キャッシュは効かない**。LZMS の遅さは本体への読みではなく **wimlib の再展開** (同じブロックを読むたびに展開する) が支配しており、読みキャッシュでは減らない。展開済みデータのキャッシュ (wimlib の外) か、solid ブロックを一度ファイルへ展開する (一時コピーになる) しか手が無い。→ 10.7 の未了。
+- **堅牢性**: 子が死んだあとの読みは EPIPE、プロセス全体の後始末は 10.2 の表の通り。
+
+### 10.5 段階 D: ntfs-3g (結論: 製品の経路には載せない)
+
+製品の経路に載せるのは**やめる** (5 章・7 章の結論のまま): 自前の NTFS (読み書き) が既にあること、書き込みの安全方針が自前と違うこと (ntfs-3g の `recover` は `$LogFile` を消す。docs/dirty-volumes.md)、GPL-2.0+ の負担が増えること、ntfs-3g は索引ブロックの読み直しが多く USB では下位キャッシュが必須なこと。**テスト・診断の参照実装としてだけ**残す (8 章。FUSE の無い AVD で参照実装を動かしたいときに、この別プロセスの仕組み (`libwimfuse.so` の ntfs-3g 版) を流用できる。今回は作っていない)。
+
+### 10.6 CI の run
+
+| run | ブランチ | 内容 | 結果 |
+|---|---|---|---|
+| 44904303267 | `usbmem-wimfuse*` | `libwimfuse.so` のビルド (1 回目) | 失敗: bionic の `glob` は API 28 以降 (wimlib の `reference.c` が使う) → 代用ヘッダ + スタブで解消 |
+| 44904471250 | 同上 | ビルド (arm64-v8a / x86_64) | 成功 (約 3 分) |
+| 44904811545 | `usbmem-ci-only-wim-fuse` | 1 回目の AVD | 失敗: Kotlin のコンパイル (`Process.pid()` が解決できない) → `toString()` の `pid=` を読む形に |
+| 44905263884 | 同上 | 2 回目 | 計装テストまで行き、約 46 件中 2 件が `DeadObjectException`: サービスを強制終了する試験のあと、死んだ Binder を再利用していた → `isBinderAlive` で接続を張り直す |
+| 44906174728 | 同上 | 3 回目 | 47 件成功、skip 1 (アプリ終了の試験が通常の実行で skip) → 通常の実行では何もせず戻る形に |
+| **44906971508** | 同上 | 4 回目 (段階 A / B / C のテスト全部) | **成功 52 件** (約 7 分。`WimFuseTest` + `WimNestedTest`、子の残りは 2 回の確認とも 0) |
+
+### 10.7 未了・注意
+
+- 実機 (実 USB・実機の SELinux・arm64 の実行) では確かめていない。AVD (x86_64、API 34) のみ。arm64-v8a は**ビルドだけ**確認 (実行していない)。
+- ライセンス: プロセスを分けても、**ソースの提供・ライセンス文の表示の義務は消えない** (4 章)。`docs/licenses.md` は編集版の担当が持つので、ここでは触れていない。個人版のビルドにだけ `libwimfuse.so` が入る。
+- 書き込み (WIM の編集) は対象外 (読み取り専用)。
+- LZMS solid の再展開 (10.4)。巨大な WIM (数 GB) の実測はしていない。
+- `wim-fuse` グループは、main への統合 (2026-11-22、`usbmem-wt-wimint`) で `android-emulator.yml` の既定のグループに入れた (docs/ci.md)。公開版には FUSE 層を入れず、スタブにする (docs/editions.md 12.1)。

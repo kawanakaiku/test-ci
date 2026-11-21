@@ -37,12 +37,12 @@
 <!-- inventory:table -->
 | コンポーネント | ファイル | SPDX の内訳 | 出所 | 判断 | 公開版 | 説明 |
 |---|--:|---|---|---|--:|---|
-| `.github (CI)` | 12 | (なし) 11, Apache-2.0 1 | dev 11, own 1 | 一部だけ入れる (入る 1 / 除外 11) | 1 | 個人版の CI |
+| `.github (CI)` | 13 | (なし) 12, Apache-2.0 1 | dev 12, own 1 | 一部だけ入れる (入る 1 / 除外 12) | 1 | 個人版の CI |
 | `ルート` | 6 | (なし) 6 | own 4, dev 2 | 一部だけ入れる (入る 4 / 除外 2) | 4 | README など |
 | `android: ビルド設定・リソース・ラッパー` | 20 | (なし) 18, Apache-2.0 2 | own 19, external-permissive 1 | 公開版に入れる | 20 | Gradle / マニフェスト / リソース / Gradle ラッパー (Apache-2.0) |
-| `android: 計装テスト` | 34 | (なし) 34 | dev 34 | 公開版から除外 | 0 | 実機・エミュレータ用。カーネル FS のフィクスチャ・個人の機材を前提にする |
+| `android: 計装テスト` | 36 | (なし) 36 | dev 36 | 公開版から除外 | 0 | 実機・エミュレータ用。カーネル FS のフィクスチャ・個人の機材を前提にする |
 | `android: JNI` | 11 | Apache-2.0 7, GPL-2.0-or-later 3, (なし) 1 | own 8, own-gpl 3 | 公開版に入れる (SPDX を Apache-2.0 へ書き換え 3) | 11 | 自前の JNI (FS の分岐は USBMEM_FS_* の条件コンパイル) |
-| `android: Kotlin アプリ` | 35 | (なし) 35 | own 35 | 公開版に入れる | 35 | 自前の Kotlin。AndroidX / Compose (Apache-2.0) に依存 |
+| `android: Kotlin アプリ` | 40 | (なし) 39, Apache-2.0 1 | own 36, external-gpl 4 | 一部だけ入れる (入る 36 / 除外 4) | 36 | 自前の Kotlin。AndroidX / Compose (Apache-2.0) に依存 |
 | `android: JVM 単体テスト` | 8 | (なし) 8 | own 8 | 公開版に入れる | 8 | JUnit |
 | `core/*.cmake, core/CMakeLists.txt` | 7 | Apache-2.0 7 | own 5, own-gpl 1, external-gpl 1 | 一部だけ入れる (入る 5 / 除外 2) | 5 | 自前: ビルド定義 |
 | `core/compat: ビルド定義` | 8 | Apache-2.0 8 | kernel 7, own 1 | 一部だけ入れる (入る 1 / 除外 7) | 1 | 各カーネル FS のビルド定義 |
@@ -53,7 +53,7 @@
 | `core/compat: FsVolume 共通 IF・ネストマウント` | 5 | GPL-2.0-or-later 5 | own-gpl 5 | 公開版に入れる (SPDX を Apache-2.0 へ書き換え 5) | 5 | 自前: FS 共通のインタフェースと、その上のネストマウント (GPL 表記は安全側。公開版では Apache-2.0 へ) |
 | `core/compat: LinuxCompat 実行時` | 20 | GPL-2.0-or-later 19, Apache-2.0 1 | kernel-shim 20 | 公開版から除外 | 0 | inode / dentry / ページキャッシュ / bio / buffer_head / jbd2 / VFS の再現 |
 | `core/compat: カーネル FS / LinuxCompat のテスト` | 25 | GPL-2.0-or-later 22, Apache-2.0 3 | kernel 24, own 1 | 公開版から除外 | 0 | 上のドライバのテスト (GPL-2.0-or-later 表記が大半) |
-| `core/fuseshim (ntfs-3g / wimlib)` | 13 | GPL-2.0-or-later 13 | external-gpl 13 | 公開版から除外 | 0 | 外部 GPL / LGPL を動かす試作層 (GPL-2.0-or-later) |
+| `core/fuseshim (ntfs-3g / wimlib)` | 26 | GPL-2.0-or-later 22, Apache-2.0 2, LGPL-2.1-or-later 2 | external-gpl 26 | 公開版から除外 | 0 | 外部 GPL / LGPL を動かす試作層 (GPL-2.0-or-later) |
 | `core/include` | 26 | Apache-2.0 26 | own 26 | 公開版に入れる | 26 | 自前: 公開 API ヘッダ |
 | `core/src` | 58 | Apache-2.0 58 | own 58 | 公開版に入れる | 58 | 自前: パーティション表・ディスク編集・USB MSC / SCSI・暗号 (AES / SHA / HMAC / PBKDF2 / XTS / Argon2)・LUKS1/2・BitLocker・QCOW2 / VHD / VHDX / VMDK / NBD・DiskTools (fsck / mkfs)・救出 / バックアップ |
 | `core/tests` | 28 | Apache-2.0 27, (なし) 1 | own 27, generated 1 | 公開版に入れる | 28 | 自前: 上のテスト (暗号ベクタは公開値) |
@@ -69,8 +69,8 @@
 | `third_party/ntfs-resurrection` | 67 | GPL-2.0-or-later 55, (なし) 6, GPL-2.0 WITH Linux-syscall-note 2, MIT 2, GPL-2.0-only 1, ほか 1 種 | kernel 67 | 公開版から除外 | 0 | Linux fs/ntfs (NTFS Resurrection)。GPL-2.0-or-later |
 | `third_party/squashfs` | 34 | GPL-2.0-or-later 24, GPL-2.0-only 8, GPL-2.0 WITH Linux-syscall-note 1, (なし) 1 | kernel 34 | 公開版から除外 | 0 | Linux fs/squashfs。GPL-2.0 |
 | `third_party/udf` | 23 | GPL-2.0-only 14, GPL-2.0 4, (なし) 3, GPL-2.0 WITH Linux-syscall-note 1, LGPL-2.0+ 1 | kernel 23 | 公開版から除外 | 0 | Linux fs/udf。GPL-2.0 (一部 LGPL-2.0+) |
-| `tools` | 158 | (なし) 127, Apache-2.0 30, GPL-2.0-or-later 1 | dev 128, own 24, kernel-patch 3, kernel-shim 2, external-gpl 1 | 一部だけ入れる (入る 24 / 除外 134) | 24 | テスト・フィクスチャ生成・CI の補助 (公開版に入るのは公開版のテストが使うものだけ) |
-| `tools: FUSE アダプター・fuseshim・xfstests` | 9 | (なし) 8, GPL-2.0-or-later 1 | own-gpl 6, external-gpl 3 | 公開版から除外 | 0 | GPL 表記の自前アダプターと、ntfs-3g / wimlib の取得・試験 |
+| `tools` | 160 | (なし) 128, Apache-2.0 31, GPL-2.0-or-later 1 | dev 129, own 24, kernel-patch 3, kernel-shim 2, external-gpl 2 | 一部だけ入れる (入る 24 / 除外 136) | 24 | テスト・フィクスチャ生成・CI の補助 (公開版に入るのは公開版のテストが使うものだけ) |
+| `tools: FUSE アダプター・fuseshim・xfstests` | 10 | (なし) 9, GPL-2.0-or-later 1 | own-gpl 6, external-gpl 4 | 公開版から除外 | 0 | GPL 表記の自前アダプターと、ntfs-3g / wimlib の取得・試験 |
 <!-- /inventory:table -->
 
 ファイル単位の機械可読な表: `tools/license_inventory.py --tsv` (パス / SPDX / SPDX の種別 / 出所 / 動作 / 規則の行 / 注記)、`--json`。
@@ -277,6 +277,8 @@ git log --stat | head                                                   # 履歴
 
 ## 12. 別ブランチの機能が個人版へ統合されたときの公開版の扱い (例: wimfuse)
 
+**wimfuse (wimlib の別プロセス化、`usbmem-wt-wimlib`) は 2026-11-22 に統合し、下の 1〜5 を対応済み** (`usbmem-wt-wimint`。12.1 に中身と CI の結果)。以下は、次に別ブランチの機能を統合するときの手順として残す。
+
 公開版は許可リストなので、統合された新しいファイルは、`include` の glob (主に `android/app/src/main/java/**`、`core/src/**`、`core/include/**`) に当たるものだけが自動で公開版に入る。**GPL / LGPL を動かす層が、これらの glob に当たる場所に入ると、そのまま公開版へ入ってしまう**ので、統合の前後に次を行う。
 
 1. **除外の追加**: `tools/public_manifest.txt` に `exclude`、またはまだ無いファイルなら先回りの `reserve` (当たるファイルが無くても古い規則と見なされない) で、パスを足す。**規則は上から先に当たる**ので、`android/app/src/main/java/**` の `include` より前に置く。wimlib (`usbmem-wt-wimlib`) の分は、先回りで入れてある: `android/app/src/main/java/org/usbmem/app/wimfuse/**`、`core/fuseshim/wimfuse/**`、`tools/wimfuse/**`、`.github/workflows/wimfuse-build.yml`。統合で場所が変わったら、パスを直す。
@@ -286,3 +288,25 @@ git log --stat | head                                                   # 履歴
 5. **確認**: `tools/license_inventory.py --check` (規則の矛盾)、`tools/export_public.sh` (検査)、公開版の CI (`public-edition.yml`、ブランチ `usbmem-public-<名前>`) が通ること。
 
 新しい `third_party/*` や `core/compat/*` の追加は、`include` に当たらない (未分類 = 除外) ので、何もしなくても公開版には入らない。
+
+### 12.1 wimfuse の対応 (2026-11-22、対応済み)
+
+1. **除外**: 先回りの `reserve` (wimfuse の Kotlin パッケージ・`tools/wimfuse/**` ほか) が、統合後のパスにそのまま当たった (パスの修正は不要)。統合後は `exclude` に直した。`core/fuseshim/wimfuse/**` と `wimfuse-build.yml` は、元からある `core/fuseshim/**` と `.github/**` の除外が先に当たるので、`reserve` の行は消した (残すと「古い規則」の NG になる)。
+2. **参照の差し替え**: `tools/public_edition/WimFuseStub.kt` を `overlay` で `org/usbmem/app/wimfuse/WimFuseStub.kt` に置く。`WimFuse.available(ctx)` は常に false、`WimInfo` / `WimImageInfo` / `WimFuseException` (UI が使う型) は個人版と同じ形、`info` / `open` / `openArchive` は ENOSYS の `WimFuseException` を投げる (`available()` が false なので `VolumeRegistry.inspectWim` が null を返し、WIM の画面・マウントには入らない)。参照元 (`VolumeRegistry` / `MainActivity` / `NestedMountSection`) は個人版と同じファイルで、公開版でも変えていない。
+3. **JNI**: `WimFuseNative.kt` は公開版に入らず、スタブは `System.loadLibrary` も `external fun` も持たない (`UnsatisfiedLinkError` の経路が無い)。ネイティブ側 (`core/fuseshim/wimfuse/android/`) も公開版に無い。
+4. **スイッチ**: `android/app/build.gradle.kts` は、公開版 (`-PusbmemEdition=public`) では `-PusbmemWimFuse` を警告つきで無視する (`BuildConfig.WIMFUSE_SUPPORTED` は false、`-DUSBMEM_WIMFUSE=ON` は渡さない、`jniLibs` も足さない)。`android/app/src/main/cpp/CMakeLists.txt` は `USBMEM_WIMFUSE AND NOT USBMEM_EDITION STREQUAL "public"` のときだけ `client.cmake` を読む。
+5. **AndroidManifest**: `scrub` (manifest の末尾) で、`:wimfuse` の `<service>` を直前のコメントごと、公開版のツリーにだけ外す。`check_public_tree.py` が、公開版の manifest に `WimFuseService` / `:wimfuse` が残っていれば NG (scrub の正規表現が manifest の書き方の変更で外れたときの番人)。
+6. **確認** (ローカル): `license_inventory.py --check` OK、`export_public.sh` (/dev/shm へ書き出し → 検査) OK (248 ファイル。GPL 系なし・SPDX あり・個人情報なし・単独で解決可能)。公開版の manifest に service なし、build.gradle.kts / CMakeLists.txt の wimfuse の記述はスイッチと無効化の注記だけ。
+
+CI の結果は 12.2。
+
+### 12.2 CI の結果 (2026-11-22、kawanakaiku/test-ci)
+
+| run | ブランチ / コミット | 結果 |
+|---|---|---|
+| 44920520646 | `usbmem-public-wimint` a0ca0ad | **全ジョブ成功** (export + check / public android / host plain / host san。約 24 分) |
+| 44922993079 | `usbmem-public-wimint` 7de6cf0 (manifest の reserve → exclude の整理と docs。以降は docs だけ) | **全ジョブ成功** |
+| 44920529925 | `usbmem-ci-full-wimint` a0ca0ad | public-edition 成功 |
+
+個人版 (回帰の確認、`usbmem-ci-full-wimint` a0ca0ad): Host tests run 44920529807 (plain / san / wsan / wrel の 4 構成すべて成功、117 分)、Android emulator tests run 44920529823 (全 7 グループ成功。`wim-fuse` は 52 件成功。初回の `ro-misc` の `DirtyConfirmUiTest.image_dialogNamesTheImage_andScrollsInLandscape` の 1 件は散発の UI 試験で、`gh run rerun --failed` で成功。docs/ci.md 末尾)。a0ca0ad 以降のコミットは manifest のコメントと docs だけ。
+

@@ -35,6 +35,7 @@ overlay  own  tools/public_edition/gitignore             .gitignore
 overlay  own  tools/public_edition/ci.yml                .github/workflows/ci.yml
 overlay  own  tools/public_edition/ci_host.sh               tools/ci/host_tests.sh          # 公開版の CI の手順 (ホスト)。個人版のリポジトリの public-edition.yml と共用
 overlay  own  tools/public_edition/ci_android.sh            tools/ci/android_build.sh       # 同 (Android)
+overlay  own  tools/public_edition/WimFuseStub.kt         android/app/src/main/java/org/usbmem/app/wimfuse/WimFuseStub.kt   # 公開版の WIM (FUSE 層) のスタブ: WimFuse.available() が常に false。VolumeRegistry / MainActivity / NestedMountSection の参照を解決する (docs/editions.md 12 章)
 overlay  own  tools/public_edition/compat_CMakeLists.txt core/compat/CMakeLists.txt   # 公開版の core/compat: FsVolume 共通 IF と自前の F2FS だけ (カーネル由来の LinuxCompat を含まない)
 exclude  dev  README.md                                  # 個人版の README (公開版は上の overlay)
 exclude  dev  .gitignore                                 # 個人用の無視パターン (パスワードのメモなど) を含む。公開版は overlay
@@ -108,13 +109,12 @@ include   own  android/app/proguard-rules.pro
 include   own  android/app/src/main/AndroidManifest.xml
 include   own  android/app/src/main/res/**
 # --- wimlib (wimfuse。usbmem-wt-wimlib。main へ統合されたとき公開版に入らないようにする先回りの除外。LGPL-3.0+ / GPL-3.0+ の wimlib を別プロセスで動かす層)
-#     統合後は、ここに書いたパスが実在すれば exclude と同じに働く。パスを足すだけでよい (規則は上から先に当たる: android/app/src/main/java/** の include より前に置く)。
-#     公開版のビルドが通るためには、公開版に残るファイル (VolumeRegistry / MainActivity / NestedMountSection / WimFuseNative.kt など) の org.usbmem.app.wimfuse への参照を
-#     スタブ (WimFuse.available() が常に false) へ差し替える overlay も要る。docs/editions.md 12 章
-reserve   external-gpl android/app/src/main/java/org/usbmem/app/wimfuse/**
-reserve   external-gpl core/fuseshim/wimfuse/**
-reserve   external-gpl tools/wimfuse/**
-reserve   external-gpl .github/workflows/wimfuse-build.yml
+#     統合済み (usbmem-wt-wimint)。公開版に残るファイル (VolumeRegistry / MainActivity / NestedMountSection) の org.usbmem.app.wimfuse への参照は、上の overlay (WimFuseStub.kt。
+#     WimFuse.available() が常に false) が解決する。WimFuseNative.kt (JNI) は公開版に無い (スタブは JNI を使わない)。AndroidManifest の :wimfuse サービスは、下の scrub で公開版から外す。
+#     パスを足すだけでよい (規則は上から先に当たる: android/app/src/main/java/** の include より前に置く)。docs/editions.md 12 章
+exclude   external-gpl android/app/src/main/java/org/usbmem/app/wimfuse/**
+exclude   external-gpl tools/wimfuse/**
+# (core/fuseshim/wimfuse/** と .github/workflows/wimfuse-build.yml は、上の core/fuseshim/** と .github/** の除外が先に当たる)
 include   own  android/app/src/main/java/**             # Kotlin。AndroidX / Compose (Apache-2.0) に依存する。SPDX は無いので書き出しで Apache-2.0 を付ける
 relicense own-gpl android/app/src/main/cpp/jni_ntfs.cpp   # 自前の JNI (FS の分岐は USBMEM_FS_* の条件コンパイル)。GPL 表記は個人版でカーネル FS をリンクするための安全側
 relicense own-gpl android/app/src/main/cpp/jni_vol.h      # 自前 (Vol ハンドルの定義)
@@ -188,3 +188,5 @@ exclude   own-doc docs/**                               # 上以外: カーネ�
 # ============================================================ 公開版のツリーにだけ効く置換 (ファイルは変えない)
 scrub     dev  s!https://github\.com/[A-Za-z0-9_.-]+/test-ci!https://github.com/<owner>/test-ci!
 scrub     dev  s![A-Za-z0-9_.-]+/test-ci!<owner>/test-ci!
+# AndroidManifest の :wimfuse サービス (個人版の FUSE 層。WimFuseService は公開版に無い) を、直前のコメントごと外す。check_public_tree.py が、残っていれば NG にする。\x21 = "!" (この書式は ! を使えない)
+scrub     own  s!(?s)[ \t]*<\x21-- 個人版の FUSE 層 \(wimfuse\).*?-->\n[ \t]*<service\s+android:name="\.wimfuse\.WimFuseService".*?/>\n!!

@@ -8,6 +8,7 @@
 #   squash-erofs   squashfs / erofs / F2FS (mkfs.f2fs + sload.f2fs で作る 1 イメージだけ。カーネル製 k_* は VM が要るので CI では扱わない) / F2FS 書き込み (f2fs_write: 結果を fsck.f2fs とカーネルのループマウントで検証)
 #   nested-ntfs    ネスト (ループバック) マウント / NTFS 書き込み (SAF)
 #   crypt-ui       暗号ボリュームの UI 試験 (CryptoUiTest: 画面を操作して LUKS2 / BitLocker を解錠・書き込み・ロック。tools/gen_crypt_ui_fixture.py)
+#   wim-fuse       個人版の FUSE 層 (別プロセスの wimlib の wimmount): WimFuseTest (:wimfuse サービスの exec・RPC・WIM のツリーの一致・子プロセスの後始末)。要 wimtools (フィクスチャ)・-PusbmemWimFuse のビルド (docs/fuse-layer.md 10 章)
 #   ro-misc        読み取りテスト (ext2 / ext4 / exFAT / ISO 9660 / NTFS) と アプリ側テスト (DocumentsProvider / リンク / raw イメージ / 転送チューニング)。専用スクリプトが無いので ci_android_tests.sh が直接 push して実行する
 # 環境変数: ANDROID_SERIAL (既定 emulator-5554。emulator-* 以外は拒否)、CI_FIX (フィクスチャ置き場。既定 ${RUNNER_TEMP:-/tmp}/usbmem_fix)、
 #          CI_LOG_DIR (ログ。既定 <リポジトリ>/ci-logs)。run は ビルド済みの APK (-PusbmemNtfsWrite=true のビルド) が android/app/build/outputs/apk にあること。
@@ -56,6 +57,7 @@ gen_fs() {
     app_misc)    py "$HERE/gen_ext2_fixture.py" "$FIX/ext2" && bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
     write) bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
     crypt_ui)    py "$HERE/gen_crypt_ui_fixture.py" "$FIX/crypt_ui" ;;
+    wim_fuse)    py "$HERE/fuseshim/gen_wim_fixture.py" "$FIX/wim" ;;   # wimlib-imagex (wimtools) が要る。lzx / none / lzms の 3 つの .wim と expected.txt
     *) echo "unknown fs $1" >&2; return 2 ;;
   esac
 }
@@ -114,6 +116,33 @@ run_generic() {   # run_generic <クラス,...> <dir>:<prefix> ...
 }
 APP=org.usbmem.app
 
+# 個人版の FUSE 層 (wimfuse): .wim と期待のツリーを送って WimFuseTest を実行する。終わったあと、子プロセス (libwimfuse.so) が残っていないことも確かめる
+run_wim_fuse() {
+  local d=$FIX/wim v
+  for v in lzx none lzms multi; do adbs push "$d/$v.wim" "/data/local/tmp/wimfuse_$v.wim" >/dev/null || return 1; done
+  adbs push "$d/expected.txt" /data/local/tmp/wimfuse_expected.txt >/dev/null || return 1
+  adbs push "$d/expected_multi.txt" /data/local/tmp/wimfuse_expected_multi.txt >/dev/null || return 1
+  adbs push "$d/parent.img" /data/local/tmp/wimfuse_parent.img >/dev/null || return 1
+  adbs logcat -c
+  instr_classes $APP.wimfuse.WimFuseTest,$APP.wimfuse.WimNestedTest; local r=$?
+  echo "--- 測定値 (WIMFUSE_METRIC)"; adbs logcat -d -s WIMFUSE_METRIC:I | sed 's/^.*WIMFUSE_METRIC *: *//' | head -80
+  sleep 3
+  local left; left=$(adbs shell 'ps -A' | grep -c libwimfuse || true)
+  echo "テスト後に残っている libwimfuse の子プロセス: $left"
+  adbs shell 'ps -A' | grep -E 'wimfuse' || true
+  [ "$left" = 0 ] || r=1
+  # アプリの強制終了: 子を開いたまま計装を終える (アプリと :wimfuse が消える) → 子が残らない
+  echo "--- アプリ終了で子が消えるか"
+  adbs shell am instrument -r -w -e wimfuse_leave 1 -e class "$APP.wimfuse.WimFuseTest#leaveChildOpen_forAppDeath" "$RUNNER" | grep -E 'INSTRUMENTATION_STATUS_CODE|stack' | head -5
+  adbs shell 'ps -A' | grep -E 'wimfuse|usbmem' || true
+  sleep 3
+  left=$(adbs shell 'ps -A' | grep -c libwimfuse || true)
+  echo "アプリ終了後に残っている libwimfuse の子プロセス: $left"
+  [ "$left" = 0 ] || r=1
+  adbs shell 'rm -f /data/local/tmp/wimfuse_*' >/dev/null
+  return $r
+}
+
 run_fs() {
   case $1 in
     fat) bash "$HERE/run_android_fat_test.sh" "$FIX/fat" ;;
@@ -139,6 +168,7 @@ run_fs() {
     app_misc)    mkdir -p "$FIX/misc" && cp "$FIX/ext2/b1k.img" "$FIX/misc/ext2_wr.img" \
                    && run_generic $APP.DocumentsProviderTest,$APP.LinkProviderTest,$APP.WriteSelfTestInstrumented,$APP.RawImageInstrumentedTest,$APP.TransferTuningTest,$APP.VaultRealPathTest "$FIX/ntfs:" "$FIX/misc:" ;;
     crypt_ui)    run_generic $APP.CryptoUiTest "$FIX/crypt_ui:cui_" ;;
+    wim_fuse)    run_wim_fuse ;;
     *) echo "unknown fs $1" >&2; return 2 ;;
   esac
 }
@@ -151,6 +181,7 @@ group_fs() {
     nested-ntfs)   echo "nested write" ;;
     crypt-ui)      echo "crypt_ui" ;;
     ro-misc)       echo "ext2_read ext4_read exfat_read iso_read ntfs_read app_misc" ;;
+    wim-fuse)      echo "wim_fuse" ;;
     *) echo "unknown group $1" >&2; return 2 ;;
   esac
 }

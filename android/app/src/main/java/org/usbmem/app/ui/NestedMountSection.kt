@@ -35,19 +35,21 @@ interface NestedActions {
     fun nestedList(volumeId: String, path: String): List<NtfsEntry>
     /** イメージのパーティション表を読む (何もマウントしない) */
     fun nestedInspect(volumeId: String, path: String): NestedInspectResult
+    /** 個人版: WIM を読み取り専用で公開する (別プロセスの wimlib)。image = イメージ番号 (1 始まり)、null = イメージごとのフォルダを並べて全部 */
+    fun nestedMountWim(volumeId: String, path: String, image: Int?, label: String): NestedMountResult
     /** イメージの [startBytes, +sizeBytes) を読み取り専用でマウントして公開する。ext3/ext4 のジャーナル未再生は、確認後に allowNoload = true で呼ぶ */
     fun nestedMount(volumeId: String, path: String, startBytes: Long, sizeBytes: Long, label: String, allowNoload: Boolean): NestedMountResult
 }
 
 /** depth = そのボリュームのネスト段数 (最上位 = 0)。[canNest] = その中のイメージをさらに開ける (段数の上限未満) */
 data class NestedVolumeRow(val id: String, val label: String, val fsName: String, val depth: Int, val canNest: Boolean)
-data class NestedInspectResult(val table: PartitionTable? = null, val notice: Notice? = null)
+data class NestedInspectResult(val table: PartitionTable? = null, val notice: Notice? = null, val wim: org.usbmem.app.wimfuse.WimInfo? = null)
 /** [noload] = ジャーナル未再生 (EUCLEAN) で拒否された。確認すれば読み取り専用で開き直せる */
 data class NestedMountResult(val notice: Notice, val noload: Boolean = false)
 
 private val MOUNTABLE_FS = setOf("ntfs", "exfat", "ext2", "ext3", "ext4", "fat12", "fat16", "fat32", "iso9660", "udf", "squashfs", "erofs")
 
-private data class NestedPick(val volumeId: String, val path: String, val table: PartitionTable)
+private data class NestedPick(val volumeId: String, val path: String, val table: PartitionTable?, val wim: org.usbmem.app.wimfuse.WimInfo? = null)
 private data class NestedAsk(val volumeId: String, val path: String, val start: Long, val size: Long, val label: String)
 
 @Composable
@@ -64,6 +66,9 @@ fun NestedMountSection(a: NestedActions, modifier: Modifier = Modifier) {
 
     fun <T> io(block: () -> T, then: (T) -> Unit) { scope.launch { busy = true; val r = withContext(Dispatchers.IO) { block() }; busy = false; then(r) } }
     fun browse(v: NestedVolumeRow, path: String) { io({ a.nestedList(v.id, path) }) { volume = v; dir = path; entries = it } }
+    fun mountWim(p: NestedPick, image: Int?, label: String) {
+        io({ a.nestedMountWim(p.volumeId, p.path, image, label) }) { r -> notice = r.notice }
+    }
     fun mount(p: NestedPick, start: Long, size: Long, label: String, noload: Boolean) {
         io({ a.nestedMount(p.volumeId, p.path, start, size, label, noload) }) { r ->
             notice = r.notice
@@ -78,8 +83,25 @@ fun NestedMountSection(a: NestedActions, modifier: Modifier = Modifier) {
             if (p != null) {
                 // ---- 選んだイメージの中身 (パーティション) → マウント
                 Text(p.path.substringAfterLast('/'), style = MaterialTheme.typography.titleSmall)
+                val w = p.wim
                 val t = p.table
-                if (t.wholeDeviceVolume) {
+                if (w != null) {
+                    // ---- WIM (Windows イメージ。個人版): イメージを選ぶ。別プロセスの wimlib が読み、一時コピーは作らない
+                    Text(stringResource(R.string.nested_wim_summary, w.imageCount, w.compression, formatBytes(w.totalBytes)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (w.imageCount > 1) Button(onClick = { mountWim(p, null, p.path.substringAfterLast('/')) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.nested_wim_mount_all)) }
+                    w.images.forEach { im ->
+                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("#${im.index} ${im.name}".trim(), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
+                                Chip("WIM")
+                            }
+                            Text(stringResource(R.string.nested_wim_image_detail, im.files, im.dirs, formatBytes(im.bytes)) + if (im.description.isNotBlank()) "\n${im.description}" else "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Button(onClick = { mountWim(p, im.index, "${p.path.substringAfterLast('/')} #${im.index}") }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.usb_publish_read_only)) }
+                        }
+                    }
+                } else if (t == null) {
+                    Text(stringResource(R.string.nested_nothing_to_mount), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else if (t.wholeDeviceVolume) {
                     Button(onClick = { mount(p, 0, t.diskBytes, p.path.substringAfterLast('/'), false) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.nested_mount_whole)) }
                 } else {
                     Text(stringResource(R.string.common_partitions_subtitle, p.path.substringAfterLast('/'), t.kind.uppercase(), formatBytes(t.diskBytes), t.sectorSize), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -125,7 +147,8 @@ fun NestedMountSection(a: NestedActions, modifier: Modifier = Modifier) {
                             if (e.isDir) browse(v, child)
                             else io({ a.nestedInspect(v.id, child) }) { r ->
                                 notice = r.notice
-                                if (r.table != null) pick = NestedPick(v.id, child, r.table)
+                                if (r.wim != null) pick = NestedPick(v.id, child, null, r.wim)
+                                else if (r.table != null) pick = NestedPick(v.id, child, r.table)
                             }
                         },
                         enabled = !busy && !e.isLink,

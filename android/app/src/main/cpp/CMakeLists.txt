@@ -23,3 +23,8 @@ endif()
 target_link_options(usbmem_jni PRIVATE -Wl,-z,max-page-size=16384)
 # ネスト (ループバック) マウントの JNI (docs/nested-mount.md)
 target_sources(usbmem_jni PRIVATE jni_nested.cpp)
+# 個人版の FUSE 層 (wimfuse) の本体側 (JNI + RPC クライアント)。Gradle の -PusbmemWimFuse=... のとき (-DUSBMEM_WIMFUSE=ON) だけ。docs/fuse-layer.md 10 章
+# 公開版 (USBMEM_EDITION=public) では、指定されても読み込まない (wimlib は LGPL / GPL。公開版のツリーに FUSE 層は無い。docs/editions.md 12 章)
+if(USBMEM_WIMFUSE AND NOT USBMEM_EDITION STREQUAL "public")
+  include(${CMAKE_CURRENT_LIST_DIR}/../../../../../core/fuseshim/wimfuse/android/client.cmake)
+endif()

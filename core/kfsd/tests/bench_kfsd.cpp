@@ -46,7 +46,7 @@ bool copy_sparse(const std::string& from, const std::string& to) {
   return ok;
 }
 
-struct Variant { const char* name; bool rpc; bool prefetch; };
+struct Variant { const char* name; bool rpc; bool prefetch; int ra_kb; };
 
 struct Vol {
   std::unique_ptr<FsVolume> v;
@@ -66,6 +66,7 @@ Vol open_vol(const std::string& img, const Variant& var) {
     kfsd::MountOptions mo;
     mo.rw = true;
     mo.prefetch_stat = var.prefetch;
+    mo.dev_readahead_kb = var.ra_kb;
     auto r = kfsd::RpcVolume::mount(g_kfsd, dev, mo, &o.err);
     o.rpc = r.get();
     o.v = std::move(r);
@@ -95,7 +96,7 @@ int main(int argc, char** argv) {
   tb.push_back('\0');
   if (!::mkdtemp(tb.data())) return 1;
   std::string work = tb.data();
-  const Variant variants[] = {{"inproc", false, false}, {"rpc", true, false}, {"rpc+prefetch", true, true}};
+  const Variant variants[] = {{"inproc", false, false, 0}, {"rpc", true, false, 0}, {"rpc+prefetch", true, true, 0}, {"rpc+prefetch+ra1M", true, true, 1024}};
   std::vector<std::vector<Row>> results;
   std::string fsname;
   const size_t total = static_cast<size_t>(size_mb) << 20;
@@ -221,30 +222,32 @@ int main(int argc, char** argv) {
   }
   ::rmdir(work.c_str());
 
-  // ---- 表
-  std::string md = "#### kfsd benchmark: " + fsname + " (file " + std::to_string(size_mb) + " MiB, " + std::to_string(nfiles) + " files)\n\n| metric | unit | inproc | rpc | rpc+prefetch |\n|---|---|---|---|---|\n";
-  std::fprintf(stderr, "\n=== kfsd benchmark: %s (file %d MiB, %d files) ===\n%-36s %-8s %12s %12s %14s\n", fsname.c_str(), size_mb, nfiles, "metric", "unit", "inproc", "rpc", "rpc+prefetch");
-  for (size_t i = 0; i < results[0].size(); i++) {
-    auto val = [&](size_t k) -> std::string {
-      if (i < results[k].size() && results[k][i].what == results[0][i].what) { char b[32]; std::snprintf(b, sizeof b, "%.1f", results[k][i].v); return b; }
-      for (auto& r : results[k]) if (r.what == results[0][i].what) { char b[32]; std::snprintf(b, sizeof b, "%.1f", r.v); return b; }
-      return "-";
-    };
-    std::fprintf(stderr, "%-36s %-8s %12s %12s %14s\n", results[0][i].what.c_str(), results[0][i].unit.c_str(), val(0).c_str(), val(1).c_str(), val(2).c_str());
-    md += "| " + results[0][i].what + " | " + results[0][i].unit + " | " + val(0) + " | " + val(1) + " | " + val(2) + " |\n";
-  }
-  // rpc 専用の行 (inproc に無い) も出す
-  for (size_t k = 1; k < results.size(); k++)
-    for (auto& r : results[k]) {
-      bool in0 = false;
-      for (auto& r0 : results[0]) if (r0.what == r.what) in0 = true;
-      if (!in0 && k == 1) {
-        char b[32];
-        std::snprintf(b, sizeof b, "%.1f", r.v);
-        std::fprintf(stderr, "%-36s %-8s %12s %12s %14s\n", r.what.c_str(), r.unit.c_str(), "-", b, "");
-        md += "| " + r.what + " | " + r.unit + " | - | " + b + " | |\n";
-      }
+  // ---- 表 (行の名前で突き合わせる。inproc に無い行 (デバイスの回数など) は "-")
+  const size_t nv = results.size();
+  std::vector<std::string> names;
+  for (auto& rows : results)
+    for (auto& r : rows) if (std::find(names.begin(), names.end(), r.what) == names.end()) names.push_back(r.what);
+  std::string md = "#### kfsd benchmark: " + fsname + " (file " + std::to_string(size_mb) + " MiB, " + std::to_string(nfiles) + " files)\n\n| metric | unit |";
+  std::string sep = "|---|---|";
+  for (size_t k = 0; k < nv; k++) { md += std::string(" ") + variants[k].name + " |"; sep += "---|"; }
+  md += "\n" + sep + "\n";
+  std::fprintf(stderr, "\n=== kfsd benchmark: %s (file %d MiB, %d files) ===\n%-34s %-7s", fsname.c_str(), size_mb, nfiles, "metric", "unit");
+  for (size_t k = 0; k < nv; k++) std::fprintf(stderr, " %18s", variants[k].name);
+  std::fprintf(stderr, "\n");
+  for (auto& n : names) {
+    std::string unit, line = "| " + n + " |";
+    std::vector<std::string> cells;
+    for (size_t k = 0; k < nv; k++) {
+      std::string c = "-";
+      for (auto& r : results[k]) if (r.what == n) { char b[32]; std::snprintf(b, sizeof b, "%.1f", r.v); c = b; unit = r.unit; }
+      cells.push_back(c);
     }
+    std::fprintf(stderr, "%-34s %-7s", n.c_str(), unit.c_str());
+    line += " " + unit + " |";
+    for (auto& c : cells) { std::fprintf(stderr, " %18s", c.c_str()); line += " " + c + " |"; }
+    std::fprintf(stderr, "\n");
+    md += line + "\n";
+  }
   if (const char* sum = std::getenv("GITHUB_STEP_SUMMARY")) {
     if (FILE* f = std::fopen(sum, "a")) { std::fputs((md + "\n").c_str(), f); std::fclose(f); }
   }

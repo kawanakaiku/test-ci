@@ -5,10 +5,12 @@
 #include <signal.h>
 #include <spawn.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
@@ -80,6 +82,55 @@ int spawn(const std::string& exe, const std::vector<std::string>& extra_args, in
   ::close(child);
   if (rc != 0) { ::close(sv[0]); return -rc; }
   *fd = sv[0];
+  *pid = p;
+  return 0;
+}
+
+static bool abstract_addr(const std::string& name, sockaddr_un* a, socklen_t* len) {
+  if (name.empty() || name.size() + 1 > sizeof a->sun_path) return false;
+  std::memset(a, 0, sizeof *a);
+  a->sun_family = AF_UNIX;
+  std::memcpy(a->sun_path + 1, name.data(), name.size());   // sun_path[0] = '\0' = 抽象名前空間
+  *len = static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + 1 + name.size());
+  return true;
+}
+
+int listen_abstract(const std::string& name, int* listen_fd) {
+  sockaddr_un a;
+  socklen_t len;
+  if (!abstract_addr(name, &a, &len)) return -EINVAL;
+  int s = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  if (s < 0) return -errno;
+  if (::bind(s, reinterpret_cast<sockaddr*>(&a), len) != 0 || ::listen(s, 1) != 0) { int e = errno; ::close(s); return -e; }
+  *listen_fd = s;
+  return 0;
+}
+
+int accept_peer(int listen_fd, int timeout_ms, int expected_uid, int* fd) {
+  int w = io::wait_fd(listen_fd, POLLIN, timeout_ms);
+  if (w == 0) return -ETIMEDOUT;
+  if (w < 0) return -errno;
+  int c = ::accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
+  if (c < 0) return -errno;
+  if (expected_uid >= 0) {
+    ucred cr{};
+    socklen_t cl = sizeof cr;
+    if (::getsockopt(c, SOL_SOCKET, SO_PEERCRED, &cr, &cl) != 0 || static_cast<int>(cr.uid) != expected_uid) { ::close(c); return -EACCES; }
+  }
+  *fd = c;
+  return 0;
+}
+
+int spawn_connect(const std::string& exe, const std::vector<std::string>& extra_args, const std::string& name, pid_t* pid) {
+  if (exe.empty() || ::access(exe.c_str(), X_OK) != 0) return -ENOENT;
+  std::vector<std::string> args{exe, "--connect=" + name};
+  for (auto& a : extra_args) args.push_back(a);
+  std::vector<char*> argv;
+  for (auto& a : args) argv.push_back(const_cast<char*>(a.c_str()));
+  argv.push_back(nullptr);
+  pid_t p = -1;
+  int rc = ::posix_spawn(&p, exe.c_str(), nullptr, nullptr, argv.data(), environ);
+  if (rc != 0) return -rc;
   *pid = p;
   return 0;
 }
@@ -223,6 +274,7 @@ int RpcVolume::init(int fd, pid_t pid, BlockDevicePtr dev, const MountOptions& o
   mr.dev_size = dev_->size();
   mr.tz_minutes_west = opt.tz_minutes_west;
   mr.dev_read_only = dev_->is_read_only() ? 1 : 0;
+  mr.dev_readahead_kb = opt.dev_readahead_kb > 0 ? static_cast<uint32_t>(opt.dev_readahead_kb) : 0;
   p.clear();
   rc = call(kMount, 0, 0, 0, &mr, sizeof mr, &r, &p, nullptr, 0, opt.mount_timeout_ms);
   if (rc < 0) return static_cast<int>(-rc);

@@ -20,10 +20,36 @@ namespace {
 // それでも、全体を mutex で直列化する (ソケット上で同時に進む要求は 1 つ、という契約を守るため)。
 class RemoteBlockDevice final : public BlockDevice {
  public:
-  RemoteBlockDevice(int fd, uint64_t size, uint32_t bs, bool ro) : fd_(fd), size_(size), bs_(bs ? bs : 512), ro_(ro) {}
+  RemoteBlockDevice(int fd, uint64_t size, uint32_t bs, bool ro, uint32_t ra_kb) : fd_(fd), size_(size), bs_(bs ? bs : 512), ro_(ro), ra_max_(static_cast<size_t>(std::min<uint32_t>(ra_kb, 16384)) << 10) {}
   Status read_at(uint64_t off, void* buf, size_t len, const IoOptions& = {}) override {
     if (!range_ok(size_, off, len)) return Status::Make(Errc::OutOfRange);
     auto* p = static_cast<uint8_t*>(buf);
+    if (ra_max_ && len < ra_max_) {
+      // 先読み (連続して読んでいるときだけ): 前の読みの終わりから続く読みなら、64 KiB から倍々に大きく取って、続く読みを往復なしで返す。
+      // 飛び飛びの読み (索引の読みなど) では先読みしない (USB の帯域と遅延を無駄にしないため)。書き込みは先読みのバッファを捨てる。
+      if (off >= ra_off_ && off + len <= ra_off_ + ra_buf_.size()) {
+        std::memcpy(p, ra_buf_.data() + (off - ra_off_), len);
+        last_end_ = off + len;
+        return Status::Ok();
+      }
+      bool seq = off == last_end_;
+      ra_size_ = seq ? std::min(std::max<size_t>(ra_size_ * 2, 64 << 10), ra_max_) : 0;
+      size_t want = std::max(len, ra_size_);
+      want = static_cast<size_t>(std::min<uint64_t>(want, size_ - off));
+      if (want > len) {
+        ra_buf_.resize(want);
+        ra_off_ = off;
+        Status st = read_raw(off, ra_buf_.data(), want);
+        if (!st.ok()) { ra_buf_.clear(); return st; }
+        std::memcpy(p, ra_buf_.data(), len);
+        last_end_ = off + len;
+        return Status::Ok();
+      }
+      last_end_ = off + len;
+    }
+    return read_raw(off, p, len);
+  }
+  Status read_raw(uint64_t off, uint8_t* p, size_t len) {
     while (len) {
       size_t n = std::min<size_t>(len, kMaxIo);
       Status st = rpc(kDevRead, off, n, nullptr, 0, p, n);
@@ -35,6 +61,7 @@ class RemoteBlockDevice final : public BlockDevice {
   Status write_at(uint64_t off, const void* buf, size_t len, const IoOptions& = {}) override {
     if (ro_) return Status::Make(Errc::ReadOnly);
     if (!range_ok(size_, off, len)) return Status::Make(Errc::OutOfRange);
+    if (!ra_buf_.empty() && off < ra_off_ + ra_buf_.size() && ra_off_ < off + len) ra_buf_.clear();   // 先読みのバッファと重なる書き込み: 捨てる
     auto* p = static_cast<const uint8_t*>(buf);
     while (len) {
       size_t n = std::min<size_t>(len, kMaxIo);
@@ -86,6 +113,10 @@ class RemoteBlockDevice final : public BlockDevice {
   uint64_t size_;
   uint32_t bs_;
   bool ro_;
+  size_t ra_max_;
+  std::vector<uint8_t> ra_buf_;
+  uint64_t ra_off_ = 0, last_end_ = ~0ull;
+  size_t ra_size_ = 0;
   std::mutex mu_;
   std::atomic<bool> broken_{false};
   uint64_t seq_ = 0;
@@ -149,7 +180,7 @@ int handle(Server& s, const Hdr& q, const std::vector<uint8_t>& in) {
     if (s.vol || in.size() != sizeof(MountReq)) return 2;
     MountReq m;
     std::memcpy(&m, in.data(), sizeof m);
-    s.dev = std::make_shared<RemoteBlockDevice>(s.fd, m.dev_size, m.block_size, m.dev_read_only != 0);
+    s.dev = std::make_shared<RemoteBlockDevice>(s.fd, m.dev_size, m.block_size, m.dev_read_only != 0, m.dev_readahead_kb);
     MountParams p;
     p.flags = m.flags;
     p.tz_minutes_west = m.tz_minutes_west;

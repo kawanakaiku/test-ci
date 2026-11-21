@@ -114,7 +114,9 @@ struct MountReq {
   uint64_t dev_size;       // デバイスのバイト数
   int32_t tz_minutes_west; // FAT の更新時刻の変換用 (UTC より何分西か。既定 0)
   uint32_t dev_read_only;  // 1 = 下のデバイスが読み取り専用 (書き込み可を要求しても読み取り専用でマウントする)
-  uint64_t reserved[2];
+  uint32_t dev_readahead_kb;  // kfsd 側の連続読みの先読みの上限 (KiB。0 = 先読みなし)。連続して読んでいるときだけ 64 KiB から倍々に増やし、この値で止める
+  uint32_t reserved0;
+  uint64_t reserved1;
 };
 static_assert(sizeof(MountReq) == 40, "MountReq");
 

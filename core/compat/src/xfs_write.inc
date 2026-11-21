@@ -110,6 +110,14 @@
       b.dirty = false;
     }
   }
+  // 解放したブロックのバッファ (この操作で新しく作った / 以前のコミット待ちの作りたて) を、もうコミットしない。巻き戻し用に元の状態を保存してから落とす
+  void bdrop_fresh(uint64_t off) {
+    auto it = wb.find(off);
+    if (it == wb.end() || !it->second.fresh) return;
+    WBuf& b = it->second;
+    if (in_op && !undo.count(off)) undo.emplace(off, Undo{b.d, b.dirty, b.fresh, true});
+    b.dirty = false;
+  }
   void op_begin() { in_op = true; undo.clear(); u_icount = d_icount; u_ifree = d_ifree; u_fdblocks = d_fdblocks; }
   void op_end() { in_op = false; undo.clear(); }
   void op_abort() {
@@ -146,7 +154,7 @@
 
   // ============ CRC の仕上げ ============
   static bool is_short_btree_magic(uint32_t m) {
-    return m == 0x41423342 || m == 0x41423343 || m == 0x49414233 || m == 0x46494233;
+    return m == 0x41423342 || m == 0x41423343 || m == 0x49414233 || m == 0x46494233 || m == 0x524d4233;
   }
   void finalize(WBuf& b) {
     uint8_t* p = b.d.data();
@@ -157,7 +165,7 @@
       case BLFT_AGFL: set_crc(p, b.len, 32); break;
       case BLFT_BTREE: set_crc(p, b.len, is_short_btree_magic(be32(p)) ? 52 : 64); break;
       case BLFT_DIR_BLOCK: case BLFT_DIR_DATA: case BLFT_DIR_FREE: set_crc(p, b.len, 4); break;
-      case BLFT_DIR_LEAF1: case BLFT_DIR_LEAFN: case BLFT_DA_NODE: case BLFT_SYMLINK: set_crc(p, b.len, 12); break;
+      case BLFT_DIR_LEAF1: case BLFT_DIR_LEAFN: case BLFT_DA_NODE: case BLFT_SYMLINK: case 16: set_crc(p, b.len, 12); break;   // 16 = 属性 leaf (xfs_write_attr.inc)
       case BLFT_DINO:
         for (uint32_t o = 0; o + inodesize <= b.len; o += inodesize) {
           if (!b.fresh && std::memcmp(p + o, b.orig.data() + o, inodesize) == 0) continue;
@@ -415,10 +423,10 @@
     uint32_t comp_ro = be32(sb.data() + 212), incomp = be32(sb.data() + 216), log_incomp = be32(sb.data() + 220);
     if (log_incomp) return "ログに未知の機能 (features_log_incompat) がある";
     if (be32(sb.data() + 208)) return "未知の compat 機能がある";
-    if (incomp & ~(kIncompatFtype | kIncompatSpinodes | kIncompatBigtime | kIncompatNrext64 | kIncompatExchrange))
-      return "未対応の incompat 機能がある (meta_uuid / parent pointer / metadir など)";
+    if (incomp & ~(kIncompatFtype | kIncompatSpinodes | kIncompatBigtime | kIncompatNrext64 | kIncompatExchrange | kIncompatParent))
+      return "未対応の incompat 機能がある (meta_uuid / metadir など)";
     if (!has_ftype) return "ftype のないボリュームは未対応";
-    if (comp_ro & ~(1u | 4u | 8u)) return "未対応の ro_compat 機能がある (rmapbt など)";
+    if (comp_ro & ~(1u | 2u | 4u | 8u)) return "未対応の ro_compat 機能がある";
     if (versionnum & 0x4000) return "大文字小文字を区別しない (ascii-ci) ボリュームは未対応";
     if (be16(sb.data() + 176)) return "クォータが有効";
     if (be32(sb.data() + 184) || be32(sb.data() + 188)) return "ストライプ (sunit / swidth) の設定があるボリュームは未対応";
@@ -436,6 +444,8 @@
     has_finobt = (comp_ro & 1) != 0;
     has_reflink = (comp_ro & 4) != 0;
     has_inobtcount = (comp_ro & 8) != 0;
+    has_rmapbt = (comp_ro & 2) != 0;
+    has_parent = (incomp & kIncompatParent) != 0;
     imax_pct = sb[127];
     inoalignmt = be32(sb.data() + 180);
     spino_align = be32(sb.data() + 228);
@@ -448,7 +458,10 @@
       if (dev_read(base + sectsize, h.data(), sectsize)) return "AGF を読めない";
       if (be32(h.data()) != 0x58414746 || be32(h.data() + 4) != 1 || be32(h.data() + 8) != ag || be32(h.data() + 12) != alen) return "AGF が不正 (ag " + std::to_string(ag) + ")";
       if (!cksum_ok(h.data(), sectsize, 216) || std::memcmp(h.data() + 64, uuid, 16)) return "AGF の CRC / UUID が不正 (ag " + std::to_string(ag) + ")";
-      if (be32(h.data() + 24) != 0 || be32(h.data() + 36) != 0) return "rmapbt がある";
+      if (has_rmapbt) {
+        uint32_t rr = be32(h.data() + 24), rh = be32(h.data() + 36);
+        if (rr == 0 || rr >= alen || rh < 1 || rh > 12 || be32(h.data() + 80) == 0) return "AGF の rmapbt が不正 (ag " + std::to_string(ag) + ")";
+      } else if (be32(h.data() + 24) != 0 || be32(h.data() + 36) != 0) return "rmapbt のフラグが無いのに AGF に rmapbt の根がある";
       uint32_t fl = be32(h.data() + 40), ll = be32(h.data() + 44), fc = be32(h.data() + 48);
       if (fl >= agfl_slots || ll >= agfl_slots || fc > agfl_slots) return "AGFL の位置が不正";
       if (be32(h.data() + 28) < 1 || be32(h.data() + 28) > 12 || be32(h.data() + 32) < 1 || be32(h.data() + 32) > 12) return "AGF の btree の高さが不正";

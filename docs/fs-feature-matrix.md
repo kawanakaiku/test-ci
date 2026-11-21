@@ -29,6 +29,7 @@ CI は ubuntu-latest (安定版・古め) と Arch Linux のコンテナ (ロー
 ## 2026-11-14 時点の結果 (手元: mkfs.xfs 7.2.0、btrfs-progs 7.1、f2fs-tools 1.16.0)
 
 - **XFS: GAP**。既定で `rmapbt` (ro_compat) と `parent_pointer` (incompat) が立つ。どちらも読み取りは可、書き込みは拒否。実機・CI のテスト用イメージは `-m rmapbt=0 -n parent=0` で作っている。**最新の mkfs.xfs で作った XFS は、今のところアプリで読み取り専用になる**。書き込み対応の候補: rmapbt の更新、parent pointer の更新 (どちらも新規作成・削除でメタデータの更新が増える)。
+- **2026-11-21 更新: XFS の `rmapbt` / `parent_pointer` は書き込みに対応した (OK)**。逆引き木の更新と親ポインタの維持を実装し、`tools/fs_feature_matrix.json` を `rw` にした (docs/xfs-write.md)。mkfs.xfs 7.2.0 の既定のイメージ (isize 512 / agcount 4 / reflink / exchange まで全部既定) を書いたあとの `xfs_repair -n` は clean。
 - Btrfs: OK (block_group_tree を含め、既定のフラグはすべて読み書き可)。
 - F2FS: OK (1.16.0 の既定は機能なし)。
 

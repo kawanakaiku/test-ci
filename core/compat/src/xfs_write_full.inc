@@ -47,30 +47,38 @@
     int rc = get_inode(ino, &in); if (rc) return rc;
     Inode* d = in.get();
     if (d->flags & 1) return -EOPNOTSUPP;
-    {
+    struct Fr { uint64_t fsb; uint32_t len; Own own; };
+    std::vector<Fr> frees;   // (fsb, 長さ, rmap の持ち主)
+    uint64_t total = 0;
+    {   // 属性フォーク: inode の中 (local) のものは捨てるだけ。extent 形式のもの (leaf ブロック・リモート値) はブロックを解放する。bmbt 形式は未対応
       uint8_t* ip; rc = ino_raw(ino, &ip, false); if (rc) return rc;
-      if (ip[82]) {   // 属性フォークがある: inode の中に収まる (local) ものだけ。ブロックを持つものは未対応
+      const uint32_t fo = ip[82];
+      if (fo) {
         if (ip[83] == kFmtLocal) { /* インライン */ }
         else if (ip[83] == kFmtExtents) {
-          uint64_t anext = (be64(ip + 120) & kFlags2Nrext64) ? be32(ip + 76) : be16(ip + 80);
-          if (anext != 0) return -EOPNOTSUPP;
+          const uint64_t anext = (be64(ip + 120) & kFlags2Nrext64) ? be32(ip + 76) : be16(ip + 80);
+          if (fo * 8 + anext * 16 > inodesize - 176) return -EUCLEAN;
+          for (uint64_t i = 0; i < anext; i++) {
+            const uint8_t* r = ip + 176 + fo * 8 + i * 16;
+            const uint64_t l0 = be64(r), l1 = be64(r + 8);
+            const uint64_t off = (l0 >> 9) & ((1ULL << 54) - 1), fsb = ((l0 & 0x1ff) << 43) | (l1 >> 21), len = l1 & 0x1fffff;
+            frees.push_back({fsb, uint32_t(len), own_attr(ino, off)}); total += len;
+          }
         } else return -EOPNOTSUPP;
       }
     }
-    std::vector<std::pair<uint64_t, uint32_t>> frees;   // (fsb, 長さ)
-    uint64_t total = 0;
     if (d->format == kFmtExtents || d->format == kFmtBtree) {
       rc = load_extents(d); if (rc) return rc;
-      for (const Ext& e : *d->exts) { frees.push_back({e.fsb, uint32_t(e.len)}); total += e.len; }
+      for (const Ext& e : *d->exts) { frees.push_back({e.fsb, uint32_t(e.len), own_file(ino, e.off, e.unwritten)}); total += e.len; }
       if (d->format == kFmtBtree) {
         std::vector<uint64_t> bl;
         rc = bmbt_blocks(ino, d->dfork, &bl); if (rc) return rc;
-        for (uint64_t f : bl) { frees.push_back({f, 1}); total++; }
+        for (uint64_t f : bl) { frees.push_back({f, 1, own_bmbt(ino)}); total++; }
       }
       if (total != d->nblocks) return -EUCLEAN;   // 数が合わない: 壊れている。解放しない
-      if (total && (d->flags2 & kFlags2Reflink)) return -EOPNOTSUPP;   // 共有ブロックの参照カウントを持たない
+      if (total && (d->flags2 & kFlags2Reflink)) { for (auto& f : frees) { rc = shared_chk(true, f.fsb, f.len); if (rc) return rc; } }   // 共有されているブロックを持つ inode は破棄できない (参照カウントを減らす処理が未実装)
     }
-    for (auto& f : frees) { rc = fs_free(f.first, f.second); if (rc) return rc; }
+    for (auto& f : frees) { rc = fs_free(f.fsb, f.len, &f.own); if (rc) return rc; }
     // inode を「空き」の形にする (mkfs / 新しい inode チャンクと同じ: magic / version 3 / 世代 / next_unlinked = NULL / 自身の番号 / uuid)
     {
       uint8_t* ip; rc = ino_raw(ino, &ip); if (rc) return rc;
@@ -106,7 +114,8 @@
     else if (lb == e.off + e.len - 1) v[i].len--;
     else { v[i].len = lb - e.off; v.insert(v.begin() + i + 1, Ext{lb + 1, fsb + 1, e.off + e.len - lb - 1, false}); }
     rc = store_fork(dino, v, -1); if (rc) return rc;
-    return fs_free(fsb, 1);
+    const Own ow = own_file(dino, lb);
+    return fs_free(fsb, 1, &ow);
   }
 
   // leaf1 形式のディレクトリから name を取り除く。データブロックが空になれば (0 番以外) 解放する。node 形式は -EOPNOTSUPP
@@ -259,7 +268,7 @@
     dm_del(dir, name);
     rc = ino_adjust(dir, is_dir ? -1 : 0, true); if (rc) return rc;
     if (is_dir || t->nlink <= 1) { rc = ino_destroy(ino); if (rc) return rc; }
-    else { rc = ino_adjust(ino, -1, false); if (rc) return rc; }
+    else { rc = pp_remove(ino, dir, name); if (rc) return rc; rc = ino_adjust(ino, -1, false); if (rc) return rc; }
     icache.erase(dir);
     return 0;
   }
@@ -281,6 +290,7 @@
     if (rc == 0) return -EEXIST;
     if (rc != -ENOENT) return rc;
     rc = dir_add(dir, name, target, ft_of_mode(t->mode)); if (rc) return rc;
+    rc = pp_add(target, dir, name); if (rc) return rc;
     rc = ino_adjust(target, +1, false); if (rc) return rc;
     rc = ino_adjust(dir, 0, true); if (rc) return rc;
     dm_set(dir, name, target);
@@ -303,25 +313,26 @@
     if (newsize < old) {
       const uint64_t keep = (newsize + bs - 1) / bs;   // 残す論理ブロック数 [0, keep)
       std::vector<Ext> v;
-      std::vector<std::pair<uint64_t, uint32_t>> frees;
+      struct Fr { uint64_t fsb; uint32_t len; Own own; };
+      std::vector<Fr> frees;
       uint64_t nfreed = 0;
       for (const Ext& e : *in->exts) {
         if (e.off + e.len <= keep) { v.push_back(e); continue; }
-        if (e.off >= keep) { frees.push_back({e.fsb, uint32_t(e.len)}); nfreed += e.len; continue; }
+        if (e.off >= keep) { frees.push_back({e.fsb, uint32_t(e.len), own_file(ino, e.off, e.unwritten)}); nfreed += e.len; continue; }
         Ext k = e; k.len = keep - e.off; v.push_back(k);
-        frees.push_back({e.fsb + k.len, uint32_t(e.len - k.len)}); nfreed += e.len - k.len;
+        frees.push_back({e.fsb + k.len, uint32_t(e.len - k.len), own_file(ino, e.off + k.len, e.unwritten)}); nfreed += e.len - k.len;
       }
       if (nfreed) {
-        if (reflink) return -EOPNOTSUPP;   // 共有ブロックかもしれない
+        for (auto& f : frees) { rc = shared_chk(reflink, f.fsb, f.len); if (rc) return rc; }   // 共有されているブロックは解放できない (参照カウントを減らす処理が未実装)
         rc = store_fork(ino, v, -int64_t(nfreed)); if (rc) return rc;
-        for (auto& f : frees) { rc = fs_free(f.first, f.second); if (rc) return rc; }
+        for (auto& f : frees) { rc = fs_free(f.fsb, f.len, &f.own); if (rc) return rc; }
       }
     } else if (newsize > old && (old % bs) != 0) {
       // 拡張: 旧 EOF から (そのブロックの終わりか新しい EOF まで) をゼロにする (縮めたときは EOF 以降の残りを消さない設計: 拡張のときに消す)
       uint64_t lb = old / bs;
       const Ext* e = find_ext(*in->exts, lb);
       if (e && !e->unwritten) {
-        if (reflink) return -EOPNOTSUPP;
+        rc = shared_chk(reflink, e->fsb + (lb - e->off), 1); if (rc) return rc;
         if (tail_zero_unsafe(ino, old)) return kRetryBusy;   // 直前の縮小がまだコミットされていない: 先にコミットする (write_file と同じ)
         uint64_t zend = std::min<uint64_t>(newsize, (lb + 1) * bs);
         uint64_t b; if (!fsb_to_blk(e->fsb + (lb - e->off), &b)) return -EUCLEAN;
@@ -383,10 +394,13 @@
       dm_del(nd, nn);
       if (dst_dir) { rc = ino_adjust(nd, -1, true); if (rc) return rc; }
       if (dst_dir || dst->nlink <= 1) { rc = ino_destroy(dino); if (rc) return rc; }
-      else { rc = ino_adjust(dino, -1, false); if (rc) return rc; }
+      else { rc = pp_remove(dino, nd, nn); if (rc) return rc; rc = ino_adjust(dino, -1, false); if (rc) return rc; }
     }
     rc = dir_add(nd, nn, sino, ft_of_mode(src->mode)); if (rc) return rc;
     rc = dir_remove(od, on); if (rc) return rc;
+    // 親ポインタ: 新しい名前を足してから古い名前を外す (逆だと、唯一の属性を外して属性フォークが消え、btree 形式のデータフォークを持つ inode には作り直せない)
+    rc = pp_add(sino, nd, nn); if (rc) return rc;
+    rc = pp_remove(sino, od, on); if (rc) return rc;
     if (src_dir) {
       rc = ino_adjust(od, -1, false); if (rc) return rc;
       rc = ino_adjust(nd, +1, false); if (rc) return rc;

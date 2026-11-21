@@ -5,8 +5,8 @@
     "features_compat": {},
     "features_ro_compat": {
       "0": {"name": "finobt", "status": "rw"},
-      "1": {"name": "rmapbt", "status": "ro", "note": "mkfs.xfs 7.x の既定で立つ。読み取りは可、書き込みは拒否 (実機・CI のイメージは -m rmapbt=0 で作る)"},
-      "2": {"name": "reflink", "status": "rw", "note": "共有 extent を持つファイルの書き込みには制限がある (docs/xfs-write.md)"},
+      "1": {"name": "rmapbt", "status": "rw", "note": "mkfs.xfs 7.x の既定で立つ。書き込みは逆引き木 (rmapbt) を更新する (docs/xfs-write.md「rmapbt」)"},
+      "2": {"name": "reflink", "status": "rw", "note": "共有されている extent への書き込み・縮小・削除は EOPNOTSUPP (CoW 未実装)。共有の無いファイルは書ける (docs/xfs-write.md)"},
       "3": {"name": "inobtcount", "status": "rw"}
     },
     "features_incompat": {
@@ -17,7 +17,7 @@
       "4": {"name": "needsrepair", "status": "refused", "note": "xfs_repair が必要。マウントしない"},
       "5": {"name": "nrext64", "status": "rw"},
       "6": {"name": "exchrange", "status": "rw", "note": "mkfs.xfs 7.2 の既定。C の p1 (incompat 0x6b) の実機書き込み試験で確認 (2026-11-14)"},
-      "7": {"name": "parent_pointer", "status": "ro", "note": "mkfs.xfs 7.x の既定で立つ。読み取りは可、書き込みは拒否 (-n parent=0 で作る)"},
+      "7": {"name": "parent_pointer", "status": "rw", "note": "mkfs.xfs 7.x の既定で立つ。親ポインタ (属性フォークの short form / leaf 1 ブロック) を create / link / unlink / rename で維持する (docs/xfs-write.md「親ポインタ」)"},
       "8": {"name": "metadir", "status": "ro"},
       "9": {"name": "zoned", "status": "refused"}
     },

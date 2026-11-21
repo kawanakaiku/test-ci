@@ -1,0 +1,63 @@
+# XFS の rmapbt / parent pointer の書き込みの検証 (docs/xfs-write.md)。xfs-write.yml より軽い反復用: 新しい mkfs.xfs の機能の組み合わせ
+# (USBMEM_XFS_FEATURES = rmapbt: rmapbt=1 parent=0 / parent: rmapbt=1 parent=1) で、決まった操作列・乱数操作 + モデル・実カーネルとの相互確認・電源断の模擬 (間引き) を回す。
+# トリガ: workflow_dispatch、または usbmem-xfsrmap-dev ブランチへの push (usbmem-ci-* ではないので他のワークフローは起動しない)。
+name: XFS rmapbt / parent pointer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['usbmem-xfsrmap-dev']
+
+concurrency:
+  group: xfs-rmap-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  xfs-rmap:
+    name: xfs ${{ matrix.features }} (write + kernel cross-check + crash)
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        features: [rmapbt, parent]
+    env:
+      USBMEM_XFS_FEATURES: ${{ matrix.features }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ python3 xfsprogs zlib1g-dev
+          uname -r
+          mkfs.xfs -V
+          xfs_repair -V
+          sudo modprobe xfs || true
+
+      - name: Build (write enabled, release)
+        run: |
+          cmake -S core -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSBMEM_NTFS_WRITE=ON -DUSBMEM_BUILD_TESTS=ON
+          cmake --build build --target usbmem_xfs_write_tests -j"$(nproc)"
+
+      - name: Kernel backend probe and mkfs features
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          python3 -I tools/xfs_vm/kreplay.py --probe
+          . tools/xfs_common.sh
+          truncate -s 400M /tmp/probe.img && mk_xfs /tmp/probe.img 400M "" && xfs_db -r -c version /tmp/probe.img
+
+      - name: Scripted + model + refuse + fuzz + kernel cross-check
+        env:
+          USBMEM_XFS_FUZZ_N: "200"
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          tools/run_xfs_write_tests.sh build/compat/usbmem_xfs_write_tests 2
+
+      - name: Crash simulation (stride 15)
+        run: |
+          export PATH="$PATH:/sbin:/usr/sbin"
+          tools/run_xfs_crash_tests.sh build/compat/usbmem_xfs_write_tests 15

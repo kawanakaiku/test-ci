@@ -82,6 +82,10 @@ jobs:
             case "$name" in *-loopset) name=${name%-loopset}; tests=$LOOPSET; smoke=1; custom=1 ;; esac
             case "$name" in *-noloop) extra=''; name=${name%-noloop} ;; esac
             case "$name" in *-loop) name=${name%-loop} ;; esac
+            # XFS の mkfs の機能 (docs/xfs-write.md): -xfsrmapbt (rmapbt=1 parent=0) / -xfsparent (rmapbt=1 parent=1) / -xfsall (mkfs の既定のまま)。無ければ従来 (rmapbt=0 parent=0)
+            case "$name" in *-xfsrmapbt) extra="$extra --xfs-features rmapbt"; name=${name%-xfsrmapbt} ;; esac
+            case "$name" in *-xfsparent) extra="$extra --xfs-features parent"; name=${name%-xfsparent} ;; esac
+            case "$name" in *-xfsall) extra="$extra --xfs-features all"; name=${name%-xfsall} ;; esac
             case "$name" in *-noremkfs) extra="$extra --no-remkfs"; name=${name%-noremkfs} ;; esac
             case "$name" in *-trace) trace=1; smoke=1; name=${name%-trace} ;; esac
             case "$name" in

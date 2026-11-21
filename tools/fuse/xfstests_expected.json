@@ -424,5 +424,15 @@
    "cat": "core_unsupported",
    "why": "電源断 (dm-flakey の drop_writes) の後の再マウントで、ext2 の core は正常にアンマウントされていない (s_state が not-clean) ボリュームを書き込み可でマウントしない (読み取り専用に落とす。ジャーナルが無く fsck が要るため)。カーネルの ext2 は書き込み可でマウントする。クラッシュ後の整合性を見るこのテストは、書き込み可で開けないので進まない"
   }
+ },
+ "xfs": {
+  "generic/040": {
+   "cat": "core_unsupported",
+   "why": "同じディレクトリの同じファイルへの 3000 個のハードリンク。親ポインタ (parent=1 の mkfs。run_xfstests.py --xfs-features parent / ブランチ名の -xfsparent) のあるボリュームでは、リンクごとに親ポインタが子の属性フォークに増え、自前は属性の leaf 1 ブロック (名前 10 文字で約 110 個) にしか入れられない (node 形式の属性は未実装) ので EMLINK。既定 (-xfsなし = parent=0) では通る"
+  },
+  "generic/041": {
+   "cat": "core_unsupported",
+   "why": "同じディレクトリの同じファイルへの 3000 個のハードリンク。親ポインタ (parent=1 の mkfs。run_xfstests.py --xfs-features parent / ブランチ名の -xfsparent) のあるボリュームでは、リンクごとに親ポインタが子の属性フォークに増え、自前は属性の leaf 1 ブロック (名前 10 文字で約 110 個) にしか入れられない (node 形式の属性は未実装) ので EMLINK。既定 (-xfsなし = parent=0) では通る"
+  }
  }
 }

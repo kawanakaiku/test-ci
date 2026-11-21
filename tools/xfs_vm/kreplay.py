@@ -58,6 +58,22 @@ def post_writes(mnt):
         os.symlink("k0", os.path.join(d, "lnk"))
     for i in range(100):
         open(os.path.join(d, "e%03d" % i), "w").close()
+    # reflink (FICLONE): 共有されたファイルの組と、片方を消して共有が無くなった (reflink フラグだけが残る) ファイル (自前の書き込みの検査: tools/run_xfs_write_tests.sh の --reflink)
+    try:
+        import fcntl
+        rf = os.path.join(mnt, "rf")
+        os.makedirs(rf, exist_ok=True)
+        data = bytes(((j * 5 + 3) & 255) for j in range(65536 * 2))
+        for nm in ("shared", "solo"):
+            with open(os.path.join(rf, nm + "_a"), "wb") as f:
+                f.write(data); f.flush(); os.fsync(f.fileno())
+            with open(os.path.join(rf, nm + "_a"), "rb") as src, open(os.path.join(rf, nm + "_b"), "wb") as dst:
+                fcntl.ioctl(dst.fileno(), 0x40049409, src.fileno())   # FICLONE
+                dst.flush(); os.fsync(dst.fileno())
+        fs_sync(mnt)
+        os.unlink(os.path.join(rf, "solo_b"))
+    except OSError:
+        pass
     nd = os.path.join(mnt, "nd")   # 自前が作った大きな (ノード形式の) ディレクトリにも、カーネル自身に追加・削除をさせる
     if os.path.isdir(nd):
         for n in sorted(os.listdir(nd))[::3][:250]:

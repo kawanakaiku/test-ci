@@ -2,7 +2,8 @@
 # XFS の書き込みテスト (tools/run_xfs_*.sh) の共通関数。source して使う。docs/xfs-write.md
 # 使い方: . "$HERE/xfs_common.sh"
 #   mk_xfs <img> <size> <proto-dir または ""> [mkfs.xfs の追加オプション...]
-#       mkfs.xfs でイメージを作る。書き込みの対象は rmapbt=0 / parent=0 (どちらも自前の書き込みは未対応で、書き込みを拒否する構成)。古い mkfs.xfs に無いオプションは外して再試行する。
+#       mkfs.xfs でイメージを作る。環境変数 USBMEM_XFS_FEATURES で mkfs の機能を選ぶ: base (既定。rmapbt=0 / parent=0) / rmapbt (rmapbt=1 / parent=0) / parent (rmapbt=1 / parent=1。古い mkfs.xfs に無ければスキップ) / all (mkfs.xfs の既定のまま。新しい mkfs では rmapbt=1 / parent=1)。
+#       古い mkfs.xfs に無いオプションは外して再試行する。
 #       終了コード 0 = 作れた / 3 = このmkfsに無いオプション (追加オプションが原因。呼び出し側が SKIP 扱いにする) / 1 = その他の失敗
 #   xfs_clean <img>          xfs_repair -n が何も見つけない (終了コード 0。出力に "would" / "ERROR" / "corrupt" なし)
 #   xfs_logprint_ok <img>    ログが CLEAN と xfs_logprint が言う
@@ -16,8 +17,8 @@ mk_xfs() {
   _n=1
   while [ $_n -le 3 ]; do
     case "$_plain.$_n" in
-      0.1) _base="-m rmapbt=0 -n parent=0" ;;
-      0.2) _base="-m rmapbt=0" ;;
+      0.1) case "${USBMEM_XFS_FEATURES:-base}" in rmapbt) _base="-m rmapbt=1 -n parent=0" ;; parent) _base="-m rmapbt=1 -n parent=1" ;; all) _base="" ;; *) _base="-m rmapbt=0 -n parent=0" ;; esac ;;
+      0.2) case "${USBMEM_XFS_FEATURES:-base}" in rmapbt) _base="-m rmapbt=1" ;; parent) _base="-m rmapbt=1 -n parent=1" ;; all) _base="" ;; *) _base="-m rmapbt=0" ;; esac ;;
       *) _base="" ;;
     esac
     if [ -n "$_proto" ]; then

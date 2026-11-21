@@ -67,6 +67,13 @@ def full_ops(A, seeded):
     A("unlink /w/small.txt"); A("unlink /w/empty.bin"); A("unlink /w/blk_minus1.bin"); A("unlink /w/short.lnk"); A("unlink /w/long.lnk"); A("unlink /w/" + "x" * 255)
     A("unlink /w/frag2")
     A("link /w/many/hl /w/app.bin")
+    # --- 同じ inode への多数の hard link (親ポインタの属性が inode の中 (short form) に収まらず leaf 形式になり、unlink で short form に戻る) と、そのリンクの rename
+    A("create /w/pp0")
+    for i in range(16): A("link /w/pplink_with_a_fairly_long_name_to_fill_the_attribute_fork_%02d /w/pp0" % i)
+    for i in range(1, 16, 2): A("unlink /w/pplink_with_a_fairly_long_name_to_fill_the_attribute_fork_%02d" % i)
+    A("rename /w/pplink_with_a_fairly_long_name_to_fill_the_attribute_fork_00 /w/sub1/pp_renamed")
+    A("rename /w/pplink_with_a_fairly_long_name_to_fill_the_attribute_fork_02 /w/pplink_with_a_fairly_long_name_to_fill_the_attribute_fork_03")
+    for i in range(4, 16, 2): A("unlink /w/pplink_with_a_fairly_long_name_to_fill_the_attribute_fork_%02d" % i)
     # --- rename: 同じディレクトリ / 別のディレクトリ / 上書き / ディレクトリ (".." と親の nlink) / 同じ inode
     A("rename /w/blk.bin /w/blk_renamed.bin"); A("rename /w/one.bin /w/sub1/one_moved")
     A("rename /w/sub2 /w/日本語ディレクトリ/sub2"); A("rename /w/sub3 /w/sub3b")

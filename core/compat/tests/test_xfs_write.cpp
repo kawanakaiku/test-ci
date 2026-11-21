@@ -4,6 +4,8 @@
 //   --model <img> <seed> <nops> [dump] 乱数で操作列を作り、メモリ上のモデルと突き合わせる (途中・unmount 後の再マウント後にも全体比較)。dump に tools/ops_ref.py --tree と同じ書式でモデルを書く
 //   --noop <img>                      rw マウントして何もせず unmount: イメージが 1 バイトも変わらないこと
 //   --refuse <img>                    rw を要求したが書き込み不可のイメージ (汚れている/エラー状態/未知の機能): マウントは成功し writable()==false、書き込みは -EROFS、イメージ不変
+//   --reflink <img>                   カーネルが reflink で作った /rf: 共有範囲への書き込みは EOPNOTSUPP、共有の無いファイルは書き込み・縮小・削除できる (fsck はシェル側)
+//   --manylinks <img>                 1 つのファイルへ hard link を 400 個まで増やす: 親ポインタ付きでは leaf 1 ブロックを超えたところから -EMLINK (何も残さない)。全部消して元に戻る
 //   --enospc <img>                    満杯で安全に失敗し、unlink / truncate で回復すること
 //   --norw <img>                      mount_rw 自体が失敗する (未対応の必須機能・未再生ログなど): イメージ不変
 //   --symlinks <img>                  symlink の長さの境界: 1 .. 1023 文字 (inode 内 / 別ブロックの境目を含む) は作れて readlink が一致し、1024 文字以上は -ENAMETOOLONG で何も残さない
@@ -571,12 +573,14 @@ static int frag_run(const std::string& img) {
   std::vector<int> order(n); for (int i = 0; i < n; i++) order[i] = i;
   for (int i = n - 1; i > 0; i--) std::swap(order[i], order[rnd() % (i + 1)]);
   for (int i = 0; i < n * 7 / 10; i++) CHECK(vol->unlink(d, nm("f", order[i])) == 0);
+  int ng = 0;   // 作れた g の数 (満杯で途中で止まりうる。rmapbt のあるボリュームはメタデータが増えて先に満杯になる)
   for (int i = 0; i < n / 2; i++) {
     uint64_t t; if (vol->create(d, nm("g", i), 0644, &t)) break;
+    ng++;
     size_t sz = 1 + rnd() % buf.size(); if (vol->write(t, 0, buf.data(), sz) != (int64_t)sz) break;
   }
   for (int i = n * 7 / 10; i < n; i++) CHECK(vol->unlink(d, nm("f", order[i])) == 0);
-  for (int i = 0; i < n / 2; i++) if (i % 3) CHECK(vol->unlink(d, nm("g", i)) == 0);
+  for (int i = 0; i < ng; i++) if (i % 3) CHECK(vol->unlink(d, nm("g", i)) == 0);
   // 小さいディレクトリ (ショートフォーム) の中で名前の変更を繰り返す。エントリのオフセットが増え続けると xfs_repair が "offsets too high" と言う (generic/028 の後で発見)
   uint64_t sd; CHECK(vol->mkdir(vol->root(), "sfren", 0755, &sd) == 0);
   uint64_t sf0; CHECK(vol->create(sd, "keep", 0644, &sf0) == 0);
@@ -585,6 +589,60 @@ static int frag_run(const std::string& img) {
   CHECK(vol->sync() == 0);
   vol.reset();
   std::fprintf(stderr, "frag: %s\n", g_fail ? "FAIL" : "ok");
+  return g_fail ? 1 : 0;
+}
+
+// ---- --reflink: カーネルが reflink (FICLONE) で作った /rf (tools/xfs_vm/kreplay.py の post_writes)。
+//   shared_a / shared_b = 共有されたファイル: 共有された範囲への上書き・縮小・削除は -EOPNOTSUPP (CoW は未実装)。ボリューム全体は書き込み可のまま
+//   solo_a = 共有していた相手 (solo_b) をカーネルが消して、共有が無くなったファイル (reflink フラグだけが残る): 上書き・縮小・削除ができる
+#define CHECKRC(e, want) do { long long _r = (long long)(e); if (_r != (long long)(want)) { std::fprintf(stderr, "CHECK failed %s:%d: %s -> %lld (want %lld)\n", __FILE__, __LINE__, #e, _r, (long long)(want)); g_fail++; } } while (0)
+static int reflink_run(const std::string& img) {
+  BlockDevicePtr dev = open_rw(img); int err = 0; auto vol = XfsVolume::mount_rw(dev, &err);
+  if (!vol || !vol->writable()) { std::fprintf(stderr, "mount_rw failed\n"); return 1; }
+  uint64_t rf, sa, sb, oa;
+  if (vol->resolve("/rf/shared_b", &sb) != 0 || vol->resolve("/rf/shared_a", &sa) != 0 || vol->resolve("/rf/solo_a", &oa) != 0) { std::fprintf(stderr, "reflink: no /rf (FICLONE 非対応のカーネル?): skip\n"); return 0; }
+  CHECKRC(vol->resolve("/rf", &rf), 0);
+  std::vector<uint8_t> b = fill(0, 5000, 9);
+  CHECKRC(vol->write(sa, 1000, b.data(), b.size()), -EOPNOTSUPP);
+  CHECKRC(vol->write(sb, 70000, b.data(), 100), -EOPNOTSUPP);
+  CHECKRC(vol->truncate(sa, 4096), -EOPNOTSUPP);
+  CHECKRC(vol->unlink(rf, "shared_a"), -EOPNOTSUPP);
+  CHECKRC(vol->unlink(rf, "shared_b"), -EOPNOTSUPP);
+  CHECKRC(vol->write(oa, 1000, b.data(), b.size()), (int64_t)b.size());           // 共有の無いファイルは書ける
+  CHECKRC(vol->truncate(oa, 70000), 0);
+  CHECKRC(vol->write(oa, 70000, b.data(), 3000), 3000);                              // 縮小したあとの追記 (新しいブロック)
+  uint64_t nf; CHECKRC(vol->create(rf, "ours_new", 0644, &nf), 0);
+  CHECKRC(vol->write(nf, 0, b.data(), b.size()), (int64_t)b.size());
+  uint64_t ob; CHECKRC(vol->create(rf, "ours_to_unlink", 0644, &ob), 0);
+  CHECKRC(vol->write(ob, 0, b.data(), b.size()), (int64_t)b.size());
+  CHECKRC(vol->unlink(rf, "ours_to_unlink"), 0);
+  CHECKRC(vol->truncate(oa, 8192), 0);
+  CHECKRC(vol->unlink(rf, "solo_a"), 0);                                              // 共有の無い reflink フラグ付きファイルの削除
+  CHECKRC(vol->sync(), 0);
+  vol.reset();
+  std::fprintf(stderr, "reflink: %s\n", g_fail ? "FAIL" : "ok (共有範囲は EOPNOTSUPP、共有の無いファイルは書き込み・縮小・削除できた)");
+  return g_fail ? 1 : 0;
+}
+
+// ---- --manylinks: 1 つのファイルへ hard link を増やし続ける。親ポインタのあるボリュームでは属性フォークの leaf 1 ブロックに入る数が上限で、超えると -EMLINK (何も残さない)。
+//   親ポインタの無いボリュームでは 400 個全部作れる。どちらも、全部消すと元に戻り、途中の失敗でボリュームが壊れない (fsck はシェル側)
+static int manylinks_run(const std::string& img) {
+  BlockDevicePtr dev = open_rw(img); int err = 0; auto vol = XfsVolume::mount_rw(dev, &err);
+  if (!vol || !vol->writable()) { std::fprintf(stderr, "mount_rw failed\n"); return 1; }
+  uint64_t d, f; CHECK(vol->mkdir(vol->root(), "ml", 0755, &d) == 0 && vol->create(d, "orig", 0644, &f) == 0);
+  int made = 0, emlink = 0;
+  for (int i = 0; i < 400; i++) {
+    char nm[64]; std::snprintf(nm, sizeof nm, "a_rather_long_hard_link_name_%04d", i);
+    int rc = vol->link(d, nm, f);
+    if (rc == 0) { made++; CHECK(emlink == 0); } else { CHECK(rc == -EMLINK); emlink++; }
+  }
+  CHECK(made >= 50);   // 親ポインタ付きでも、4 KiB のブロックに 50 個は入る
+  for (int i = 0; i < made; i++) { char nm[64]; std::snprintf(nm, sizeof nm, "a_rather_long_hard_link_name_%04d", i); CHECK(vol->unlink(d, nm) == 0); }
+  CHECK(vol->unlink(d, "orig") == 0);
+  CHECK(vol->rmdir(vol->root(), "ml") == 0);
+  CHECK(vol->sync() == 0);
+  vol.reset();
+  std::fprintf(stderr, "manylinks: %d links made, %d refused with EMLINK: %s\n", made, emlink, g_fail ? "FAIL" : "ok");
   return g_fail ? 1 : 0;
 }
 
@@ -635,6 +693,8 @@ int main(int argc, char** argv) {
   if (argc >= 3 && std::string(argv[1]) == "--refuse") return refuse_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--symlinks") return symlinks_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--frag") return frag_run(argv[2]);
+  if (argc >= 3 && std::string(argv[1]) == "--reflink") return reflink_run(argv[2]);
+  if (argc >= 3 && std::string(argv[1]) == "--manylinks") return manylinks_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--enospc") return enospc_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--post") return post_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--norw") return norw_run(argv[2]);

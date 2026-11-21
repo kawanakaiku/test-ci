@@ -161,8 +161,12 @@ def main():
     ap.add_argument("--mount-opts", default="allow_other,default_permissions", help="usbmem_fuse の -o (quiet_setattr など)")
     ap.add_argument("--no-remkfs", action="store_true", help="テストごとにイメージを作り直さない (既定は作り直す。FSTYP=fuse の fstests は mkfs をしないので、前のテストの残りや破損が次へ持ち越される)")
     ap.add_argument("--loop", action="store_true", help="TEST_DEV / SCRATCH_DEV をループデバイスにする (イメージファイルに losetup)。fstests の _require_block_device / dm-flakey / dm-error を使うテストが notrun でなくなる。既定はイメージファイルそのもの")
+    ap.add_argument("--xfs-features", default="base", choices=["base", "rmapbt", "parent", "all"], help="XFS の mkfs の機能: base (rmapbt=0 / parent=0。従来) / rmapbt (rmapbt=1 / parent=0) / parent (rmapbt=1 / parent=1) / all (mkfs の既定のまま)")
     ap.add_argument("--max-seconds", type=int, default=0, help="全体の上限 (0 = 無制限)。超えたら残りは skipped-by-budget")
     a = ap.parse_args()
+    if a.fs == "xfs":
+        opts = {"base": ["-m", "rmapbt=0", "-n", "parent=0"], "rmapbt": ["-m", "rmapbt=1", "-n", "parent=0"], "parent": ["-m", "rmapbt=1", "-n", "parent=1"], "all": []}[a.xfs_features]
+        FS["xfs"]["mkfs"] = ["mkfs.xfs", "-q", "-f"] + opts
 
     if not a.size:
         a.size = "6G" if a.fs in ("fat", "exfat") else "1G"

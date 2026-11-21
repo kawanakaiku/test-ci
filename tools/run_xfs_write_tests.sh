@@ -170,14 +170,14 @@ r=0; mk "$W/n.img" 320M "$W/seed" || r=$?
 [ $r != 0 ] || run_t "noop (rw mount, no writes: image unchanged)" --noop "$W/n.img"
 refuse() {  # refuse <label> <mkfs opts...>   (既定の rmapbt=0 / parent=0 を付けずに作る)
   label=$1; shift
-  r=0; mk_xfs_plain "$W/r.img" 1G "" "$@" || r=$?
+  r=0; mk_xfs_plain "$W/r.img" 1G "" "$@" -n parent=0 || r=$?   # parent pointer の拒否と区別するため、無効にして作る (古い mkfs.xfs に無ければ付けない)
+  [ $r = 0 ] || { r=0; mk_xfs_plain "$W/r.img" 1G "" "$@" || r=$?; }
   [ $r != 3 ] || { echo "skip (この mkfs.xfs に無い構成): $label" >&2; nskip=$((nskip + 1)); return 0; }
   [ $r = 0 ] || { [ $r = 3 ] || fail "mkfs ($label)"; return 0; }
   run_t "refuse $label" --refuse "$W/r.img"
 }
 refuse "V4 (crc=0)" -m crc=0,rmapbt=0 -n ftype=1
 refuse "dirblklog>0 (-n size=8192)" -n size=8192 -m rmapbt=0
-refuse "rmapbt=1" -m rmapbt=1
 refuse "stripe unit (-d su=64k,sw=2)" -d su=64k,sw=2 -m rmapbt=0
 refuse "bs=1024 (V5 dir block > fs block)" -b size=1024 -m rmapbt=0
 refuse "bs=2048 (V5 dir block > fs block)" -b size=2048 -m rmapbt=0
@@ -216,6 +216,8 @@ for cfg in "default:" "isize1024:-i size=1024"; do
   [ $r = 0 ] || { [ $r = 3 ] || fail "mkfs (symlinks $name)"; continue; }
   run_t "symlinks $name (1..1023 ok, >=1024 ENAMETOOLONG)" --symlinks "$W/sl.img"
   fsck_clean "$W/sl.img" "symlinks $name" || true
+  run_t "manylinks $name (hard links up to EMLINK)" --manylinks "$W/sl.img"
+  fsck_clean "$W/sl.img" "manylinks $name" || true
 done
 rm -f "$W/sl.img"
 
@@ -234,6 +236,10 @@ if [ $KBACKEND = 1 ]; then
     if [ "$(cat "$W/k.img.kres" 2>/dev/null)" = ok ]; then
       fsck_clean "$W/k.img" "kernel-written image" || true
       "$T" --tree "$W/k.img" "$W/to0" && echo "[kernel->ours] own reader reads the kernel-written image: $(wc -l < "$W/to0") entries"
+      if [ -f "$W/k.img.kres" ] && "$T" --tree "$W/k.img" "$W/to0b" && grep -q ' rf/solo_a$' "$W/to0b"; then
+        run_t "reflink (shared extents refused, unshared reflink-flag files writable)" --reflink "$W/k.img"
+        fsck_clean "$W/k.img" "ours after reflink ops" || true
+      fi
       printf 'mkdir /after\ncreate /after/n1\nwrite /after/n1 0 70000 5\nwrite /kpost/k3 1000 200000 6\nwrite /tiny.txt 3 90000 7\ncreate /kpost/new\nwrite /kpost/new 0 1234 3\nsymlink /kpost/ln2 /x/y\n' > "$W/ops_after.txt"
       for i in $(seq 1 120); do echo "create /kpost/c$i" >> "$W/ops_after.txt"; done
       if out=$("$T" --ops "$W/k.img" "$W/ops_after.txt" 2>&1); then

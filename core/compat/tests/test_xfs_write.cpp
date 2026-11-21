@@ -5,6 +5,7 @@
 //   --noop <img>                      rw マウントして何もせず unmount: イメージが 1 バイトも変わらないこと
 //   --refuse <img>                    rw を要求したが書き込み不可のイメージ (汚れている/エラー状態/未知の機能): マウントは成功し writable()==false、書き込みは -EROFS、イメージ不変
 //   --reflink <img>                   カーネルが reflink で作った /rf: 共有範囲への書き込みは EOPNOTSUPP、共有の無いファイルは書き込み・縮小・削除できる (fsck はシェル側)
+//   --manylinks <img>                 1 つのファイルへ hard link を 400 個まで増やす: 親ポインタ付きでは leaf 1 ブロックを超えたところから -EMLINK (何も残さない)。全部消して元に戻る
 //   --enospc <img>                    満杯で安全に失敗し、unlink / truncate で回復すること
 //   --norw <img>                      mount_rw 自体が失敗する (未対応の必須機能・未再生ログなど): イメージ不変
 //   --symlinks <img>                  symlink の長さの境界: 1 .. 1023 文字 (inode 内 / 別ブロックの境目を含む) は作れて readlink が一致し、1024 文字以上は -ENAMETOOLONG で何も残さない
@@ -623,6 +624,28 @@ static int reflink_run(const std::string& img) {
   return g_fail ? 1 : 0;
 }
 
+// ---- --manylinks: 1 つのファイルへ hard link を増やし続ける。親ポインタのあるボリュームでは属性フォークの leaf 1 ブロックに入る数が上限で、超えると -EMLINK (何も残さない)。
+//   親ポインタの無いボリュームでは 400 個全部作れる。どちらも、全部消すと元に戻り、途中の失敗でボリュームが壊れない (fsck はシェル側)
+static int manylinks_run(const std::string& img) {
+  BlockDevicePtr dev = open_rw(img); int err = 0; auto vol = XfsVolume::mount_rw(dev, &err);
+  if (!vol || !vol->writable()) { std::fprintf(stderr, "mount_rw failed\n"); return 1; }
+  uint64_t d, f; CHECK(vol->mkdir(vol->root(), "ml", 0755, &d) == 0 && vol->create(d, "orig", 0644, &f) == 0);
+  int made = 0, emlink = 0;
+  for (int i = 0; i < 400; i++) {
+    char nm[64]; std::snprintf(nm, sizeof nm, "a_rather_long_hard_link_name_%04d", i);
+    int rc = vol->link(d, nm, f);
+    if (rc == 0) { made++; CHECK(emlink == 0); } else { CHECK(rc == -EMLINK); emlink++; }
+  }
+  CHECK(made >= 50);   // 親ポインタ付きでも、4 KiB のブロックに 50 個は入る
+  for (int i = 0; i < made; i++) { char nm[64]; std::snprintf(nm, sizeof nm, "a_rather_long_hard_link_name_%04d", i); CHECK(vol->unlink(d, nm) == 0); }
+  CHECK(vol->unlink(d, "orig") == 0);
+  CHECK(vol->rmdir(vol->root(), "ml") == 0);
+  CHECK(vol->sync() == 0);
+  vol.reset();
+  std::fprintf(stderr, "manylinks: %d links made, %d refused with EMLINK: %s\n", made, emlink, g_fail ? "FAIL" : "ok");
+  return g_fail ? 1 : 0;
+}
+
 // ---- --symlinks
 static int symlinks_run(const std::string& img) {
   BlockDevicePtr dev = open_rw(img); int err = 0; auto vol = XfsVolume::mount_rw(dev, &err);
@@ -671,6 +694,7 @@ int main(int argc, char** argv) {
   if (argc >= 3 && std::string(argv[1]) == "--symlinks") return symlinks_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--frag") return frag_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--reflink") return reflink_run(argv[2]);
+  if (argc >= 3 && std::string(argv[1]) == "--manylinks") return manylinks_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--enospc") return enospc_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--post") return post_run(argv[2]);
   if (argc >= 3 && std::string(argv[1]) == "--norw") return norw_run(argv[2]);

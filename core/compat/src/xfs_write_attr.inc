@@ -6,7 +6,7 @@
 //
 // 属性フォークは 2 形式だけを書く:
 //  - short form (inode の中。名前 / 値は 255 バイトまで。エントリは足した順)
-//  - leaf 形式 (extent 形式の属性フォークの 1 ブロックだけ。V5 の attr3 leaf。エントリはハッシュ順)。1 ブロックに収まらなくなる (node 形式が要る) と ENOSPC
+//  - leaf 形式 (extent 形式の属性フォークの 1 ブロックだけ。V5 の attr3 leaf。エントリはハッシュ順)。1 ブロックに収まらなくなる (node 形式が要る) と EMLINK (hard link が多すぎる)
 // それ以外 (node 形式・bmbt 形式の属性フォーク、リモート値、INCOMPLETE のエントリ) を持つ inode への変更は EOPNOTSUPP。
 // 属性フォークの大きさ (di_forkoff) は、データフォークに必要な分を残して決める (カーネルの xfs_attr_shortform_bytesfit と同じ考え方)。
 // 書き込みは「全エントリを読んで、変更して、全部書き直す」(1 inode あたり高々 inode の大きさ / 1 ブロック)。
@@ -219,7 +219,7 @@
     }
     uint64_t blk; if (!fsb_to_blk(fsb, &blk)) return -EUCLEAN;
     std::vector<uint8_t> tmp;
-    if (!attr_leaf_build(ino, blk * bs, ents, &tmp)) return -ENOSPC;
+    if (!attr_leaf_build(ino, blk * bs, ents, &tmp)) return -EMLINK;   // 親ポインタが 1 ブロックに収まらない = hard link が多すぎる (node 形式の属性は未実装)
     if (had_leaf) { WBuf* b; rc = bget(blk * bs, bs, kBlftAttrLeaf, &b); if (rc) return rc; std::memcpy(bw(b), tmp.data(), bs); }
     else {
       WBuf* b = bnew(blk * bs, bs, kBlftAttrLeaf); std::memcpy(b->d.data(), tmp.data(), bs);

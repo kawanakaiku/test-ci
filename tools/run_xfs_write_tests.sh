@@ -216,6 +216,8 @@ for cfg in "default:" "isize1024:-i size=1024"; do
   [ $r = 0 ] || { [ $r = 3 ] || fail "mkfs (symlinks $name)"; continue; }
   run_t "symlinks $name (1..1023 ok, >=1024 ENAMETOOLONG)" --symlinks "$W/sl.img"
   fsck_clean "$W/sl.img" "symlinks $name" || true
+  run_t "manylinks $name (hard links up to EMLINK)" --manylinks "$W/sl.img"
+  fsck_clean "$W/sl.img" "manylinks $name" || true
 done
 rm -f "$W/sl.img"
 

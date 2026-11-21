@@ -110,7 +110,7 @@ mkfs.xfs 7.2.0 の既定は `features_ro_compat = 0xf` / `features_incompat = 0x
 `xfs_write_attr.inc`。子の inode の**属性フォーク**に「(親の中での名前) → (親の inode 番号 8 バイト + 親の世代 4 バイト)」の属性 (フラグ `XFS_ATTR_PARENT` = 0x08、値は 12 バイト) を持つ。hard link ごとに 1 つ。
 - **維持する操作**: `create` / `mkdir` / `symlink` (新しい inode に足す)、`link` (対象に足す)、`unlink` (nlink が残るとき名前の分を外す。nlink 0 の inode は破棄)、`rename` (古い名前を外して新しい名前を足す。上書きされた inode は nlink が残るとき外す)、ディレクトリの移動 (そのディレクトリ自身の 1 つを付け替える)。
 - **属性フォークの形式**: short form (inode の中。`di_forkoff` を、データフォークに必要な分を残して決める。カーネルの `xfs_attr_shortform_bytesfit` と同じ考え方) と、**leaf 1 ブロック** (V5 の attr3 leaf。エントリはハッシュ順 = `xfs_dir2_hashname(name) ^ 親 inode の上位・下位 32 ビット`、名前 / 値は末尾から詰める。ブロックは rmapbt に属性フラグで登録)。収まれば short form に戻す。いずれも「全エントリを読んで変更して全部書き直す」。
-- **未対応 (EOPNOTSUPP / ENOSPC)**: node 形式・bmbt 形式の属性フォーク、リモート値 (大きな xattr)、INCOMPLETE のエントリを持つ inode への変更 (そのような inode は削除だけできる: extent 形式のブロックは解放、bmbt 形式は `EOPNOTSUPP`)。leaf 1 ブロックに収まらない数の hard link (4 KiB のブロックで名前 10 文字なら約 150 個) を付けると `ENOSPC`。xattr / ACL を新しく書くことはしない (親ポインタ以外の属性は既存のものを保持する)。
+- **未対応 (EOPNOTSUPP / ENOSPC)**: node 形式・bmbt 形式の属性フォーク、リモート値 (大きな xattr)、INCOMPLETE のエントリを持つ inode への変更 (そのような inode は削除だけできる: extent 形式のブロックは解放、bmbt 形式は `EOPNOTSUPP`)。leaf 1 ブロックに収まらない数の hard link (4 KiB のブロックで名前 10 文字なら約 110 個、`--manylinks` の 32 文字の名前では約 50 個以上) を付けると `EMLINK` (何も残さない)。xattr / ACL を新しく書くことはしない (親ポインタ以外の属性は既存のものを保持する)。
 - **シンボリックリンク**: 親ポインタのあるボリュームでは、inode 内に置く長さの上限が属性フォークの既定の領域を残した分 (512 バイトの inode で 192 文字) になる (それより長いものは別ブロック)。
 
 ### Full の操作 (`xfs_write_full.inc`)

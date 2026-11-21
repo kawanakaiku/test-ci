@@ -15,3 +15,7 @@ target_link_libraries(usbmem_jni PRIVATE usbmem_ntfs usbmem_exfat usbmem_ext2 us
 target_link_options(usbmem_jni PRIVATE -Wl,-z,max-page-size=16384)
 # ネスト (ループバック) マウントの JNI (docs/nested-mount.md)
 target_sources(usbmem_jni PRIVATE jni_nested.cpp)
+# 個人版の FUSE 層 (wimfuse) の本体側 (JNI + RPC クライアント)。Gradle の -PusbmemWimFuse=... のとき (-DUSBMEM_WIMFUSE=ON) だけ。docs/fuse-layer.md 10 章
+if(USBMEM_WIMFUSE)
+  include(${CMAKE_CURRENT_LIST_DIR}/../../../../../core/fuseshim/wimfuse/android/client.cmake)
+endif()

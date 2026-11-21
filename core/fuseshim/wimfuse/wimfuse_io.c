@@ -7,7 +7,7 @@
  * wimfuse_src_read / wimfuse_src_size (wimfuse_main.cpp。RPC のコールバック) に結ぶ。ほかのパス・fd は本物にそのまま渡す (fd 番号は /dev/null を
  * 開いて確保するので、他の fd と衝突しない)。docs/fuse-layer.md 10 章
  *
- * あわせて、bionic に無い POSIX メッセージキュー (mq_*) の「常に失敗する」実装 (stubs/mqueue.h の理由) を置く。
+ * あわせて、bionic に無い (または API 28 以降の) POSIX メッセージキュー (mq_*) と glob の「常に失敗する / 一致なしの」実装 (stubs/mqueue.h・stubs/glob.h の理由) を置く。
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -148,3 +148,14 @@ int mq_close(mqd_t mq) { (void)mq; errno = ENOSYS; return -1; }
 int mq_unlink(const char *name) { (void)name; errno = ENOSYS; return -1; }
 int mq_send(mqd_t mq, const char *msg, size_t len, unsigned prio) { (void)mq; (void)msg; (void)len; (void)prio; errno = ENOSYS; return -1; }
 ssize_t mq_receive(mqd_t mq, char *msg, size_t len, unsigned *prio) { (void)mq; (void)msg; (void)len; (void)prio; errno = ENOSYS; return -1; }
+
+/* ---- glob (bionic は API 28 以降。minSdk 26)。wimlib の参照ファイルの glob (分割 WIM) だけが使う。常に一致なし ---- */
+#include <glob.h>
+int glob(const char *pattern, int flags, int (*errfunc)(const char *, int), glob_t *pglob) {
+  (void)pattern; (void)flags; (void)errfunc;
+  pglob->gl_pathc = 0;
+  pglob->gl_pathv = NULL;
+  pglob->gl_offs = 0;
+  return GLOB_NOMATCH;
+}
+void globfree(glob_t *pglob) { (void)pglob; }

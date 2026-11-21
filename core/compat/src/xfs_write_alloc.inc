@@ -132,8 +132,7 @@
   }
   int bt_free_block(uint32_t ag, int k, uint32_t bno) {
     // バッファは捨てる (中身はもう参照されない)
-    auto it = wb.find(agb_off(ag, bno));
-    if (it != wb.end() && it->second.fresh) { it->second.dirty = false; }
+    bdrop_fresh(agb_off(ag, bno));
     if (k < 2) {
       int rc = agfl_put(ag, bno); if (rc) return rc;
       return agf_adj(ag, 0, 0, -1);

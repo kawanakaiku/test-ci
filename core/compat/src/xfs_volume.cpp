@@ -706,6 +706,7 @@ struct XfsVolume::Impl {
 #include "xfs_write_ops.inc"
 #include "xfs_write_full.inc"
 #include "xfs_write_node.inc"
+#include "xfs_write_attr.inc"
 #endif
 };
 

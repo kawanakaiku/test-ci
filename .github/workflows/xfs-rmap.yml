@@ -1,5 +1,5 @@
 # XFS の rmapbt / parent pointer の書き込みの検証 (docs/xfs-write.md)。xfs-write.yml より軽い反復用: 新しい mkfs.xfs の機能の組み合わせ
-# (USBMEM_XFS_FEATURES = rmapbt: rmapbt=1 parent=0 / all: mkfs の既定のまま) で、決まった操作列・乱数操作 + モデル・実カーネルとの相互確認・電源断の模擬 (間引き) を回す。
+# (USBMEM_XFS_FEATURES = rmapbt: rmapbt=1 parent=0 / parent: rmapbt=1 parent=1) で、決まった操作列・乱数操作 + モデル・実カーネルとの相互確認・電源断の模擬 (間引き) を回す。
 # トリガ: workflow_dispatch、または usbmem-xfsrmap-dev ブランチへの push (usbmem-ci-* ではないので他のワークフローは起動しない)。
 name: XFS rmapbt / parent pointer
 
@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        features: [rmapbt, all]
+        features: [rmapbt, parent]
     env:
       USBMEM_XFS_FEATURES: ${{ matrix.features }}
     steps:

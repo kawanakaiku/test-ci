@@ -636,6 +636,7 @@
       rc = ino_symlink_body(ino, ptype | perm, uid, gid, *target); if (rc) return rc;
     }
     rc = dir_add(dir, name, ino, ft); if (rc) return rc;
+    rc = pp_add(ino, dir, name); if (rc) return rc;   // 親ポインタ (parent pointer のあるボリューム)
     // 親の更新: mtime / ctime、サブディレクトリなら nlink + 1
     {
       uint8_t* pip; rc = ino_raw(dir, &pip); if (rc) return rc;
@@ -653,7 +654,7 @@
   int ino_symlink_body(uint64_t ino, uint32_t mode, uint32_t uid, uint32_t gid, const std::string& target) {
     if (target.empty() || target.size() > kMaxSymlinkCreate) return -ENAMETOOLONG;   // 1024 以上は xfs_repair が不正とする (docs/xfstests.md)
     for (char c : target) if (c == '\0') return -EINVAL;
-    const uint32_t litino = inodesize - 176;
+    const uint32_t litino = local_data_limit();
     int rc;
     if (target.size() <= litino) {
       rc = ino_init(ino, mode, uid, gid, 1, kFmtLocal); if (rc) return rc;

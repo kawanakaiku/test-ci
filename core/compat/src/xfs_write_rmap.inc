@@ -68,8 +68,7 @@
     return rm_blocks_adj(ag, 1);
   }
   int rm_free_block(uint32_t ag, uint32_t bno) {
-    auto it = wb.find(agb_off(ag, bno));
-    if (it != wb.end() && it->second.fresh) it->second.dirty = false;
+    bdrop_fresh(agb_off(ag, bno));
     int rc = agfl_put(ag, bno); if (rc) return rc;
     rc = agf_adj(ag, 0, 0, -1); if (rc) return rc;
     return rm_blocks_adj(ag, -1);

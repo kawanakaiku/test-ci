@@ -47,19 +47,26 @@
     int rc = get_inode(ino, &in); if (rc) return rc;
     Inode* d = in.get();
     if (d->flags & 1) return -EOPNOTSUPP;
-    {
-      uint8_t* ip; rc = ino_raw(ino, &ip, false); if (rc) return rc;
-      if (ip[82]) {   // 属性フォークがある: inode の中に収まる (local) ものだけ。ブロックを持つものは未対応
-        if (ip[83] == kFmtLocal) { /* インライン */ }
-        else if (ip[83] == kFmtExtents) {
-          uint64_t anext = (be64(ip + 120) & kFlags2Nrext64) ? be32(ip + 76) : be16(ip + 80);
-          if (anext != 0) return -EOPNOTSUPP;
-        } else return -EOPNOTSUPP;
-      }
-    }
     struct Fr { uint64_t fsb; uint32_t len; Own own; };
     std::vector<Fr> frees;   // (fsb, 長さ, rmap の持ち主)
     uint64_t total = 0;
+    {   // 属性フォーク: inode の中 (local) のものは捨てるだけ。extent 形式のもの (leaf ブロック・リモート値) はブロックを解放する。bmbt 形式は未対応
+      uint8_t* ip; rc = ino_raw(ino, &ip, false); if (rc) return rc;
+      const uint32_t fo = ip[82];
+      if (fo) {
+        if (ip[83] == kFmtLocal) { /* インライン */ }
+        else if (ip[83] == kFmtExtents) {
+          const uint64_t anext = (be64(ip + 120) & kFlags2Nrext64) ? be32(ip + 76) : be16(ip + 80);
+          if (fo * 8 + anext * 16 > inodesize - 176) return -EUCLEAN;
+          for (uint64_t i = 0; i < anext; i++) {
+            const uint8_t* r = ip + 176 + fo * 8 + i * 16;
+            const uint64_t l0 = be64(r), l1 = be64(r + 8);
+            const uint64_t off = (l0 >> 9) & ((1ULL << 54) - 1), fsb = ((l0 & 0x1ff) << 43) | (l1 >> 21), len = l1 & 0x1fffff;
+            frees.push_back({fsb, uint32_t(len), own_attr(ino, off)}); total += len;
+          }
+        } else return -EOPNOTSUPP;
+      }
+    }
     if (d->format == kFmtExtents || d->format == kFmtBtree) {
       rc = load_extents(d); if (rc) return rc;
       for (const Ext& e : *d->exts) { frees.push_back({e.fsb, uint32_t(e.len), own_file(ino, e.off, e.unwritten)}); total += e.len; }
@@ -261,7 +268,7 @@
     dm_del(dir, name);
     rc = ino_adjust(dir, is_dir ? -1 : 0, true); if (rc) return rc;
     if (is_dir || t->nlink <= 1) { rc = ino_destroy(ino); if (rc) return rc; }
-    else { rc = ino_adjust(ino, -1, false); if (rc) return rc; }
+    else { rc = pp_remove(ino, dir, name); if (rc) return rc; rc = ino_adjust(ino, -1, false); if (rc) return rc; }
     icache.erase(dir);
     return 0;
   }
@@ -283,6 +290,7 @@
     if (rc == 0) return -EEXIST;
     if (rc != -ENOENT) return rc;
     rc = dir_add(dir, name, target, ft_of_mode(t->mode)); if (rc) return rc;
+    rc = pp_add(target, dir, name); if (rc) return rc;
     rc = ino_adjust(target, +1, false); if (rc) return rc;
     rc = ino_adjust(dir, 0, true); if (rc) return rc;
     dm_set(dir, name, target);
@@ -386,10 +394,12 @@
       dm_del(nd, nn);
       if (dst_dir) { rc = ino_adjust(nd, -1, true); if (rc) return rc; }
       if (dst_dir || dst->nlink <= 1) { rc = ino_destroy(dino); if (rc) return rc; }
-      else { rc = ino_adjust(dino, -1, false); if (rc) return rc; }
+      else { rc = pp_remove(dino, nd, nn); if (rc) return rc; rc = ino_adjust(dino, -1, false); if (rc) return rc; }
     }
     rc = dir_add(nd, nn, sino, ft_of_mode(src->mode)); if (rc) return rc;
     rc = dir_remove(od, on); if (rc) return rc;
+    rc = pp_remove(sino, od, on); if (rc) return rc;   // 親ポインタ: 古い名前を外して新しい名前を足す
+    rc = pp_add(sino, nd, nn); if (rc) return rc;
     if (src_dir) {
       rc = ino_adjust(od, -1, false); if (rc) return rc;
       rc = ino_adjust(nd, +1, false); if (rc) return rc;

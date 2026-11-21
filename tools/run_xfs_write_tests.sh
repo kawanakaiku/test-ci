@@ -178,7 +178,6 @@ refuse() {  # refuse <label> <mkfs opts...>   (既定の rmapbt=0 / parent=0 を
 }
 refuse "V4 (crc=0)" -m crc=0,rmapbt=0 -n ftype=1
 refuse "dirblklog>0 (-n size=8192)" -n size=8192 -m rmapbt=0
-refuse "parent pointer (-n parent=1)" -m rmapbt=1 -n parent=1
 refuse "stripe unit (-d su=64k,sw=2)" -d su=64k,sw=2 -m rmapbt=0
 refuse "bs=1024 (V5 dir block > fs block)" -b size=1024 -m rmapbt=0
 refuse "bs=2048 (V5 dir block > fs block)" -b size=2048 -m rmapbt=0

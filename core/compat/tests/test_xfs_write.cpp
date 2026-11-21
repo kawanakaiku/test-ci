@@ -571,12 +571,14 @@ static int frag_run(const std::string& img) {
   std::vector<int> order(n); for (int i = 0; i < n; i++) order[i] = i;
   for (int i = n - 1; i > 0; i--) std::swap(order[i], order[rnd() % (i + 1)]);
   for (int i = 0; i < n * 7 / 10; i++) CHECK(vol->unlink(d, nm("f", order[i])) == 0);
+  int ng = 0;   // 作れた g の数 (満杯で途中で止まりうる。rmapbt のあるボリュームはメタデータが増えて先に満杯になる)
   for (int i = 0; i < n / 2; i++) {
     uint64_t t; if (vol->create(d, nm("g", i), 0644, &t)) break;
+    ng++;
     size_t sz = 1 + rnd() % buf.size(); if (vol->write(t, 0, buf.data(), sz) != (int64_t)sz) break;
   }
   for (int i = n * 7 / 10; i < n; i++) CHECK(vol->unlink(d, nm("f", order[i])) == 0);
-  for (int i = 0; i < n / 2; i++) if (i % 3) CHECK(vol->unlink(d, nm("g", i)) == 0);
+  for (int i = 0; i < ng; i++) if (i % 3) CHECK(vol->unlink(d, nm("g", i)) == 0);
   // 小さいディレクトリ (ショートフォーム) の中で名前の変更を繰り返す。エントリのオフセットが増え続けると xfs_repair が "offsets too high" と言う (generic/028 の後で発見)
   uint64_t sd; CHECK(vol->mkdir(vol->root(), "sfren", 0755, &sd) == 0);
   uint64_t sf0; CHECK(vol->create(sd, "keep", 0644, &sf0) == 0);

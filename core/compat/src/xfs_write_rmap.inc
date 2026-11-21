@@ -382,6 +382,14 @@
   // ============ reflink: 共有されているブロックか (参照カウント木を読むだけ。書き換えない) ============
   // reflink フラグのある inode でも、extent が他と共有されていなければ (参照カウント木に共有の記録が無い) 通常どおり書き換え / 解放できる。
   // 共有されているもの (参照カウント >= 2) への書き込み・解放は CoW が要るので、呼び出し側が EOPNOTSUPP にする。
+  // 参照カウント木のブロックを読む (読み取りだけ。bt_blk は書き込む木の magic しか受け付けない)
+  int rf_blk(uint32_t ag, uint32_t bno, WBuf** b) {
+    if (bno >= ag_len(ag)) return -EUCLEAN;
+    int rc = bget(agb_off(ag, bno), bs, BLFT_BTREE, b); if (rc) return rc;
+    const uint8_t* p = (*b)->d.data();
+    if (be32(p) != 0x52334643 || be64(p + 16) != (*b)->off / 512) return -EUCLEAN;
+    return 0;
+  }
   int rf_shared(uint32_t ag, uint32_t bno, uint32_t len, bool* shared) {
     *shared = false;
     WBuf* f; int rc = agf_buf(ag, &f); if (rc) return rc;
@@ -391,7 +399,7 @@
     const uint32_t nmax = (bs - 56) / 8, lmax = (bs - 56) / 12;
     uint32_t cur = root;
     for (uint32_t lv = height; lv >= 1; lv--) {
-      WBuf* b; rc = bt_blk(ag, cur, &b); if (rc) return rc;
+      WBuf* b; rc = rf_blk(ag, cur, &b); if (rc) return rc;
       const uint8_t* p = b->d.data();
       if (be32(p) != 0x52334643 || be16(p + 4) != lv - 1) return -EUCLEAN;
       const uint32_t n = be16(p + 6);
@@ -417,7 +425,7 @@
           }
           const uint32_t rs2 = be32(q + 12);
           if (rs2 == kNullAgbno) return 0;
-          rc = bt_blk(ag, rs2, &lb); if (rc) return rc;
+          rc = rf_blk(ag, rs2, &lb); if (rc) return rc;
           i = 0;
         }
         return -EUCLEAN;

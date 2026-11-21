@@ -63,7 +63,9 @@ class KfsdInstrumentedTest {
 
     private fun sameTree(src: Kfsd.Source) {
         Kfsd.apply(ctx, false)
+        val t1 = System.nanoTime()
         val base = open().use { assertEquals("ext4", it.fsName); dump(it) }
+        Log.i("KFSD_METRIC", "tree_dump_inproc: ${(System.nanoTime() - t1) / 1_000_000} ms, ${base.size} entries")
         assertTrue("tree is empty", base.size > 100)
         Kfsd.apply(ctx, true, src)
         val before = Kfsd.children().size
@@ -158,11 +160,13 @@ class KfsdInstrumentedTest {
     // ---- kfsd が無い
 
     @Test fun missingKfsd_isEnopkg() {
-        // プラグイン (または libkfsd.so) が無い入手先を選ぶ: 有るなら、この試験は意味が無い
-        val src = if (!Kfsd.pluginAvailable(ctx)) Kfsd.Source.PLUGIN else if (!Kfsd.localAvailable(ctx)) Kfsd.Source.LOCAL else null
-        assumeTrue("両方の入手先がある", src != null)
-        Kfsd.apply(ctx, true, src!!)
-        try { open().close(); fail("マウントできてしまった") } catch (e: NativeException) { assertEquals("ENOPKG", Kfsd.ENOPKG, e.code) }
+        // 入っていないパッケージ名のプラグインを選ぶ → kfsd が無い。マウントは ENOPKG (65) で失敗し、アプリは落ちない
+        Kfsd.pluginPackage = "org.usbmem.kfsd.absent"
+        try {
+            Kfsd.apply(ctx, true, Kfsd.Source.PLUGIN)
+            assertEquals(false, Kfsd.available(ctx))
+            try { open().close(); fail("マウントできてしまった") } catch (e: NativeException) { assertEquals("ENOPKG", Kfsd.ENOPKG, e.code) }
+        } finally { Kfsd.pluginPackage = Kfsd.PLUGIN_PACKAGE }
     }
 
     private fun waitFor(what: String, timeoutMs: Long = 10_000, cond: () -> Boolean) {

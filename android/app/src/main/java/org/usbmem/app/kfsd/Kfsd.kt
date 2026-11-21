@@ -37,6 +37,9 @@ object Kfsd {
     /** デバッグビルドだけが見る上書き (計装テスト用): 内容 = off / local / plugin / auto。 */
     private const val DEBUG_FILE = "/data/local/tmp/usbmem_kfsd"
 
+    /** プラグインのパッケージ名。試験だけが、入っていない名前に差し替えて「kfsd が無い」(ENOPKG) を確かめる。 */
+    @Volatile var pluginPackage: String = PLUGIN_PACKAGE
+
     @Volatile private var appCtx: Context? = null
     @Volatile var source: Source = Source.AUTO
         private set
@@ -86,8 +89,8 @@ object Kfsd {
 
     /** 署名が同じプラグイン APK が入っているか。試作の信頼の根拠は「署名が本体と同じ」。配布では、固定した証明書の一覧 (SHA-256) との照合に置き換える (docs/kfsd.md 6 章)。 */
     fun pluginAvailable(ctx: Context): Boolean = try {
-        ctx.packageManager.getPackageInfo(PLUGIN_PACKAGE, 0)
-        ctx.packageManager.checkSignatures(ctx.packageName, PLUGIN_PACKAGE) == PackageManager.SIGNATURE_MATCH
+        ctx.packageManager.getPackageInfo(pluginPackage, 0)
+        ctx.packageManager.checkSignatures(ctx.packageName, pluginPackage) == PackageManager.SIGNATURE_MATCH
     } catch (_: Exception) { false }
 
     /** 起こせる kfsd があるか (設定の入手先に従う)。 */
@@ -139,7 +142,7 @@ object Kfsd {
     private fun connect(ctx: Context, src: Source): Conn {
         conns[src]?.let { if (it.binder.isBinderAlive) return it else { try { ctx.unbindService(it.connection) } catch (_: Exception) {}; conns.remove(src) } }
         val intent = Intent().setComponent(
-            if (src == Source.LOCAL) ComponentName(ctx, KfsdService::class.java) else ComponentName(PLUGIN_PACKAGE, PLUGIN_SERVICE))
+            if (src == Source.LOCAL) ComponentName(ctx, KfsdService::class.java) else ComponentName(pluginPackage, PLUGIN_SERVICE))
         val latch = CountDownLatch(1)
         var bound: IBinder? = null
         val c = object : ServiceConnection {

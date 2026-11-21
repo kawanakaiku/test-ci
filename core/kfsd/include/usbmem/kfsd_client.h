@@ -32,6 +32,7 @@ struct MountOptions {
   int tz_minutes_west = 0;      // FAT の更新時刻の変換 (UTC より何分西か)
   int timeout_ms = 60000;       // kfsd からの 1 回の待ち (要求への応答 / 次の callback) の上限。超えたら kfsd を殺して -ETIMEDOUT。0 = 無期限
   int mount_timeout_ms = 120000;  // マウント (走査・ジャーナル再生を含む) の上限。0 = 無期限
+  int dev_readahead_kb = 0;     // kfsd がデバイス (本体への callback) を連続して読むときの先読みの上限 (KiB)。往復の削減 (docs/kfsd.md 4 章)。0 = 先読みなし
   bool prefetch_stat = false;   // readdir で各エントリの stat も一緒に受け取り、続く stat() をキャッシュで答える (往復の削減。変更系の呼び出しで捨てる)
   std::vector<std::string> kfsd_args;  // kfsd へ渡す追加の引数 (例: --mem-limit-mb=1024)
 };
@@ -42,6 +43,14 @@ void set_exe(const std::string& path);   // Android: nativeLibraryDir の libkfs
 
 // 実行ファイルを起こし、socketpair の一端を *fd に返す (子はその相手を fd 3 で受け取り、--fd=3 を引数に取る)。0 / -errno。
 int spawn(const std::string& exe, const std::vector<std::string>& extra_args, int* fd, pid_t* pid);
+
+// 抽象名前空間の UNIX ソケットで kfsd を迎える方式 (Android: Java の ProcessBuilder は fd を子へ渡せないので、起こされた kfsd が `--connect=<name>` で接続してくる。wimfuse と同じ)。
+//   本体: listen_abstract(name) → (kfsd を起こす: Java の ProcessBuilder / spawn_connect) → accept_peer() → RpcVolume::mount_fd()
+// accept_peer は SO_PEERCRED で相手の uid を確かめる (expected_uid < 0 なら検査しない)。他のアプリが先に接続して成りすますのを避けるため、a の方式では自分の uid、b (プラグイン APK) ではプラグインの uid。
+int listen_abstract(const std::string& name, int* listen_fd);
+int accept_peer(int listen_fd, int timeout_ms, int expected_uid, int* fd);   // 0 / -errno (ETIMEDOUT / EACCES (uid 違い) など)
+// exe を `--connect=<name>` で起こす (ホストのテスト・Android 以外用)。
+int spawn_connect(const std::string& exe, const std::vector<std::string>& extra_args, const std::string& name, pid_t* pid);
 
 class RpcVolume final : public FsVolume {
  public:

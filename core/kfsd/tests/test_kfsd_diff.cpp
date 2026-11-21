@@ -555,6 +555,35 @@ int run_abnormal(const std::string& dir) {
     ::unlink(zero.c_str());
     ::rmdir(zero.substr(0, zero.rfind('/')).c_str());
   }
+  // 8. --connect (抽象名前空間の UNIX ソケット。Android の起動方式): 接続を受けて通常どおり使える。uid が違う相手は拒否する
+  {
+    std::string name = "usbmem-kfsd-test-" + std::to_string(::getpid());
+    int ls = -1;
+    CHECK_EQ(kfsd::listen_abstract(name, &ls), 0);
+    pid_t pid = -1;
+    CHECK_EQ(kfsd::spawn_connect(g_kfsd, {}, name, &pid), 0);
+    int fd = -1;
+    CHECK_EQ(kfsd::accept_peer(ls, 10000, static_cast<int>(::getuid()), &fd), 0);
+    auto dev = open_dev(img, false);
+    int err = 0;
+    auto r = kfsd::RpcVolume::mount_fd(fd, pid, dev, {}, &err);
+    CHECK(r != nullptr);
+    if (r) {
+      std::vector<FsDirEntry> e;
+      CHECK_EQ(r->readdir(r->root(), &e), 0);
+      CHECK(!e.empty());
+    }
+    r.reset();
+    pid_t pid2 = -1;
+    CHECK_EQ(kfsd::spawn_connect(g_kfsd, {}, name, &pid2), 0);
+    int fd2 = -1;
+    CHECK_EQ(kfsd::accept_peer(ls, 10000, static_cast<int>(::getuid()) + 1, &fd2), -EACCES);
+    ::kill(pid2, SIGKILL);
+    int st2;
+    ::waitpid(pid2, &st2, 0);
+    CHECK_EQ(kfsd::accept_peer(ls, 200, -1, &fd2), -ETIMEDOUT);
+    ::close(ls);
+  }
   // 7. kfsd が無い
   {
     auto dev = open_dev(img, false);

@@ -164,3 +164,11 @@ Btrfs の書き込み (実験的・`USBMEM_NTFS_WRITE` ビルドのみ・docs/bt
 - [ ] 公開版へ Btrfs / XFS を入れる (SPDX の訂正・展開の差し替え・派生かの判断)。F2FS の圧縮ファイルの読み取り (lz4 は自前デコーダで足りる可能性)。
 - [ ] 公開版の計装テスト (エミュレータ: F2FS・暗号・パーティション編集・未対応 FS の案内) と、公開版向けの docs の整備 (今は機能に関する 13 本だけ)。
 - [ ] 公開用の履歴を `git init` で新しく作る (手順は docs/editions.md 7 章。実行はユーザーの判断)。公開前に gitleaks と機種名・個人情報の目視 (docs/release-audit.md)。
+
+## kfsd (GPL 系の FS ドライバを別プロセスに分ける。2026-11-22、docs/kfsd.md)
+- [x] 段階 0-2 (ホスト): 設計 (docs/kfsd.md)・プロトコル (`core/kfsd/include/usbmem/kfsd_proto.h`)・kfsd (`USBMEM_BUILD_KFSD`)・RpcVolume・差分試験 (ntfs / exfat / ext2 / ext4 / fat / iso / squashfs / erofs の読み、ntfs / exfat / ext2 / ext4 / fat の書き込み、異常系)・性能の測定と最適化 (先読み・まとめ書き・readdir に stat を同梱。docs/kfsd.md 4 章)。
+- [x] 公開版: RpcVolume・プロトコル・サーバ共通部・`kfsd_proto` を公開版へ (tools/public_manifest.txt)、kfsd 本体 (`kfsd_mount` / `kfsd_main` / `kfsd_diff` / `bench`) は個人版だけ。公開版の JNI は、kfsd の扱う FS で ENOPKG(65) を返し、UI は「この FS には kfsd (プラグイン) が必要です」を出す。
+- [ ] **段階 3 (Android)**: `:kfsd` サービス + `libkfsd.so` (nativeLibraryDir から exec、`--connect=<抽象名>` は kfsd 側とホスト側の helper (`listen_abstract` / `accept_peer` / `spawn_connect`) まで済)・VolumeRegistry の経路 (既定はプロセス内。設定かビルドで切替)・エミュレータの試験群 `kfsd`・(b) プラグイン APK の最小試作。
+  `usbmem-wt-wimint` が main に入っていないため未着手 (`:wimfuse` の ChildSpawner / logcat 転送を再利用する)。
+- [ ] **配布前に決める**: kfsd のバイナリに入る Apache-2.0 の自前コードを GPL-2.0-or-later としても提供する旨の明記 (docs/kfsd.md 3 章)。kfsd のソースの公開先・プラグイン APK の署名・説明文 (ソースの入手先とライセンス)。
+- [ ] kfsd の seccomp。XFS を kfsd に載せるのは xfsrmap の統合後 (`kfsd_mount.cpp` は `usbmem_xfs` があれば載せる。差分試験は未追加)。`mount_auto` を JNI 側と kfsd 側で 1 つにまとめる (段階 3)。

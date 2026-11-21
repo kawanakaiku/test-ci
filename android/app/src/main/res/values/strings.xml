@@ -182,7 +182,9 @@
     <string name="notice_fs_unsupported_feature_detail">暗号化・大文字小文字の無視 (casefold)・fs-verity など、このアプリが対応していない ext4 / F2FS の機能が有効です。</string>
     <string name="notice_edition_fs_unsupported">この版では未対応のファイルシステムのため、マウントできません</string>
     <string name="notice_edition_fs_unsupported_detail">公開版は、アプリ全体のソース公開を求めるライセンス (GPL 系) のコードを含まないため、扱えるファイルシステムが限られます。この版が扱えるのは %1$s です。パーティション表の表示と編集、ディスクの検査と初期化 (mkfs)、救出とバックアップ、暗号ボリュームの解錠は、この版でも使えます。</string>
-    <string name="edition_fs_unsupported_row">%1$s: この版では未対応です (対応: %2$s)</string>
+    <string name="notice_kfsd_required">この FS には kfsd (プラグイン) が必要です</string>
+    <string name="notice_kfsd_required_detail">公開版の本体は GPL 系のコードを含みません。NTFS・exFAT・FAT・ext2/3/4・ISO 9660・UDF・squashfs・erofs・Btrfs・XFS は、別に配布するプラグイン (kfsd。GPL-2.0、ソースは別に公開) が扱います。プラグインを入れると、この FS をマウントできます。</string>
+    <string name="edition_fs_unsupported_row">%1$s: この版の本体では未対応です (対応: %2$s。ほかは別配布のプラグイン kfsd が必要)</string>
 
     <!-- ボリュームの状態 (ダーティ / 未再生ログ / 休止状態 / メディアエラー) の原因別の案内。VolumeStateNotice が組み立てる。docs/dirty-volumes.md -->
     <string name="notice_vol_hibernated">Windows が休止状態のままのボリュームです</string>

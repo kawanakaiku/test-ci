@@ -286,3 +286,18 @@ git log --stat | head                                                   # 履歴
 5. **確認**: `tools/license_inventory.py --check` (規則の矛盾)、`tools/export_public.sh` (検査)、公開版の CI (`public-edition.yml`、ブランチ `usbmem-public-<名前>`) が通ること。
 
 新しい `third_party/*` や `core/compat/*` の追加は、`include` に当たらない (未分類 = 除外) ので、何もしなくても公開版には入らない。
+
+## 13. kfsd (GPL 系ドライバを別プロセスに分ける。2026-11-22、docs/kfsd.md)
+
+公開版の本体は GPL 系のコードを一切含まず、カーネル由来のドライバは別の実行ファイル `kfsd` (GPL-2.0、ソースは別に公開) に載せて、**RPC だけ**で繋ぐ。公開版に入るのは次のファイルだけ (`tools/public_manifest.txt` の core/kfsd の節)。
+
+| ファイル | 内容 | ライセンス |
+|---|---|---|
+| `core/kfsd/include/usbmem/kfsd_proto.h` | RPC の仕様 (ヘッダ + docs/kfsd.md) | Apache-2.0 |
+| `core/kfsd/include/usbmem/kfsd_client.h`・`src/kfsd_client.cpp` | `RpcVolume` (`FsVolume` を RPC で実装。kfsd を起こす・監視する・止める) | Apache-2.0 |
+| `core/kfsd/include/usbmem/kfsd_server.h`・`src/kfsd_server.cpp`・`src/kfsd_io.h` | kfsd 側の共通部 (RPC のサーバ・デバイスの callback の `BlockDevice`)。GPL のドライバは含まない | Apache-2.0 |
+| `core/kfsd/tests/test_kfsd_proto.cpp`・`core/kfsd/CMakeLists.txt` | プロトコルの試験 (MemFs ベース。kfsd の実行ファイル無しで動く) | Apache-2.0 |
+
+公開版に**入らない** (個人版 / kfsd の配布物だけ): `core/kfsd/src/kfsd_mount.{h,cpp}` (FS の判別とマウント = カーネル由来のドライバを呼ぶ)、`kfsd_main.cpp` (kfsd の実行ファイル)、`tests/test_kfsd_diff.cpp`・`bench_kfsd.cpp` (プロセス内との差分試験・性能測定)。
+公開版の JNI (`jni_ntfs.cpp`) は、kfsd の扱う FS を判別できたら ENOPKG (65) を返し、UI は「この FS には kfsd (プラグイン) が必要です」を出す。Android で kfsd (`libkfsd.so` / プラグイン APK) へ繋ぐ層は段階 3 (docs/kfsd.md 8 章)。
+`tools/license_inventory.py` に kfsd のコンポーネントを足し、`check_public_tree.py` のインクルード走査に `core/kfsd/include`・`core/kfsd/src` を足した (公開版の閉包の検査)。公開版の CI は `usbmem-ci-full-kfsd` で確認 (docs/ci.md)。

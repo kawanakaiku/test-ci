@@ -676,7 +676,9 @@ kfsd::MountFn block_writer_mount() {
         if (!st.ok()) return -(st.sys_errno ? st.sys_errno : EIO);
       }
       std::vector<uint8_t> back(512);   // 書いた直後の読みは、まとめて持っている分も見える
-      if (!d->read_at(4096 + 99 * 512, back.data(), back.size()).ok() || back[0] != 100) return -EILSEQ;
+      Status rs = d->read_at(4096 + 99 * 512, back.data(), back.size());
+      if (!rs.ok()) return -(rs.sys_errno ? rs.sys_errno : EIO);   // まとめた書き込みの失敗は、次の読みで分かる
+      if (back[0] != 100) return -EILSEQ;
       Status st = d->write_at(100000, "xyz", 3);   // 飛び飛びの書き込み
       return st.ok() ? 0 : -(st.sys_errno ? st.sys_errno : EIO);
     };

@@ -8,6 +8,13 @@ plugins {
 val usbmemEdition = providers.gradleProperty("usbmemEdition").orNull ?: "personal"
 require(usbmemEdition == "personal" || usbmemEdition == "public") { "usbmemEdition must be personal or public (got '$usbmemEdition')" }
 
+// 個人版の FUSE 層 (別プロセスの wimlib。docs/fuse-layer.md 10 章): -PusbmemWimFuse=<tools/wimfuse/build_android.sh の出力ディレクトリ> のときだけ有効。
+// libwimfuse.so (PIE の実行ファイル) を jniLibs として APK に入れ、nativeLibraryDir から exec する。exec には extractNativeLibs=true (useLegacyPackaging) が要る。
+// 公開版 (-PusbmemEdition=public) では指定しても無視する (wimlib は LGPL / GPL。公開版のツリーに FUSE 層は無い。docs/editions.md 12 章)。
+val wimFuseDir: String? = providers.gradleProperty("usbmemWimFuse").orNull.let { d ->
+    if (d != null && usbmemEdition == "public") { logger.warn("usbmemWimFuse is ignored in the public edition"); null } else d
+}
+
 android {
     namespace = "org.usbmem.app"
     compileSdk = 36
@@ -26,12 +33,14 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         // 書き込み経路を有効にしたビルドか (下の cmake の USBMEM_NTFS_WRITE と同じ条件)。false なら、画面で書き込みモードを選べない (BuildConfig.WRITE_SUPPORTED)
         buildConfigField("boolean", "WRITE_SUPPORTED", (providers.gradleProperty("usbmemNtfsWrite").orNull == "true").toString())
+        buildConfigField("boolean", "WIMFUSE_SUPPORTED", (wimFuseDir != null).toString())
         externalNativeBuild {
             cmake {
                 arguments += listOf("-DANDROID_STL=c++_static")
                 if (usbmemEdition == "public") arguments += "-DUSBMEM_EDITION=public"
                 // NTFS 書き込みは実験的: 既定では無効 (-PusbmemNtfsWrite=true で書き込み可能なビルドにする)。無効ビルドでは書き込みマウントが -EROFS で失敗する
                 if (providers.gradleProperty("usbmemNtfsWrite").orNull == "true") arguments += "-DUSBMEM_NTFS_WRITE=ON"
+                if (wimFuseDir != null) arguments += "-DUSBMEM_WIMFUSE=ON"
             }
         }
     }
@@ -76,7 +85,9 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true; buildConfig = true }
-    packaging { jniLibs { useLegacyPackaging = false } }  // 16KB ページ整列のため非圧縮で格納
+    // 16KB ページ整列のため非圧縮で格納 (extractNativeLibs=false)。ただし個人版の FUSE 層 (wimfuse) を入れるときは、libwimfuse.so を nativeLibraryDir から exec するので展開が要る
+    packaging { jniLibs { useLegacyPackaging = wimFuseDir != null } }
+    if (wimFuseDir != null) sourceSets.getByName("main").jniLibs.srcDir("$wimFuseDir/jniLibs")
     testOptions { unitTests.isReturnDefaultValues = true }
 }
 

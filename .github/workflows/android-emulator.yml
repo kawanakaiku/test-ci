@@ -49,7 +49,7 @@ jobs:
       max-parallel: 4
       matrix:
         # グループの中身は tools/ci_android_tests.sh の group_fs() を参照
-        group: ${{ fromJSON(inputs.groups && format('["{0}"]', inputs.groups) || endsWith(github.ref_name, '-only-crypt-ui') && '["crypt-ui"]' || endsWith(github.ref_name, '-only-ro-misc') && '["ro-misc"]' || '["ext-fat","btrfs-xfs","squash-erofs","nested-ntfs","ro-misc","crypt-ui"]') }}
+        group: ${{ fromJSON(inputs.groups && format('["{0}"]', inputs.groups) || endsWith(github.ref_name, '-only-crypt-ui') && '["crypt-ui"]' || endsWith(github.ref_name, '-only-ro-misc') && '["ro-misc"]' || endsWith(github.ref_name, '-only-wim-fuse') && '["wim-fuse"]' || '["ext-fat","btrfs-xfs","squash-erofs","nested-ntfs","ro-misc","crypt-ui","wim-fuse"]') }}
     steps:
       - uses: actions/checkout@v7
 
@@ -107,11 +107,21 @@ jobs:
             command -v "$t" >/dev/null || [ -x "/sbin/$t" ] || [ -x "/usr/sbin/$t" ] || echo "::warning::host tool missing: $t"
           done
 
+      # 個人版の FUSE 層 (wimfuse。wim-fuse グループだけ): libwimfuse.so (wimlib の wimmount を載せた別プロセスの実行ファイル) を NDK で作り、APK の jniLibs に入れる (docs/fuse-layer.md 10 章)
+      - name: Build libwimfuse.so (wim-fuse only)
+        if: matrix.group == 'wim-fuse'
+        run: |
+          sudo apt-get install -y --no-install-recommends libfuse3-dev wimtools ninja-build
+          export ANDROID_NDK_HOME="$SDK_ROOT/ndk/$NDK_VERSION"
+          tools/wimfuse/build_android.sh "$RUNNER_TEMP/wimfuse" 2>&1 | tee "$RUNNER_TEMP/wimfuse_build.log"
+          test "${PIPESTATUS[0]}" = 0
+          mkdir -p ci-logs && cp "$RUNNER_TEMP/wimfuse_build.log" ci-logs/
+
       # NTFS / ext2 / exFAT の書き込みテストに -PusbmemNtfsWrite=true が要る (ABI は arm64-v8a と x86_64 の両方がビルドされる)
       - name: Build APKs
         working-directory: android
         run: |
-          ../tools/ci/retry_gradle.sh ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true
+          ../tools/ci/retry_gradle.sh ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest -PusbmemNtfsWrite=true ${{ matrix.group == 'wim-fuse' && format('-PusbmemWimFuse={0}/wimfuse', runner.temp) || '' }}
           find app/build/outputs/apk -name '*.apk' -exec ls -l {} +
 
       # JVM 単体試験 (パスワードの記憶 SecretVault。Android / Keystore に依存しない部分)。他の単体試験は CI で動かしていないので、この 1 クラスだけ
@@ -162,6 +172,18 @@ jobs:
           emulator-options: -no-window -no-audio -no-snapshot-save -gpu swiftshader_indirect -no-boot-anim -camera-back none
           disable-animations: true
           script: tools/ci_android_tests.sh run ${{ matrix.group }}
+
+      # 手元の AVD で試せるよう、wim-fuse のときだけ APK (libwimfuse.so 入り) も残す
+      - name: Upload APKs (wim-fuse only)
+        if: matrix.group == 'wim-fuse' && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: apks-wim-fuse
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Upload logs
         if: always()

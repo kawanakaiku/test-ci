@@ -32,5 +32,10 @@
                 <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+        <!-- 個人版の FUSE 層 (wimfuse): 別プロセス (:wimfuse) で libwimfuse.so (wimlib の wimmount) を exec・監督するサービス。アプリの外へは公開しない。docs/fuse-layer.md 10 章 -->
+        <service
+            android:name=".wimfuse.WimFuseService"
+            android:process=":wimfuse"
+            android:exported="false" />
     </application>
 </manifest>

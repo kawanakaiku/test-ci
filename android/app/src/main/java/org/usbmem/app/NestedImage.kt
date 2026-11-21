@@ -11,6 +11,9 @@ const val NESTED_MAX_DEPTH = 3
  * 通常は [VolumeRegistry] が依存関係を持って、この順に閉じる。
  */
 class NestedImage internal constructor(private var handle: Long) : AutoCloseable {
+    /** このイメージを読むデバイスのネイティブハンドル (個人版の wimfuse が、WIM の中身を別プロセスへ読ませるのに使う)。閉じたあとは使えない。 */
+    internal val deviceHandle: Long get() = handle
+
     /** パーティション表 (MBR / GPT / 論理パーティション)。表が無く全体が 1 つのファイルシステムなら [PartitionTable.wholeDeviceVolume]。 */
     @Synchronized
     fun partitionTable(): PartitionTable {

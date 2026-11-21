@@ -37,12 +37,12 @@
 <!-- inventory:table -->
 | コンポーネント | ファイル | SPDX の内訳 | 出所 | 判断 | 公開版 | 説明 |
 |---|--:|---|---|---|--:|---|
-| `.github (CI)` | 12 | (なし) 11, Apache-2.0 1 | dev 11, own 1 | 一部だけ入れる (入る 1 / 除外 11) | 1 | 個人版の CI |
+| `.github (CI)` | 13 | (なし) 12, Apache-2.0 1 | dev 12, own 1 | 一部だけ入れる (入る 1 / 除外 12) | 1 | 個人版の CI |
 | `ルート` | 6 | (なし) 6 | own 4, dev 2 | 一部だけ入れる (入る 4 / 除外 2) | 4 | README など |
 | `android: ビルド設定・リソース・ラッパー` | 20 | (なし) 18, Apache-2.0 2 | own 19, external-permissive 1 | 公開版に入れる | 20 | Gradle / マニフェスト / リソース / Gradle ラッパー (Apache-2.0) |
-| `android: 計装テスト` | 34 | (なし) 34 | dev 34 | 公開版から除外 | 0 | 実機・エミュレータ用。カーネル FS のフィクスチャ・個人の機材を前提にする |
+| `android: 計装テスト` | 36 | (なし) 36 | dev 36 | 公開版から除外 | 0 | 実機・エミュレータ用。カーネル FS のフィクスチャ・個人の機材を前提にする |
 | `android: JNI` | 11 | Apache-2.0 7, GPL-2.0-or-later 3, (なし) 1 | own 8, own-gpl 3 | 公開版に入れる (SPDX を Apache-2.0 へ書き換え 3) | 11 | 自前の JNI (FS の分岐は USBMEM_FS_* の条件コンパイル) |
-| `android: Kotlin アプリ` | 35 | (なし) 35 | own 35 | 公開版に入れる | 35 | 自前の Kotlin。AndroidX / Compose (Apache-2.0) に依存 |
+| `android: Kotlin アプリ` | 40 | (なし) 39, Apache-2.0 1 | own 36, external-gpl 4 | 一部だけ入れる (入る 36 / 除外 4) | 36 | 自前の Kotlin。AndroidX / Compose (Apache-2.0) に依存 |
 | `android: JVM 単体テスト` | 8 | (なし) 8 | own 8 | 公開版に入れる | 8 | JUnit |
 | `core/*.cmake, core/CMakeLists.txt` | 7 | Apache-2.0 7 | own 5, own-gpl 1, external-gpl 1 | 一部だけ入れる (入る 5 / 除外 2) | 5 | 自前: ビルド定義 |
 | `core/compat: ビルド定義` | 8 | Apache-2.0 8 | kernel 7, own 1 | 一部だけ入れる (入る 1 / 除外 7) | 1 | 各カーネル FS のビルド定義 |
@@ -53,7 +53,7 @@
 | `core/compat: FsVolume 共通 IF・ネストマウント` | 5 | GPL-2.0-or-later 5 | own-gpl 5 | 公開版に入れる (SPDX を Apache-2.0 へ書き換え 5) | 5 | 自前: FS 共通のインタフェースと、その上のネストマウント (GPL 表記は安全側。公開版では Apache-2.0 へ) |
 | `core/compat: LinuxCompat 実行時` | 20 | GPL-2.0-or-later 19, Apache-2.0 1 | kernel-shim 20 | 公開版から除外 | 0 | inode / dentry / ページキャッシュ / bio / buffer_head / jbd2 / VFS の再現 |
 | `core/compat: カーネル FS / LinuxCompat のテスト` | 25 | GPL-2.0-or-later 22, Apache-2.0 3 | kernel 24, own 1 | 公開版から除外 | 0 | 上のドライバのテスト (GPL-2.0-or-later 表記が大半) |
-| `core/fuseshim (ntfs-3g / wimlib)` | 13 | GPL-2.0-or-later 13 | external-gpl 13 | 公開版から除外 | 0 | 外部 GPL / LGPL を動かす試作層 (GPL-2.0-or-later) |
+| `core/fuseshim (ntfs-3g / wimlib)` | 26 | GPL-2.0-or-later 22, Apache-2.0 2, LGPL-2.1-or-later 2 | external-gpl 26 | 公開版から除外 | 0 | 外部 GPL / LGPL を動かす試作層 (GPL-2.0-or-later) |
 | `core/include` | 26 | Apache-2.0 26 | own 26 | 公開版に入れる | 26 | 自前: 公開 API ヘッダ |
 | `core/src` | 58 | Apache-2.0 58 | own 58 | 公開版に入れる | 58 | 自前: パーティション表・ディスク編集・USB MSC / SCSI・暗号 (AES / SHA / HMAC / PBKDF2 / XTS / Argon2)・LUKS1/2・BitLocker・QCOW2 / VHD / VHDX / VMDK / NBD・DiskTools (fsck / mkfs)・救出 / バックアップ |
 | `core/tests` | 28 | Apache-2.0 27, (なし) 1 | own 27, generated 1 | 公開版に入れる | 28 | 自前: 上のテスト (暗号ベクタは公開値) |
@@ -69,8 +69,8 @@
 | `third_party/ntfs-resurrection` | 67 | GPL-2.0-or-later 55, (なし) 6, GPL-2.0 WITH Linux-syscall-note 2, MIT 2, GPL-2.0-only 1, ほか 1 種 | kernel 67 | 公開版から除外 | 0 | Linux fs/ntfs (NTFS Resurrection)。GPL-2.0-or-later |
 | `third_party/squashfs` | 34 | GPL-2.0-or-later 24, GPL-2.0-only 8, GPL-2.0 WITH Linux-syscall-note 1, (なし) 1 | kernel 34 | 公開版から除外 | 0 | Linux fs/squashfs。GPL-2.0 |
 | `third_party/udf` | 23 | GPL-2.0-only 14, GPL-2.0 4, (なし) 3, GPL-2.0 WITH Linux-syscall-note 1, LGPL-2.0+ 1 | kernel 23 | 公開版から除外 | 0 | Linux fs/udf。GPL-2.0 (一部 LGPL-2.0+) |
-| `tools` | 158 | (なし) 127, Apache-2.0 30, GPL-2.0-or-later 1 | dev 128, own 24, kernel-patch 3, kernel-shim 2, external-gpl 1 | 一部だけ入れる (入る 24 / 除外 134) | 24 | テスト・フィクスチャ生成・CI の補助 (公開版に入るのは公開版のテストが使うものだけ) |
-| `tools: FUSE アダプター・fuseshim・xfstests` | 9 | (なし) 8, GPL-2.0-or-later 1 | own-gpl 6, external-gpl 3 | 公開版から除外 | 0 | GPL 表記の自前アダプターと、ntfs-3g / wimlib の取得・試験 |
+| `tools` | 160 | (なし) 128, Apache-2.0 31, GPL-2.0-or-later 1 | dev 129, own 24, kernel-patch 3, kernel-shim 2, external-gpl 2 | 一部だけ入れる (入る 24 / 除外 136) | 24 | テスト・フィクスチャ生成・CI の補助 (公開版に入るのは公開版のテストが使うものだけ) |
+| `tools: FUSE アダプター・fuseshim・xfstests` | 10 | (なし) 9, GPL-2.0-or-later 1 | own-gpl 6, external-gpl 4 | 公開版から除外 | 0 | GPL 表記の自前アダプターと、ntfs-3g / wimlib の取得・試験 |
 <!-- /inventory:table -->
 
 ファイル単位の機械可読な表: `tools/license_inventory.py --tsv` (パス / SPDX / SPDX の種別 / 出所 / 動作 / 規則の行 / 注記)、`--json`。

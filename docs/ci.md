@@ -7,16 +7,16 @@
 
 - トリガは `workflow_dispatch` (手動) と、`usbmem-ci` ブランチへの push だけ。他のブランチでは動かない。
   `workflow_dispatch` はワークフローが既定ブランチにあるリポジトリでしか手動実行できないので、既定ブランチに置かない運用 (テスト用の別リポジトリに `usbmem-ci` ブランチを push する) では push で起動する。
-- 1 グループだけ回したいとき (修正の繰り返し): `crypt-ui` と `ro-misc` は、ブランチ名を `usbmem-ci-only-crypt-ui` / `usbmem-ci-only-ro-misc` (`-only-<グループ>` で終わる名前) にして push すると、そのグループだけが起動する (どちらも Host tests は「未知の構成」で即失敗するが無視してよい) (式に関数 `replace` が無いので汎用にはしていない)。`workflow_dispatch` の `groups` 入力なら任意のグループを 1 つ指定できる (ワークフローが既定ブランチにあるときだけ)。
+- 1 グループだけ回したいとき (修正の繰り返し): `crypt-ui` と `ro-misc` は、ブランチ名を `usbmem-ci-only-crypt-ui` / `usbmem-ci-only-ro-misc` (`-only-<グループ>` で終わる名前) にして push すると、そのグループだけが起動する (どちらも Host tests は「未知の構成」で即失敗するが無視してよい) `wim-fuse` (個人版の FUSE 層。下の `wim-fuse` 行) は `usbmem-ci-only-wim-fuse` (式に関数 `replace` が無いので汎用にはしていない)。`workflow_dispatch` の `groups` 入力なら任意のグループを 1 つ指定できる (ワークフローが既定ブランチにあるときだけ)。
 - 実行: `git push <リポジトリ> HEAD:refs/heads/usbmem-ci` → `gh run watch` / `gh run view --log-failed`。
-- ジョブは matrix で 6 グループに分かれ、`max-parallel: 4`・`fail-fast: false` (1 グループが落ちても他は最後まで走る)。
+- ジョブは matrix で 7 グループ (`wim-fuse` を含む) に分かれ、`max-parallel: 4`・`fail-fast: false` (1 グループが落ちても他は最後まで走る)。
   各ジョブが独立に「SDK/NDK 導入 → APK ビルド → フィクスチャ生成 → エミュレータ起動 → テスト」を行う。結果の表は各ジョブの Summary にも出る。
 - 失敗時のログ: artifact `logs-<グループ>` (`ci-logs/`: FS ごとのテスト出力 `run_<fs>.log`、フィクスチャ生成の出力 `gen_<fs>.log`、`logcat.txt` (adb logcat 全体)、`summary.md`)。
   テスト結果は `am instrument` の出力 (JUnit の XML ではない。Gradle の `connectedCheck` は使わない: テスト後にアンインストールされ、書き込みテストの結果イメージが消えるため)。
 
 ## グループ
 
-`tools/ci_android_tests.sh` の `group_fs()` が定義する。最大 4 並列なので 5 つ目は 4 つのどれかが終わってから始まる。
+`tools/ci_android_tests.sh` の `group_fs()` が定義する。最大 4 並列なので 5 つ目以降は、どれかが終わってから始まる。
 
 | グループ | 中身 (`tools/run_android_<fs>_test.sh` を呼ぶ) | ジョブ時間の目安 |
 |---|---|---|
@@ -25,6 +25,7 @@
 | `squash-erofs` | `squashfs`、`erofs`、`f2fs` (`ext` イメージのみ) | 約 6 分 |
 | `nested-ntfs` | `nested`、`write` (NTFS 書き込み + SAF) | 約 5 分 |
 | `crypt-ui` | `crypt_ui` (`CryptoUiTest`: 暗号ボリュームの UI。実画面を操作して LUKS2 / BitLocker を解錠・書き込み・ロック、中の ext4 のジャーナル未再生の「読み取り専用で開く」確認、パスワードの記憶 (`vault_*` 4 件。本物の AndroidKeyStore の鍵 + 偽の認証)。このグループのジョブは `VaultTest` (JVM 単体試験) も Gradle で実行する。フィクスチャは `tools/gen_crypt_ui_fixture.py`。docs/crypto-volumes.md 10 章) | 10 件成功 (run 43935001413、コミット 5204d16、約 9 分。パスワードの記憶 `vault_*` 4 件 + `VaultTest` の JVM 単体試験も成功)。以前: 6 件 (run 43917601086。単独実行 15 分。3 件は ジャーナル未再生の確認フロー)。以前: 3 件 (run 43660009210。全 6 グループ成功、18 分) |
+| `wim-fuse` | `wim_fuse` (`WimFuseTest` + `WimNestedTest`: 個人版の FUSE 層 (wimlib の wimmount を別プロセス `libwimfuse.so` で動かす)。ジョブの中で NDK の `tools/wimfuse/build_android.sh` が `libwimfuse.so` をビルドし (`-PusbmemWimFuse`)、`:wimfuse` プロセスの Service から exec して、小さな WIM (LZX / 無圧縮 / LZMS / 2 イメージ) の全ツリーを元のツリー (sha256) と突き合わせる。子プロセスの後始末 (閉じる・サービス死亡・アプリ終了で 0 になる)、一時コピーが作られないこと、SAF 経由の読み。フィクスチャは `tools/fuseshim/gen_wim_fixture.py`。**既定のグループに入れた** (2026-11-22、wimlib の統合。下の「wim-fuse グループと wimfuse-build.yml」の判断)。`usbmem-ci-only-wim-fuse` で単独でも回せる。docs/fuse-layer.md 10 章) | 52 件成功 (run 44906971508、約 7 分、ブランチ `usbmem-ci-only-wim-fuse`。fuse-layer.md 10.6) |
 | `ro-misc` | `ext2_read`、`ext4_read`、`exfat_read`、`iso_read`、`ntfs_read`、`app_misc` | 約 6 分 |
 
 `ro-misc` は専用の `run_android_*_test.sh` が無いクラスを `ci_android_tests.sh` が直接 push して実行する (`am instrument -r` の結果を数え、失敗・スキップ (assumption 失敗 = フィクスチャ未送信) が 1 つでもあれば失敗にする)。
@@ -248,3 +249,9 @@ Host tests (`host-tests.yml`) は、ctest が 1 本ずつ直列で、wsan が 13
 - 原因: compose-test の中の `rememberCoroutineScope()` / `LaunchedEffect` のコンテキストは recomposer のもの (`ApplyingContinuationInterceptor` + `FrameDeferringContinuationInterceptor`) で、コルーチンを再開したスレッドでそのまま続きを実行する。`scope.launch { busy = true; withContext(Dispatchers.IO) { ... }; busy = false; result = ... }` の形では、IO から戻ったワーカースレッドで state の更新と `sendApplyNotifications` が走り、recomposer が待機中だとフレーム (再コンポーズ・モディファイア更新・`requestLayout`) までワーカーで走る。製品の scope は `AndroidUiDispatcher` (メイン) なので、実害はテスト環境で顕在化する。散発する理由 (recomposer が待機中かどうかの競合、レイアウトに影響する変更のときだけ例外になる) は推測で、未検証。
 - 修正 (コミット 2da5194): `ui/Components.kt` の `rememberUiScope()` (= `rememberCoroutineScope { Dispatchers.Main }`) と `LaunchedEffectUi()` (本体を `withContext(Dispatchers.Main)` で包む) を、`ImageScreen` / `LinkDialog` / `NestedMountSection` の `rememberCoroutineScope` と、IO を含む `LaunchedEffect` の代わりに使う。新しい画面で IO のあとに state を書くときも、素の `rememberCoroutineScope` / `LaunchedEffect` ではなくこの 2 つを使うこと。
 - 確認: `usbmem-ci-only-crypt-ui` run 44591300790 (コミット 2da5194) を attempt 1 から 4 まで (`gh run rerun` で全体を再実行) 連続 4 回成功 (`CalledFromWrongThreadException` なし)。修正前は直近 2 run のどちらも初回で失敗していたが、もとの失敗率が高くないので 4 回では確率的な裏付けにとどまる。再発したら、logcat のスタックと失敗したテストをここに足す。
+
+## wim-fuse グループと wimfuse-build.yml (個人版の FUSE 層、2026-11-21)
+
+- `wim-fuse` グループだけ、Gradle のビルドの前に `libwimfuse.so` を NDK でビルドする (`tools/wimfuse/build_android.sh`。wimlib 1.14.4 を `tools/fuseshim/wimlib_pin.sh` の sha256 つきで取得、`apt` の `libfuse3-dev` はヘッダだけ使う)。他のグループの手順・APK は変わらない。
+- `.github/workflows/wimfuse-build.yml` (`usbmem-wimfuse*` への push): `libwimfuse.so` のビルドだけの軽いジョブ (約 3 分。arm64-v8a / x86_64、ELF の確認、`libwimfuse.so` を artifact `wimfuse-build` に)。
+- 計測値は logcat の `WIMFUSE_METRIC` と `run_wim_fuse.log` に出る (artifact `logs-wim-fuse`)。

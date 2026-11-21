@@ -286,6 +286,9 @@ class NtfsVolume private constructor(private var handle: Long, val writable: Boo
     }
 
     companion object {
+        /** ネイティブで作ったボリュームのハンドル (Vol) を、この API (list / stat / read) で扱う (個人版の wimfuse: 別プロセスの wimlib の RPC ボリューム)。所有権はこのオブジェクトに移る。 */
+        fun adoptHandle(handle: Long): NtfsVolume = NtfsVolume(handle)
+
         /** 開いているデバイス(USB 等)の一区間を NTFS として読み取り専用マウント。デバイスの close より先にこの volume を close すること。 */
         fun mountDeviceRange(deviceHandle: Long, offset: Long, length: Long, allowNoload: Boolean = false): NtfsVolume {
             val h = if (allowNoload) NativeBridge.nativeNtfsMountDeviceNoload(deviceHandle, offset, length) else NativeBridge.nativeNtfsMountDevice(deviceHandle, offset, length)

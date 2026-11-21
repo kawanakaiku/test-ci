@@ -174,6 +174,41 @@ object VolumeRegistry {
     }
 
     /**
+     * ボリューム [parentId] の中のファイル [path] が WIM (個人版の FUSE 層。docs/fuse-layer.md 10 章) なら、ヘッダとイメージ一覧を返す (子プロセスを 1 つ起こして読む)。WIM でなければ null。
+     * 先頭 8 バイトが WIM の印 ("MSWIM\0\0\0"。.esd も同じ) かで判定する。FUSE 層が入っていないビルドは常に null。
+     */
+    fun inspectWim(ctx: Context, parentId: String, path: String): org.usbmem.app.wimfuse.WimInfo? {
+        if (!org.usbmem.app.wimfuse.WimFuse.available(ctx)) return null
+        val parent = synchronized(this) { restore(ctx); volumes[parentId] } ?: throw java.io.FileNotFoundException(parentId)
+        val head = ByteArray(8)
+        if (parent.volume.read(path, 0, head) < 8 || !head.contentEquals(byteArrayOf(0x4D, 0x53, 0x57, 0x49, 0x4D, 0, 0, 0))) return null
+        parent.volume.openImage(path).use { return org.usbmem.app.wimfuse.WimFuse.info(ctx, it.deviceHandle) }
+    }
+
+    /**
+     * ボリューム [parentId] の中の WIM [path] を、読み取り専用で公開する。[image] = イメージ番号 (1 始まり) ならそのイメージの中身をルートにしたボリューム、
+     * null ならルート直下にイメージごとのフォルダ ("1 - 名前" ...) を並べたボリューム。別プロセスの wimlib (libwimfuse.so) が読み、一時コピーは作らない。
+     * 同じ場所を既に公開していれば、それを返す。子が開いている間、親のそのファイルは書き換え・削除・移動できない (EBUSY)。閉じる順は 内 → 外 (子プロセスの終了 → デバイス → ピン解除)。
+     */
+    @Synchronized
+    fun mountWim(ctx: Context, parentId: String, path: String, image: Int?, label: String): Entry {
+        restore(ctx)
+        val parent = volumes[parentId] ?: throw java.io.FileNotFoundException(parentId)
+        val id = idOf("wim:$parentId:$path:${image ?: 0}")
+        volumes[id]?.let { return it }
+        val img = parent.volume.openImage(path)
+        var res: AutoCloseable? = null
+        val v: NtfsVolume = try {
+            if (image == null) org.usbmem.app.wimfuse.WimFuse.openArchive(ctx, img.deviceHandle).also { res = it }.volume
+            else org.usbmem.app.wimfuse.WimFuse.open(ctx, img.deviceHandle, image).also { res = it }.volume
+        } catch (t: Throwable) { img.close(); throw t }
+        parent.volume.pin(path)
+        val e = Entry(id, label, v, parentId, path, closer = { try { res?.close() } finally { img.close(); parent.volume.unpin(path) } })
+        volumes[id] = e
+        return e
+    }
+
+    /**
      * ボリューム [parentId] の中のイメージ [path] の [offsetBytes, +sizeBytes) を、読み取り専用でマウントして登録する (全体なら 0 とイメージのサイズ)。
      * 同じ場所を既にマウントしていれば、それを返す。段数の上限を超える・循環すると NativeException(ELOOP=40)。
      * 子が開いている間、親のそのファイルは書き換え・削除・移動できない (EBUSY)。

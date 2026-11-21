@@ -228,6 +228,10 @@ def check(root, forbid_words, closure=True):
                 for m in pkg_rx.finditer(line):
                     if m.group(1) not in have_pkgs:
                         err("closure", rel, "公開版に無いパッケージへの参照: org.usbmem.app.%s (L%d)" % (m.group(1), ln))
+        # AndroidManifest が、公開版に無い (スタブだけの) 個人版のサービスを宣言していないこと (export 時の scrub で外す。外れていなければ NG): wimfuse の :wimfuse サービス
+        for rel, full in files:
+            if rel.endswith("AndroidManifest.xml") and re.search(r"WimFuseService|:wimfuse", read_text(full) or ""):
+                err("closure", rel, "公開版に無いサービスの宣言が残っている (wimfuse。tools/public_manifest.txt の scrub を確認)")
         # tools/ の Python / シェルが呼ぶ別のスクリプト (gen_*.py など): 同じ tools/ 配下にあること (コメント行は除く)
         helper_rx = re.compile(r"[\"'/]((?:gen|check|run|make|dt|fetch)_[A-Za-z0-9_]*\.(?:py|sh))\b")   # 引用符かスラッシュの直後 (説明文の言及は除く)
         names = {os.path.basename(r) for r in relset}

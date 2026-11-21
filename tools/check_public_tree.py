@@ -217,7 +217,7 @@ def check(root, forbid_words, closure=True):
             if t not in relset and not guarded:
                 err("closure", rel, "CMake が参照するファイルがツリーに無い: %s (L%d)" % (t, ln))
         # tools/ の Python / シェルが呼ぶ別のスクリプト (gen_*.py など): 同じ tools/ 配下にあること (コメント行は除く)
-        helper_rx = re.compile(r"\b((?:gen|check|run|make|dt|fetch)_[A-Za-z0-9_]*\.(?:py|sh))\b")
+        helper_rx = re.compile(r"[\"'/]((?:gen|check|run|make|dt|fetch)_[A-Za-z0-9_]*\.(?:py|sh))\b")   # 引用符かスラッシュの直後 (説明文の言及は除く)
         names = {os.path.basename(r) for r in relset}
         for rel, full in files:
             if not rel.startswith("tools/") or not rel.endswith((".py", ".sh")):

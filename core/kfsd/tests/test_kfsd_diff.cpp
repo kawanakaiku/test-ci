@@ -516,26 +516,12 @@ int run_abnormal(const std::string& dir) {
     auto r = kfsd::RpcVolume::mount(g_kfsd, sw, mo, &err);
     CHECK(r != nullptr);
     if (r) {
-      std::vector<FsDirEntry> ents;
-      CHECK_EQ(r->readdir(r->root(), &ents), 0);
-      // 未読の通常ファイル (サイズ > 0) を 1 つ探す (まだページキャッシュにない = デバイスを読みに行く)
-      std::vector<std::string> lines;
-      DumpStats ds;
-      uint64_t target = 0;
-      std::vector<std::pair<uint64_t, uint64_t>> files;   // (ino, size) を 1 階層だけ探す
-      for (auto& e : ents) {
-        FsStat st;
-        if (r->stat(e.ino, &st) == 0 && (st.mode & 0170000) == 0100000 && st.size >= 4096) { target = e.ino; break; }
-      }
+      // マウント直後 (ルートのディレクトリブロックはまだ読んでいない) にデバイスを抜く: 読みは負の errno で失敗する
       sw->gone = true;
-      if (target) {
-        std::vector<uint8_t> buf(65536);
-        int64_t rc = r->read(target, 0, buf.data(), buf.size());
-        CHECK(rc < 0);
-        std::fprintf(stderr, "  read after device gone: rc=%lld\n", (long long)rc);
-      } else {
-        std::fprintf(stderr, "  (no unread regular file at top level; device-gone read check skipped)\n");
-      }
+      std::vector<FsDirEntry> ents;
+      int rc = r->readdir(r->root(), &ents);
+      std::fprintf(stderr, "  readdir after device gone: rc=%d\n", rc);
+      CHECK(rc < 0);
       CHECK(r->alive());   // デバイスの失敗は kfsd の死ではない
       sw->gone = false;
     }

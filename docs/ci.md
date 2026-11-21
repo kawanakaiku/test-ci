@@ -252,3 +252,11 @@ Host tests (`host-tests.yml`) は、ctest が 1 本ずつ直列で、wsan が 13
 - 原因: compose-test の中の `rememberCoroutineScope()` / `LaunchedEffect` のコンテキストは recomposer のもの (`ApplyingContinuationInterceptor` + `FrameDeferringContinuationInterceptor`) で、コルーチンを再開したスレッドでそのまま続きを実行する。`scope.launch { busy = true; withContext(Dispatchers.IO) { ... }; busy = false; result = ... }` の形では、IO から戻ったワーカースレッドで state の更新と `sendApplyNotifications` が走り、recomposer が待機中だとフレーム (再コンポーズ・モディファイア更新・`requestLayout`) までワーカーで走る。製品の scope は `AndroidUiDispatcher` (メイン) なので、実害はテスト環境で顕在化する。散発する理由 (recomposer が待機中かどうかの競合、レイアウトに影響する変更のときだけ例外になる) は推測で、未検証。
 - 修正 (コミット 2da5194): `ui/Components.kt` の `rememberUiScope()` (= `rememberCoroutineScope { Dispatchers.Main }`) と `LaunchedEffectUi()` (本体を `withContext(Dispatchers.Main)` で包む) を、`ImageScreen` / `LinkDialog` / `NestedMountSection` の `rememberCoroutineScope` と、IO を含む `LaunchedEffect` の代わりに使う。新しい画面で IO のあとに state を書くときも、素の `rememberCoroutineScope` / `LaunchedEffect` ではなくこの 2 つを使うこと。
 - 確認: `usbmem-ci-only-crypt-ui` run 44591300790 (コミット 2da5194) を attempt 1 から 4 まで (`gh run rerun` で全体を再実行) 連続 4 回成功 (`CalledFromWrongThreadException` なし)。修正前は直近 2 run のどちらも初回で失敗していたが、もとの失敗率が高くないので 4 回では確率的な裏付けにとどまる。再発したら、logcat のスタックと失敗したテストをここに足す。
+
+
+## kfsd (別プロセスの FS ドライバ) のテストを繰り返し回す (`usbmem-ci-kfsd-<構成>`、2026-11-22)
+
+docs/kfsd.md の開発用。ブランチ名 `usbmem-ci-kfsd-wrel` (構成は plain / san / wsan / wrel のどれか 1 つ) に push すると、`host-tests.yml` がその 1 構成で `ctest -R kfsd` だけを実行する
+(`kfsd_proto`・`kfsd_read_*`・`kfsd_write_*`・`kfsd_abnormal`・`kfsd_bench`。フィクスチャの生成は ctest の依存で自動的に走る)。結果の出力 (特に `kfsd_bench` の表) は、step「Show kfsd test log」で `LastTest.log` を表示する。
+Android のエミュレータ試験 (`android-emulator.yml`) はこのブランチ名では動かさない。書き込み系 (`kfsd_write_*`・`kfsd_bench`) は `USBMEM_NTFS_WRITE=ON` の構成 (wsan / wrel) だけ。
+統合前の確認は、いつもどおり `usbmem-ci-full-*` で 4 構成すべてを通す。

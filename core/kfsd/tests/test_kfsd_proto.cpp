@@ -369,9 +369,9 @@ static void test_large_io() {
   CHECK_EQ(rv->create(1, "big", 0644, &f), 0);
   auto data = pattern(9, 10 * 1024 * 1024 + 123);
   CHECK_EQ(rv->write(f, 0, data.data(), data.size()), (long long)data.size());
-  CHECK_EQ(rv->write_inplace(f, 5000000, data.data(), 6 * 1024 * 1024), 6 * 1024 * 1024);
+  CHECK_EQ(rv->write_inplace(f, 5000000, data.data(), 5 * 1024 * 1024), 5 * 1024 * 1024);   // 4 MiB + 1 MiB に分かれる (ファイルの内側)
   std::vector<uint8_t> expect = data;
-  std::memcpy(expect.data() + 5000000, data.data(), 6 * 1024 * 1024);
+  std::memcpy(expect.data() + 5000000, data.data(), 5 * 1024 * 1024);
   std::vector<uint8_t> back(expect.size());
   CHECK_EQ(rv->read(f, 0, back.data(), back.size()), (long long)back.size());
   CHECK(back == expect);

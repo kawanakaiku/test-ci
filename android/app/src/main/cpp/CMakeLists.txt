@@ -33,14 +33,15 @@ target_link_libraries(kfsdspawn PRIVATE log)
 target_link_options(kfsdspawn PRIVATE -Wl,-z,max-page-size=16384)
 # 個人版: kfsd の実行ファイル (GPL-2.0-or-later。ドライバ + LinuxCompat をリンクした PIE) を libkfsd.so の名前で作る (Gradle の -PusbmemKfsd=true のとき = USBMEM_KFSD_EXE=ON)。
 # AGP は *.so を APK の lib/<abi>/ へ入れ、extractNativeLibs=true (同じ -PusbmemKfsd が useLegacyPackaging にする) なら nativeLibraryDir へ展開される。そこから :kfsd サービスが exec する。
-# 指定が無ければビルドしない (APK のパッケージの方式を変えないため。ビルド時間も増やさない)。
+# 指定が無ければ名前は kfsd のまま (APK には入らない。AGP はリンクだけはするので、時間は少し増える)。
 option(USBMEM_KFSD_EXE "Build kfsd as libkfsd.so (personal edition)" OFF)
 if(NOT USBMEM_EDITION STREQUAL "public" AND TARGET usbmem_kfsd_bin)
+  # AGP は EXCLUDE_FROM_ALL を見ず、すべてのターゲットをビルドするので、-PusbmemKfsd なしでもリンクが通るようにしておく (名前が *.so でなければ APK には入らない)
+  target_link_libraries(usbmem_kfsd_bin PRIVATE log)   # LinuxCompat が __android_log_print を使う
   if(USBMEM_KFSD_EXE)
     set_target_properties(usbmem_kfsd_bin PROPERTIES OUTPUT_NAME "libkfsd.so" PREFIX "" SUFFIX "" POSITION_INDEPENDENT_CODE ON)
     target_compile_options(usbmem_kfsd_bin PRIVATE -fPIE)
     target_link_options(usbmem_kfsd_bin PRIVATE -pie -Wl,-z,max-page-size=16384)
-    target_link_libraries(usbmem_kfsd_bin PRIVATE log)   # LinuxCompat が __android_log_print を使う
   else()
     set_target_properties(usbmem_kfsd_bin PROPERTIES EXCLUDE_FROM_ALL ON)
   endif()

@@ -594,29 +594,30 @@ static int frag_run(const std::string& img) {
 // ---- --reflink: カーネルが reflink (FICLONE) で作った /rf (tools/xfs_vm/kreplay.py の post_writes)。
 //   shared_a / shared_b = 共有されたファイル: 共有された範囲への上書き・縮小・削除は -EOPNOTSUPP (CoW は未実装)。ボリューム全体は書き込み可のまま
 //   solo_a = 共有していた相手 (solo_b) をカーネルが消して、共有が無くなったファイル (reflink フラグだけが残る): 上書き・縮小・削除ができる
+#define CHECKRC(e, want) do { long long _r = (long long)(e); if (_r != (long long)(want)) { std::fprintf(stderr, "CHECK failed %s:%d: %s -> %lld (want %lld)\n", __FILE__, __LINE__, #e, _r, (long long)(want)); g_fail++; } } while (0)
 static int reflink_run(const std::string& img) {
   BlockDevicePtr dev = open_rw(img); int err = 0; auto vol = XfsVolume::mount_rw(dev, &err);
   if (!vol || !vol->writable()) { std::fprintf(stderr, "mount_rw failed\n"); return 1; }
   uint64_t rf, sa, sb, oa;
   if (vol->resolve("/rf/shared_b", &sb) != 0 || vol->resolve("/rf/shared_a", &sa) != 0 || vol->resolve("/rf/solo_a", &oa) != 0) { std::fprintf(stderr, "reflink: no /rf (FICLONE 非対応のカーネル?): skip\n"); return 0; }
-  CHECK(vol->resolve("/rf", &rf) == 0);
+  CHECKRC(vol->resolve("/rf", &rf), 0);
   std::vector<uint8_t> b = fill(0, 5000, 9);
-  CHECK(vol->write(sa, 1000, b.data(), b.size()) == -EOPNOTSUPP);
-  CHECK(vol->write(sb, 70000, b.data(), 100) == -EOPNOTSUPP);
-  CHECK(vol->truncate(sa, 4096) == -EOPNOTSUPP);
-  CHECK(vol->unlink(rf, "shared_a") == -EOPNOTSUPP);
-  CHECK(vol->unlink(rf, "shared_b") == -EOPNOTSUPP);
-  CHECK(vol->write(oa, 1000, b.data(), b.size()) == (int64_t)b.size());           // 共有の無いファイルは書ける
-  CHECK(vol->truncate(oa, 70000) == 0);
-  CHECK(vol->write(oa, 70000, b.data(), 3000) == 3000);                              // 縮小したあとの追記 (新しいブロック)
-  uint64_t nf; CHECK(vol->create(rf, "ours_new", 0644, &nf) == 0);
-  CHECK(vol->write(nf, 0, b.data(), b.size()) == (int64_t)b.size());
-  uint64_t ob; CHECK(vol->create(rf, "ours_to_unlink", 0644, &ob) == 0);
-  CHECK(vol->write(ob, 0, b.data(), b.size()) == (int64_t)b.size());
-  CHECK(vol->unlink(rf, "ours_to_unlink") == 0);
-  CHECK(vol->truncate(oa, 8192) == 0);
-  CHECK(vol->unlink(rf, "solo_a") == 0);                                              // 共有の無い reflink フラグ付きファイルの削除
-  CHECK(vol->sync() == 0);
+  CHECKRC(vol->write(sa, 1000, b.data(), b.size()), -EOPNOTSUPP);
+  CHECKRC(vol->write(sb, 70000, b.data(), 100), -EOPNOTSUPP);
+  CHECKRC(vol->truncate(sa, 4096), -EOPNOTSUPP);
+  CHECKRC(vol->unlink(rf, "shared_a"), -EOPNOTSUPP);
+  CHECKRC(vol->unlink(rf, "shared_b"), -EOPNOTSUPP);
+  CHECKRC(vol->write(oa, 1000, b.data(), b.size()), (int64_t)b.size());           // 共有の無いファイルは書ける
+  CHECKRC(vol->truncate(oa, 70000), 0);
+  CHECKRC(vol->write(oa, 70000, b.data(), 3000), 3000);                              // 縮小したあとの追記 (新しいブロック)
+  uint64_t nf; CHECKRC(vol->create(rf, "ours_new", 0644, &nf), 0);
+  CHECKRC(vol->write(nf, 0, b.data(), b.size()), (int64_t)b.size());
+  uint64_t ob; CHECKRC(vol->create(rf, "ours_to_unlink", 0644, &ob), 0);
+  CHECKRC(vol->write(ob, 0, b.data(), b.size()), (int64_t)b.size());
+  CHECKRC(vol->unlink(rf, "ours_to_unlink"), 0);
+  CHECKRC(vol->truncate(oa, 8192), 0);
+  CHECKRC(vol->unlink(rf, "solo_a"), 0);                                              // 共有の無い reflink フラグ付きファイルの削除
+  CHECKRC(vol->sync(), 0);
   vol.reset();
   std::fprintf(stderr, "reflink: %s\n", g_fail ? "FAIL" : "ok (共有範囲は EOPNOTSUPP、共有の無いファイルは書き込み・縮小・削除できた)");
   return g_fail ? 1 : 0;

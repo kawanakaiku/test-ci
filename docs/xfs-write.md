@@ -170,10 +170,10 @@ mkfs.xfs 7.2.0 の既定は `features_ro_compat = 0xf` / `features_incompat = 0x
 - **ノード形式のディレクトリ**: 変更のたびに索引を作り直す (大きなディレクトリへの連続追加は O(エントリ数) / 操作)。上限は約 20 万エントリ / 2016 データブロック (4 KiB)。移行後に leaf / block へ戻さない。da ノードは 1 レベルだけ (木の高さ 2 以上は作らない)。
 - **reflink 共有ブロック**: 参照カウント木を持たないので、reflink フラグのある inode (共有ブロックを持ちうる) の削除・縮小・上書きは `EOPNOTSUPP` (CoW は未実装)。
 - 解放した inode チャンク (64 個) 全体が空になっても、チャンクは返さない (inobt に空きのまま残る)。カーネルの動作とは違うが `xfs_repair -n` は clean。
-- 属性フォークがブロックを持つ inode (xattr / ACL が大きい) の削除は `EOPNOTSUPP`。xattr / ACL / プロジェクト ID は書かない (新規 inode には付けない)。
+- 属性フォークが node / bmbt 形式の inode の削除・親ポインタの更新は `EOPNOTSUPP` (extent 形式で 1 ブロックの leaf なら削除できる)。xattr / ACL / プロジェクト ID は書かない (新規 inode には付けない。親ポインタを除く)。
 - ログが dirty のボリュームの再生は未実装 (カーネルで再生してから使う)。
-- 4Kn デバイス、dirblklog > 0 (V5 でブロックサイズ < 4 KiB)、ストライプ、クォータ、rmapbt、外部ログ、リアルタイム、V4 は書き込み拒否。
-- 実機の USB での書き込みは、CreateOnly (2026-11-14) と Full (2026-11-16、C の p1、PC 側の `xfs_repair -n` clean + マニフェスト全件一致) を確認。reflink 共有ブロックを持つファイルや rmapbt / parent_pointer 付きのボリュームは対象外 (上記の制限のとおり)。
+- 4Kn デバイス、dirblklog > 0 (V5 でブロックサイズ < 4 KiB)、ストライプ、クォータ、外部ログ、リアルタイム、V4、metadir は書き込み拒否 (rmapbt と親ポインタは 2026-11-21 から書ける)。
+- 実機の USB での書き込みは、CreateOnly (2026-11-14) と Full (2026-11-16、C の p1、PC 側の `xfs_repair -n` clean + マニフェスト全件一致) を確認。reflink 共有ブロックを持つファイルは対象外 (上記の制限のとおり)。rmapbt / parent_pointer 付きのボリュームの実機での確認は未実施 (ホスト・CI のみ)。
 - symlink の長さは 1023 文字まで (1024 以上は `ENAMETOOLONG`)。xfs_repair / libxfs が 1024 文字を不正とするため (docs/xfstests.md「XFS の 1024 文字の symlink」)。
 - 既存ブロックの上書きはメタデータのコミットと原子的ではない。
 
@@ -194,4 +194,9 @@ mkfs.xfs 7.2.0 の既定は `features_ro_compat = 0xf` / `features_incompat = 0x
   - Android エミュレータ (CI run 43590439926 (最終コミット) と 43566699852、`btrfs-xfs` を含む 5 グループ全部 success): `XfsWriteTest` に Full の操作を含む新テスト `fullOperationsLeaveCleanVolume` を追加。
   - ホストテスト (CI run 43566699768): 失敗は基準 (`usbmem-ci-hosttests`、run 43560691106) と同じ既存の 13 / 22 テスト (`xfs_read` の 64 KiB ブロックの穴あきファイル、ntfs / erofs の fixture 等。本変更と無関係)。ただし `xfs_write` / `xfs_crash` は CI の /dev/shm の quota 超過 (`Disk quota exceeded`) で落ちたため、ctest の作業場所を /tmp にして大きな中間イメージを早めに消すよう直した (CI で再確認)。
   - 運用上の落とし穴: Data (NTFS) の書き戻しが止まっている環境では、全体同期 (`sync` / Python の `os.sync()`) が永遠に D 状態になる。`tools/xfs_vm/kreplay.py` は対象のマウントへの `syncfs` に変えた。
-- 未確認: V4 / rmapbt / realtime / 外部ログ / クォータ / ストライプ (すべて書き込み拒否)、reflink 共有ブロックの削除 (拒否)。
+- 未確認: V4 / realtime / 外部ログ / クォータ / ストライプ / metadir (すべて書き込み拒否)、reflink 共有ブロックへの書き込み・削除 (拒否)、rmapbt / 親ポインタの実機での書き込み。
+
+## rmapbt / 親ポインタ / reflink の検査の記録 (2026-11-21)
+- `.github/workflows/xfs-rmap.yml` (ブランチ `usbmem-xfsrmap-dev`): `USBMEM_XFS_FEATURES` = `rmapbt` (rmapbt=1 parent=0) と `parent` (rmapbt=1 parent=1) の 2 構成で、決まった操作列 (Full 3229 操作 + 親ポインタの属性フォークを short form / leaf で行き来させる hard link の操作列) を 10 構成の mkfs (agcount 2/16、isize 1024、finobt=0、sparse=0、nrext64、1 GiB ほか) で、乱数操作 + モデル (8 通り)、many files (5010 操作)、ノード形式ディレクトリ (10030 操作)、noop・refuse・enospc・frag・symlinks・ファジング (200 x 2)、実カーネルとの相互確認 (自前が書いたものをカーネルが rw マウントして追加の書き込み・FICLONE の reflink) を回す。すべて `xfs_repair -n` clean・ログ CLEAN。電源断の模擬は間引き (stride 15) で 1228 試行 (K / S / A / P / KP とも 0)。
+- 最初の実行 (run 44904874287) の `rmapbt` 構成は全部合格 (xfs_repair 60 回・カーネル 22 回)。`parent` 構成は、ディレクトリを別のディレクトリへ rename する操作 (`/nodedir`。btree 形式のデータフォークを持つ) が `EOPNOTSUPP` になった。原因: 親ポインタを「古い名前を外して → 新しい名前を足す」順に更新すると、唯一の属性を外した時点で属性フォークが消え、btree 形式のデータフォークを持つ inode には属性フォークを作り直せない。修正: 新しい名前を足してから古い名前を外す。
+- reflink: `tools/xfs_vm/kreplay.py --post` でカーネルが FICLONE した `/rf/shared_a,b` (共有) と `/rf/solo_a` (相手を消して共有が無くなったが reflink フラグが残る) を、`usbmem_xfs_write_tests --reflink` が検査する: 共有範囲への上書き・縮小・削除は `EOPNOTSUPP`、共有の無いファイルと新規ファイルは書ける・縮められる・消せる、直後の `xfs_repair -n` は clean。

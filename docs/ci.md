@@ -238,6 +238,10 @@ Host tests (`host-tests.yml`) は、ctest が 1 本ずつ直列で、wsan が 13
 
 実測 (run 43597804995、`usbmem-ci-only-wsan`): wsan の ctest は **139 分 → 72 分** (run 全体 74 分)、並列で落ちたテストは無し (警告なし)。
 
+## XFS の rmapbt / 親ポインタの反復用ワークフロー (2026-11-21)
+
+`.github/workflows/xfs-rmap.yml`。ブランチ `usbmem-xfsrmap-dev` への push または `workflow_dispatch` で動く (他の `usbmem-ci*` ワークフローは起動しない)。`USBMEM_XFS_FEATURES` = `rmapbt` / `parent` の 2 構成で、`run_xfs_write_tests.sh` (FUZZ_N=200) と `run_xfs_crash_tests.sh` (stride 15) を回す。全試験は従来どおり `usbmem-ci-xfs` (xfs-write.yml、既定の `base` 構成) と `usbmem-ci-full-<名前>` で確認する。xfstests の XFS は、ブランチ名の末尾 (`-xfsrmapbt` / `-xfsparent` / `-xfsall`) で mkfs の機能を選べる (例 `usbmem-xfstests-xfs-xfsparent`)。
+
 ## crypt-ui の `CalledFromWrongThreadException` (散発。原因と修正、2026-11-20)
 
 `crypt-ui` (`CryptoUiTest`) が、ときどき `journalNeedsRecovery_confirmOpensReadOnly` / `_mixedInnerPartitions` / `vault_*` などで `CalledFromWrongThreadException` になり、`gh run rerun --failed` で通っていた (run 44442953102、44512729772 の初回。どちらも artifact `logs-crypt-ui` の logcat に全スタックがある)。

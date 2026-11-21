@@ -647,6 +647,88 @@ static void test_malicious_server() {
   }
 }
 
+// デバイスへの連続した小さな書き込みのまとめ (dev_write_coalesce_kb): 書き込み・読みの順序と、応答の前に書き切ること、遅れて分かった失敗の扱い
+namespace {
+class WriteFailDevice final : public BlockDevice {
+ public:
+  explicit WriteFailDevice(std::vector<uint8_t> d) : m_(std::move(d)) {}
+  Status read_at(uint64_t o, void* b, size_t n, const IoOptions& io = {}) override { return m_.read_at(o, b, n, io); }
+  Status write_at(uint64_t, const void*, size_t, const IoOptions& = {}) override { return Status::Make(Errc::Io, ENOSPC); }
+  Status flush() override { return Status::Ok(); }
+  Status close() override { return Status::Ok(); }
+  uint64_t size() const override { return m_.size(); }
+  uint32_t logical_block_size() const override { return 512; }
+  bool is_read_only() const override { return false; }
+  std::string describe() const override { return "writefail"; }
+ private:
+  MemoryDevice m_;
+};
+kfsd::MountFn block_writer_mount() {
+  return [](BlockDevicePtr dev, const kfsd::MountParams&) {
+    kfsd::MountResult r;
+    auto fs = std::make_unique<MemFs>(true);
+    BlockDevicePtr d = dev;
+    fs->sync_hook = [d]() {
+      std::vector<uint8_t> blk(512);
+      for (int i = 0; i < 100; i++) {
+        std::fill(blk.begin(), blk.end(), static_cast<uint8_t>(i + 1));
+        Status st = d->write_at(4096 + static_cast<uint64_t>(i) * 512, blk.data(), blk.size());
+        if (!st.ok()) return -(st.sys_errno ? st.sys_errno : EIO);
+      }
+      std::vector<uint8_t> back(512);   // 書いた直後の読みは、まとめて持っている分も見える
+      if (!d->read_at(4096 + 99 * 512, back.data(), back.size()).ok() || back[0] != 100) return -EILSEQ;
+      Status st = d->write_at(100000, "xyz", 3);   // 飛び飛びの書き込み
+      return st.ok() ? 0 : -(st.sys_errno ? st.sys_errno : EIO);
+    };
+    r.vol = std::move(fs);
+    r.fs_type = "memfs";
+    return r;
+  };
+}
+}  // namespace
+
+static void test_write_coalescing() {
+  std::fprintf(stderr, "write_coalescing\n");
+  for (int wc = 0; wc < 2; wc++) {
+    Harness h;
+    h.start(block_writer_mount());
+    auto dev = std::make_shared<MemoryDevice>(pattern(1, 1 << 20));
+    kfsd::MountOptions mo;
+    mo.rw = true;
+    mo.dev_write_coalesce_kb = wc ? 64 : 0;
+    int err;
+    auto rv = kfsd::RpcVolume::mount_fd(h.cli, -1, dev, mo, &err);
+    h.cli = -1;
+    CHECK(rv != nullptr);
+    if (!rv) return;
+    CHECK_EQ(rv->sync(), 0);
+    bool ok = true;
+    for (int i = 0; i < 100; i++) for (int j = 0; j < 512; j++) if (dev->bytes()[4096 + i * 512 + j] != i + 1) ok = false;
+    CHECK(ok);
+    CHECK(std::memcmp(dev->bytes().data() + 100000, "xyz", 3) == 0);
+    uint64_t rc, rb, wc_calls, wb;
+    rv->dev_stats(&rc, &rb, &wc_calls, &wb);
+    std::fprintf(stderr, "  coalesce=%d: device write calls=%llu bytes=%llu\n", wc, (unsigned long long)wc_calls, (unsigned long long)wb);
+    if (wc) CHECK(wc_calls <= 3); else CHECK_EQ(wc_calls, 101);
+    CHECK_EQ(wb, 100 * 512 + 3);
+  }
+  for (int wc = 0; wc < 2; wc++) {   // 本体のデバイスへの書き込みが失敗する: まとめていても、sync() は成功を返さない
+    Harness h;
+    h.start(block_writer_mount());
+    auto dev = std::make_shared<WriteFailDevice>(pattern(1, 1 << 20));
+    kfsd::MountOptions mo;
+    mo.rw = true;
+    mo.dev_write_coalesce_kb = wc ? 64 : 0;
+    int err;
+    auto rv = kfsd::RpcVolume::mount_fd(h.cli, -1, dev, mo, &err);
+    h.cli = -1;
+    CHECK(rv != nullptr);
+    if (!rv) return;
+    CHECK_EQ(rv->sync(), -ENOSPC);
+    CHECK(rv->alive());
+  }
+}
+
 // kfsd が見つからない: ENOPKG (公開版の「プラグインが必要」の合図)
 static void test_missing_exe() {
   std::fprintf(stderr, "missing_exe\n");
@@ -663,6 +745,7 @@ int main() {
   test_large_io();
   test_readdir_paging();
   test_device_errors();
+  test_write_coalescing();
   test_peer_failures();
   test_malicious_server();
   test_missing_exe();

@@ -33,6 +33,7 @@ struct MountOptions {
   int timeout_ms = 60000;       // kfsd からの 1 回の待ち (要求への応答 / 次の callback) の上限。超えたら kfsd を殺して -ETIMEDOUT。0 = 無期限
   int mount_timeout_ms = 120000;  // マウント (走査・ジャーナル再生を含む) の上限。0 = 無期限
   int dev_readahead_kb = 0;     // kfsd がデバイス (本体への callback) を連続して読むときの先読みの上限 (KiB)。往復の削減 (docs/kfsd.md 4 章)。0 = 先読みなし
+  int dev_write_coalesce_kb = 0;  // kfsd がデバイスへ書く連続した小さな書き込み (4 KiB 単位) を、まとめて 1 回で送る上限 (KiB)。要求の終わりまでに必ず書き切る。0 = まとめない
   bool prefetch_stat = false;   // readdir で各エントリの stat も一緒に受け取り、続く stat() をキャッシュで答える (往復の削減。変更系の呼び出しで捨てる)
   std::vector<std::string> kfsd_args;  // kfsd へ渡す追加の引数 (例: --mem-limit-mb=1024)
 };

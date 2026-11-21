@@ -275,6 +275,7 @@ int RpcVolume::init(int fd, pid_t pid, BlockDevicePtr dev, const MountOptions& o
   mr.tz_minutes_west = opt.tz_minutes_west;
   mr.dev_read_only = dev_->is_read_only() ? 1 : 0;
   mr.dev_readahead_kb = opt.dev_readahead_kb > 0 ? static_cast<uint32_t>(opt.dev_readahead_kb) : 0;
+  mr.dev_write_coalesce_kb = opt.dev_write_coalesce_kb > 0 ? static_cast<uint32_t>(opt.dev_write_coalesce_kb) : 0;
   p.clear();
   rc = call(kMount, 0, 0, 0, &mr, sizeof mr, &r, &p, nullptr, 0, opt.mount_timeout_ms);
   if (rc < 0) return static_cast<int>(-rc);

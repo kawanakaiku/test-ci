@@ -46,7 +46,7 @@ bool copy_sparse(const std::string& from, const std::string& to) {
   return ok;
 }
 
-struct Variant { const char* name; bool rpc; bool prefetch; int ra_kb; };
+struct Variant { const char* name; bool rpc; bool prefetch; int ra_kb; int wc_kb; };
 
 struct Vol {
   std::unique_ptr<FsVolume> v;
@@ -67,6 +67,7 @@ Vol open_vol(const std::string& img, const Variant& var) {
     mo.rw = true;
     mo.prefetch_stat = var.prefetch;
     mo.dev_readahead_kb = var.ra_kb;
+    mo.dev_write_coalesce_kb = var.wc_kb;
     auto r = kfsd::RpcVolume::mount(g_kfsd, dev, mo, &o.err);
     o.rpc = r.get();
     o.v = std::move(r);
@@ -96,7 +97,7 @@ int main(int argc, char** argv) {
   tb.push_back('\0');
   if (!::mkdtemp(tb.data())) return 1;
   std::string work = tb.data();
-  const Variant variants[] = {{"inproc", false, false, 0}, {"rpc", true, false, 0}, {"rpc+prefetch", true, true, 0}, {"rpc+prefetch+ra1M", true, true, 1024}};
+  const Variant variants[] = {{"inproc", false, false, 0, 0}, {"rpc", true, false, 0, 0}, {"rpc+prefetch", true, true, 0, 0}, {"rpc+ra1M", true, false, 1024, 0}, {"rpc+wc1M", true, false, 0, 1024}, {"rpc+all", true, true, 1024, 1024}};
   std::vector<std::vector<Row>> results;
   std::string fsname;
   const size_t total = static_cast<size_t>(size_mb) << 20;

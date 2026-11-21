@@ -20,9 +20,13 @@ namespace {
 // それでも、全体を mutex で直列化する (ソケット上で同時に進む要求は 1 つ、という契約を守るため)。
 class RemoteBlockDevice final : public BlockDevice {
  public:
-  RemoteBlockDevice(int fd, uint64_t size, uint32_t bs, bool ro, uint32_t ra_kb) : fd_(fd), size_(size), bs_(bs ? bs : 512), ro_(ro), ra_max_(static_cast<size_t>(std::min<uint32_t>(ra_kb, 16384)) << 10) {}
+  RemoteBlockDevice(int fd, uint64_t size, uint32_t bs, bool ro, uint32_t ra_kb, uint32_t wc_kb)
+      : fd_(fd), size_(size), bs_(bs ? bs : 512), ro_(ro), ra_max_(static_cast<size_t>(std::min<uint32_t>(ra_kb, 16384)) << 10), wc_max_(static_cast<size_t>(std::min<uint32_t>(wc_kb, kMaxIo >> 10)) << 10) {}
   Status read_at(uint64_t off, void* buf, size_t len, const IoOptions& = {}) override {
     if (!range_ok(size_, off, len)) return Status::Make(Errc::OutOfRange);
+    std::lock_guard<std::mutex> bg(bm_);
+    Status ds = drain_locked();   // 読みの前に、まとめて持っている書き込みを書き切る (読み書きの順序を変えない)
+    if (!ds.ok()) return ds;
     auto* p = static_cast<uint8_t*>(buf);
     if (ra_max_ && len < ra_max_) {
       // 先読み (連続して読んでいるときだけ): 前の読みの終わりから続く読みなら、64 KiB から倍々に大きく取って、続く読みを往復なしで返す。
@@ -49,6 +53,23 @@ class RemoteBlockDevice final : public BlockDevice {
     }
     return read_raw(off, p, len);
   }
+  Status drain_locked() {
+    if (!werr_.ok()) return werr_;
+    if (wbuf_.empty()) return Status::Ok();
+    Status st = write_raw(wbuf_off_, wbuf_.data(), wbuf_.size());
+    wbuf_.clear();
+    if (!st.ok()) werr_ = st;
+    return st;
+  }
+  Status write_raw(uint64_t off, const uint8_t* p, size_t len) {
+    while (len) {
+      size_t n = std::min<size_t>(len, kMaxIo);
+      Status st = rpc(kDevWrite, off, 0, p, n, nullptr, 0);
+      if (!st.ok()) return st;
+      p += n; off += n; len -= n;
+    }
+    return Status::Ok();
+  }
   Status read_raw(uint64_t off, uint8_t* p, size_t len) {
     while (len) {
       size_t n = std::min<size_t>(len, kMaxIo);
@@ -61,17 +82,37 @@ class RemoteBlockDevice final : public BlockDevice {
   Status write_at(uint64_t off, const void* buf, size_t len, const IoOptions& = {}) override {
     if (ro_) return Status::Make(Errc::ReadOnly);
     if (!range_ok(size_, off, len)) return Status::Make(Errc::OutOfRange);
+    std::lock_guard<std::mutex> bg(bm_);
+    if (!werr_.ok()) return werr_;   // まとめた書き込みが失敗していた (遅れて分かった失敗): 以降の書き込みは同じエラーで断る
     if (!ra_buf_.empty() && off < ra_off_ + ra_buf_.size() && ra_off_ < off + len) ra_buf_.clear();   // 先読みのバッファと重なる書き込み: 捨てる
-    auto* p = static_cast<const uint8_t*>(buf);
-    while (len) {
-      size_t n = std::min<size_t>(len, kMaxIo);
-      Status st = rpc(kDevWrite, off, 0, p, n, nullptr, 0);
-      if (!st.ok()) return st;
-      p += n; off += n; len -= n;
+    if (wc_max_ && len < wc_max_) {
+      // 連続する書き込みはバッファに足す (ext4 / FAT / NTFS は 4 KiB ずつ書く)。飛んだら先のを書き切ってから新しく始める
+      if (!wbuf_.empty() && (off != wbuf_off_ + wbuf_.size() || wbuf_.size() + len > wc_max_)) {
+        Status ds = drain_locked();
+        if (!ds.ok()) return ds;
+      }
+      if (wbuf_.empty()) wbuf_off_ = off;
+      wbuf_.insert(wbuf_.end(), static_cast<const uint8_t*>(buf), static_cast<const uint8_t*>(buf) + len);
+      return Status::Ok();
     }
-    return Status::Ok();
+    {
+      Status ds = drain_locked();
+      if (!ds.ok()) return ds;
+    }
+    return write_raw(off, static_cast<const uint8_t*>(buf), len);
   }
-  Status flush() override { return ro_ ? Status::Ok() : rpc(kDevFlush, 0, 0, nullptr, 0, nullptr, 0); }
+  Status flush() override {
+    if (ro_) return Status::Ok();
+    std::lock_guard<std::mutex> bg(bm_);
+    Status ds = drain_locked();
+    return ds.ok() ? rpc(kDevFlush, 0, 0, nullptr, 0, nullptr, 0) : ds;
+  }
+  // まとめて持っている書き込みを本体へ書き切る。失敗は errno (正) か 0。要求の Reply を返す前に必ず呼ぶ (Server::reply)。
+  int drain() {
+    std::lock_guard<std::mutex> bg(bm_);
+    Status st = drain_locked();
+    return st.ok() ? 0 : (st.sys_errno > 0 ? st.sys_errno : EIO);
+  }
   Status close() override { return Status::Ok(); }
   uint64_t size() const override { return size_; }
   uint32_t logical_block_size() const override { return bs_; }
@@ -113,7 +154,11 @@ class RemoteBlockDevice final : public BlockDevice {
   uint64_t size_;
   uint32_t bs_;
   bool ro_;
-  size_t ra_max_;
+  size_t ra_max_, wc_max_;
+  std::vector<uint8_t> wbuf_;
+  uint64_t wbuf_off_ = 0;
+  Status werr_;
+  std::mutex bm_;
   std::vector<uint8_t> ra_buf_;
   uint64_t ra_off_ = 0, last_end_ = ~0ull;
   size_t ra_size_ = 0;
@@ -148,6 +193,10 @@ struct Server {
   std::vector<FsDirEntry> rd_ents;
 
   bool reply(uint64_t seq, int64_t rc, uint64_t b, uint64_t c, const void* pl, size_t plen) {
+    if (dev) {   // まとめた書き込みを、応答の前に必ず本体へ書き切る。書けなかったら、成功を返さない
+      int e = dev->drain();
+      if (e && rc >= 0) { rc = -e; plen = 0; pl = nullptr; }
+    }
     Hdr h{kReply, static_cast<uint32_t>(plen), seq, static_cast<uint64_t>(rc), b, c};
     return io::send_msg(fd, h, pl, plen, 0);
   }
@@ -180,7 +229,7 @@ int handle(Server& s, const Hdr& q, const std::vector<uint8_t>& in) {
     if (s.vol || in.size() != sizeof(MountReq)) return 2;
     MountReq m;
     std::memcpy(&m, in.data(), sizeof m);
-    s.dev = std::make_shared<RemoteBlockDevice>(s.fd, m.dev_size, m.block_size, m.dev_read_only != 0, m.dev_readahead_kb);
+    s.dev = std::make_shared<RemoteBlockDevice>(s.fd, m.dev_size, m.block_size, m.dev_read_only != 0, m.dev_readahead_kb, m.dev_write_coalesce_kb);
     MountParams p;
     p.flags = m.flags;
     p.tz_minutes_west = m.tz_minutes_west;

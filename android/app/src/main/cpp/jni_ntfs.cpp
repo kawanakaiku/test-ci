@@ -9,22 +9,47 @@
 #include <memory>
 #include <string>
 
+#include "jni_edition.h"
 #include "usbmem/c_api_internal.h"
 #include "usbmem/devices.h"
+#include "usbmem/fs_probe.h"
+#ifdef USBMEM_FS_EXT2
 #include "usbmem/ext2_volume.h"
+#endif
+#ifdef USBMEM_FS_EXT4
 #include "usbmem/ext4_volume.h"
+#endif
+#ifdef USBMEM_FS_EXFAT
 #include "usbmem/exfat_volume.h"
+#endif
+#ifdef USBMEM_FS_FAT
 #include "usbmem/fat_c.h"
 #include "usbmem/fat_volume.h"
-#include "usbmem/fs_probe.h"
+#endif
+#ifdef USBMEM_FS_ISOFS
 #include "usbmem/isofs_volume.h"
+#endif
+#ifdef USBMEM_FS_UDF
 #include "usbmem/udf_volume.h"
+#endif
+#ifdef USBMEM_FS_NTFS
 #include "usbmem/ntfs_volume.h"
+#endif
+#ifdef USBMEM_FS_SQUASHFS
 #include "usbmem/squashfs_volume.h"
+#endif
+#ifdef USBMEM_FS_EROFS
 #include "usbmem/erofs_volume.h"
+#endif
+#ifdef USBMEM_FS_BTRFS
 #include "usbmem/btrfs_volume.h"
+#endif
+#ifdef USBMEM_FS_F2FS
 #include "usbmem/f2fs_volume.h"
+#endif
+#ifdef USBMEM_FS_XFS
 #include "usbmem/xfs_volume.h"
+#endif
 
 #include "jni_vol.h"
 
@@ -35,16 +60,21 @@ namespace {
 std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, bool rw, int* err, bool allow_noload = false, bool allow_dirty = true) {
   if (dev->is_read_only()) rw = false;  // 下のデバイスが読み取り専用 (ネストの子など) なら、書き込み可を要求されても読み取り専用でマウントする
   usbmem::FsType t = usbmem::probe_filesystem(*dev, 0, dev->size());
+#ifdef USBMEM_FS_EXFAT
   if (t == usbmem::FsType::Exfat) {
     // rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。汚れた (VolumeDirty) / MediaFailure のボリュームは
     // mount_rw の中で読み取り専用に落ちる (writable() == false で分かる)
     return rw ? usbmem::ExfatVolume::mount_rw(dev, err) : usbmem::ExfatVolume::mount(dev, err);
   }
+#endif
+#ifdef USBMEM_FS_EXT2
   if (t == usbmem::FsType::Ext2) {
     // ext2 (ジャーナルなし・extent なし) は fs/ext2。rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。
     // 汚れた / エラー状態 / 未知の ro_compat のボリュームは mount_rw の中で読み取り専用に落ちる (writable() == false で分かる)
     return rw ? usbmem::Ext2Volume::mount_rw(dev, err) : usbmem::Ext2Volume::mount(dev, err);
   }
+#endif
+#ifdef USBMEM_FS_EXT4
   if (t == usbmem::FsType::Ext3 || t == usbmem::FsType::Ext4) {
     // ext3 / ext4 は fs/ext4 (+ fs/jbd2)。NTFS として試さない。docs/ext4-write.md
     //  - rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。未再生のジャーナル (needs_recovery) はここで再生する。
@@ -55,6 +85,8 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     usbmem::Ext4MountOptions o4; o4.allow_noload = allow_noload;
     return usbmem::Ext4Volume::mount(dev, err, o4);
   }
+#endif
+#ifdef USBMEM_FS_FAT
   if (t == usbmem::FsType::Fat12 || t == usbmem::FsType::Fat16 || t == usbmem::FsType::Fat32) {
     // FAT12/16/32 (vfat の長い名前を含む) は fs/fat。NTFS として試さない。docs/fat-write.md
     //  - rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。ダーティ印 (ブートセクタ / FAT[1]) が付いたボリュームなど
@@ -65,6 +97,8 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     if (localtime_r(&now, &lt)) usbmem_fat_set_timezone(static_cast<int>(-lt.tm_gmtoff / 60));
     return rw ? usbmem::FatVolume::mount_rw(dev, err) : usbmem::FatVolume::mount(dev, err);
   }
+#endif
+#if defined(USBMEM_FS_ISOFS) && defined(USBMEM_FS_UDF)
   if (t == usbmem::FsType::Udf || t == usbmem::FsType::Iso9660) {
     // 光学メディア (読み取り専用)。ISO 9660 + UDF のブリッジ盤は UDF を優先し、UDF として開けなければ (対応外のパーティションなど) ISO 9660 にフォールバックする。docs/isofs-port.md / docs/udf-port.md
     if (t == usbmem::FsType::Udf) {
@@ -77,14 +111,20 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     if (err && t == usbmem::FsType::Iso9660) *err = ierr;
     return nullptr;
   }
+#endif
+#ifdef USBMEM_FS_SQUASHFS
   if (t == usbmem::FsType::Squashfs) {
     // squashfs は読み取り専用の形式 (fs/squashfs)。rw を要求されても読み取り専用でマウントする (writable() == false)。非対応の圧縮方式 (LZMA1) は EOPNOTSUPP(95)
     return usbmem::SquashfsVolume::mount(dev, err);
   }
+#endif
+#ifdef USBMEM_FS_EROFS
   if (t == usbmem::FsType::Erofs) {
     // erofs も読み取り専用の形式 (fs/erofs)。rw を要求されても読み取り専用でマウントする。圧縮 (z_erofs) は未対応で EOPNOTSUPP(95) (docs/erofs-port.md)
     return usbmem::ErofsVolume::mount(dev, err);
   }
+#endif
+#ifdef USBMEM_FS_BTRFS
   if (t == usbmem::FsType::Btrfs) {
     // Btrfs は自前のリーダー (docs/btrfs-port.md) と、実験的な書き込み (docs/btrfs-write.md)。tree-log が未再生なら EUCLEAN(117)。
     // 複数デバイス / RAID0・5・6・10 / 未知の機能は EOPNOTSUPP(95)。allow_noload は、ユーザーが確認したうえで tree-log を無視して開く場合だけ true (ext4 と同じ)
@@ -94,6 +134,8 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     usbmem::BtrfsMountOptions ob; ob.allow_noload = allow_noload;
     return usbmem::BtrfsVolume::mount(dev, err, ob);
   }
+#endif
+#ifdef USBMEM_FS_F2FS
   if (t == usbmem::FsType::F2fs) {
     // f2fs は自前実装 (docs/f2fs-port.md)。暗号化 / casefold / fs-verity などは EOPNOTSUPP(95)、fsync 後のロールフォワードが必要な状態は EUCLEAN(117)。
     // allow_noload は、確認のうえ「直近の fsync の分を無視して」開く場合だけ true。
@@ -103,6 +145,8 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     usbmem::F2fsMountOptions of; of.allow_noload = allow_noload;
     return usbmem::F2fsVolume::mount(dev, err, of);
   }
+#endif
+#ifdef USBMEM_FS_XFS
   if (t == usbmem::FsType::Xfs) {
     // XFS は自前のリーダー (docs/xfs-port.md) と、実験的な書き込み (CreateOnly の範囲だけ: docs/xfs-write.md)。ログが未再生 (要リカバリ) のボリュームは EUCLEAN(117) で拒否、
     // リアルタイム領域・外部ログ・未知の incompat 機能は EOPNOTSUPP(95)。allow_noload は、ユーザーが確認したうえで読み取り専用で開く場合だけ true
@@ -111,8 +155,17 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     usbmem::XfsMountOptions ox; ox.allow_noload = allow_noload;
     return usbmem::XfsVolume::mount(dev, err, ox);
   }
+#endif
+#ifdef USBMEM_FS_NTFS
   // NTFS: allow_dirty = false なら、ダーティフラグだけのボリュームは書き込みマウントせず、読み取り専用のまま返す (state に USBMEM_VOL_CONFIRM_WRITE。呼び出し側が確認する)
   return rw ? usbmem::NtfsVolume::mount_rw(dev, err, allow_dirty) : usbmem::NtfsVolume::mount(dev, err);
+#else
+  // 公開版 (NTFS を含まない): 判別できなかったものは EINVAL (ファイルシステムではない)。判別できたが、この版に入っていない FS (上の分岐がビルドされていないもの) は
+  // EPROTONOSUPPORT(93) = 「この版では未対応」。UI は Kotlin の Edition (nativeEditionInfo) と合わせて案内する (docs/editions.md)。
+  (void)allow_dirty; (void)allow_noload; (void)rw;
+  if (err) *err = (t == usbmem::FsType::Unknown) ? EINVAL : EPROTONOSUPPORT;
+  return nullptr;
+#endif
 }
 
 std::string utf8(JNIEnv* env, jbyteArray a) {
@@ -139,6 +192,12 @@ jbyteArray bytes(JNIEnv* env, const std::string& s) {
 }  // namespace
 
 extern "C" {
+
+// このライブラリのエディションと、入っている FS の一覧 (JSON UTF-8。jni_edition.h)。個人版は全 FS。
+JNIEXPORT jbyteArray JNICALL Java_org_usbmem_app_NativeBridge_nativeEditionInfo(JNIEnv* env, jclass) {
+  return bytes(env, usbmem_edition_json());
+}
+
 
 // fd の所有権を引き取り、デバイス全体を NTFS として読み取り専用マウント。戻り値: >0 ハンドル / <=0 = -errno
 JNIEXPORT jlong JNICALL Java_org_usbmem_app_NativeBridge_nativeNtfsMount(JNIEnv*, jclass, jint fd) {

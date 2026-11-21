@@ -1,0 +1,177 @@
+# 公開版 (public edition) の定義。docs/editions.md
+#
+# tools/export_public.sh が git の追跡ファイル (git ls-files) に、このファイルの規則を上から順に当てて、公開版のツリーを作る。
+# tools/license_inventory.py が同じ規則から、ファイルごとの「出所 / ライセンス / 公開版へ入れるか」の表を作る。
+#
+# 方針 (ユーザーの決定): アプリ全体のソース公開を求めるライセンス (GPL 系。LGPL を含む) のコードは、公開版に一切入れない。個人版には全部入れる (配布しない)。
+# 許可リスト方式: どの規則にも当たらないファイルは「未分類 = 要確認」で、公開版から除外する (安全側)。
+#
+# 書式 (空白区切り。# 以降は理由・メモ)。上から順に見て、最初に当たった規則が決める (先に具体的な例外、後ろに一般の規則)。
+#   include   <出所> <glob>          公開版にそのまま入れる (SPDX が GPL 系・LGPL 系なら検査が失敗する)
+#   relicense <出所> <glob>          公開版に入れ、SPDX を Apache-2.0 に書き換える。自前のコード (出所は own-gpl) で、GPL 系の表記は「GPL 系のライブラリとリンクするため」
+#                                    の安全側のラベルだったもの。著作権者 (自分) が公開版で Apache-2.0 として出す。カーネルのコードを含むものには使わない
+#   exclude   <出所> <glob>          公開版に入れない
+#   overlay   <出所> <元ファイル> <公開版での置き場所>   公開版専用のファイル (tools/public_edition/ の雛形) を置く。元ファイルは追跡されていること
+#   scrub     <出所> s!<正規表現>!<置換>!   書き出す文字ファイルへ全体に当てる置換 (公開版のツリーにだけ効く。個人版のファイルは変えない)
+# glob: * は / を越えない、** は / を越える、? は 1 文字。パスは git ls-files の相対パス。
+#
+# 出所 (origin):
+#   own            自前 (このプロジェクトで書いた。外部のコードを写していない)。SPDX は Apache-2.0 か未記載
+#   own-gpl        自前だが SPDX が GPL 系 (リンク先の GPL コードに合わせた安全側のラベル。中身にカーネルのコードは無い)
+#   own-doc        自前のドキュメント・データ
+#   kernel         Linux カーネルのソース (無改変の取り込み。GPL-2.0 系。一部 BSD / 0BSD / zlib)
+#   kernel-shim    LinuxCompat 層: カーネルの内部 API (<linux/*.h> とその意味論) を再実装したもの。カーネルのヘッダ・実装に倣って書かれており、派生物として扱う
+#   kernel-patch   カーネル由来のコードへのパッチ・解析結果
+#   external-gpl   外部の GPL / LGPL プロジェクトを動かす層 (ntfs-3g / wimlib の fuseshim など)
+#   dev            開発機・CI・実機検証専用 (公開版では動かない / 個人の環境に依存する / 公開する理由が無い)
+#   generated      生成物 (テストの期待値・ベクタ)
+
+# ============================================================ ルート・CI
+overlay  own  tools/public_edition/README.md             README.md
+overlay  own  tools/public_edition/LICENSE               LICENSE
+overlay  own  tools/public_edition/NOTICE                NOTICE
+overlay  own  tools/public_edition/gitignore             .gitignore
+overlay  own  tools/public_edition/ci.yml                .github/workflows/ci.yml
+overlay  own  tools/public_edition/compat_CMakeLists.txt core/compat/CMakeLists.txt   # 公開版の core/compat: FsVolume 共通 IF と自前の F2FS だけ (カーネル由来の LinuxCompat を含まない)
+exclude  dev  README.md                                  # 個人版の README (公開版は上の overlay)
+exclude  dev  .gitignore                                 # 個人用の無視パターン (パスワードのメモなど) を含む。公開版は overlay
+exclude  dev  .github/**                                 # 個人版の CI (host-tests / android-emulator / fuseshim など。GPL 系・実機・個人環境を含む)。公開版は overlay の ci.yml
+
+# ============================================================ core (自前 = Apache-2.0)
+exclude  external-gpl core/fuseshim/**                   # ntfs-3g (GPL-2.0+) / wimlib (LGPL-3.0+) を動かす層 (GPL-2.0-or-later)。docs/fuse-layer.md
+exclude  external-gpl core/fuseshim.cmake
+exclude  own-gpl      core/fuse.cmake                    # tools/fuse/usbmem_fuse.cpp (GPL-2.0-or-later 表記) を参照する xfstests 用アダプター
+include  own  core/CMakeLists.txt
+include  own  core/blockdev.cmake
+include  own  core/disktools.cmake
+include  own  core/recovery.cmake
+include  own  core/transform.cmake
+include  own  core/include/**                            # 公開 API ヘッダ。すべて Apache-2.0
+include  own  core/src/**                                # パーティション表・ディスク編集・USB / SCSI・暗号 (AES / SHA / XTS / PBKDF2 / Argon2)・LUKS / BitLocker・イメージ形式・DiskTools・救出 / バックアップ。すべて Apache-2.0
+include  generated core/tests/crypto_vectors.inc         # 公開テストベクタ (hashlib / cryptography / argon2-cffi の出力)。SPDX が無いので書き出しで Apache-2.0 を付ける
+include  own  core/tests/**                              # bench_transform.cpp の btrfs 参照は #ifdef USBMEM_BENCH_BTRFS の中だけ
+
+# ============================================================ core/compat (LinuxCompat 層とカーネル由来の FS ドライバ。公開版は自前の一部だけ)
+# 公開版に残るもの: FsVolume 共通 IF (自前の API 定義)、ネストマウント (FsVolume の上の自前コード)、自前の F2FS リーダー / ライター
+relicense own-gpl core/compat/public/usbmem/fs_volume.h      # 自前の共通インタフェース。SPDX の GPL 表記は個人版でカーネル FS と同居するための安全側
+relicense own-gpl core/compat/public/usbmem/vol_state.h      # 自前のビット定義 (C / C++ 共通)
+relicense own-gpl core/compat/public/usbmem/nested_mount.h   # 自前 (FsVolume の上の薄い層。カーネル FS には依存しない)
+relicense own-gpl core/compat/src/fs_volume.cpp
+relicense own-gpl core/compat/src/nested_mount.cpp
+include   own     core/compat/public/usbmem/f2fs_volume.h    # 自前: オンディスク形式から書き起こした実装。fs/f2fs のコードは写していない (docs/f2fs-port.md。カーネルのソースは構造体のレイアウトを確かめる仕様書として読んだだけ)
+include   own     core/compat/src/f2fs_volume.cpp
+include   own     core/compat/src/f2fs_write.inc
+include   own     core/compat/src/f2fs_write_cp.inc
+include   own     core/compat/src/f2fs_write_ops.inc
+include   own     core/compat/src/f2fs_decomp_stub.c         # 公開版用: 圧縮クラスタは展開しない (個人版は f2fs_decomp.c がカーネルの lib を呼ぶ)
+include   own     core/compat/f2fs.cmake
+include   own     core/compat/tests/test_f2fs.cpp
+# 公開版に入れないもの
+exclude   own-gpl core/compat/src/f2fs_decomp.c              # カーネルの展開ライブラリ (usbmem_kdecomp。GPL 系) を呼ぶラッパ
+exclude   own-gpl core/compat/tests/test_f2fs_write.cpp      # 書き込みの試験 (GPL-2.0-or-later 表記)。公開版の CI は読み取りビルドのため。必要になったら relicense へ
+exclude   own     core/compat/tests/bench_write_io.cpp       # btrfs (GPL 表記) も測る個人版のベンチ
+exclude   own-gpl core/compat/src/btrfs_volume.cpp           # 自前の Btrfs リーダー / ライター。ただし SPDX は GPL-2.0-or-later、展開はカーネルの lib (btrfs_decomp.c)、形式は uapi ヘッダを参照 → 要確認 = 除外 (docs/btrfs-port.md)
+exclude   own-gpl core/compat/src/btrfs_*.inc
+exclude   own-gpl core/compat/src/btrfs_decomp.c
+exclude   own-gpl core/compat/public/usbmem/btrfs_volume.h
+exclude   own-gpl core/compat/src/xfs_volume.cpp             # 自前の XFS リーダー / ライター。ただし fs/xfs の形式定義 (xfs_format.h など GPL-2.0) を仕様として読んで書いたと明記 → 派生の疑い = 除外 (docs/xfs-port.md)
+exclude   own-gpl core/compat/src/xfs_*.inc
+exclude   own-gpl core/compat/public/usbmem/xfs_volume.h
+exclude   kernel-shim core/compat/src/rt_*.c                 # LinuxCompat 実行時 (inode / dentry / ページキャッシュ / bio / buffer_head / jbd2 / VFS のマウント)。カーネルの意味論の再現 (GPL-2.0-or-later)
+exclude   kernel-shim core/compat/src/bdev_bridge.cpp        # LinuxCompat の block_device ↔ BlockDevice ブリッジ (カーネル FS ドライバ専用)
+exclude   kernel-shim core/compat/include/**                 # <linux/*.h> 互換ヘッダ (カーネルのヘッダに倣う。GPL-2.0-or-later / 一部 SPDX なし)
+exclude   kernel-shim core/compat/include_ext4/**
+exclude   kernel-shim core/compat/include_fat/**
+exclude   kernel      core/compat/src/*_volume.cpp           # NTFS / exFAT / ext2 / ext4 / FAT / ISO 9660 / UDF / squashfs / erofs のボリュームラッパ (カーネル FS ドライバを呼ぶ。GPL-2.0-or-later)
+exclude   kernel      core/compat/src/zfs_lzo.c
+exclude   kernel      core/compat/public/**                  # 各 FS の公開ヘッダ (上の relicense / include 以外。カーネル FS ドライバのもの)
+exclude   kernel      core/compat/tests/**                   # カーネル FS ドライバ・LinuxCompat のテスト (上の test_f2fs.cpp 以外)
+exclude   kernel      core/compat/*.cmake                    # 各カーネル FS のビルド定義 (上の f2fs.cmake 以外)
+exclude   kernel      core/compat/CMakeLists.txt             # 個人版の定義 (公開版は上の overlay)
+
+# ============================================================ third_party (Linux カーネルの取り込み。GPL-2.0 系 / 一部 BSD・0BSD・zlib)
+exclude   kernel      third_party/**                         # ntfs-resurrection / exfat / ext2 / ext4 (+jbd2) / fat (+nls) / isofs / udf / squashfs / erofs / kernel-lib (zlib・lz4・lzo・xz・zstd・xxhash)
+
+# ============================================================ Android アプリ
+include   own  android/build.gradle.kts
+include   own  android/settings.gradle.kts
+include   own  android/gradle.properties
+include   own  android/gradlew
+include   own  android/gradlew.bat
+include   external-permissive android/gradle/wrapper/gradle-wrapper.jar         # Gradle のラッパー (Apache-2.0)
+include   own  android/gradle/wrapper/gradle-wrapper.properties
+include   own  android/app/build.gradle.kts
+include   own  android/app/proguard-rules.pro
+include   own  android/app/src/main/AndroidManifest.xml
+include   own  android/app/src/main/res/**
+include   own  android/app/src/main/java/**             # Kotlin。AndroidX / Compose (Apache-2.0) に依存する。SPDX は無いので書き出しで Apache-2.0 を付ける
+relicense own-gpl android/app/src/main/cpp/jni_ntfs.cpp   # 自前の JNI (FS の分岐は USBMEM_FS_* の条件コンパイル)。GPL 表記は個人版でカーネル FS をリンクするための安全側
+relicense own-gpl android/app/src/main/cpp/jni_vol.h
+relicense own-gpl android/app/src/main/cpp/jni_nested.cpp
+include   own  android/app/src/main/cpp/**
+include   own  android/app/src/test/**                  # JVM 単体テスト (JUnit)
+exclude   dev  android/app/src/androidTest/**           # 実機・エミュレータの計装テスト。カーネル FS のフィクスチャ・実機 (個人の USB メモリ) を前提にする。公開版の計装テストは今後 (docs/TODO.md)
+
+# ============================================================ tools (公開版のテストが使うものだけ)
+include   own  tools/gen_fixtures.py
+include   own  tools/check_partedit_tools.py
+include   own  tools/gen_blockdev_fixtures.py
+include   own  tools/check_disktools.py
+include   own  tools/dt_*.py
+include   own  tools/gen_exfat_fixture.py               # DiskTools の exFAT 検査が使う自前の生成器
+include   own  tools/check_recovery_tools.py
+include   own  tools/gen_f2fs_fixture.py
+include   own  tools/gen_squashfs_fixture.py            # gen_f2fs_fixture.py が manifest 書式の共用ヘルパとして読み込む (squashfs の本体は公開版に無い)
+include   own  tools/gen_crypto_vectors.py              # core/tests/crypto_vectors.inc の生成器
+include   own  tools/check_manifest_permissions.py
+include   own  tools/test_check_manifest_permissions.py
+include   own  tools/ci/retry_gradle.sh
+include   own  tools/test_retry_gradle.sh
+exclude   dev  tools/ci/**                              # gh_wait / nbdfuse / push_progress: 開発機・個人のテスト用リポジトリ向け
+exclude   own-gpl tools/fuse/**                         # usbmem_fuse.cpp (GPL-2.0-or-later 表記) と xfstests 実行
+exclude   external-gpl tools/fuseshim/**                # ntfs-3g / wimlib の取得と試験
+exclude   external-gpl tools/exfat_fuse_shim.c
+exclude   kernel-shim tools/gen_compat_stubs.py         # LinuxCompat のスタブ生成 (GPL-2.0-or-later の出力)
+exclude   kernel-shim tools/compat_stub_names.txt
+exclude   kernel-patch tools/analyze_ntfs_deps.sh       # fs/ntfs の依存解析 (カーネル由来のソースを対象にする)
+exclude   kernel-patch tools/ntfs_compat_*.sh
+exclude   dev  tools/f2fs_vm/**                         # QEMU + 開発機のカーネルパッケージの絶対パスに依存
+exclude   dev  tools/xfs_vm/**
+exclude   dev  tools/winpe/**                           # Windows ゲスト VM (実機相当の検証)
+exclude   dev  tools/winvhd/**
+exclude   dev  tools/make_real_usb_testset.py           # 実機 USB の検証セット (個人の機材)
+exclude   dev  tools/test_make_real_usb_testset.py
+exclude   dev  tools/run_android_*.sh                   # 個人の AVD / 実機向け
+exclude   dev  tools/ci_android_tests.sh
+exclude   dev  tools/run_host_tests.sh
+exclude   dev  tools/run_*.sh                           # カーネル FS・NTFS・実機を前提にする検証スクリプト (run_*_tests.sh)
+exclude   dev  tools/xfs_common.sh
+exclude   dev  tools/f2fs_cutpoints.py
+exclude   dev  tools/f2fs_kernel_lib.sh
+exclude   dev  tools/gen_*.py                           # 公開版が使わない生成器 (上の include 以外): カーネル FS / NTFS / 暗号ディスクのフィクスチャ
+exclude   dev  tools/gen_*.sh
+exclude   dev  tools/*.py                               # 上の include 以外の検証・補助 (カーネル FS / NTFS / 暗号 / 実機)
+exclude   dev  tools/*.sh
+exclude   dev  tools/*.json
+exclude   dev  tools/public_edition/**                  # 雛形 (上の overlay が公開版の所定の場所へ置く)
+exclude   dev  tools/public_manifest.txt                # 公開版の定義そのもの (個人版のリポジトリだけに置く)
+
+# ============================================================ docs (公開版の機能に関するものだけ。個人の環境・GPL 系の移植の記録は入れない)
+include   own-doc docs/architecture.md
+include   own-doc docs/blockdev-formats.md
+include   own-doc docs/crypto-volumes.md
+include   own-doc docs/disk-tools.md
+include   own-doc docs/f2fs-port.md
+include   own-doc docs/f2fs-write.md
+include   own-doc docs/media-kind.md
+include   own-doc docs/multi-usb.md
+include   own-doc docs/nbd.md
+include   own-doc docs/nested-mount.md
+include   own-doc docs/partition-edit.md
+include   own-doc docs/phase3-progress.md
+include   own-doc docs/recovery-backup.md
+exclude   own-doc docs/**                               # 上以外: カーネル FS の移植記録・実機の検証記録・CI・監査・TODO など (公開版では docs/editions.md の要約を README に載せる)
+
+# ============================================================ 公開版のツリーにだけ効く置換 (ファイルは変えない)
+scrub     dev  s!https://github\.com/[A-Za-z0-9_.-]+/test-ci!https://github.com/<owner>/test-ci!
+scrub     dev  s![A-Za-z0-9_.-]+/test-ci!<owner>/test-ci!

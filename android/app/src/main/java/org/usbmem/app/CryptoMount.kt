@@ -225,10 +225,12 @@ object CryptoMount {
         if (t.wholeDeviceVolume) {
             val fs = t.partitions.firstOrNull()?.fs ?: ""
             if (fs !in INNER_MOUNTABLE) throw NativeException(95, "unsupported filesystem inside the encrypted volume: $fs")
+            if (!Edition.supports(fs)) throw NativeException(Edition.UNSUPPORTED_CODE, "filesystem not included in this edition: $fs")
             return listOf(InnerRange(0, t.diskBytes, ""))
         }
-        val out = t.partitions.filter { !it.extendedContainer && !it.protective && it.fs in INNER_MOUNTABLE }
-            .map { InnerRange(it.startBytes, it.sizeBytes, " #${it.index}") }
+        val cands = t.partitions.filter { !it.extendedContainer && !it.protective && it.fs in INNER_MOUNTABLE }
+        val out = cands.filter { Edition.supports(it.fs) }.map { InnerRange(it.startBytes, it.sizeBytes, " #${it.index}") }
+        if (out.isEmpty() && cands.isNotEmpty()) throw NativeException(Edition.UNSUPPORTED_CODE, "no filesystem of this edition inside the encrypted volume")   // 公開版: 中の FS がこの版に入っていない
         if (out.isEmpty()) throw NativeException(95, "no supported filesystem inside the encrypted volume")
         return out
     }

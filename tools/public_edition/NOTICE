@@ -1,0 +1,29 @@
+android-usbmem (公開版 / public edition)
+Copyright 2026 android-usbmem contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This edition contains no code under the GNU GPL / LGPL (or any license that
+requires the whole application to be published under the same terms).
+The Linux-kernel-derived filesystem drivers, the LinuxCompat layer and the
+FUSE-based wrappers (ntfs-3g, wimlib) of the full project are not part of it.
+
+Third-party components that are used (not copied into this repository):
+
+  - AndroidX, Jetpack Compose, Material 3, Kotlin standard library
+    Copyright The Android Open Source Project / JetBrains. Apache License 2.0.
+    Resolved from Google's Maven repository and Maven Central at build time.
+  - Gradle Wrapper (android/gradle/wrapper/gradle-wrapper.jar), Gradle Inc.
+    Apache License 2.0.
+  - zlib (QCOW2 / VMDK compressed clusters): the system libz.so (Android NDK
+    sysroot, or the host's zlib). zlib License. Not bundled in the APK.
+
+Interoperability notes (formats only; no code from these projects is included):
+
+  - The mapfile written by the data-rescue engine is compatible with GNU
+    ddrescue's mapfile format. The backup image format is compatible with
+    Partclone's image format 0002 and the LZ4 frame format.
+  - LUKS1/LUKS2 (dm-crypt data layer) and BitLocker are implemented from the
+    public on-disk format documentation. Test vectors under core/tests are
+    outputs of public reference implementations (hashlib, cryptography,
+    argon2-cffi) and carry no code.

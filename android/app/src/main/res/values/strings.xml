@@ -180,6 +180,9 @@
     <string name="notice_fs_needs_recovery_detail">まだ反映されていない更新 (ext3 / ext4 / XFS のジャーナル、Btrfs のログ、F2FS の直近の fsync の記録) が残っているか、ファイルシステムの内部が壊れています。書き込み中に取り外された可能性があります。このアプリはジャーナルを再生しないため、そのまま読むと古い内容が見えることがあります。PC や Linux 機器で fsck (e2fsck / chkdsk) を実行してから、もう一度マウントしてください。</string>
     <string name="notice_fs_unsupported_feature">対応していない機能のため、マウントできません</string>
     <string name="notice_fs_unsupported_feature_detail">暗号化・大文字小文字の無視 (casefold)・fs-verity など、このアプリが対応していない ext4 / F2FS の機能が有効です。</string>
+    <string name="notice_edition_fs_unsupported">この版では未対応のファイルシステムのため、マウントできません</string>
+    <string name="notice_edition_fs_unsupported_detail">公開版は、アプリ全体のソース公開を求めるライセンス (GPL 系) のコードを含まないため、扱えるファイルシステムが限られます。この版が扱えるのは %1$s です。パーティション表の表示と編集、ディスクの検査と初期化 (mkfs)、救出とバックアップ、暗号ボリュームの解錠は、この版でも使えます。</string>
+    <string name="edition_fs_unsupported_row">%1$s: この版では未対応です (対応: %2$s)</string>
 
     <!-- ボリュームの状態 (ダーティ / 未再生ログ / 休止状態 / メディアエラー) の原因別の案内。VolumeStateNotice が組み立てる。docs/dirty-volumes.md -->
     <string name="notice_vol_hibernated">Windows が休止状態のままのボリュームです</string>

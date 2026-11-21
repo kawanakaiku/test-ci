@@ -4,6 +4,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// エディション (docs/editions.md): personal (既定。すべての FS を含む自分用。配布しない) / public (GPL 系を含まない公開版。-PusbmemEdition=public)
+val usbmemEdition = providers.gradleProperty("usbmemEdition").orNull ?: "personal"
+require(usbmemEdition == "personal" || usbmemEdition == "public") { "usbmemEdition must be personal or public (got '$usbmemEdition')" }
+
 android {
     namespace = "org.usbmem.app"
     compileSdk = 36
@@ -14,7 +18,9 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "0.1.0-phase1"
+        versionName = if (usbmemEdition == "public") "0.1.0-phase1-public" else "0.1.0-phase1"
+        // エディション名 (BuildConfig.EDITION)。UI が、公開版で未対応のファイルシステムを案内するのに使う (Edition.kt)
+        buildConfigField("String", "EDITION", "\"$usbmemEdition\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // 64bit ABI のみ (Google Play 要件)。x86_64 はエミュレータ用。
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
@@ -23,6 +29,7 @@ android {
         externalNativeBuild {
             cmake {
                 arguments += listOf("-DANDROID_STL=c++_static")
+                if (usbmemEdition == "public") arguments += "-DUSBMEM_EDITION=public"
                 // NTFS 書き込みは実験的: 既定では無効 (-PusbmemNtfsWrite=true で書き込み可能なビルドにする)。無効ビルドでは書き込みマウントが -EROFS で失敗する
                 if (providers.gradleProperty("usbmemNtfsWrite").orNull == "true") arguments += "-DUSBMEM_NTFS_WRITE=ON"
             }

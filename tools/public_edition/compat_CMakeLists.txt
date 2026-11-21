@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+# 公開版 (public edition) の core/compat。公開版には、Linux カーネル由来の LinuxCompat 層・FS ドライバ (GPL 系) を含めない。
+# ここに残るのは自前のコードだけ: FsVolume 共通インタフェース、その上のネストマウント、オンディスク形式から書き起こした F2FS のリーダー / ライター。
+# (個人版の core/compat/CMakeLists.txt は、書き出しの overlay でこのファイルに置き換えられる。docs/editions.md)
+
+# FsVolume (共通 IF) とネストマウント。FS ドライバには依存しない
+add_library(usbmem_fsvol STATIC src/fs_volume.cpp src/nested_mount.cpp)
+target_include_directories(usbmem_fsvol PUBLIC public)
+target_link_libraries(usbmem_fsvol PUBLIC usbmem_core Threads::Threads)
+
+# F2FS (自前)。圧縮クラスタの展開は公開版では未対応 (f2fs_decomp_stub.c)
+include(${CMAKE_CURRENT_LIST_DIR}/f2fs.cmake)

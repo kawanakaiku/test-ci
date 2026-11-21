@@ -1080,6 +1080,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     private fun fsRefusalNotice(e: NativeException): Notice? = when (e.code) {
         117 -> Notice(Severity.Warning, getString(R.string.notice_fs_needs_recovery), getString(R.string.notice_fs_needs_recovery_detail))
         95 -> Notice(Severity.Warning, getString(R.string.notice_fs_unsupported_feature), getString(R.string.notice_fs_unsupported_feature_detail))
+        Edition.UNSUPPORTED_CODE -> Notice(Severity.Warning, getString(R.string.notice_edition_fs_unsupported), getString(R.string.notice_edition_fs_unsupported_detail, Edition.supportedFsLabel()))   // 公開版: この版に入っていないファイルシステム
         else -> null
     }
 

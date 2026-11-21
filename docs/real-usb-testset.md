@@ -517,6 +517,8 @@ main (25ca9b1) の CI の APK で、USB ハブに A・B・C を同時に挿し�
 
 気づき: BEK の選択欄が、ファイル名でなく `msf:...` の ID を出す (MediaStore の文書の表示名を取れていない)。
 
+A を PC に戻して確認した: p1 の NTFS はダーティフラグが下りており (`ntfsinfo -m` が check scheduled を出さない)、`ntfsfix -n` はエラーなし、`MANIFEST.sha256` との照合は「一致」(3026 ファイル・42 ディレクトリ・1.07 GiB)。
+
 C の p5 は、この確認のために作り直した (平文は旧 p5 を復号して取り出したものをそのまま使い、`bitlocker_synth.py --protectors pw,rec,bek` で再暗号化。libbde でパスワード・回復キー・BEK のどれでも同じ平文に復号できることを PC で確認してから書いた)。回復キーと BEK は、開発機のホーム直下の `.usbmem-test/` に控えを置いた (リポジトリには入れない)。A の p1 は `make_real_usb_testset.py` の `ntfs_flags(..., set_dirty=True)` でダーティフラグだけを立てた。
 
 ## 11. PC に戻した後 (fsck とマニフェスト照合)

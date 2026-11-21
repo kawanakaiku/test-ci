@@ -173,22 +173,35 @@
 
 ## 6. 配布
 
+どちらの配り方も**同じ kfsd の実行ファイル**で、起こし方も同じ: 起こす側のサービス (`KfsdServiceBase`) が、本体から Binder で `ParcelFileDescriptor.createSocketPair()` の片端を受け取り、
+JNI の `fork + exec` (`kfsd_spawn.cpp`。posix_spawn は API 28 以降なので使わない) でそれを子の **fd 3** にして `libkfsd.so --fd=3` を起こす。本体は残りの片端で `RpcVolume::mount_fd()` を呼ぶ。
+Java の `ProcessBuilder` は fd 3 を渡せない (0・1・2 以外を閉じる) ので JNI が要る。子の標準出力・標準エラーはパイプで受けて logcat (タグ `kfsd-child`) へ流す。
+
+実装 (段階 3): 共通部は `android/kfsd-common/` (`KfsdSpawner` = 起動・見張り・終了の待ち・子の出力、`KfsdProtocol.kt` = Binder の呼び出し (SPAWN / ALIVE / EXIT / KILL / TAIL / SELF / VERSION) と `KfsdServiceBase`、`kfsd_spawn.cpp`)。
+本体側の入口は `Kfsd.kt` (設定・入手先の選択・サービスへの接続・ネイティブ層への fd の受け渡し)、JNI は `jni_kfsd.cpp` (方式の切替 `nativeSetMode`、`usbmem_kfsd_mount`)。
+
 ### (a) 個人版: アプリの APK 内の `libkfsd.so`
 
-`libkfsd.so` を `jniLibs/<abi>/` に入れる (実体は ELF の実行ファイル。`packaging.jniLibs.useLegacyPackaging = true` で、nativeLibraryDir に展開される)。本体は `ApplicationInfo.nativeLibraryDir + "/libkfsd.so"` を `kfsd::set_exe()` に渡し、
-`RpcVolume::mount()` が posix_spawn で起こす (W^X: nativeLibraryDir の実行は許される。`:wimfuse` と同じ方式)。段階 3 で、既存の JNI のマウント経路 (`VolumeRegistry` → `jni_ntfs.cpp` の `mount_auto`) に、RPC の経路を設定で切り替えられる形で入れる。個人版の既定は従来のプロセス内のまま。
+Gradle の `-PusbmemKfsd=true` のとき (CMake の `USBMEM_KFSD_EXE=ON`)、kfsd の実行ファイル (`usbmem_kfsd_bin`) を `libkfsd.so` の名前の PIE として作る。CMake の実行ファイルでも、名前が `lib*.so` なら AGP が `lib/<abi>/` へ梱包する
+(CI の `Check kfsd in APKs` で確認済み)。`extractNativeLibs=true` (`useLegacyPackaging`) で nativeLibraryDir に展開され、`:kfsd` プロセスの `KfsdService` がそこから exec する (`:wimfuse` と同じ方式)。
+**指定が無いビルドは、従来どおり (libkfsd.so なし・パッケージの方式も同じ)**。
 
 ### (b) 公開版: プラグイン APK (GPL-2.0。ソースは別に公開)
 
-別の APK (`org.usbmem.kfsd` など) に `libkfsd.so` と薄い Service を入れる。本体とは Binder で 1 回だけ会話して、あとはソケットで通信する。
+別の APK (`org.usbmem.kfsd`。`android/kfsd-plugin/`、公開版のツリーには入れない) に `libkfsd.so` と `PluginService` (`KfsdServiceBase` の具象) を入れる。権限なし。本体とは Binder (起動の依頼) と socketpair (RPC) だけでつながる。
 
-- **発見**: 本体は `PackageManager.queryIntentServices(Intent("org.usbmem.action.KFSD_PLUGIN"))` (マニフェストに `<queries>` を宣言) か、プラグインの ContentProvider (`call()`)。bound service を推す: プラグインの起動・終了 (プロセスの寿命) を OS が管理でき、本体が死ねば unbind でプラグインのプロセスも終われる。
-  プラグインの**署名を本体が確認する** (`PackageInfo.signingInfo` が、本体に埋めたプラグインの署名ダイジェストと一致する場合だけバインド)。他のアプリが偽の kfsd を名乗るのを避ける (偽の kfsd は USB の内容を読めてしまうため)。逆に、プラグインのサービスは `android:permission` (署名レベル) か、呼び出し元の署名を確認する。
-- **ソケットの受け渡し**: 本体が `ParcelFileDescriptor.createSocketPair()` で socketpair を作り、片端 (`ParcelFileDescriptor`) を Binder のメソッド `open(pfd)` でプラグインへ渡す (Binder は fd を渡せる)。プラグインのサービスは受け取った fd を fd 3 に複製して、自分の nativeLibraryDir の `libkfsd.so` を exec する
-  (Java の `ProcessBuilder` は fd 3 を渡せないので、プラグインに小さな JNI の `posix_spawn` 補助を入れる。または、kfsd が `--fd=0` を受け付けるようにして stdin に渡す。AVD で確かめる)。本体は残りの片端で `RpcVolume::mount_fd()` を呼ぶ (すでに実装済み)。
-- **利点**: kfsd がプラグインの別 UID で動くので、本体のデータ・権限 (USB・ストレージ) から完全に分離される。プラグインは権限なし (`<uses-permission>` なし)。GPL のコード・ライセンス全文・ソースの入手先は、プラグイン APK に閉じる。
-- **未確認 (AVD で)**: 別 APK の nativeLibraryDir の実行・Binder で受けた socketpair の fd の継承・SELinux (untrusted_app 同士の UNIX ソケット経由のデータ転送)・プラグイン未インストール時の案内の導線 (Play ストア / F-Droid / 手動インストール)・APK の最低 SDK。
-- 最小の試作は段階 3 (AVD の CI)。
+- **発見**: 本体のマニフェストに `<queries><package android:name="org.usbmem.kfsd"/></queries>`、`bindService` は明示コンポーネント (`org.usbmem.kfsd/.PluginService`)。bound service なので、プラグインの寿命は OS が管理する。
+- **信頼 (試作)**: 本体はバインド前に `PackageManager.checkSignatures(本体, プラグイン) == SIGNATURE_MATCH` を確かめ、`PluginService` は呼び出し元の署名が自分と同じかを確かめる (Binder の `onTransact` ごと)。**配布では、署名が同じ (= 同じ開発者) という条件を、本体に埋めたプラグインの証明書の SHA-256 の一覧との照合に置き換える**
+  (本体と別の開発者・別の鍵でプラグインを配るため)。偽の kfsd は USB の内容を読めてしまうので、ここは配布前に必ず確定する。
+- **利点**: kfsd がプラグインの別 UID・別プロセスで動くので、本体のデータ・権限 (USB・ストレージ) から分離される。GPL のコード・ライセンス全文・ソースの入手先は、プラグイン APK に閉じる。
+- **AVD での確認結果 (CI run は 9 章)**: 別 APK の nativeLibraryDir の実行、Binder で渡した socketpair の fd を子の fd 3 にすること、本体 (uid 10xxx) とプラグイン (別 uid、別プロセス) の間の RPC で、プロセス内のマウントと同じツリー・内容が読めること、kfsd を kill しても本体が落ちないこと、
+  プラグインが無いとき ENOPKG (65) になること、すべて確認した。SELinux の拒否は出なかった (socketpair は Binder で渡した fd なので、abstract socket の connect は使っていない)。
+- **未確認 / 残り**: 配布の導線 (Play ストア / F-Droid / 手動インストール)、配布用の署名と証明書の固定、プラグインの説明文 (ソースの入手先・ライセンス)、プラグインのバージョンとプロトコルのバージョンの不一致の扱い (Hello で検出するが、UI の案内は未実装)。
+
+### 切り替え (設定)
+
+`Kfsd.configure` (`UsbApp.onCreate`。メインプロセスだけ) が、`SharedPreferences` (`usbmem_kfsd`: `enabled` / `source`) とデバッグビルドだけの上書きファイル (`/data/local/tmp/usbmem_kfsd` の内容 `off` / `local` / `plugin` / `auto`。CI が使う) を読んでネイティブ層に反映する。
+**個人版の既定はプロセス内 (従来どおり)、公開版の既定は kfsd 経由** (公開版は GPL 系のドライバを持たないので、F2FS 以外は kfsd 経由が唯一の道。kfsd もプラグインも無ければ ENOPKG)。設定を変える画面 (UI) は未実装 (`Kfsd.save` はある)。
 
 ## 7. テスト
 
@@ -209,12 +222,12 @@
 | 0 | この設計文書 | 済 |
 | 1 | プロトコル・kfsd・RpcVolume・ホストのテスト | 済 (CI run 44924247214 / 44925892263、wrel。全構成は `usbmem-ci-full-kfsd` で確認) |
 | 2 | 性能の測定と最適化 (CI のホストで) | 済 (4 章。先読みとまとめ書きを実装。共有メモリは見送り) |
-| 3 | Android: `:kfsd` サービス + `libkfsd.so`・VolumeRegistry の経路・emulator のテスト・(b) プラグイン APK の最小試作 (`usbmem-wt-wimint` の main への統合後) | 未 |
+| 3 | Android: `:kfsd` サービス + `libkfsd.so`・JNI の kfsd 経由マウント (切替)・emulator の `kfsd` グループ・(b) プラグイン APK の試作 | 済 (6 章。CI の結果は 9 章) |
 | 4 | 公開版への反映 (manifest・UI の「プラグインが必要」・docs・公開版の CI) | 済 (manifest・公開版の JNI の ENOPKG・UI の文言・docs。公開版 CI 成功: run 44936730057)。Android の kfsd への接続は段階 3 |
 
 ## 9. 残る課題 (現時点)
 
-- `mount_auto` が `android/app/src/main/cpp/jni_ntfs.cpp` と `core/kfsd/src/kfsd_mount.cpp` の 2 か所にある (規則は同じコピー)。段階 3 で JNI を kfsd の共通関数へ寄せる (`usbmem-wt-wimint` と衝突しないよう、jni_ntfs.cpp はその統合後に触る)。
+- (解決済み) `mount_auto` の重複: jni_ntfs.cpp のプロセス内マウントは `kfsd::mount_auto` (kfsd_mount.cpp) を呼ぶ。公開版 (kfsd_mount.cpp が無い) だけ、F2FS の分岐を jni_ntfs.cpp に持つ。
 - kfsd の seccomp。共有メモリ (memfd / ashmem) による read のゼロコピー (4 章の数字を見て判断)。
 - XFS を kfsd に載せるのは、`usbmem-wt-xfsrmap` の main への統合後 (現状は `kfsd_mount.cpp` が `usbmem_xfs` のターゲットがあれば載せる)。
 - 上の GPL-2.0-only と Apache-2.0 の同居の扱い (3 章)。

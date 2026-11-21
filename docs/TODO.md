@@ -170,7 +170,7 @@ Btrfs の書き込み (実験的・`USBMEM_NTFS_WRITE` ビルドのみ・docs/bt
 ## kfsd (GPL 系の FS ドライバを別プロセスに分ける。2026-11-22、docs/kfsd.md)
 - [x] 段階 0-2 (ホスト): 設計 (docs/kfsd.md)・プロトコル (`core/kfsd/include/usbmem/kfsd_proto.h`)・kfsd (`USBMEM_BUILD_KFSD`)・RpcVolume・差分試験 (ntfs / exfat / ext2 / ext4 / fat / iso / squashfs / erofs の読み、ntfs / exfat / ext2 / ext4 / fat の書き込み、異常系)・性能の測定と最適化 (先読み・まとめ書き・readdir に stat を同梱。docs/kfsd.md 4 章)。
 - [x] 公開版: RpcVolume・プロトコル・サーバ共通部・`kfsd_proto` を公開版へ (tools/public_manifest.txt)、kfsd 本体 (`kfsd_mount` / `kfsd_main` / `kfsd_diff` / `bench`) は個人版だけ。公開版の JNI は、kfsd の扱う FS で ENOPKG(65) を返し、UI は「この FS には kfsd (プラグイン) が必要です」を出す。
-- [ ] **段階 3 (Android)**: `:kfsd` サービス + `libkfsd.so` (nativeLibraryDir から exec、`--connect=<抽象名>` は kfsd 側とホスト側の helper (`listen_abstract` / `accept_peer` / `spawn_connect`) まで済)・VolumeRegistry の経路 (既定はプロセス内。設定かビルドで切替)・エミュレータの試験群 `kfsd`・(b) プラグイン APK の最小試作。
-  `usbmem-wt-wimint` が main に入っていないため未着手 (`:wimfuse` の ChildSpawner / logcat 転送を再利用する)。
+- [x] **段階 3 (Android、2026-11-22)**: `:kfsd` サービス + `libkfsd.so` (`-PusbmemKfsd=true`)・JNI の kfsd 経由マウント (`jni_kfsd.cpp`。個人版の既定はプロセス内、公開版の既定は kfsd 経由)・`mount_auto` の重複の解消・別 APK のプラグイン (`android/kfsd-plugin`、bound service + `createSocketPair`) の試作・emulator の `kfsd` グループ (docs/kfsd.md 6・9 章)。
+- [ ] kfsd の設定画面 (経由 / 入手先の切替。今は `Kfsd.save` と、デバッグビルドの上書きファイルだけ)、プラグイン未導入のときの導線 (ストア / F-Droid / 手動)、プラグインと本体のプロトコルのバージョン不一致の案内。
 - [ ] **配布前に決める**: kfsd のバイナリに入る Apache-2.0 の自前コードを GPL-2.0-or-later としても提供する旨の明記 (docs/kfsd.md 3 章)。kfsd のソースの公開先・プラグイン APK の署名・説明文 (ソースの入手先とライセンス)。
 - [ ] kfsd の seccomp。XFS を kfsd に載せるのは xfsrmap の統合後 (`kfsd_mount.cpp` は `usbmem_xfs` があれば載せる。差分試験は未追加)。`mount_auto` を JNI 側と kfsd 側で 1 つにまとめる (段階 3)。

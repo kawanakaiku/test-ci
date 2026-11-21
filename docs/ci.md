@@ -282,3 +282,10 @@ Android のエミュレータ試験 (`android-emulator.yml`) はこのブラン�
 1 つ前の run 44926716327 は、wsan だけ「ランナーが応答しなくなった」で失敗 (約 1 時間 37 分。ほかの 3 構成と public・android は成功)。原因の疑いは、サニタイザ構成での `kfsd_bench` (66000 回の callback × 変種 6 つ) なので、サニタイザ構成では測らないようにした。
 `usbmem-ci-kfsd-wsan` run 44935710777 は kfsd の試験だけで成功。初回の `usbmem-ci-kfsd-wrel` は 44923629777 (失敗: large_io の期待値の誤りとデバイス抜去の試験) → 44924247214 (成功) → 44925892263 (成功。性能の表はこの run)。
 
+## kfsd の Android 試験 (`kfsd` グループ、`usbmem-ci-ak-only-kfsd` ブランチ。2026-11-22)
+
+`tools/ci_android_tests.sh` の `kfsd` グループ (`.github/workflows/android-emulator.yml`。ブランチ名が `-only-kfsd` で終わると、このグループだけ。`usbmem-ci-kfsd-*` は Android を動かさないので、別の名前を使う)。
+ビルドは `-PusbmemKfsd=true :kfsd-plugin:assembleDebug -PusbmemPluginAbis=x86_64` (本体に libkfsd.so を入れ、別 APK のプラグインも作る)。エミュレータの前に、`unzip -l` で libkfsd.so / libkfsdspawn.so が両方の APK に入っていることを確かめる。
+中身: `kfsd_unit` (KfsdInstrumentedTest: libkfsd.so の exec・ツリーと内容がプロセス内と一致 (local / plugin)・閉じると kfsd が終わる・kfsd を kill しても本体が落ちない・プラグインが無いと ENOPKG・子が残らない)、`kfsd_read_local` / `kfsd_read_plugin` (既存の
+Ext2 / Ext4 / Exfat / Isofs / Ntfs / VolumeState / DirtyConfirmUi の計装テストを、kfsd 経由 (libkfsd.so / プラグイン) で通す。テストの中身は変えない。経由の指定は、デバッグビルドだけが読む `/data/local/tmp/usbmem_kfsd`)、`kfsd_write` (WriteSelfTestInstrumented を kfsd 経由で)。
+

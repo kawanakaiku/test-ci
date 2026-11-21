@@ -201,4 +201,8 @@ mkfs.xfs 7.2.0 の既定は `features_ro_compat = 0xf` / `features_incompat = 0x
 - 最初の実行 (run 44904874287) の `rmapbt` 構成は全部合格 (xfs_repair 60 回・カーネル 22 回)。`parent` 構成は、ディレクトリを別のディレクトリへ rename する操作 (`/nodedir`。btree 形式のデータフォークを持つ) が `EOPNOTSUPP` になった。原因: 親ポインタを「古い名前を外して → 新しい名前を足す」順に更新すると、唯一の属性を外した時点で属性フォークが消え、btree 形式のデータフォークを持つ inode には属性フォークを作り直せない。修正: 新しい名前を足してから古い名前を外す。
 - reflink: `tools/xfs_vm/kreplay.py --post` でカーネルが FICLONE した `/rf/shared_a,b` (共有) と `/rf/solo_a` (相手を消して共有が無くなったが reflink フラグが残る) を、`usbmem_xfs_write_tests --reflink` が検査する: 共有範囲への上書き・縮小・削除は `EOPNOTSUPP`、共有の無いファイルと新規ファイルは書ける・縮められる・消せる、直後の `xfs_repair -n` は clean。
 - `--manylinks` (1 つのファイルへ hard link を 400 個まで。32 文字の名前): 親ポインタ無しは 400 個全部、親ポインタ付き (parent 構成) は 71 個まで作れて残りは `EMLINK`。どちらも全部消して `xfs_repair -n` clean (run 44910286723)。
-- 確認 (最終ツリー f22a8b7 以降): `usbmem-ci-xfs` (xfs-write.yml、base 構成)・`usbmem-xfstests-xfs`・`usbmem-xfstests-xfs-xfsparent`・Android emulator (btrfs-xfs を含む全グループ) の結果は docs/ci.md / docs/xfstests.md に記す。
+- 回帰の確認 (CI: kawanakaiku/test-ci)。既存の XFS の読み書き・既定構成 (base = rmapbt=0 / parent=0) に回帰は無い:
+  - `usbmem-ci-xfs` (xfs-write.yml、base 構成。全カットポイントの電源断の模擬・突然変異 9 種・カーネル相互確認): run 44907401386 (コミット f22a8b7) と run 44911195225 (最終コミット 319d682) とも success。
+  - `usbmem-ci-full-xfsrmap` (Host tests の plain / san / wsan / wrel 全部): run 44907403252 (f22a8b7) success (126 分)。最終コミットでの再確認: `usbmem-ci-full-xfsrmap2` run 44915137146。
+  - Android emulator (btrfs-xfs を含む全 7 グループ。XfsWriteTest の拒否の例をストライプ unit のボリュームにした版): run 44907403207 (full)・44907401351 (xfs) とも success。最終コミットの run 44911195206 は crypt-ui が一度失敗 (XFS と無関係。UI の既知の散発) し、`gh run rerun --failed` で success。
+  - xfstests (XFS、quick グループ 652 件): `usbmem-xfstests-xfs` (base) 期待外 0 (run 44907405127)、`usbmem-xfstests-xfs-xfsparent` 期待外 0 (generic/040 / 041 は期待失敗に追加。最終コミットで run 44911196980: fail 26 = 期待 26 / 期待外 0、fsck 失敗 0)。

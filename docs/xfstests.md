@@ -326,5 +326,5 @@ fstests は SCRATCH_DEV / TEST_DEV が**ブロックデバイス**であるこ�
 XFS の書き込みが rmapbt (mkfs.xfs 7.x の既定) と親ポインタ (同、`-n parent=1`) に対応した (docs/xfs-write.md)。`run_xfstests.py --xfs-features base|rmapbt|parent|all` で XFS の mkfs の機能を選べる (既定 `base` = `-m rmapbt=0 -n parent=0`、従来どおり)。workflow はブランチ名の末尾 `-xfsrmapbt` / `-xfsparent` / `-xfsall` で選ぶ (例 `usbmem-xfstests-xfs-xfsparent`)。
 
 - `usbmem-xfstests-xfs` (base): run 44907405127、quick グループ 652 件、pass 144 / fail 24 (すべて期待内、期待外 0) / notrun 484、アンマウント後の fsck 失敗 0。従来と同じ。
-- `usbmem-xfstests-xfs-xfsparent` (rmapbt=1 parent=1): run 44907406907、pass 142 / fail 26 (期待外 2: generic/040 / 041) / notrun 484、アンマウント後の fsck 失敗 0 (`xfs_repair -n` はテストごとの TEST / SCRATCH とも clean)。
+- `usbmem-xfstests-xfs-xfsparent` (rmapbt=1 parent=1): 最終コミット (generic/040 / 041 を期待失敗に追加) の run 44911196980 は fail 26 (期待 26 / 期待外 0)、アンマウント後の fsck 失敗 0。最初の run 44907406907、pass 142 / fail 26 (期待外 2: generic/040 / 041) / notrun 484、アンマウント後の fsck 失敗 0 (`xfs_repair -n` はテストごとの TEST / SCRATCH とも clean)。
   - generic/040 / 041: 同じファイルへの 3000 個のハードリンク。親ポインタ付きでは、リンクごとに子の属性フォークへ親ポインタが増え、自前は属性の leaf 1 ブロック (約 110 個) までしか入れられない (node 形式の属性は未実装) ので `EMLINK`。`xfstests_expected.json` の `xfs` に `core_unsupported` として載せた (親ポインタのあるボリュームだけ。既定では通る)。

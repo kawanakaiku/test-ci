@@ -36,6 +36,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       modes: ${{ steps.p.outputs.modes }}
+      regex: ${{ steps.p.outputs.regex }}
     steps:
       - id: p
         env:
@@ -43,9 +44,12 @@ jobs:
           REF: ${{ github.ref_name }}
           INPUT_MODES: ${{ github.event.inputs.modes }}
         run: |
+          regex=""
           if [ "$EVENT" = workflow_dispatch ]; then m="${INPUT_MODES:-plain san wsan wrel}"
           else
             case "$REF" in
+              # usbmem-ci-kfsd-<構成>: その 1 構成で kfsd のテスト (ctest -R kfsd。フィクスチャの生成は依存で自動的に走る) だけ。kfsd の繰り返し開発用
+              usbmem-ci-kfsd-*) m="${REF#usbmem-ci-kfsd-}"; regex="kfsd" ;;
               usbmem-ci-only-*) m="${REF#usbmem-ci-only-}" ;;
               usbmem-ci-full*)  m="plain san wsan wrel" ;;
               *)                m="plain wrel" ;;
@@ -54,6 +58,7 @@ jobs:
           for x in $m; do case "$x" in plain|san|wsan|wrel) ;; *) echo "未知の構成: $x" >&2; exit 1;; esac; done
           json=$(printf '%s\n' $m | jq -R . | jq -sc .)
           echo "modes=$json" >> "$GITHUB_OUTPUT"
+          echo "regex=$regex" >> "$GITHUB_OUTPUT"
           echo "構成: $json" | tee -a "$GITHUB_STEP_SUMMARY"
 
   host:
@@ -126,6 +131,7 @@ jobs:
         run: |
           export PATH="$PATH:/sbin:/usr/sbin"
           re="${{ github.event.inputs.ctest_regex }}"
+          [ -n "$re" ] || re="${{ needs.plan.outputs.regex }}"
           sel=(); [ -z "$re" ] || sel=(-R "$re")
           jobs="${CTEST_JOBS:-4}"
           set +e
@@ -150,7 +156,7 @@ jobs:
       # 書き込み有効のビルド (wrel) だけ。ctest_regex で絞った実行では走らせない (ただし fat_gen_fixture を含む絞り込みなら走らせる = このステップだけの素早い確認用)。
       # ctest が (FUSE / ntfs フィクスチャ等の既存の環境要因で) 失敗しても走らせる。
       - name: FAT write vs kernel vfat
-        if: ${{ !cancelled() && matrix.mode == 'wrel' && (github.event.inputs.ctest_regex == '' || contains(github.event.inputs.ctest_regex, 'fat_gen_fixture')) }}
+        if: ${{ !cancelled() && matrix.mode == 'wrel' && needs.plan.outputs.regex == '' && (github.event.inputs.ctest_regex == '' || contains(github.event.inputs.ctest_regex, 'fat_gen_fixture')) }}
         run: |
           export PATH="$PATH:/sbin:/usr/sbin"
           sh tools/run_fat_kernel_tests.sh build/compat/usbmem_fat_write_tests "/dev/shm/usbmem_fat_$USER"

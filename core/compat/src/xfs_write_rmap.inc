@@ -378,3 +378,74 @@
   }
   int rm_map_fsb(uint64_t fsb, uint32_t len, const Own& o) { return rm_map(uint32_t(fsb >> agblklog), uint32_t(fsb & ((1ULL << agblklog) - 1)), len, o.owner, o.off); }
   int rm_unmap_fsb(uint64_t fsb, uint32_t len, const Own& o) { return rm_unmap(uint32_t(fsb >> agblklog), uint32_t(fsb & ((1ULL << agblklog) - 1)), len, o.owner, o.off); }
+
+  // ============ reflink: 共有されているブロックか (参照カウント木を読むだけ。書き換えない) ============
+  // reflink フラグのある inode でも、extent が他と共有されていなければ (参照カウント木に共有の記録が無い) 通常どおり書き換え / 解放できる。
+  // 共有されているもの (参照カウント >= 2) への書き込み・解放は CoW が要るので、呼び出し側が EOPNOTSUPP にする。
+  int rf_shared(uint32_t ag, uint32_t bno, uint32_t len, bool* shared) {
+    *shared = false;
+    WBuf* f; int rc = agf_buf(ag, &f); if (rc) return rc;
+    const uint32_t root = be32(f->d.data() + 88), height = be32(f->d.data() + 92);
+    if (root == 0 || root == kNullAgbno || height == 0) return 0;   // 参照カウント木が空 / 無い
+    if (height > 8) return -EUCLEAN;
+    const uint32_t nmax = (bs - 56) / 8, lmax = (bs - 56) / 12;
+    uint32_t cur = root;
+    for (uint32_t lv = height; lv >= 1; lv--) {
+      WBuf* b; rc = bt_blk(ag, cur, &b); if (rc) return rc;
+      const uint8_t* p = b->d.data();
+      if (be32(p) != 0x52334643 || be16(p + 4) != lv - 1) return -EUCLEAN;
+      const uint32_t n = be16(p + 6);
+      if (lv == 1) {
+        if (n > lmax) return -EUCLEAN;
+        uint32_t i = 0;
+        {   // 開始が bno 以下で最大のレコードの位置 (無ければ 0 から)
+          uint32_t lo = 0, hi = n;
+          while (lo < hi) { uint32_t mid = (lo + hi) / 2; if ((be32(p + 56 + size_t(mid) * 12) & 0x7FFFFFFFu) <= bno) lo = mid + 1; else hi = mid; }
+          i = lo ? lo - 1 : 0;
+        }
+        WBuf* lb = b;
+        for (int guard = 0; guard < 100000; guard++) {
+          const uint8_t* q = lb->d.data();
+          const uint32_t m = be16(q + 6);
+          for (; i < m; i++) {
+            const uint8_t* r = q + 56 + size_t(i) * 12;
+            const uint32_t rs = be32(r);
+            if (rs & 0x80000000u) return 0;   // ここから先は CoW の領域 (共有ではない)
+            const uint32_t rl = be32(r + 4), rcnt = be32(r + 8);
+            if (uint64_t(rs) >= uint64_t(bno) + len) return 0;
+            if (uint64_t(rs) + rl > bno && rcnt >= 2) { *shared = true; return 0; }
+          }
+          const uint32_t rs2 = be32(q + 12);
+          if (rs2 == kNullAgbno) return 0;
+          rc = bt_blk(ag, rs2, &lb); if (rc) return rc;
+          i = 0;
+        }
+        return -EUCLEAN;
+      }
+      if (n == 0 || n > nmax) return -EUCLEAN;
+      uint32_t lo = 0, hi = n;
+      while (lo < hi) { uint32_t mid = (lo + hi) / 2; if ((be32(p + 56 + size_t(mid) * 4) & 0x7FFFFFFFu) <= bno) lo = mid + 1; else hi = mid; }
+      cur = be32(p + 56 + size_t(nmax) * 4 + size_t(lo ? lo - 1 : 0) * 4);
+    }
+    return 0;
+  }
+  // reflink フラグのある inode の [fsb, fsb+n) が共有されていれば -EOPNOTSUPP (CoW は未実装)。フラグが無ければ 0
+  int shared_chk(bool reflink, uint64_t fsb, uint32_t n) {
+    if (!reflink) return 0;
+    bool s; int rc = rf_shared_fsb(fsb, n, &s); if (rc) return rc;
+    return s ? -EOPNOTSUPP : 0;
+  }
+  int rf_shared_fsb(uint64_t fsb, uint32_t len, bool* shared) {
+    return rf_shared(uint32_t(fsb >> agblklog), uint32_t(fsb & ((1ULL << agblklog) - 1)), len, shared);
+  }
+  // inode の (データフォークの) extent のどれかが共有されているか。reflink フラグが無ければ共有は無い
+  int inode_shared(Inode* in, bool* shared) {
+    *shared = false;
+    if (!(in->flags2 & kFlags2Reflink)) return 0;
+    int rc = load_extents(in); if (rc) return rc;
+    for (const Ext& e : *in->exts) {
+      rc = rf_shared_fsb(e.fsb, uint32_t(e.len), shared); if (rc) return rc;
+      if (*shared) return 0;
+    }
+    return 0;
+  }

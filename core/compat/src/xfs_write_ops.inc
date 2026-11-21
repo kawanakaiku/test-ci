@@ -731,7 +731,7 @@
       if (e && !e->unwritten) {
         uint64_t zend = std::min<uint64_t>(off, (lb + 1) * bs);
         uint64_t b; if (!fsb_to_blk(e->fsb + (lb - e->off), &b)) return -EUCLEAN;
-        if (reflink) return -EOPNOTSUPP;
+        rc = shared_chk(reflink, e->fsb + (lb - e->off), 1); if (rc) return rc;
         if (tail_zero_unsafe(ino, old_size)) return kRetryBusy;
         std::vector<uint8_t> z(size_t(zend - old_size), 0);
         rc = dev_write_data(b * bs + (old_size % bs), z.data(), z.size()); if (rc) return rc;
@@ -742,8 +742,8 @@
       const Ext* e = find_ext(v, fb);
       if (e) {
         if (e->unwritten) return -EOPNOTSUPP;
-        if (reflink) return -EOPNOTSUPP;
         uint64_t upto = std::min<uint64_t>(fb1 + 1, e->off + e->len);
+        rc = shared_chk(reflink, e->fsb + (fb - e->off), uint32_t(upto - fb)); if (rc) return rc;   // 共有されている範囲は CoW が要る (未実装)
         uint64_t b; if (!fsb_to_blk(e->fsb + (fb - e->off), &b)) return -EUCLEAN;
         uint64_t pos = std::max<uint64_t>(off, fb * bs), end = std::min<uint64_t>(off + len, upto * bs);
         rc = dev_write_data(b * bs + (pos - fb * bs), buf + (pos - off), size_t(end - pos)); if (rc) return rc;

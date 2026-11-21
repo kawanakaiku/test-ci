@@ -6,7 +6,8 @@
 ## 先に結論
 - **実装した範囲**: V5 (CRC) ボリュームで **新規ファイル・ディレクトリ・シンボリックリンクの作成、ファイルへの追記・既存ブロックの上書き・穴あきファイル** (CreateOnly の範囲) と、**Full の操作: `unlink` / `rmdir` / `truncate` (縮小・拡張) / `rename` (同じディレクトリ・別のディレクトリ・上書き・ディレクトリごと) / `link`**。ノード形式のディレクトリ (1 ディレクトリが約 500 エントリを超えるもの) も書ける。
 - **アプリは XFS を、デバイスの書き込みモードに従って CreateOnly / Full で開く** (2026-11-16 から。それまでは常に CreateOnly)。Full の操作はコア (`XfsVolume`) に実装済みで、ホストと Android の計装テスト、実機 USB (C の p1、J9260) の Full 試験 (docs/real-usb-testset.md 10.5) で確認した。
-- **拒否する構成は従来どおり**: rmapbt / parent pointer / クォータ / ストライプ / V4 / 外部ログなどは読み取り専用で開く (下の表)。reflink で共有されうるブロックを持つファイルの削除・縮小は `EOPNOTSUPP` (参照カウントの木を持たないため)。
+- **新しい mkfs.xfs の既定 (rmapbt=1 / parent=1) のボリュームも書ける** (2026-11-21〜): 逆引き木 (rmapbt) をブロックの確保・解放のたびに更新し、親ポインタ (parent pointer) を create / mkdir / symlink / link / unlink / rmdir / rename で維持する (「新しい mkfs.xfs の既定と、書き込める範囲」「rmapbt」「親ポインタ」)。
+- **拒否する構成は従来どおり**: クォータ / ストライプ / V4 / 外部ログ / metadir などは読み取り専用で開く (下の表)。reflink で**共有されている**ブロックへの上書き・縮小・削除は `EOPNOTSUPP` (CoW 未実装。共有されていないファイルや他の操作は書ける。ボリューム全体は読み取り専用にならない)。
 - **方式**: ログ (ジャーナル) を正しく書く方式 (a)。コミットごとに変更したメタデータを XFS のログに書き、そのあと本来の場所に書く。電源断で途中までのとき、Linux カーネルが同じログを再生して整合する。ログを避ける方式 (b) は採らなかった (下記)。Full の操作は 1 操作 = 1 トランザクション (名前の削除・nlink・ブロックの解放・inode の解放まで 1 回のコミットに入る。カーネルの「unlinked list に載せてから解放」の 2 段階は踏まない)。
 - **書き込みを許す条件はホワイトリスト**: 満たさなければ読み取り専用で開く (イメージは 1 バイトも変わらない)。ログが dirty のボリュームは読み取り専用 (自前では再生しない。読み取りでは従来どおり dirty log を拒否)。
 - 検証は独立実装 (`xfs_repair -n` / `xfs_logprint` / **実カーネルでのログ再生とマウント**) と、カーネルが書いたイメージを自前エンジンが書き換える逆向きの確認、自前が作ったノード形式のディレクトリにカーネル自身に追加・削除をさせる確認。数値は末尾の「実測結果」。
@@ -15,6 +16,8 @@
 | ファイル | 内容 |
 |---|---|
 | `core/compat/src/xfs_write.inc` | 基盤: バッファキャッシュ (`WBuf`)、ログへの書き出し (`log_put`)、コミット (`commit`)、ホワイトリスト (`prepare_rw`)、`do_sync` |
+| `core/compat/src/xfs_write_rmap.inc` | 逆引き B+木 (rmapbt) の検索・挿入・削除・併合と `rm_map` / `rm_unmap`。reflink の共有判定 (参照カウント木の読み取りだけ) |
+| `core/compat/src/xfs_write_attr.inc` | 属性フォーク (short form / leaf 1 ブロック) の読み書きと親ポインタ (`pp_add` / `pp_remove`) |
 | `core/compat/src/xfs_write_alloc.inc` | 空き領域 (bno / cnt B+ツリー)・AGFL・inode チャンク (ino / fino B+ツリー) の確保と解放 |
 | `core/compat/src/xfs_write_ops.inc` | inode・フォーク・ディレクトリ (sf / block / leaf1)・`create` / `mkdir` / `symlink` / `write`、`run_op` (忙しい extent の再試行) |
 | `core/compat/src/xfs_write_full.inc` | Full の操作: `unlink` / `rmdir` / `truncate` / `rename` / `link`、inode の破棄 (`ino_destroy`)、ディレクトリからの削除 (`dir_remove`) |
@@ -68,18 +71,47 @@
 | V4 (CRC なし) | 書き込みは V5 だけ |
 | ログが dirty / 未再生 / `noload` で開いた / ログ位置を確定できない | 再生はカーネルに任せる |
 | ログに未知の機能 (`features_log_incompat`)、未知の compat | |
-| 未対応の incompat (meta_uuid / parent pointer / metadir など)、ftype 無し | 既知の incompat (ftype / sparse inode / bigtime / nrext64 / inobtcount など) は可 |
-| ro_compat に rmapbt / その他の未対応ビット | finobt / reflink フラグ / inobtcount は可 (reflink は上記の制限) |
+| 未対応の incompat (meta_uuid / metadir など)、ftype 無し | 既知の incompat (ftype / sparse inode / bigtime / nrext64 / exchange / **parent pointer** など) は可 |
+| ro_compat のその他の未対応ビット | finobt / **rmapbt** / reflink フラグ / inobtcount は可 (reflink は共有されたブロックへの書き込みだけ拒否) |
 | ascii-ci (大文字小文字を区別しない) | |
 | クォータが有効 (`qflags`、プロジェクトクォータ含む) | |
 | ストライプ (`sunit` / `swidth`)、ログのストライプ/セクタ > 512 バイト | |
 | ディレクトリブロックがファイルシステムブロックより大きい (`dirblklog > 0`) | V5 のブロックサイズ 1 / 2 KiB のボリュームは mkfs が必ずこうする |
 | ブロックサイズが 1〜16 KiB の範囲外、セクタサイズ > 4 KiB、ログ < 512 KiB / 大きすぎる | |
-| AGF / AGI / AGFL の magic・CRC・UUID・btree の高さ・AGFL 位置が不正 (全 AG を検査)、AGF に rmapbt、finobt があるはずが AGI に無い | |
+| AGF / AGI / AGFL の magic・CRC・UUID・btree の高さ・AGFL 位置が不正 (全 AG を検査)、rmapbt のフラグがあるのに AGF の rmapbt の根・高さ・ブロック数が不正 (フラグが無いのに根がある)、finobt があるはずが AGI に無い | |
 | 外部ログ・リアルタイム (`rextents` / `rblocks` ≠ 0) | `mount` 自体が拒否 |
 | `imax_pct` > 100 | |
 
-mkfs.xfs の既定構成 (xfsprogs 6.x、V5・finobt・sparse inode・reflink・bigtime・inobtcount・ftype) は書き込み可。**新しい mkfs.xfs (手元の 7.2 で確認) の既定の `rmapbt=1` は拒否**する (読み取りは従来どおり。`parent=1` も未知の incompat として拒否)。そのため CI のテストイメージは `-m rmapbt=0 -n parent=0` で作る (古い mkfs.xfs は該当オプションを外す)。
+### 新しい mkfs.xfs の既定と、書き込める範囲
+手元の `mkfs.xfs` 7.2.0 (xfsprogs 7.2.0) で、疎の 400 MiB イメージに `mkfs.xfs -f` と `xfs_db -r -c version` で確認した既定 (2026-11-21):
+
+| 機能 | 既定 (7.2.0) | 立つビット | 実装前 (〜2026-11-20) | いま |
+|---|---|---|---|---|
+| crc (V5) / ftype / finobt / sparse inode / inobtcount / bigtime / nrext64 | 1 | ro_compat 0x9 / incompat 0x2b | 書ける | 書ける |
+| reflink | 1 | ro_compat 0x4 | 書ける (共有ブロックは不可) | 書ける (共有されたブロックだけ不可) |
+| exchange (exchange_range) | 1 | incompat 0x40 | 書ける | 書ける |
+| **rmapbt** | **1** | ro_compat 0x2 | **ボリューム全体が読み取り専用** | **書ける** |
+| **parent (親ポインタ)** | **1** | incompat 0x80 | **ボリューム全体が読み取り専用** | **書ける** |
+| metadir | 0 | incompat 0x100 | (既定では無効) | 読み取り専用 |
+| その他 (isize 512 / agcount 4 / ブロック 4096 / ログ internal) | — | | | 書ける |
+
+mkfs.xfs 7.2.0 の既定は `features_ro_compat = 0xf` / `features_incompat = 0xeb` で、**既定で作った XFS は rmapbt と親ポインタの両方があった**ため、実装前は実機・実世界の新しい XFS はすべて書き込み不可 (読み取り専用) だった。Ubuntu 26.04 の xfsprogs 6.18 の既定は `rmapbt=1 / parent=0 / exchange=0` (CI の既定構成)。
+リポジトリのテスト用フィクスチャは、実装前は `tools/xfs_common.sh` の `mk_xfs` が `-m rmapbt=0 -n parent=0` を明示して作っていた (`tools/make_real_usb_testset.py` も同じ)。いまは環境変数 `USBMEM_XFS_FEATURES` で選べる: `base` (既定。従来どおり) / `rmapbt` (rmapbt=1, parent=0) / `parent` (rmapbt=1, parent=1) / `all` (mkfs の既定のまま)。`.github/workflows/xfs-rmap.yml` が `rmapbt` と `parent` の 2 構成で全試験を回す。
+
+## rmapbt (逆引き木)
+`xfs_write_rmap.inc`。AG ごとに「ブロック範囲 → 持ち主」の B+木 (magic `RMB3`、AGF の根・高さ・`rmap_blocks`)。Linux の `xfs_rmap_map` / `xfs_rmap_unmap` と同じ規則で、**隣と併合し、端・中を削るときは縮める・分ける**。`xfs_repair` は自分で作り直した結果と 1 レコードずつ比べるので、併合の規則 (持ち主・フラグが同じ、物理的に連続、inode の持ち主は論理ブロックも連続、bmbt ブロックと AG 内部の持ち主は論理位置を見ない) をカーネルと揃えた。
+- **持ち主**: データ・ディレクトリ・symlink の extent = (inode, 論理ブロック)、bmbt ブロック = (inode, bmbt フラグ)、属性フォークのブロック = (inode, 属性フラグ, 論理ブロック)、inode チャンク = `OWN_INODES`、inobt / finobt のブロック = `OWN_INOBT`、AGFL・bnobt・cntbt・rmapbt のブロック = `OWN_AG`。ブロックの確保・解放は `fs_alloc` / `fs_free` に持ち主 (`Own`) を渡して登録する (rmapbt のあるボリュームで持ち主を渡さないと `EUCLEAN`)。
+- **木の構造**: 葉は 24 バイト (開始・長さ・持ち主・offset)、ノードは各エントリが (低いキー, 高いキー) の 2 つと子のポインタ (区間木)。高いキー = 部分木の「レコードの最後のブロック」の最大。変更のあと、根までキーを子から作り直す (`rm_fix_up`)。分割・併合・振り分け・根の高さの増減は bnobt などと同じ方針 (最小レコード数 = 最大 / 2 を守る)。
+- **ブロックの出入り**: 木のブロックは AGFL から取り / に返す (`rmap_blocks` と `btreeblks` に数える)。空き領域 ↔ AGFL の移動だけが `OWN_AG` の登録・削除 (`fix_freelist`)。AGFL ↔ 木のブロックの移動は rmap を変えない。`fix_freelist` が用意する AGFL の枚数に rmapbt の高さ + 1 を足した (木の分割が AGFL を使い切らないように)。
+- **木のブロックの解放と巻き戻し**: 解放したブロックが「操作の途中で作ったバッファ」のとき、コミット対象から外す (`bdrop_fresh`)。このとき巻き戻し用の元の状態も保存する (保存しないと、満杯 (`ENOSPC`) で操作が巻き戻ったあと、木が指すブロックがコミットされず 0 のまま残った。`frag` の試験で発見)。
+- **reflink**: 参照カウント木は**読み取りだけ** (`rf_shared`)。reflink フラグのある inode でも、書こうとする extent が共有されて (参照カウント 2 以上) いなければ通常どおり書き換え・解放する (参照カウント木は変わらない)。共有されている範囲は `EOPNOTSUPP`。
+
+## 親ポインタ (parent pointer)
+`xfs_write_attr.inc`。子の inode の**属性フォーク**に「(親の中での名前) → (親の inode 番号 8 バイト + 親の世代 4 バイト)」の属性 (フラグ `XFS_ATTR_PARENT` = 0x08、値は 12 バイト) を持つ。hard link ごとに 1 つ。
+- **維持する操作**: `create` / `mkdir` / `symlink` (新しい inode に足す)、`link` (対象に足す)、`unlink` (nlink が残るとき名前の分を外す。nlink 0 の inode は破棄)、`rename` (古い名前を外して新しい名前を足す。上書きされた inode は nlink が残るとき外す)、ディレクトリの移動 (そのディレクトリ自身の 1 つを付け替える)。
+- **属性フォークの形式**: short form (inode の中。`di_forkoff` を、データフォークに必要な分を残して決める。カーネルの `xfs_attr_shortform_bytesfit` と同じ考え方) と、**leaf 1 ブロック** (V5 の attr3 leaf。エントリはハッシュ順 = `xfs_dir2_hashname(name) ^ 親 inode の上位・下位 32 ビット`、名前 / 値は末尾から詰める。ブロックは rmapbt に属性フラグで登録)。収まれば short form に戻す。いずれも「全エントリを読んで変更して全部書き直す」。
+- **未対応 (EOPNOTSUPP / ENOSPC)**: node 形式・bmbt 形式の属性フォーク、リモート値 (大きな xattr)、INCOMPLETE のエントリを持つ inode への変更 (そのような inode は削除だけできる: extent 形式のブロックは解放、bmbt 形式は `EOPNOTSUPP`)。leaf 1 ブロックに収まらない数の hard link (4 KiB のブロックで名前 10 文字なら約 150 個) を付けると `ENOSPC`。xattr / ACL を新しく書くことはしない (親ポインタ以外の属性は既存のものを保持する)。
+- **シンボリックリンク**: 親ポインタのあるボリュームでは、inode 内に置く長さの上限が属性フォークの既定の領域を残した分 (512 バイトの inode で 192 文字) になる (それより長いものは別ブロック)。
 
 ### Full の操作 (`xfs_write_full.inc`)
 - 共通: 各操作は `run_op` の中で 1 トランザクション (失敗したら開始時点へ巻き戻す)。解放したブロックは busy に載り (`fs_free_raw`)、同じコミットの窓の中ではデータとして再利用しない (`write_file` が `kRetryBusy` でいったんコミットしてからやり直す)。解放したメタデータのバッファは `bdrop_range` でコミット対象から外す (解放済みブロックに古い内容を書き戻さない)。

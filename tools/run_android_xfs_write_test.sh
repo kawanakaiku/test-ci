@@ -24,7 +24,7 @@ python3 -I "$HERE/gen_xfs_ops.py" ops "$W/ops.txt" createonly
 python3 -I "$HERE/gen_xfs_ops.py" ops "$W/opsf.txt" seeded   # Full の操作 (unlink / rmdir / rename / truncate / link) を含む列
 mk_xfs "$W/wr.img" 320M "$W/seed" || { echo "mkfs.xfs failed"; exit 1; }
 cp --sparse=always "$W/wr.img" "$W/wrf.img"
-HAVE_RSV=1; mk_xfs_plain "$W/rsv.img" 320M "" -m rmapbt=1 >/dev/null 2>&1 || HAVE_RSV=0   # 既定の rmapbt=0 を付けずに作る (書き込み拒否のイメージ)
+HAVE_RSV=1; mk_xfs_plain "$W/rsv.img" 320M "" -d su=64k,sw=2 >/dev/null 2>&1 || HAVE_RSV=0   # ストライプ unit のある (書き込み拒否の) イメージ。rmapbt / 親ポインタは書けるので拒否の例にならない
 adb push "$W/wr.img" /data/local/tmp/xfs_wr.img >/dev/null
 adb push "$W/ops.txt" /data/local/tmp/xfs_wr_ops.txt >/dev/null
 adb push "$W/wrf.img" /data/local/tmp/xfs_wrf.img >/dev/null

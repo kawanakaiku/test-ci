@@ -234,6 +234,10 @@ if [ $KBACKEND = 1 ]; then
     if [ "$(cat "$W/k.img.kres" 2>/dev/null)" = ok ]; then
       fsck_clean "$W/k.img" "kernel-written image" || true
       "$T" --tree "$W/k.img" "$W/to0" && echo "[kernel->ours] own reader reads the kernel-written image: $(wc -l < "$W/to0") entries"
+      if [ -f "$W/k.img.kres" ] && "$T" --tree "$W/k.img" "$W/to0b" && grep -q ' rf/solo_a$' "$W/to0b"; then
+        run_t "reflink (shared extents refused, unshared reflink-flag files writable)" --reflink "$W/k.img"
+        fsck_clean "$W/k.img" "ours after reflink ops" || true
+      fi
       printf 'mkdir /after\ncreate /after/n1\nwrite /after/n1 0 70000 5\nwrite /kpost/k3 1000 200000 6\nwrite /tiny.txt 3 90000 7\ncreate /kpost/new\nwrite /kpost/new 0 1234 3\nsymlink /kpost/ln2 /x/y\n' > "$W/ops_after.txt"
       for i in $(seq 1 120); do echo "create /kpost/c$i" >> "$W/ops_after.txt"; done
       if out=$("$T" --ops "$W/k.img" "$W/ops_after.txt" 2>&1); then

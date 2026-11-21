@@ -76,7 +76,7 @@
         for (uint64_t f : bl) { frees.push_back({f, 1, own_bmbt(ino)}); total++; }
       }
       if (total != d->nblocks) return -EUCLEAN;   // 数が合わない: 壊れている。解放しない
-      if (total && (d->flags2 & kFlags2Reflink)) return -EOPNOTSUPP;   // 共有ブロックの参照カウントを持たない
+      if (total && (d->flags2 & kFlags2Reflink)) { for (auto& f : frees) { rc = shared_chk(true, f.fsb, f.len); if (rc) return rc; } }   // 共有されているブロックを持つ inode は破棄できない (参照カウントを減らす処理が未実装)
     }
     for (auto& f : frees) { rc = fs_free(f.fsb, f.len, &f.own); if (rc) return rc; }
     // inode を「空き」の形にする (mkfs / 新しい inode チャンクと同じ: magic / version 3 / 世代 / next_unlinked = NULL / 自身の番号 / uuid)
@@ -323,7 +323,7 @@
         frees.push_back({e.fsb + k.len, uint32_t(e.len - k.len), own_file(ino, e.off + k.len, e.unwritten)}); nfreed += e.len - k.len;
       }
       if (nfreed) {
-        if (reflink) return -EOPNOTSUPP;   // 共有ブロックかもしれない
+        for (auto& f : frees) { rc = shared_chk(reflink, f.fsb, f.len); if (rc) return rc; }   // 共有されているブロックは解放できない (参照カウントを減らす処理が未実装)
         rc = store_fork(ino, v, -int64_t(nfreed)); if (rc) return rc;
         for (auto& f : frees) { rc = fs_free(f.fsb, f.len, &f.own); if (rc) return rc; }
       }
@@ -332,7 +332,7 @@
       uint64_t lb = old / bs;
       const Ext* e = find_ext(*in->exts, lb);
       if (e && !e->unwritten) {
-        if (reflink) return -EOPNOTSUPP;
+        rc = shared_chk(reflink, e->fsb + (lb - e->off), 1); if (rc) return rc;
         if (tail_zero_unsafe(ino, old)) return kRetryBusy;   // 直前の縮小がまだコミットされていない: 先にコミットする (write_file と同じ)
         uint64_t zend = std::min<uint64_t>(newsize, (lb + 1) * bs);
         uint64_t b; if (!fsb_to_blk(e->fsb + (lb - e->off), &b)) return -EUCLEAN;
@@ -398,8 +398,9 @@
     }
     rc = dir_add(nd, nn, sino, ft_of_mode(src->mode)); if (rc) return rc;
     rc = dir_remove(od, on); if (rc) return rc;
-    rc = pp_remove(sino, od, on); if (rc) return rc;   // 親ポインタ: 古い名前を外して新しい名前を足す
+    // 親ポインタ: 新しい名前を足してから古い名前を外す (逆だと、唯一の属性を外して属性フォークが消え、btree 形式のデータフォークを持つ inode には作り直せない)
     rc = pp_add(sino, nd, nn); if (rc) return rc;
+    rc = pp_remove(sino, od, on); if (rc) return rc;
     if (src_dir) {
       rc = ino_adjust(od, -1, false); if (rc) return rc;
       rc = ino_adjust(nd, +1, false); if (rc) return rc;

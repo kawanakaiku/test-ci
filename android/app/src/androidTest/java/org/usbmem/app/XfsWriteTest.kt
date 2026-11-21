@@ -16,7 +16,7 @@ import java.io.FileInputStream
  *   xfs_wr.img          書き込み対象のイメージ (mkfs.xfs -p で元ファイル入り。tools/gen_xfs_ops.py seed)
  *   xfs_wr_ops.txt      操作列 (tools/gen_xfs_ops.py ops ... createonly。usbmem_xfs_write_tests --ops / tools/ops_ref.py と同じ書式)
  *   xfs_wrf.img / xfs_wrf_ops.txt   Full の操作を含む操作列 (gen_xfs_ops.py ops ... seeded) とそのイメージ。結果は cache/xfs_rwf_result.img
- *   xfs_rsv.img         書き込み拒否のイメージ (rmapbt=1: 読み取り専用に落ちること)
+ *   xfs_rsv.img         書き込み拒否のイメージ (ストライプ unit のあるボリューム: 読み取り専用に落ちること。rmapbt / 親ポインタは書けるようになったので拒否の例にならない)
  * 結果イメージは cache/xfs_rw_result.img に残す。ホストが pull して xfs_repair -n で独立に検証し、同じ操作列を POSIX 操作として実行した結果とツリー全体を比べる。
  * createonly の列は createOnly = true で開くので、既存ファイルへの上書き・削除・rename は拒否されることを確かめる。
  * Full の操作は mountReadWrite(createOnly = false) で開いた別のテスト (fullOperationsLeaveCleanVolume) で行う。
@@ -157,16 +157,16 @@ class XfsWriteTest {
         android.util.Log.i("usbmem", "xfs full write test: $n ops done")
     }
 
-    /** rmapbt=1 のイメージは書き込み拒否 (読み取り専用で開ける。読み取りはでき、書き込みは EROFS=30、イメージは 1 バイトも変わらない)。 */
+    /** 未対応の構成 (ストライプ unit) のイメージは書き込み拒否 (読み取り専用で開ける。読み取りはでき、書き込みは EROFS=30、イメージは 1 バイトも変わらない)。 */
     @Test
-    fun rmapbtVolumeFallsBackToReadOnly() {
+    fun unsupportedVolumeFallsBackToReadOnly() {
         val img = File(ctx.cacheDir, "xfs_rsv.img")
         assumeTrue("fixture not pushed", shellCopy("/data/local/tmp/xfs_rsv.img", img))
         val before = sha256(img)
         val vol = mountRw(img)
         try {
             assertEquals("xfs", vol.fsName)
-            assertFalse("a volume with rmapbt must not be writable", vol.writable)
+            assertFalse("a striped volume must not be writable", vol.writable)
             try { vol.create("/", "x", false); throw AssertionError("create must fail on a read-only volume") } catch (ex: NativeException) { assertEquals(30, ex.code) }
             vol.list("/")   // 読み取りはできる
         } finally { vol.close() }

@@ -23,6 +23,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.usbmem.app.UriNames
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -169,6 +173,13 @@ fun UnlockDialog(
     var confirmWrite by remember { mutableStateOf(false) }
     var rememberIt by remember { mutableStateOf(false) }
     var confirmForget by remember { mutableStateOf(false) }
+    // 選んだファイルの表示名 (msf:123 のような内部表記ではなく、ContentResolver に問い合わせた名前)。問い合わせは IO スレッドで行う
+    val appCtx = LocalContext.current.applicationContext
+    var keyFileName by remember { mutableStateOf("") }
+    LaunchedEffectUi(keyFileUri) {
+        val u = keyFileUri
+        keyFileName = if (u == null) "" else withContext(Dispatchers.IO) { UriNames.displayName(appCtx, u, "") }
+    }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> if (uri != null) keyFileUri = uri }
 
     val recoveryOk = recovery.count { it in '0'..'9' } == 48
@@ -282,7 +293,7 @@ fun UnlockDialog(
                     CryptoMount.Method.KeyFile -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("unlock_pick_bek")) { Text(stringResource(R.string.unlock_pick_bek)) }
                         Text(
-                            keyFileUri?.let { stringResource(R.string.unlock_bek_selected, it.lastPathSegment?.substringAfterLast('/') ?: "") } ?: stringResource(R.string.unlock_bek_none),
+                            keyFileUri?.let { stringResource(R.string.unlock_bek_selected, keyFileName) } ?: stringResource(R.string.unlock_bek_none),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }

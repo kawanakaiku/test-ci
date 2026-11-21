@@ -128,6 +128,8 @@ include   own  android/app/src/main/res/**
 exclude   external-gpl android/app/src/main/java/org/usbmem/app/wimfuse/**
 exclude   external-gpl tools/wimfuse/**
 # (core/fuseshim/wimfuse/** と .github/workflows/wimfuse-build.yml は、上の core/fuseshim/** と .github/** の除外が先に当たる)
+include   own  android/kfsd-common/**                     # kfsd を起こす共通部 (Kotlin の KfsdSpawner / KfsdProtocol / KfsdSpawnNative と JNI の kfsd_spawn.cpp。Apache-2.0。docs/kfsd.md)
+exclude   own-gpl android/kfsd-plugin/**                 # kfsd のプラグイン APK (別 APK で配る。libkfsd.so = GPL-2.0-or-later を載せる)。本体の公開版には入れない
 include   own  android/app/src/main/java/**             # Kotlin。AndroidX / Compose (Apache-2.0) に依存する。SPDX は無いので書き出しで Apache-2.0 を付ける
 relicense own-gpl android/app/src/main/cpp/jni_ntfs.cpp   # 自前の JNI (FS の分岐は USBMEM_FS_* の条件コンパイル)。GPL 表記は個人版でカーネル FS をリンクするための安全側
 relicense own-gpl android/app/src/main/cpp/jni_vol.h      # 自前 (Vol ハンドルの定義)

@@ -51,124 +51,50 @@
 #include "usbmem/xfs_volume.h"
 #endif
 
+#include "jni_kfsd.h"
 #include "jni_vol.h"
+#ifdef USBMEM_FS_NTFS
+#include "kfsd_mount.h"
+#endif
 
 namespace {
 
-// dev 全体のファイルシステムを判別してマウントする。exFAT / ext2 / ext3 / ext4 / FAT12・16・32 と判別できたときだけそれぞれマウントする。それ以外は従来どおり NTFS として試す
-// (壊れた NTFS のブート領域でも、NTFS ドライバ側の検査・復旧の挙動を変えないため)。失敗時 nullptr と正の errno。
+// dev 全体のファイルシステムを判別してマウントする。失敗時 nullptr と正の errno。
+//  - kfsd 経由 (RPC) にしてあるとき (jni_kfsd.cpp): 別プロセスの kfsd (GPL 系ドライバ) にマウントさせる。kfsd が無ければ ENOPKG(65)。公開版は F2FS だけプロセス内 (自前)、ほかは kfsd (プラグイン)
+//  - 個人版のプロセス内 (既定): core/kfsd/src/kfsd_mount.cpp の mount_auto (kfsd の実行ファイルと同じ振り分けの規則。以前はここに同じコピーがあった)
+//  - 公開版のプロセス内: 自前の F2FS だけ。判別できたがこの版に入っていない FS は ENOPKG(65) = 「この FS には kfsd (プラグイン) が必要です」
 std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, bool rw, int* err, bool allow_noload = false, bool allow_dirty = true) {
-  if (dev->is_read_only()) rw = false;  // 下のデバイスが読み取り専用 (ネストの子など) なら、書き込み可を要求されても読み取り専用でマウントする
-  usbmem::FsType t = usbmem::probe_filesystem(*dev, 0, dev->size());
-#ifdef USBMEM_FS_EXFAT
-  if (t == usbmem::FsType::Exfat) {
-    // rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。汚れた (VolumeDirty) / MediaFailure のボリュームは
-    // mount_rw の中で読み取り専用に落ちる (writable() == false で分かる)
-    return rw ? usbmem::ExfatVolume::mount_rw(dev, err) : usbmem::ExfatVolume::mount(dev, err);
-  }
-#endif
-#ifdef USBMEM_FS_EXT2
-  if (t == usbmem::FsType::Ext2) {
-    // ext2 (ジャーナルなし・extent なし) は fs/ext2。rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。
-    // 汚れた / エラー状態 / 未知の ro_compat のボリュームは mount_rw の中で読み取り専用に落ちる (writable() == false で分かる)
-    return rw ? usbmem::Ext2Volume::mount_rw(dev, err) : usbmem::Ext2Volume::mount(dev, err);
-  }
-#endif
-#ifdef USBMEM_FS_EXT4
-  if (t == usbmem::FsType::Ext3 || t == usbmem::FsType::Ext4) {
-    // ext3 / ext4 は fs/ext4 (+ fs/jbd2)。NTFS として試さない。docs/ext4-write.md
-    //  - rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。未再生のジャーナル (needs_recovery) はここで再生する。
-    //    書き込みのホワイトリスト外の機能・エラー状態・外部ジャーナルなどは mount_rw の中で読み取り専用に落ちる (writable() == false)。
-    //  - 読み取り専用: ジャーナルは再生しない。未再生 (needs_recovery) のボリュームは EUCLEAN(117) で拒否、暗号化 / casefold / fs-verity などは EOPNOTSUPP(95)。
-    //    allow_noload は、ユーザーが「ジャーナルが未再生で内容が古い/欠けている可能性がある」ことを確認したうえで、読み取り専用で開く場合だけ true
-    if (rw && !allow_noload) return usbmem::Ext4Volume::mount_rw(dev, err);
-    usbmem::Ext4MountOptions o4; o4.allow_noload = allow_noload;
-    return usbmem::Ext4Volume::mount(dev, err, o4);
-  }
-#endif
+#ifdef USBMEM_FS_NTFS
+  if (usbmem_kfsd_rpc_enabled()) return usbmem_kfsd_mount(dev, rw, err, allow_noload, allow_dirty);
 #ifdef USBMEM_FS_FAT
-  if (t == usbmem::FsType::Fat12 || t == usbmem::FsType::Fat16 || t == usbmem::FsType::Fat32) {
-    // FAT12/16/32 (vfat の長い名前を含む) は fs/fat。NTFS として試さない。docs/fat-write.md
-    //  - rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。ダーティ印 (ブートセクタ / FAT[1]) が付いたボリュームなど
-    //    書き込みに適さないものは mount_rw の中で読み取り専用に落ちる (writable() == false)
+  {
     // FAT の更新時刻は書いた端末のローカル時刻 (タイムゾーン情報なし) なので、現在の端末のタイムゾーンで UTC に直す (UTC より何分西か)
     time_t now = time(nullptr);
     struct tm lt;
     if (localtime_r(&now, &lt)) usbmem_fat_set_timezone(static_cast<int>(-lt.tm_gmtoff / 60));
-    return rw ? usbmem::FatVolume::mount_rw(dev, err) : usbmem::FatVolume::mount(dev, err);
   }
 #endif
-#if defined(USBMEM_FS_ISOFS) && defined(USBMEM_FS_UDF)
-  if (t == usbmem::FsType::Udf || t == usbmem::FsType::Iso9660) {
-    // 光学メディア (読み取り専用)。ISO 9660 + UDF のブリッジ盤は UDF を優先し、UDF として開けなければ (対応外のパーティションなど) ISO 9660 にフォールバックする。docs/isofs-port.md / docs/udf-port.md
-    if (t == usbmem::FsType::Udf) {
-      int uerr = 0;
-      if (auto u = usbmem::UdfVolume::mount(dev, &uerr)) return u;
-      if (err) *err = uerr;
-    }
-    int ierr = 0;
-    if (auto i = usbmem::IsofsVolume::mount(dev, &ierr)) return i;
-    if (err && t == usbmem::FsType::Iso9660) *err = ierr;
-    return nullptr;
-  }
-#endif
-#ifdef USBMEM_FS_SQUASHFS
-  if (t == usbmem::FsType::Squashfs) {
-    // squashfs は読み取り専用の形式 (fs/squashfs)。rw を要求されても読み取り専用でマウントする (writable() == false)。非対応の圧縮方式 (LZMA1) は EOPNOTSUPP(95)
-    return usbmem::SquashfsVolume::mount(dev, err);
-  }
-#endif
-#ifdef USBMEM_FS_EROFS
-  if (t == usbmem::FsType::Erofs) {
-    // erofs も読み取り専用の形式 (fs/erofs)。rw を要求されても読み取り専用でマウントする。圧縮 (z_erofs) は未対応で EOPNOTSUPP(95) (docs/erofs-port.md)
-    return usbmem::ErofsVolume::mount(dev, err);
-  }
-#endif
-#ifdef USBMEM_FS_BTRFS
-  if (t == usbmem::FsType::Btrfs) {
-    // Btrfs は自前のリーダー (docs/btrfs-port.md) と、実験的な書き込み (docs/btrfs-write.md)。tree-log が未再生なら EUCLEAN(117)。
-    // 複数デバイス / RAID0・5・6・10 / 未知の機能は EOPNOTSUPP(95)。allow_noload は、ユーザーが確認したうえで tree-log を無視して開く場合だけ true (ext4 と同じ)
-    // rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。書き込みのホワイトリスト (single / DUP・free space tree・サブボリュームなし・
-    // ミラー一致など: docs/btrfs-write.md) を満たさないボリュームは mount_rw の中で読み取り専用に落ちる (writable() == false で分かる)
-    if (rw && !allow_noload) return usbmem::BtrfsVolume::mount_rw(dev, err);
-    usbmem::BtrfsMountOptions ob; ob.allow_noload = allow_noload;
-    return usbmem::BtrfsVolume::mount(dev, err, ob);
-  }
-#endif
+  return usbmem::kfsd::mount_auto(dev, rw, err, allow_noload, allow_dirty);
+#else
+  if (dev->is_read_only()) rw = false;
+  usbmem::FsType t = usbmem::probe_filesystem(*dev, 0, dev->size());
 #ifdef USBMEM_FS_F2FS
   if (t == usbmem::FsType::F2fs) {
     // f2fs は自前実装 (docs/f2fs-port.md)。暗号化 / casefold / fs-verity などは EOPNOTSUPP(95)、fsync 後のロールフォワードが必要な状態は EUCLEAN(117)。
-    // allow_noload は、確認のうえ「直近の fsync の分を無視して」開く場合だけ true。
-    // 書き込み (docs/f2fs-write.md): rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら読み取り専用)。変更はすべてメモリに溜め、sync で完全なチェックポイントを 1 回書く。
-    // 書き込みのホワイトリスト外 (圧縮・quota・未知の機能など) は mount_rw の中で読み取り専用に落ちる (writable() == false)
+    // 書き込み (docs/f2fs-write.md): rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら読み取り専用)。書き込みのホワイトリスト外は読み取り専用に落ちる
     if (rw && !allow_noload) return usbmem::F2fsVolume::mount_rw(dev, err);
     usbmem::F2fsMountOptions of; of.allow_noload = allow_noload;
     return usbmem::F2fsVolume::mount(dev, err, of);
   }
 #endif
-#ifdef USBMEM_FS_XFS
-  if (t == usbmem::FsType::Xfs) {
-    // XFS は自前のリーダー (docs/xfs-port.md) と、実験的な書き込み (CreateOnly の範囲だけ: docs/xfs-write.md)。ログが未再生 (要リカバリ) のボリュームは EUCLEAN(117) で拒否、
-    // リアルタイム領域・外部ログ・未知の incompat 機能は EOPNOTSUPP(95)。allow_noload は、ユーザーが確認したうえで読み取り専用で開く場合だけ true
-    // rw を要求されたときだけ mount_rw (ビルドで USBMEM_NTFS_WRITE が無効なら -EROFS で失敗)。V5 以外・rmapbt・ストライプなどは mount_rw の中で読み取り専用に落ちる (writable() == false で分かる)
-    if (rw && !allow_noload) return usbmem::XfsVolume::mount_rw(dev, err);
-    usbmem::XfsMountOptions ox; ox.allow_noload = allow_noload;
-    return usbmem::XfsVolume::mount(dev, err, ox);
-  }
-#endif
-#ifdef USBMEM_FS_NTFS
-  // NTFS: allow_dirty = false なら、ダーティフラグだけのボリュームは書き込みマウントせず、読み取り専用のまま返す (state に USBMEM_VOL_CONFIRM_WRITE。呼び出し側が確認する)
-  return rw ? usbmem::NtfsVolume::mount_rw(dev, err, allow_dirty) : usbmem::NtfsVolume::mount(dev, err);
-#else
-  // 公開版 (NTFS を含まない): 判別できなかったものは EINVAL (ファイルシステムではない)。判別できたが、この版に入っていない FS (上の分岐がビルドされていないもの) は
-  // EPROTONOSUPPORT(93) = 「この版では未対応」。UI は Kotlin の Edition (nativeEditionInfo) と合わせて案内する (docs/editions.md)。
-  (void)allow_dirty; (void)allow_noload; (void)rw;
-  // GPL 系のドライバは別プロセスの kfsd (プラグイン) に分けてある (docs/kfsd.md)。この版には kfsd へ繋ぐ層 (:kfsd サービス) がまだ無いので、kfsd が扱う FS は
-  // ENOPKG(65) = 「この FS には kfsd (プラグイン) が必要です」を返す。それ以外 (暗号ボリュームなど) は従来どおり EPROTONOSUPPORT(93)。
+  // 公開版: F2FS 以外は kfsd (プラグイン) へ。kfsd へつなぐ設定でなければ、または kfsd が無ければ ENOPKG
+  if (usbmem_kfsd_rpc_enabled() && t != usbmem::FsType::Unknown && t != usbmem::FsType::BitLocker && t != usbmem::FsType::Luks) return usbmem_kfsd_mount(dev, rw, err, allow_noload, allow_dirty);
+  // 判別できなかったものは EINVAL (ファイルシステムではない)。判別できたが、この版に入っていない FS は ENOPKG(65)。暗号ボリュームは EPROTONOSUPPORT(93)。
+  // UI は Kotlin の Edition (nativeEditionInfo) と合わせて案内する (docs/editions.md、docs/kfsd.md)。
   if (err) {
     switch (t) {
       case usbmem::FsType::Unknown: *err = EINVAL; break;
-      case usbmem::FsType::BitLocker: case usbmem::FsType::Luks: case usbmem::FsType::F2fs: *err = EPROTONOSUPPORT; break;
+      case usbmem::FsType::BitLocker: case usbmem::FsType::Luks: *err = EPROTONOSUPPORT; break;
       default: *err = 65 /* ENOPKG = usbmem::kfsd::kErrNoKfsd */; break;
     }
   }

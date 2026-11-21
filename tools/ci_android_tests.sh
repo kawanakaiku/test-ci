@@ -9,6 +9,7 @@
 #   nested-ntfs    ネスト (ループバック) マウント / NTFS 書き込み (SAF)
 #   crypt-ui       暗号ボリュームの UI 試験 (CryptoUiTest: 画面を操作して LUKS2 / BitLocker を解錠・書き込み・ロック。tools/gen_crypt_ui_fixture.py)
 #   wim-fuse       個人版の FUSE 層 (別プロセスの wimlib の wimmount): WimFuseTest (:wimfuse サービスの exec・RPC・WIM のツリーの一致・子プロセスの後始末)。要 wimtools (フィクスチャ)・-PusbmemWimFuse のビルド (docs/fuse-layer.md 10 章)
+#   kfsd           kfsd (GPL 系の FS ドライバを別プロセスの実行ファイルに分けたもの。docs/kfsd.md) 経由のマウント: KfsdInstrumentedTest (:kfsd サービスの libkfsd.so と別 APK のプラグイン)、既存の読み取りテスト (ext2 / ext4 / exfat / iso / ntfs) と WriteSelfTest を kfsd 経由で通す。要 -PusbmemKfsd=true と :kfsd-plugin のビルド
 #   ro-misc        読み取りテスト (ext2 / ext4 / exFAT / ISO 9660 / NTFS) と アプリ側テスト (DocumentsProvider / リンク / raw イメージ / 転送チューニング)。専用スクリプトが無いので ci_android_tests.sh が直接 push して実行する
 # 環境変数: ANDROID_SERIAL (既定 emulator-5554。emulator-* 以外は拒否)、CI_FIX (フィクスチャ置き場。既定 ${RUNNER_TEMP:-/tmp}/usbmem_fix)、
 #          CI_LOG_DIR (ログ。既定 <リポジトリ>/ci-logs)。run は ビルド済みの APK (-PusbmemNtfsWrite=true のビルド) が android/app/build/outputs/apk にあること。
@@ -57,6 +58,10 @@ gen_fs() {
     app_misc)    py "$HERE/gen_ext2_fixture.py" "$FIX/ext2" && bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
     write) bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
     crypt_ui)    py "$HERE/gen_crypt_ui_fixture.py" "$FIX/crypt_ui" ;;
+    kfsd_unit)   true ;;   # ext4 のフィクスチャは kfsd_read_local が作る
+    kfsd_read_plugin|kfsd_write) true ;;   # kfsd_read_local のフィクスチャを使う (ext2 / ntfs も含む)
+    kfsd_read_local) py "$HERE/gen_ext2_fixture.py" "$FIX/ext2" && py "$HERE/gen_ext4_fixture.py" "$FIX/ext4" && py "$HERE/gen_exfat_fixture.py" "$FIX/exfat" && py "$HERE/gen_iso_fixture.py" "$FIX/iso" \
+                   && bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" && py "$HERE/gen_ntfs_state_fixture.py" "$FIX/ntfs" ;;
     wim_fuse)    py "$HERE/fuseshim/gen_wim_fixture.py" "$FIX/wim" ;;   # wimlib-imagex (wimtools) が要る。lzx / none / lzms の 3 つの .wim と expected.txt
     *) echo "unknown fs $1" >&2; return 2 ;;
   esac
@@ -143,8 +148,58 @@ run_wim_fuse() {
   return $r
 }
 
+# kfsd (docs/kfsd.md): 本体を「kfsd 経由」にして (デバッグビルドだけが見る /data/local/tmp/usbmem_kfsd。内容 = local / plugin)、既存の試験を通す。アプリのプロセスが起きるときに読まれる。
+kfsd_mode() {   # kfsd_mode local|plugin|off
+  local f; f=$(mktemp); echo "$1" > "$f"
+  adbs push "$f" /data/local/tmp/usbmem_kfsd >/dev/null && adbs shell chmod 644 /data/local/tmp/usbmem_kfsd; local r=$?
+  rm -f "$f"; return $r
+}
+kfsd_install_plugin() {
+  local apk=$ROOT/android/kfsd-plugin/build/outputs/apk/debug/kfsd-plugin-debug.apk
+  [ -f "$apk" ] || { echo "plugin APK が無い: $apk"; return 1; }
+  adbs install -r "$apk" >/dev/null || return 1
+}
+kfsd_ps() { adbs shell 'ps -A -o USER,PID,PPID,NAME,ARGS' 2>/dev/null | grep -E 'kfsd' | grep -v grep || true; }
+run_kfsd_unit() {
+  kfsd_mode off || return 1
+  kfsd_install_plugin || return 1
+  push_dir "$FIX/ext4" ext4_ || return 1
+  adbs logcat -c
+  instr_classes $APP.kfsd.KfsdInstrumentedTest; local r=$?
+  echo "--- kfsd の測定値 (KFSD_METRIC)"; adbs logcat -d -s KFSD_METRIC:I | sed 's/^.*KFSD_METRIC *: *//' | head -40
+  echo "--- kfsd の出力 (kfsd-child)"; adbs logcat -d -s kfsd-child:I | tail -20
+  sleep 3
+  local left; left=$(adbs shell 'ps -A' | grep -c 'libkfsd' || true)
+  echo "テスト後に残っている libkfsd の子プロセス: $left"; kfsd_ps
+  [ "$left" = 0 ] || r=1
+  adbs shell 'rm -f /data/local/tmp/ext4_*' >/dev/null
+  return $r
+}
+# 既存の読み取りテストを kfsd 経由で通す (source = local: libkfsd.so / plugin: 別 APK)
+run_kfsd_read() {
+  local src=$1 r=0
+  kfsd_install_plugin || return 1
+  kfsd_mode "$src" || return 1
+  run_generic $APP.Ext2InstrumentedTest,$APP.Ext4InstrumentedTest,$APP.ExfatInstrumentedTest,$APP.IsofsInstrumentedTest,$APP.NtfsInstrumentedTest,$APP.VolumeStateInstrumentedTest,$APP.DirtyConfirmUiTest \
+    "$FIX/ext2:ext2_" "$FIX/ext4:ext4_" "$FIX/exfat:exfat_" "$FIX/iso:iso_" "$FIX/ntfs:" || r=1
+  kfsd_mode off
+  return $r
+}
+run_kfsd_write() {
+  local r=0
+  mkdir -p "$FIX/misc" && cp "$FIX/ext2/b1k.img" "$FIX/misc/ext2_wr.img" || return 1
+  kfsd_mode local || return 1
+  run_generic $APP.WriteSelfTestInstrumented "$FIX/ntfs:" "$FIX/misc:" || r=1
+  kfsd_mode off
+  return $r
+}
+
 run_fs() {
   case $1 in
+    kfsd_unit)   run_kfsd_unit ;;
+    kfsd_read_local)  run_kfsd_read local ;;
+    kfsd_read_plugin) run_kfsd_read plugin ;;
+    kfsd_write)  run_kfsd_write ;;
     fat) bash "$HERE/run_android_fat_test.sh" "$FIX/fat" ;;
     fat_write) bash "$HERE/run_android_fat_write_test.sh" "$FIX/fat" ;;
     ext2_write) bash "$HERE/run_android_ext2_write_test.sh" "$FIX/ext2" ;;
@@ -182,6 +237,7 @@ group_fs() {
     crypt-ui)      echo "crypt_ui" ;;
     ro-misc)       echo "ext2_read ext4_read exfat_read iso_read ntfs_read app_misc" ;;
     wim-fuse)      echo "wim_fuse" ;;
+    kfsd)          echo "kfsd_unit kfsd_read_local kfsd_read_plugin kfsd_write" ;;
     *) echo "unknown group $1" >&2; return 2 ;;
   esac
 }

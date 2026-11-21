@@ -15,6 +15,12 @@ val wimFuseDir: String? = providers.gradleProperty("usbmemWimFuse").orNull.let {
     if (d != null && usbmemEdition == "public") { logger.warn("usbmemWimFuse is ignored in the public edition"); null } else d
 }
 
+// 個人版の kfsd (GPL 系の FS ドライバを別プロセスの実行ファイルにしたもの。docs/kfsd.md): -PusbmemKfsd=true のとき libkfsd.so (PIE の実行ファイル) を作って APK に入れ、
+// nativeLibraryDir から :kfsd サービスが exec する。exec には extractNativeLibs=true (useLegacyPackaging) が要る。公開版では指定しても無視する (kfsd は別 APK のプラグインで配る)。
+val kfsdLocal: Boolean = (providers.gradleProperty("usbmemKfsd").orNull == "true").let { on ->
+    if (on && usbmemEdition == "public") { logger.warn("usbmemKfsd is ignored in the public edition"); false } else on
+}
+
 android {
     namespace = "org.usbmem.app"
     compileSdk = 36
@@ -41,6 +47,7 @@ android {
                 // NTFS 書き込みは実験的: 既定では無効 (-PusbmemNtfsWrite=true で書き込み可能なビルドにする)。無効ビルドでは書き込みマウントが -EROFS で失敗する
                 if (providers.gradleProperty("usbmemNtfsWrite").orNull == "true") arguments += "-DUSBMEM_NTFS_WRITE=ON"
                 if (wimFuseDir != null) arguments += "-DUSBMEM_WIMFUSE=ON"
+                if (kfsdLocal) arguments += "-DUSBMEM_KFSD_EXE=ON"
             }
         }
     }
@@ -86,8 +93,10 @@ android {
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true; buildConfig = true }
     // 16KB ページ整列のため非圧縮で格納 (extractNativeLibs=false)。ただし個人版の FUSE 層 (wimfuse) を入れるときは、libwimfuse.so を nativeLibraryDir から exec するので展開が要る
-    packaging { jniLibs { useLegacyPackaging = wimFuseDir != null } }
+    packaging { jniLibs { useLegacyPackaging = wimFuseDir != null || kfsdLocal } }
     if (wimFuseDir != null) sourceSets.getByName("main").jniLibs.srcDir("$wimFuseDir/jniLibs")
+    // kfsd を起こす共通部 (Kotlin: KfsdSpawner / KfsdProtocol / KfsdSpawnNative、JNI: kfsd_spawn.cpp)。別 APK のプラグイン (:kfsd-plugin) と同じソースを使う
+    sourceSets.getByName("main").java.srcDir("../kfsd-common/src/main/java")
     testOptions { unitTests.isReturnDefaultValues = true }
 }
 

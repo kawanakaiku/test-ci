@@ -3,7 +3,6 @@
 
 #include <fcntl.h>
 #include <signal.h>
-#include <spawn.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/wait.h>
@@ -18,8 +17,6 @@
 #include <thread>
 
 #include "kfsd_io.h"
-
-extern char** environ;
 
 namespace usbmem {
 namespace kfsd {
@@ -60,6 +57,34 @@ void set_exe(const std::string& path) {
   g_exe = path;
 }
 
+// fork + exec (posix_spawn は bionic が API 28 以降なので、minSdk 26 の Android でも使えるようにこちらにする)。子では async-signal-safe な関数だけを使う。
+// dup_to3 >= 0 なら、その fd を子の fd 3 へ複製する (dup2 は FD_CLOEXEC を落とす)。
+static int fork_exec(const std::string& exe, const std::vector<std::string>& args, int dup_to3, pid_t* pid) {
+  std::vector<char*> argv;
+  for (auto& a : args) argv.push_back(const_cast<char*>(a.c_str()));
+  argv.push_back(nullptr);
+  int ep[2];   // exec の失敗を親へ伝える (exec が成功すれば CLOEXEC で閉じて EOF)
+  if (::pipe2(ep, O_CLOEXEC) != 0) return -errno;
+  pid_t p = ::fork();
+  if (p < 0) { int e = errno; ::close(ep[0]); ::close(ep[1]); return -e; }
+  if (p == 0) {
+    if (dup_to3 >= 0 && ::dup2(dup_to3, 3) < 0) { int e = errno; ssize_t r = ::write(ep[1], &e, sizeof e); (void)r; _exit(127); }
+    ::execv(exe.c_str(), argv.data());
+    int e = errno;
+    ssize_t r = ::write(ep[1], &e, sizeof e);
+    (void)r;
+    _exit(127);
+  }
+  ::close(ep[1]);
+  int e = 0;
+  ssize_t n;
+  do { n = ::read(ep[0], &e, sizeof e); } while (n < 0 && errno == EINTR);
+  ::close(ep[0]);
+  if (n == static_cast<ssize_t>(sizeof e)) { int st; ::waitpid(p, &st, 0); return -e; }
+  *pid = p;
+  return 0;
+}
+
 int spawn(const std::string& exe, const std::vector<std::string>& extra_args, int* fd, pid_t* pid) {
   if (exe.empty() || ::access(exe.c_str(), X_OK) != 0) return -ENOENT;
   int sv[2];
@@ -68,19 +93,12 @@ int spawn(const std::string& exe, const std::vector<std::string>& extra_args, in
   int child = ::fcntl(sv[1], F_DUPFD_CLOEXEC, 10);
   if (child < 0) { int e = errno; ::close(sv[0]); ::close(sv[1]); return -e; }
   ::close(sv[1]);
-  posix_spawn_file_actions_t fa;
-  posix_spawn_file_actions_init(&fa);
-  posix_spawn_file_actions_adddup2(&fa, child, 3);
   std::vector<std::string> args{exe, "--fd=3"};
   for (auto& a : extra_args) args.push_back(a);
-  std::vector<char*> argv;
-  for (auto& a : args) argv.push_back(const_cast<char*>(a.c_str()));
-  argv.push_back(nullptr);
   pid_t p = -1;
-  int rc = ::posix_spawn(&p, exe.c_str(), &fa, nullptr, argv.data(), environ);
-  posix_spawn_file_actions_destroy(&fa);
+  int rc = fork_exec(exe, args, child, &p);
   ::close(child);
-  if (rc != 0) { ::close(sv[0]); return -rc; }
+  if (rc != 0) { ::close(sv[0]); return rc; }
   *fd = sv[0];
   *pid = p;
   return 0;
@@ -125,12 +143,9 @@ int spawn_connect(const std::string& exe, const std::vector<std::string>& extra_
   if (exe.empty() || ::access(exe.c_str(), X_OK) != 0) return -ENOENT;
   std::vector<std::string> args{exe, "--connect=" + name};
   for (auto& a : extra_args) args.push_back(a);
-  std::vector<char*> argv;
-  for (auto& a : args) argv.push_back(const_cast<char*>(a.c_str()));
-  argv.push_back(nullptr);
   pid_t p = -1;
-  int rc = ::posix_spawn(&p, exe.c_str(), nullptr, nullptr, argv.data(), environ);
-  if (rc != 0) return -rc;
+  int rc = fork_exec(exe, args, -1, &p);
+  if (rc != 0) return rc;
   *pid = p;
   return 0;
 }

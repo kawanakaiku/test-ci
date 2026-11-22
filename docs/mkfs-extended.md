@@ -140,9 +140,23 @@ int usbmem_mkfs_capabilities_json(length, sector_size, cluster_size, char** out_
 
 ## 8. 結果
 
-(この節は検証の結果を後から埋める。)
+手元 (ホスト、2026-11-23。e2fsprogs 1.47.4 / dosfstools / ntfs-3g):
+
+- `tools/check_disktools.py <cli> mkfs2` 全件 90 ケース: 見逃し (FN) 0、過検出 (FP) 0。ext4 は 4 MiB〜20 TiB (疎)、NTFS は 2 MiB〜17 TiB (疎。17 TiB は検査が `check-partial`)。
+  開発中に見つかった不具合: 1 KiB ブロックで block 0 を使用中にしていなかった (最小のグループでクラッシュ)、予約 GDT ブロックの参照先を書いていなかった (e2fsck: Inode 7 has illegal block)、
+  2^32 ブロック以上で resize_inode を外していなかった、flex_bg のまとまりが 1 グループに収まらない (1 KiB ブロックの 300 MiB)、`$MFT` の確保領域がクラスタ境界で端数のとき ntfs-3g が読めない
+  (`$MFT` のサイズが確保領域より小さく、残りのレコードが無かった) → いずれも修正済みで、回帰として上のケースに入っている。
+- ASan + UBSan 付きの CLI で乱数 500 件 (ext3 / ext4 / FAT12 / FAT16 / NTFS、容量 64 KiB〜4 GiB、クラスタ・セクタ 4096・ラベル・機能の組み合わせ。うち 83 件は理由コードつきで拒否): クラッシュ・サニタイザの指摘・fsck の指摘 0 (約 7 分)。
+- NTFS: `ntfsfix -n` / `ntfsinfo -m` / `ntfscp` + `ntfscat` / ntfs-3g の読み書きマウント (ファイル 3 MB の複製・200 ファイル・削除) が、クラスタ 512 B〜64 KiB、セクタ 512 / 4096、2 MiB〜17 TiB で通る。書いたあとも `ntfsfix -n` と自前の検査がきれい。
+- アプリのドライバでの往復 (個人版、`USBMEM_NTFS_WRITE=ON`、`tools/run_mkfs_roundtrip.sh`): ext2 / ext3 / ext4 (1 KiB・2 KiB・4 KiB ブロック) / FAT12 (1440 KiB 含む) / FAT16 / FAT32 / exFAT / NTFS (512 B〜64 KiB・セクタ 4096) で 16 構成すべて通る
+  (書いた内容を再マウントして突き合わせ、自前の検査 clean、`e2fsck -fn` / `fsck.fat -n` / `fsck.exfat -n` / `ntfsfix -n` もきれい)。ジャーナル無しの ext4 はドライバが読み取り専用にするので往復の対象外 (作るのは問題ない)。
+- 単体テスト (`usbmem_disktools_tests`、16 件): 新形式の往復と再現性 (seed / timestamp)、UUID・ラベルがスーパーブロックに入ること、不正な機能・UUID・ジャーナルの大きさの拒否、`capabilities` と計画の可否の一致、`open_ex`。
+- 公開版: `python3 tools/license_inventory.py --check` と `tools/export_public.sh` が通り、書き出したツリー (`USBMEM_EDITION=public`) で `usbmem_disktools_cli` / `usbmem_disktools_tests` がビルドできて通る。
+- GitHub Actions: このファイルを書いた時点では未実施 (push の手順は 9 章)。
 
 ## 9. 未解決・判断が必要な点
+
+- **CI (GitHub Actions) は未実行**: この作業のエージェントからは `git -c credential.helper=...` の push が環境の制限で通らなかった。`usbmem-ci-full-mkfs-ext` への push で host-tests (plain / san / wsan / wrel。`disktools_tools` の `mkfs2` と `mkfs_roundtrip`) と公開版の CI が動く。Kotlin / JNI の変更は Android のビルド (`usbmem-ci-*` の Android ジョブ) でコンパイルされる。
 
 - NTFS を Windows の chkdsk で確かめていない。`tools/winvhd` で VHD にして `chkdsk` を走らせる検証は重いので未実施。実験的の表示は、これが済むまで外さない。
 - ext4 に `orphan_file` / `metadata_csum_seed` を付けない (アプリのドライバが対象外)。新しい Linux でそれらが必須な場面は無い。

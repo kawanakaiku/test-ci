@@ -300,3 +300,8 @@ kfsd のテストが入った直後、wsan が「The hosted runner lost communic
 診断 run で見つかったこと: `ntfs_mirror` が `torn03` のケースで 600 秒のタイムアウトになった (ASAN の並列で遅いだけの可能性もある。分割後の run では `fixtures` / `cryptodisk_part` が塊ごとの実行で失敗した例もある。いずれも本番の run では報告されていない)。
 再発したら、ジョブ名ごとの失敗と所要時間を、ここに追記する。ジョブの `timeout-minutes` は、wsan の最大 152 分に対し 180 分では余裕が薄いので 240 分にした。
 
+## 追記 (2026-11-23): wsan の lost communication の再発と、CI の揺れ
+
+- mkfs 拡張のブランチ (`usbmem-ci-full-mkfs-ext`、e0a31f4) の host (wsan) が、「The hosted runner lost communication with the server」で 2 回続けて失敗した (run 45045871361 の初回と再実行。どちらも ctest のステップが 97〜98 分で打ち切られ、ログが残らない)。同じ構成の wsan だけ・mkfs / disktools / fscheck 系のテストだけの実行 (workflow_dispatch、`ctest_regex`) は 380 秒で成功し、ローカルの wsan 構成での往復試験は 8 秒・最大 160 MB で、メモリの異常は無かった。統合ブランチ (`usbmem-ci-full-integ`、73d9f32) の wsan は 7433 秒で成功。原因は未確定のまま (上の 2026-11-22 の調査と同じ症状)。再発したら、ブランチ・run ID・所要時間をここに追記する。
+- 統合ブランチの emulator の crypt-ui で、`bitlockerRecoveryKeyAndBekFile` が「解錠が 120 秒以内に終わらない」で 1 回失敗し、同じコミットの再実行で成功した (runner の速さによる揺れ)。再発したら、待ち時間 (`waitUnlocked`) を延ばすか、解錠の所要時間を計測する。
+

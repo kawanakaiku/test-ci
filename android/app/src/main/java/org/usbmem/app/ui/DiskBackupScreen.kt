@@ -263,6 +263,9 @@ fun DiskBackupScreen(c: ToolContext) {
     }
 }
 
+/** 画像 (Partclone の識別子) と書き込み先 (検出名) の FS を比べるための系統名。EXTFS / ext2 / ext3 / ext4 は "ext"。 */
+private fun fsFamily(s: String): String = s.lowercase().let { if (it.startsWith("ext") && it != "exfat") "ext" else it }
+
 /** 復元の計画。取り違え防止のため、画像 (復元元) と書き込み先の FS・容量・ラベルを左右に並べる。 */
 @Composable
 private fun RestorePlanCard(p: JSONObject, info: JSONObject?, target: DiskRange, c: ToolContext, inUse: Boolean, running: Boolean, onApply: () -> Unit) {
@@ -271,7 +274,8 @@ private fun RestorePlanCard(p: JSONObject, info: JSONObject?, target: DiskRange,
     val tgtFs = p.optString("targetExistingFs")
     val imgSize = info?.long("deviceSize") ?: 0L
     val tgtSize = p.long("targetSize")
-    val fsMismatch = tgtFs.isNotBlank() && tgtFs != "unknown" && imgFs.isNotBlank() && tgtFs != imgFs
+    // 画像の fs は Partclone の識別子 (EXTFS / EXFAT / FAT32 / NTFS ...)、書き込み先は検出した名前 (ext2 / ext3 / ext4 / exfat / ...)。ext 系は同じ系統として比べる
+    val fsMismatch = tgtFs.isNotBlank() && tgtFs != "unknown" && imgFs.isNotBlank() && fsFamily(tgtFs) != fsFamily(imgFs)
     val sizeMismatch = imgSize > 0 && tgtSize > 0 && imgSize != tgtSize
     Column(Modifier.testTag("res_plan_card"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(stringResource(R.string.dt_plan_title), style = MaterialTheme.typography.titleSmall)

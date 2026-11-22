@@ -1,22 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-# F2FS の読み取り専用リーダー (オンディスク形式からの独自実装。docs/f2fs-port.md)。圧縮クラスタの展開だけ usbmem_kdecomp (GPL 系) を使う。
+# F2FS の読み取り専用リーダー (オンディスク形式からの独自実装。docs/f2fs-port.md)。圧縮クラスタの展開は core の展開器 (usbmem/decomp.h。docs/decomp.md)。
 # core/compat/CMakeLists.txt の末尾から include される。
-# 圧縮クラスタの展開: 個人版はカーネルの lib (usbmem_kdecomp。GPL 系) を呼ぶ f2fs_decomp.c。公開版 (usbmem_kdecomp が無い) は展開できない旨を返す f2fs_decomp_stub.c (docs/editions.md)
-if(TARGET usbmem_kdecomp)
-  set(USBMEM_F2FS_DECOMP_SRC ${CMAKE_CURRENT_LIST_DIR}/src/f2fs_decomp.c)
-else()
-  set(USBMEM_F2FS_DECOMP_SRC ${CMAKE_CURRENT_LIST_DIR}/src/f2fs_decomp_stub.c)
-endif()
-add_library(usbmem_f2fs STATIC ${CMAKE_CURRENT_LIST_DIR}/src/f2fs_volume.cpp ${USBMEM_F2FS_DECOMP_SRC})
+add_library(usbmem_f2fs STATIC ${CMAKE_CURRENT_LIST_DIR}/src/f2fs_volume.cpp ${CMAKE_CURRENT_LIST_DIR}/src/f2fs_decomp.cpp)
 target_include_directories(usbmem_f2fs PUBLIC public)
-target_compile_options(usbmem_f2fs PRIVATE
-  $<$<COMPILE_LANGUAGE:C>:-std=gnu11> $<$<COMPILE_LANGUAGE:C>:-w>
-  "$<$<COMPILE_LANGUAGE:C>:SHELL:-include stdint.h>" "$<$<COMPILE_LANGUAGE:C>:SHELL:-include stddef.h>" "$<$<COMPILE_LANGUAGE:C>:SHELL:-include endian.h>")
-if(TARGET usbmem_kdecomp)
-  target_link_libraries(usbmem_f2fs PUBLIC usbmem_kdecomp usbmem_core)
-else()
-  target_link_libraries(usbmem_f2fs PUBLIC usbmem_fsvol usbmem_core)   # 公開版: FsVolume::resolve (fs_volume.cpp) は usbmem_fsvol に入れる
-endif()
+target_link_libraries(usbmem_f2fs PUBLIC usbmem_fsvol usbmem_core)   # FsVolume::resolve (fs_volume.cpp)
 if(USBMEM_NTFS_WRITE)
   target_compile_definitions(usbmem_f2fs PRIVATE USBMEM_NTFS_WRITE=1)   # 書き込み (f2fs_write*.inc)。実行時にも mount_rw が必要 (docs/f2fs-write.md)
 endif()

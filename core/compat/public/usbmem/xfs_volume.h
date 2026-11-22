@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // XFS のボリューム (ディスク形式を独立に実装したリーダ + 書き込み)。既定は読み取り専用で、ログの再生は持たない。書き込みは USBMEM_NTFS_WRITE=ON のビルドの mount_rw だけ。docs/xfs-port.md / docs/xfs-write.md
 #pragma once
 #include "usbmem/fs_volume.h"

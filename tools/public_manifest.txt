@@ -50,6 +50,7 @@ include  own  core/blockdev.cmake
 include  own  core/disktools.cmake
 include  own  core/recovery.cmake
 include  own  core/transform.cmake
+include  own  core/decomp.cmake                         # 圧縮データの展開器 (zlib / LZ4 / LZO1X / Zstandard。Btrfs・F2FS の圧縮とバックアップの LZ4。docs/decomp.md)
 include  own  core/include/**                            # 公開 API ヘッダ。すべて Apache-2.0
 include  own  core/src/**                                # パーティション表・ディスク編集・USB / SCSI・暗号 (AES / SHA / XTS / PBKDF2 / Argon2)・LUKS / BitLocker・イメージ形式・DiskTools・救出 / バックアップ。すべて Apache-2.0
 include  generated core/tests/crypto_vectors.inc         # 公開テストベクタ (hashlib / cryptography / argon2-cffi の出力)。SPDX が無いので書き出しで Apache-2.0 を付ける
@@ -69,31 +70,39 @@ include   own  core/kfsd/tests/test_kfsd_proto.cpp
 exclude   kernel core/kfsd/**                           # 上以外: kfsd_mount.* (カーネル FS ドライバを呼ぶ)・kfsd_main.cpp (kfsd の実行ファイル)・test_kfsd_diff.cpp (プロセス内のドライバと比べる)
 
 # ============================================================ core/compat (LinuxCompat 層とカーネル由来の FS ドライバ。公開版は自前の一部だけ)
-# 公開版に残るもの: FsVolume 共通 IF (自前の API 定義)、ネストマウント (FsVolume の上の自前コード)、自前の F2FS リーダー / ライター
+# 公開版に残るもの: FsVolume 共通 IF (自前の API 定義)、ネストマウント (FsVolume の上の自前コード)、自前の F2FS / Btrfs / XFS のリーダー / ライター
 relicense own-gpl core/compat/public/usbmem/fs_volume.h      # 自前の共通インタフェース。SPDX の GPL 表記は個人版でカーネル FS と同居するための安全側
 relicense own-gpl core/compat/public/usbmem/vol_state.h      # 自前のビット定義 (C / C++ 共通)
 relicense own-gpl core/compat/public/usbmem/nested_mount.h   # 自前 (FsVolume の上の薄い層。カーネル FS には依存しない)
 relicense own-gpl core/compat/src/fs_volume.cpp               # 自前 (FsVolume::resolve だけ)
 relicense own-gpl core/compat/src/nested_mount.cpp           # 自前 (ネストの系譜・ボリューム単位の mutex。FS ドライバを呼ばない)
-include   own     core/compat/public/usbmem/f2fs_volume.h    # 自前: オンディスク形式から書き起こした実装。fs/f2fs のコードは写していない (docs/f2fs-port.md。カーネルのソースは構造体のレイアウトを確かめる仕様書として読んだだけ)
+include   own     core/compat/public/usbmem/f2fs_volume.h    # 自前: オンディスク形式から書き起こした実装。fs/f2fs のコードは写していない (docs/f2fs-port.md、docs/provenance-btrfs-xfs.md の機械照合で確認。ディレクトリのハッシュとノードの種別は形式の記述から書き直した)
 include   own     core/compat/src/f2fs_volume.cpp
 include   own     core/compat/src/f2fs_write.inc
 include   own     core/compat/src/f2fs_write_cp.inc
 include   own     core/compat/src/f2fs_write_ops.inc
-include   own     core/compat/src/f2fs_decomp_stub.c         # 公開版用: 圧縮クラスタは展開しない (個人版は f2fs_decomp.c がカーネルの lib を呼ぶ)
+include   own     core/compat/src/f2fs_decomp.cpp            # 圧縮クラスタの展開 (lzo / lzo-rle / lz4 / zstd)。core の自前の展開器を呼ぶ (個人版と同じファイル。docs/decomp.md)
 include   own     core/compat/f2fs.cmake
 include   own     core/compat/tests/test_f2fs.cpp
+# 自前の Btrfs / XFS (2026-11-23 に公開版へ戻した。docs/provenance-btrfs-xfs.md の出所調査・機械照合の結果、カーネルのコードの写しは無し)。展開は core の展開器 (zlib = 系の libz、LZO1X・zstd = 自前)
+include   own     core/compat/public/usbmem/btrfs_volume.h
+include   own     core/compat/src/btrfs_volume.cpp
+include   own     core/compat/src/btrfs_*.inc
+include   own     core/compat/btrfs.cmake
+include   own     core/compat/public/usbmem/xfs_volume.h
+include   own     core/compat/src/xfs_volume.cpp
+include   own     core/compat/src/xfs_*.inc
+include   own     core/compat/xfs.cmake
+include   own     core/compat/tests/test_btrfs.cpp
+include   own     core/compat/tests/test_btrfs_write.cpp
+include   own     core/compat/tests/test_xfs.cpp
+include   own     core/compat/tests/test_xfs_write.cpp
+include   own     core/compat/tests/xfs_dump.cpp
+relicense own-gpl core/compat/tests/crash_device.h           # 自前の電源断模擬デバイス (Btrfs / XFS の書き込み試験が使う)。GPL 表記は個人版の他の試験との同居のための安全側
+relicense own-gpl core/compat/tests/sha256.h                 # 自前のテスト用 SHA-256
 # 公開版に入れないもの
-exclude   own-gpl core/compat/src/f2fs_decomp.c              # カーネルの展開ライブラリ (usbmem_kdecomp。GPL 系) を呼ぶラッパ
-exclude   own-gpl core/compat/tests/test_f2fs_write.cpp      # 書き込みの試験 (GPL-2.0-or-later 表記)。公開版の CI は読み取りビルドのため。必要になったら relicense へ
-exclude   own     core/compat/tests/bench_write_io.cpp       # btrfs (GPL 表記) も測る個人版のベンチ
-exclude   own-gpl core/compat/src/btrfs_volume.cpp           # 自前の Btrfs リーダー / ライター。ただし SPDX は GPL-2.0-or-later、展開はカーネルの lib (btrfs_decomp.c)、形式は uapi ヘッダを参照 → 要確認 = 除外 (docs/btrfs-port.md)
-exclude   own-gpl core/compat/src/btrfs_*.inc                # 上と同じ (書き込みの実装)
-exclude   own-gpl core/compat/src/btrfs_decomp.c              # カーネルの展開ライブラリ (zlib / lzo / zstd。GPL 系) を呼ぶラッパ
-exclude   own-gpl core/compat/public/usbmem/btrfs_volume.h  # 上と同じ
-exclude   own-gpl core/compat/src/xfs_volume.cpp             # 自前の XFS リーダー / ライター。ただし fs/xfs の形式定義 (xfs_format.h など GPL-2.0) を仕様として読んで書いたと明記 → 派生の疑い = 除外 (docs/xfs-port.md)
-exclude   own-gpl core/compat/src/xfs_*.inc                  # 上と同じ (書き込みの実装)
-exclude   own-gpl core/compat/public/usbmem/xfs_volume.h    # 上と同じ
+exclude   own-gpl core/compat/tests/test_f2fs_write.cpp      # 書き込みの試験 (GPL-2.0-or-later 表記)。F2FS の書き込み試験は個人版 (tools/f2fs_vm の実カーネル比較を使う)。必要になったら relicense へ
+exclude   own     core/compat/tests/bench_write_io.cpp       # 書き込みの I/O 形を測る個人版のベンチ
 exclude   kernel-shim core/compat/src/rt_*.c                 # LinuxCompat 実行時 (inode / dentry / ページキャッシュ / bio / buffer_head / jbd2 / VFS のマウント)。カーネルの意味論の再現 (GPL-2.0-or-later)
 exclude   kernel-shim core/compat/src/bdev_bridge.cpp        # LinuxCompat の block_device ↔ BlockDevice ブリッジ (カーネル FS ドライバ専用)
 exclude   kernel-shim core/compat/include/**                 # <linux/*.h> 互換ヘッダ (カーネルのヘッダに倣う。GPL-2.0-or-later / 一部 SPDX なし)
@@ -150,6 +159,23 @@ include   own  tools/gen_exfat_fixture.py               # DiskTools の exFAT �
 include   own  tools/check_recovery_tools.py
 include   own  tools/gen_f2fs_fixture.py
 include   own  tools/gen_squashfs_fixture.py            # gen_f2fs_fixture.py が manifest 書式の共用ヘルパとして読み込む (squashfs の本体は公開版に無い)
+include   own  tools/gen_decomp_fixtures.py             # 展開器 (core/decomp.cmake の decomp_real / decomp_fuzz) の入力。zstd / lzop コマンドと zlib の出力
+include   own  tools/gen_btrfs_fixture.py                # Btrfs のテスト (core/compat/btrfs.cmake)。mkfs.btrfs / btrfs check / btrfs restore を使う
+include   own  tools/check_btrfs_restore.py
+include   own  tools/gen_btrfs_ops.py
+include   own  tools/btrfs_patch_sb.py
+include   own  tools/gen_xfs_fixture.py                  # XFS のテスト (core/compat/xfs.cmake)。mkfs.xfs / xfs_repair を使う
+include   own  tools/gen_xfs_ops.py
+include   own  tools/xfs_patch_sb.py
+include   own  tools/xfs_common.sh
+include   own  tools/ops_ref.py                          # 書き込み試験の「参照」(同じ操作を OS の POSIX 操作で実行してツリーを比べる)
+include   own  tools/run_btrfs_write_tests.sh            # Btrfs / XFS の書き込み試験 (btrfs check / xfs_repair / 実カーネルとの突き合わせ。sudo が使えれば loop マウントで)
+include   own  tools/run_btrfs_crash_tests.sh
+include   own  tools/run_xfs_write_tests.sh
+include   own  tools/run_xfs_crash_tests.sh
+include   own  tools/xfs_vm/**                           # XFS のログをカーネルに再生させる (loop マウント / QEMU)。開発機の置き場所の絶対パスは下の scrub で外す
+include   own  tools/provenance_scan.py                  # 出所の機械照合 (docs/provenance-btrfs-xfs.md)。カーネルのソースは含まない (provenance_fetch.sh が取得する)
+include   own  tools/provenance_fetch.sh
 include   own  tools/gen_crypto_vectors.py              # core/tests/crypto_vectors.inc の生成器
 include   own  tools/check_manifest_permissions.py
 include   own  tools/test_check_manifest_permissions.py
@@ -164,7 +190,6 @@ exclude   kernel-shim tools/compat_stub_names.txt
 exclude   kernel-patch tools/analyze_ntfs_deps.sh       # fs/ntfs の依存解析 (カーネル由来のソースを対象にする)
 exclude   kernel-patch tools/ntfs_compat_*.sh
 exclude   dev  tools/f2fs_vm/**                         # QEMU + 開発機のカーネルパッケージの絶対パスに依存
-exclude   dev  tools/xfs_vm/**
 exclude   dev  tools/winpe/**                           # Windows ゲスト VM (実機相当の検証)
 exclude   dev  tools/winvhd/**
 exclude   dev  tools/make_real_usb_testset.py           # 実機 USB の検証セット (個人の機材)
@@ -173,7 +198,6 @@ exclude   dev  tools/run_android_*.sh                   # 個人の AVD / 実機
 exclude   dev  tools/ci_android_tests.sh
 exclude   dev  tools/run_host_tests.sh
 exclude   dev  tools/run_*.sh                           # カーネル FS・NTFS・実機を前提にする検証スクリプト (run_*_tests.sh)
-exclude   dev  tools/xfs_common.sh
 exclude   dev  tools/f2fs_cutpoints.py
 exclude   dev  tools/f2fs_kernel_lib.sh
 exclude   dev  tools/gen_*.py                           # 公開版が使わない生成器 (上の include 以外): カーネル FS / NTFS / 暗号ディスクのフィクスチャ
@@ -191,6 +215,12 @@ include   own-doc docs/crypto-volumes.md
 include   own-doc docs/disk-tools.md
 include   own-doc docs/f2fs-port.md
 include   own-doc docs/f2fs-write.md
+include   own-doc docs/btrfs-port.md
+include   own-doc docs/btrfs-write.md
+include   own-doc docs/xfs-port.md
+include   own-doc docs/xfs-write.md
+include   own-doc docs/decomp.md
+include   own-doc docs/provenance-btrfs-xfs.md
 include   own-doc docs/media-kind.md
 include   own-doc docs/multi-usb.md
 include   own-doc docs/nbd.md
@@ -203,6 +233,8 @@ exclude   own-doc docs/**                               # 上以外: カーネ�
 # ============================================================ 公開版のツリーにだけ効く置換 (ファイルは変えない)
 scrub     dev  s!https://github\.com/[A-Za-z0-9_.-]+/test-ci!https://github.com/<owner>/test-ci!
 scrub     dev  s![A-Za-z0-9_.-]+/test-ci!<owner>/test-ci!
+# 開発機の絶対パス (XFS のログ再生に使うカーネルパッケージの置き場所。公開版では環境変数 USBMEM_XFS_KERNEL_PKG だけ)
+scrub     dev  s!(?m)^    "/run/media/u/[^"\n]*",\n!!
 # 実機の機種名 (個人の持ち物が分かる) は、公開版では番号付きの端末名にする。長いものから順に置換する
 scrub     dev  s!Ratoc RS-EC32-U3R!USB RAID ケース!
 scrub     dev  s!Ratoc RAID!USB RAID ケース!

@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
-// Btrfs 読み取り専用リーダー。ディスク上の形式 (btrfs wiki "On-disk Format" / include/uapi/linux/btrfs_tree.h の構造体の並び) を直接読む。
-// カーネルの fs/btrfs (約 16 万行: トランザクション / delayed ref / extent_io / bio / ワークキュー) は載せず、読み取りに必要な部分だけを自前で持つ。
+// SPDX-License-Identifier: Apache-2.0
+// Btrfs 読み取り専用リーダー。ディスク上の形式 (btrfs wiki "On-disk Format" の構造体の並び) を直接読む。
+// 読み取りに必要な部分だけを自前で持つ (トランザクション / 遅延参照 / ワークキューなどはない)。Linux の fs/btrfs のコードは含まない (docs/provenance-btrfs-xfs.md)。
 // 方針: ディスク上の値は一切信用しない (範囲・桁あふれ・ループを毎回検査)。メタデータはノードごとにチェックサムを検証し、DUP のもう一方のコピーへフォールバックする。
 // 書き込み・tree-log の再生・修復はしない。docs/btrfs-port.md
 #include "usbmem/btrfs_volume.h"
@@ -21,13 +21,9 @@
 
 #include "usbmem/crc32.h"
 #include "usbmem/crypto.h"
+#include "usbmem/decomp.h"
 #include "usbmem/sha256.h"
 
-extern "C" {
-int usbmem_btrfs_zlib_inflate(const void* src, size_t srclen, void* dst, size_t dstcap, size_t* outlen);
-int usbmem_btrfs_lzo_segment(const void* src, size_t srclen, void* dst, size_t* dstlen);
-int usbmem_btrfs_zstd_inflate(const void* src, size_t srclen, void* dst, size_t dstcap, size_t* outlen);
-}
 
 namespace usbmem {
 namespace {
@@ -44,12 +40,12 @@ inline u64 le64(const u8* p) { return static_cast<u64>(le32(p)) | (static_cast<u
 // ---- ディスク上の定数
 constexpr u64 kSbOffsets[3] = {0x10000ull, 0x4000000ull, 0x4000000000ull};
 constexpr size_t kSbSize = 4096;
-constexpr size_t kHdr = 101;       // btrfs_header
-constexpr size_t kItemSz = 25;     // btrfs_item (key 17 + offset 4 + size 4)
-constexpr size_t kPtrSz = 33;      // btrfs_key_ptr (key 17 + blockptr 8 + generation 8)
+constexpr size_t kHdr = 101;       // ツリーブロックのヘッダ
+constexpr size_t kItemSz = 25;     // 葉の項目 (key 17 + offset 4 + size 4)
+constexpr size_t kPtrSz = 33;      // 内部ノードのポインタ (key 17 + blockptr 8 + generation 8)
 constexpr u32 kMaxNode = 65536;
 constexpr int kMaxLevel = 8;
-constexpr u64 kMaxRam = 2u << 20;  // 展開後の extent の上限 (カーネルは 128 KiB)
+constexpr u64 kMaxRam = 2u << 20;  // 展開後の extent の上限 (非圧縮の extent は最大 128 KiB)
 
 enum : u8 {
   kInodeItem = 1, kInodeRef = 12, kDirItem = 84, kDirIndex = 96, kExtentData = 108, kExtentCsum = 128,
@@ -73,33 +69,31 @@ inline int kcmp(const Key& a, const Key& b) {
 }
 
 // ---- チェックサム (crc32c / xxhash64 / sha256 / blake2b-256)
-u32 crc32c_raw(u32 crc, const u8* p, size_t n) { return usbmem::crc32c_raw(crc, p, n); }   // 前後の反転なし (カーネルの crc32c() と同じ)。命令 / 8 バイト表引きは core/src/crc32.cpp
-u32 name_hash(const u8* p, size_t n) { return crc32c_raw(0xFFFFFFFEu, p, n); }   // btrfs_name_hash = crc32c(~1, name)
+u32 crc32c_raw(u32 crc, const u8* p, size_t n) { return usbmem::crc32c_raw(crc, p, n); }   // 前後の反転なし (種をそのまま渡す)。命令 / 8 バイト表引きは core/src/crc32.cpp
+u32 name_hash(const u8* p, size_t n) { return crc32c_raw(0xFFFFFFFEu, p, n); }   // 名前のハッシュ = crc32c (種 ~1、反転なし)
 
-inline u64 rotl64(u64 x, int r) { return (x << r) | (x >> (64 - r)); }
+// XXH64 (Yann Collet の公開仕様): 5 つの素数、32 バイトを 4 レーンで混ぜる本体、8 / 4 / 1 バイトの端、最後の拡散。
+inline u64 rotl64(u64 x, int r) { return (x << r) | (x >> ((64 - r) & 63)); }
+constexpr u64 kXxA = 11400714785074694791ULL, kXxB = 14029467366897019727ULL, kXxC = 1609587929392839161ULL, kXxD = 9650029242287828579ULL, kXxE = 2870177450012600261ULL;
+inline u64 xx_lane(u64 acc, u64 w) { return rotl64(acc + w * kXxB, 31) * kXxA; }
+inline u64 xx_fold(u64 h, u64 lane) { return (h ^ xx_lane(0, lane)) * kXxA + kXxD; }
 u64 xxh64(const u8* p, size_t len, u64 seed) {
-  constexpr u64 P1 = 11400714785074694791ULL, P2 = 14029467366897019727ULL, P3 = 1609587929392839161ULL, P4 = 9650029242287828579ULL, P5 = 2870177450012600261ULL;
-  auto round = [&](u64 acc, u64 in) { acc += in * P2; acc = rotl64(acc, 31); return acc * P1; };
-  auto merge = [&](u64 acc, u64 val) { val = round(0, val); acc ^= val; return acc * P1 + P4; };
-  const u8* end = p + len;
   u64 h;
+  size_t i = 0;
   if (len >= 32) {
-    u64 v1 = seed + P1 + P2, v2 = seed + P2, v3 = seed, v4 = seed - P1;
-    const u8* lim = end - 32;
-    do {
-      v1 = round(v1, le64(p)); v2 = round(v2, le64(p + 8)); v3 = round(v3, le64(p + 16)); v4 = round(v4, le64(p + 24));
-      p += 32;
-    } while (p <= lim);
-    h = rotl64(v1, 1) + rotl64(v2, 7) + rotl64(v3, 12) + rotl64(v4, 18);
-    h = merge(h, v1); h = merge(h, v2); h = merge(h, v3); h = merge(h, v4);
+    u64 lane[4] = {seed + kXxA + kXxB, seed + kXxB, seed, seed - kXxA};
+    for (; i + 32 <= len; i += 32)
+      for (int k = 0; k < 4; k++) lane[k] = xx_lane(lane[k], le64(p + i + 8 * static_cast<size_t>(k)));
+    h = rotl64(lane[0], 1) + rotl64(lane[1], 7) + rotl64(lane[2], 12) + rotl64(lane[3], 18);
+    for (int k = 0; k < 4; k++) h = xx_fold(h, lane[k]);
   } else {
-    h = seed + P5;
+    h = seed + kXxE;
   }
   h += len;
-  while (p + 8 <= end) { h ^= round(0, le64(p)); h = rotl64(h, 27) * P1 + P4; p += 8; }
-  if (p + 4 <= end) { h ^= static_cast<u64>(le32(p)) * P1; h = rotl64(h, 23) * P2 + P3; p += 4; }
-  while (p < end) { h ^= static_cast<u64>(*p++) * P5; h = rotl64(h, 11) * P1; }
-  h ^= h >> 33; h *= P2; h ^= h >> 29; h *= P3; h ^= h >> 32;
+  for (; i + 8 <= len; i += 8) h = rotl64(h ^ xx_lane(0, le64(p + i)), 27) * kXxA + kXxD;
+  if (i + 4 <= len) { h = rotl64(h ^ (static_cast<u64>(le32(p + i)) * kXxA), 23) * kXxB + kXxC; i += 4; }
+  for (; i < len; i++) h = rotl64(h ^ (static_cast<u64>(p[i]) * kXxE), 11) * kXxA;
+  h ^= h >> 33; h *= kXxB; h ^= h >> 29; h *= kXxC; h ^= h >> 32;
   return h;
 }
 
@@ -144,7 +138,7 @@ struct Subvol { u64 id = 0, bytenr = 0, flags = 0; int level = 0; };
 
 struct Inode { u64 size = 0, nbytes = 0, flags = 0; u32 nlink = 0, mode = 0; int64_t mtime = 0; };
 
-constexpr unsigned kDtByFt[9] = {0, 8, 4, 2, 6, 1, 12, 10, 0};   // BTRFS_FT_* → DT_*
+constexpr unsigned kDtByFt[9] = {0, 8, 4, 2, 6, 1, 12, 10, 0};   // ディレクトリ項目の種別 (btrfs の値) → DT_*
 
 }  // namespace
 
@@ -530,10 +524,10 @@ struct BtrfsVolume::Impl {
     size_t got = 0;
     int rc;
     if (comp == 1) {
-      rc = usbmem_btrfs_zlib_inflate(src, srclen, out->data(), ram, &got);
+      rc = usbmem_zlib_decompress(src, srclen, out->data(), ram, &got);
       if (rc == -ENOSPC) rc = 0;   // 想定より長い分は使わない
     } else if (comp == 3) {
-      rc = usbmem_btrfs_zstd_inflate(src, srclen, out->data(), ram, &got);
+      rc = usbmem_zstd_decompress(src, srclen, out->data(), ram, &got);
       if (rc == -ENOSPC) rc = 0;
     } else if (comp == 2) {
       // LZO: 先頭 4 バイトが全長 (自分を含む)。以降は セクタごとに [4 バイト長][LZO1X データ] を並べ、セクタ境界を跨がない
@@ -553,7 +547,7 @@ struct BtrfsVolume::Impl {
         if (seg == 0 || in + seg > tot) { rc = -EIO; break; }
         size_t dl = std::min<size_t>(sectorsize, ram - outpos);
         if (dl == 0) break;
-        rc = usbmem_btrfs_lzo_segment(src + in, seg, out->data() + outpos, &dl);
+        rc = usbmem_lzo1x_decompress(src + in, seg, out->data() + outpos, &dl);
         if (rc) break;
         outpos += dl;
         in += seg;

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // XFS 書き込み: inode の更新・データフォーク (extent / bmbt)・ディレクトリ (sf / block / leaf)・ファイル操作。xfs_write_alloc.inc の後で Impl の中に #include される。docs/xfs-write.md
 // 対応: create / mkdir / symlink / write (追記・上書き・穴あけ)。削除・rename・truncate・link は xfs_write_full.inc、ノード形式のディレクトリは xfs_write_node.inc。
 
@@ -444,9 +444,9 @@
     uint8_t* ip;
     if (d->format == kFmtLocal) {
       SfDir sf; rc = sf_decode(d, &sf); if (rc) return rc;
-      // 追加位置はカーネル (xfs_dir2_sf_addname_pick) と同じ: 仮想のデータブロック上で、エントリ間の隙間のうち入る最も低い所、無ければ最後のエントリの後ろ。
+      // 追加位置は XFS の既存実装 (カーネル) と同じになるようにした: 仮想のデータブロック上で、エントリ間の隙間のうち入る最も低い所、無ければ最後のエントリの後ろ。
       // 常に最後の後ろへ足すと、名前の変更・削除を繰り返す間にオフセットが増え続け、xfs_repair が "offsets too high" と判定する (generic/028)。
-      // エントリはオフセット順に並べる (カーネルもこの順で読む)。
+      // エントリはオフセット順に並べる (読む側もこの順を前提にする)。
       std::stable_sort(sf.ents.begin(), sf.ents.end(), [](const DEnt& a, const DEnt& b) { return a.off < b.off; });
       uint32_t at = 0x60;
       size_t pos = 0;
@@ -515,7 +515,7 @@
     {
       const uint8_t* p = lf->d.data();
       uint32_t count = be16(p + 56), stale = be16(p + 58), bc = be32(p + bs - 4);
-      (void)stale;   // カーネルが作った葉は stale (address 0) のエントリを持ちうる: 読み飛ばし、書き直すときに詰める
+      (void)stale;   // 他の実装が作った葉は stale (address 0) のエントリを持ちうる: 読み飛ばし、書き直すときに詰める
       if (64 + 8 * uint64_t(count) + 2 * uint64_t(bc) + 4 > bs || bc != ndata) return -EUCLEAN;
       for (uint32_t i = 0; i < count; i++) { uint32_t a = be32(p + 68 + i * 8); if (a != 0) lents.push_back({be32(p + 64 + i * 8), a}); }
       for (uint32_t i = 0; i < bc; i++) bests.push_back(be16(p + bs - 4 - 2 * bc + 2 * i));

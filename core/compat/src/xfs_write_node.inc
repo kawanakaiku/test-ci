@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // XFS 書き込み: ノード形式のディレクトリ (データブロック + leafn ブロック + da ノード + free 索引ブロック)。xfs_write_full.inc の後で Impl の中に #include される。docs/xfs-write.md
 //
 // leaf1 形式 (データブロック + 1 つの葉) に収まらなくなったディレクトリ (約 505 エントリ / 4 KiB) は、ここでノード形式にする。
@@ -11,7 +11,7 @@
 // 上限: 葉が da ノード 1 枚に収まる数 (4 KiB で 504 枚 ≒ 20 万エントリ)、データブロックが free 索引 1 枚に収まる数 (4 KiB で 2016 ブロック)。超えると -ENOSPC。
 
   static constexpr uint32_t kLeafnMagic = 0x3dff, kDaNodeMagic = 0x3ebe, kFree3Magic = 0x58444633;
-  uint64_t free_lblk() const { return (1ULL << 36) / bs; }   // XFS_DIR2_FREE_OFFSET (64 GiB)
+  uint64_t free_lblk() const { return (1ULL << 36) / bs; }   // ディレクトリの free 領域の開始 (論理オフセット 64 GiB。形式の定義)
   bool dir_is_node(const std::vector<Ext>& v) const { const uint64_t f = free_lblk(); for (const Ext& e : v) if (e.off >= f) return true; return false; }
 
   struct NodeScan {

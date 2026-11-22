@@ -6,7 +6,7 @@
 - **Linux `fs/xfs` は取り込んでいない。ディスク形式を仕様として読み、独立に実装したリーダ**である (NTFS / exFAT / ext2 / ext4 / FAT / squashfs / erofs の「カーネルのコードを無改変で LinuxCompat に載せる」方針からの逸脱)。
   - 理由: `fs/xfs` は xfs_buf (バッファキャッシュ)・トランザクション・ログ・perag・xfs_mount の全体・workqueue・rmap/refcount の整合に深く依存し、読み取り専用に絞っても互換層の追加が過大になる (見積もり: 数万行規模の翻訳単位 + 互換層の大幅追加)。
     ディスク形式の読み取り (superblock・inode・extent・ディレクトリ 5 形式・シンボリックリンク) だけなら小さく書けて、境界検査と破損耐性を自前で徹底できる。
-  - カーネルのソースは参照 (`fs/xfs/libxfs/xfs_format.h` などの形式定義) のみで、コードは取り込んでいない。**ライセンス**は将来取り込み版に差し替える可能性と形式の出典を考え GPL-2.0-or-later として扱う (`docs/licenses.md`)。
+  - 形式の事実 (フィールドの配置・定数・ハッシュ関数) は、公開仕様 "XFS Algorithms & Data Structures" と、カーネルの形式定義ヘッダ (`fs/xfs/libxfs/xfs_format.h` など。数値の確認) から取った。コードは取り込んでいない・写していない。**ライセンス**: 2026-11-23 に、カーネル全体との機械的な照合 (docs/provenance-btrfs-xfs.md) で写しが見つからなかったことをもとに、Apache-2.0 とした (公開版に入る)。形式の定義を GPL のヘッダから読んだ事実は、同ドキュメントに隠さず書いてある。
   - 検証は実際の `mkfs.xfs` / `xfs_repair -n` / `xfs_db` (xfsprogs 7.2.0) で作ったイメージで行う。したがって「実カーネルと同じ挙動」の保証はなく、実イメージとの突き合わせ (下記) が根拠になる。
 - 既定のビルドでは読み取り専用。`fs_name()` は `"xfs"`、書き込み系はすべて `-EROFS`。rw を要求されても読み取り専用でマウントする (`mount_auto`)。
   `USBMEM_NTFS_WRITE` のビルドだけ、V5 の新規作成・追記 (CreateOnly の範囲) を実験的に書ける: 設計・拒否条件・実測は `docs/xfs-write.md`。

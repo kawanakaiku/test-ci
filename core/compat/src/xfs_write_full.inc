@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // XFS 書き込み (Full の範囲): unlink / rmdir / truncate / rename / link。xfs_write_ops.inc の後で Impl の中に #include される。docs/xfs-write.md
 //
 // どの操作も run_op の中で呼ばれ、1 操作 = バッファ上の変更の集まり。失敗すれば op_abort が開始時点へ戻す (ログには何も書かない)。コミットは従来どおり
-// ログ (カーネルが再生できる形式) 経由。inode の解放はカーネルの「unlinked list に載せてから解放」の 2 段階を踏まず、1 トランザクションで
+// ログ (再生側が読める形式) 経由。inode の解放は「unlinked list に載せてから解放」の 2 段階を踏まず、1 トランザクションで
 // (名前の削除 + nlink 0 → ブロックの解放 + inode を空きに戻す) まで行う。電源断のとき中間状態 (名前が無いのに inode が残る) は存在しない。
 // 解放したブロックは busy に載る (xfs_write_alloc.inc の fs_free_raw): 同じコミットの窓の中でデータとして再利用しない (write_file が kRetryBusy)。
 

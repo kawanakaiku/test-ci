@@ -3,13 +3,18 @@
 
 // ---------------------------------------------------------------- コミット
 namespace {
-bool is_dnode_ofs(uint32_t ofs) {   // カーネルの IS_DNODE: 直接ノード / inode / xattr ノードは true、間接ノードは false
+// ノードのファイル内オフセット (ノード footer の flag >> 3) から、そのノードが「データブロックを直接指すノード」(inode / 直接ノード / xattr ノード) か、
+// 「ノード番号を指す間接ノード」かを分ける。形式: 0 = inode、1・2 = 直接、3 = 間接、4..N+3 = 直接、N+4 = 間接、N+5..2N+4 = 直接、2N+5 = 二重間接、
+// 2N+6 以降は (間接 1 + 直接 N) の N+1 個ずつの組の繰り返し (先頭が間接)。N = 1 ブロックのノード番号の数。xattr ノードのオフセットは全ビット 1 (29 ビット)。
+constexpr uint32_t kXattrNodeOfs = 0x1FFFFFFFu;
+bool ofs_is_indirect(uint32_t ofs) {
   const uint32_t N = kNidsPerBlock;
-  if (ofs == 0x1FFFFFFFu) return true;
-  if (ofs == 3 || ofs == 4 + N || ofs == 5 + 2 * N) return false;
-  if (ofs >= 6 + 2 * N) { ofs -= 6 + 2 * N; if (ofs % (N + 1) == 0) return false; }
-  return true;
+  if (ofs == kXattrNodeOfs) return false;
+  if (ofs == 3 || ofs == N + 4 || ofs == 2 * N + 5) return true;
+  if (ofs < 2 * N + 6) return false;
+  return (ofs - (2 * N + 6)) % (N + 1) == 0;
 }
+bool is_dnode_ofs(uint32_t ofs) { return !ofs_is_indirect(ofs); }
 }  // namespace
 
 int F2fsVolume::Impl::flush_nodes() {
@@ -157,8 +162,8 @@ int F2fsVolume::Impl::write_cp_pack() {
   put32(c + 144, valid_nodes); put32(c + 148, valid_inodes); put32(c + 152, nid_hint);
   uint32_t off = le32(c + 164);
   if (off < 192 || off > kBlk - 4) return -kEUCLEAN;
-  uint32_t crc = crc32_le(kMagic, c, off);
-  if (off < kBlk - 4) crc = crc32_le(crc, c + off + 4, kBlk - off - 4);
+  uint32_t crc = crc32_seeded(kMagic, c, off);
+  if (off < kBlk - 4) crc = crc32_seeded(crc, c + off + 4, kBlk - off - 4);
   put32(c + off, crc);
   std::vector<uint8_t> pack(static_cast<size_t>(total) * kBlk, 0);
   memcpy(pack.data(), nck.data(), static_cast<size_t>(1 + payload) * kBlk);

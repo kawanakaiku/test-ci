@@ -14,11 +14,11 @@
 | Linux `fs/isofs` / `fs/udf` (`third_party/isofs`, `third_party/udf`、無改変) | ISO 9660 / UDF の読み取り専用 | GPL-2.0 / GPL-2.0-only (UDF に LGPL-2.0+ が 1 ファイル) | 取り込み済み。公開版に入れない |
 | LinuxCompat 層 (`core/compat/src/rt_*.c`, `core/compat/include*/`) | カーネルの内部 API (inode / dentry / ページキャッシュ / bio / buffer_head / jbd2 / VFS) の再実装。上のカーネル FS を動かすため | GPL-2.0-or-later 表記 (SPDX の無いヘッダ約 90 ファイルを含む)。**カーネルのヘッダ・実装に倣って書かれた派生物として扱う** | **公開版に入れない** (docs/editions.md) |
 | Linux `fs/squashfs` (`third_party/squashfs`、無改変) | squashfs の読み取り専用 | GPL-2.0-only / GPL-2.0-or-later (各ファイルの SPDX。COPYING は GPL-2.0 全文) | 取り込み済み (docs/squashfs-port.md) |
-| XFS リーダ / ライタ (`core/compat/src/xfs_volume.cpp`。Linux `fs/xfs` の形式定義を仕様として**独立に実装**。カーネルのコードは取り込んでいない) | XFS の読み取り専用 | GPL-2.0-or-later として扱う (形式の出典がカーネルのため安全側) | 実装済み (docs/xfs-port.md) |
+| XFS リーダ / ライタ (`core/compat/src/xfs_volume.cpp` と `xfs_write*.inc`。公開仕様から**独立に実装**。形式の数値の確認にカーネルの形式定義ヘッダを読んだ。カーネルのコードは取り込んでいない・機械照合で写しは無し) | XFS の読み書き (書き込みは実験的) | Apache-2.0 (2026-11-23。出所の調査: docs/provenance-btrfs-xfs.md。形式の定義を GPL のヘッダから取ったことの評価は著作権者の判断) | 実装済み (docs/xfs-port.md) |
 | Linux `fs/erofs` (`third_party/erofs`、無改変) | erofs の読み取り専用 | GPL-2.0-only / GPL-2.0-or-later (各ファイルの SPDX。COPYING は GPL-2.0 全文) | 取り込み済み (docs/erofs-port.md) |
-| Btrfs の読み取りリーダー (`core/compat/src/btrfs_volume.cpp`、自前実装。ディスク形式は公開仕様) と展開ラッパ (`btrfs_decomp.c`) | Btrfs の読み取り専用 | SPDX は GPL-2.0-or-later (展開に上記のカーネル lib をリンクするため。リーダー自体はカーネルのコードを含まない) | 実装済み (docs/btrfs-port.md) |
-| F2FS リーダー (`core/compat/src/f2fs_volume.cpp`、`f2fs_decomp.c`。Linux `fs/f2fs` は**取り込んでいない**: オンディスク形式から書き起こした自前実装、カーネルのコードは写していない) | F2FS の読み取り専用 | Apache-2.0 (自前)。圧縮の展開は下の `usbmem_kdecomp` (GPL 系) にリンク | 取り込み済み (docs/f2fs-port.md) |
-| Linux `lib/{zlib_inflate,lz4,lzo,xz,zstd}`、`lib/xxhash.c` (`third_party/kernel-lib`、無改変) | squashfs / erofs の展開 | ファイルごとに異なる (GPL-2.0、BSD-2/3-Clause、zstd は GPL-2.0 OR BSD-3-Clause、xz は 0BSD/パブリックドメイン、zlib は zlib ライセンス)。各ファイルの SPDX / 冒頭コメントを参照。`include/linux/crc32.h` だけは本プロジェクトの自前シム | 取り込み済み。**各ファイルのライセンスの精査は未了** (配布前に確認が必要) |
+| Btrfs のリーダー / ライター (`core/compat/src/btrfs_volume.cpp` と `btrfs_write*.inc`、自前実装。ディスク形式は公開仕様)。展開は core の展開器 (`core/src/decomp*.cpp`。zlib = システムの libz、LZO1X・zstd = 自前: docs/decomp.md) | Btrfs の読み書き (書き込みは実験的) | Apache-2.0 (2026-11-23。以前は展開にカーネル lib をリンクしたため GPL 表記だった。出所の調査: docs/provenance-btrfs-xfs.md) | 実装済み (docs/btrfs-port.md) |
+| F2FS リーダー (`core/compat/src/f2fs_volume.cpp`、`f2fs_decomp.cpp`。Linux `fs/f2fs` は**取り込んでいない**: オンディスク形式から書き起こした自前実装、カーネルのコードは写していない) | F2FS の読み書き | Apache-2.0 (自前)。圧縮 (lz4 / lzo / lzo-rle / zstd) の展開は core の自前の展開器 (2026-11-23 に、以前の `usbmem_kdecomp` (GPL 系) へのリンクをやめた) | 取り込み済み (docs/f2fs-port.md) |
+| Linux `lib/{zlib_inflate,lz4,lzo,xz,zstd}`、`lib/xxhash.c` (`third_party/kernel-lib`、無改変) | squashfs / erofs の展開 (個人版のみ。Btrfs / F2FS の展開は 2026-11-23 から自前の展開器) | ファイルごとに異なる (GPL-2.0、BSD-2/3-Clause、zstd は GPL-2.0 OR BSD-3-Clause、xz は 0BSD/パブリックドメイン、zlib は zlib ライセンス)。各ファイルの SPDX / 冒頭コメントを参照。`include/linux/crc32.h` だけは本プロジェクトの自前シム | 取り込み済み。**各ファイルのライセンスの精査は未了** (配布前に確認が必要) |
 | 暗号プリミティブ一式 (AES・SHA-1/256/512・HMAC・PBKDF2・AES-CBC/XTS/CCM・BLAKE2b・Argon2) と BitLocker / LUKS の解析 (`core/src/crypto_*.cpp`, `transform_*.cpp`, `mini_json.cpp`) | 暗号化ボリュームの読み取り (docs/crypto-volumes.md) | 自前実装 Apache-2.0。**新しい外部依存なし** (OpenSSL・mbedTLS・libbde・libcryptsetup はリンクしない) | 実装済み |
 | libbde-utils (bdeinfo / bdemount) | BitLocker の復号結果を突き合わせる**テスト時の外部ツール** | LGPL-3.0-or-later。配布物に含めない・リンクしない | テストのみ |
 | cryptsetup / nbdkit (luks フィルタ) / qemu-img | LUKS フィクスチャの生成と独立検証の**テスト時の外部ツール** | GPL-2.0-or-later / BSD-3-Clause / GPL-2.0-or-later。配布物に含めない | テストのみ |
@@ -36,7 +36,7 @@
 
 | 版 | 内容 | ライセンス |
 |---|---|---|
-| 公開版 (public) | `core/src` の自前コード + F2FS (自前) + 共通 IF・ネストマウント + Android アプリ。カーネル由来の FS ドライバ・LinuxCompat・fuseshim・Btrfs / XFS (自前だが GPL 表記・カーネルの形式定義 / lib 依存で、除外側に倒した) を含まない | Apache-2.0 (既定。ユーザーが変更可) |
+| 公開版 (public) | `core/src` の自前コード (展開器を含む) + F2FS / Btrfs / XFS (自前) + 共通 IF・ネストマウント + Android アプリ。カーネル由来の FS ドライバ・LinuxCompat・fuseshim を含まない | Apache-2.0 (既定。ユーザーが変更可) |
 | 個人版 (personal) | 全部入り。**配布しない** (公開義務が生じない) | 表の各行のとおり (配布しないので全体のライセンスは決めない) |
 
 kfsd (docs/kfsd.md): GPL 系のドライバは別プロセスの実行ファイル `kfsd` (GPL-2.0) に載せ、公開版の本体 (Apache-2.0) とは RPC だけで通信する。ライセンスの境界の一覧は docs/kfsd.md 3 章。

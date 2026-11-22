@@ -25,11 +25,11 @@ jobs:
   host:
     name: host (${{ matrix.mode }})
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
-        mode: [plain, san]
+        mode: [plain, san, write]
     steps:
       - uses: actions/checkout@v7
 

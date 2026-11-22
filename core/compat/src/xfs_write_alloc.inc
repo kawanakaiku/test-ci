@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // XFS 書き込み: AG の空き領域 (bnobt / cntbt + AGFL)、inode B+木 (inobt / finobt)、inode の確保。xfs_write.inc の後で Impl の中に #include される。docs/xfs-write.md
 //
 // B+木は 4 種類 (BT_BNO / BT_CNT / BT_INO / BT_FINO) を 1 つの汎用の挿入 / 削除で扱う (短いポインタ形式、V5 の 56 バイトのヘッダ)。
@@ -550,7 +550,7 @@
     *start = rs; *got = take;
     return fix_freelist(ag);
   }
-  // データ / メタデータのブロック確保。reserve = その AG に残しておく空きブロック数 (カーネルの予約 + 余裕)
+  // データ / メタデータのブロック確保。reserve = その AG に残しておく空きブロック数 (XFS 自身の予約分 + 余裕)
   int ag_alloc(uint32_t ag, uint32_t minlen, uint32_t maxlen, uint32_t hint, uint32_t reserve, uint32_t* start, uint32_t* got) {
     uint32_t fb;
     int rc = ag_freeblks(ag, &fb); if (rc) return rc;

@@ -3,7 +3,7 @@
 使い方:
   gen_btrfs_ops.py seed <dir>            元ファイル群 (インライン / 通常 / 疎 / シンボリックリンク / ハードリンク / 日本語名 / 長い名前) を <dir> に作る
   gen_btrfs_ops.py ops <出力> [seeded]   操作列を出力 (書式は usbmem_btrfs_write_tests --ops / tools/ops_ref.py と同じ)。seeded なら seed のファイルも変更・削除する
-tools/run_btrfs_write_tests.sh (ホスト) と tools/run_android_btrfs_write_test.sh (Android) が共有する。"""
+tools/run_btrfs_write_tests.sh (ホスト) と、個人版の Android 実機・エミュレータ用の書き込み試験が共有する。"""
 import os
 import sys
 

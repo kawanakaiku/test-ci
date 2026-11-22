@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // Btrfs 書き込みのテスト (USBMEM_NTFS_WRITE=ON ビルド用。docs/btrfs-write.md)。独立実装 (btrfs check / btrfs restore / inspect-internal dump-tree) との突き合わせはシェル側 (tools/run_btrfs_write_tests.sh)。
 //   --ops <img> <script>              書き込みマウントで操作列を実行 → sync → unmount。環境変数 USBMEM_CRASH_AT/MODE/SEED/TORN で電源断を模擬。
 //   --model <img> <seed> <nops> [dump] 乱数で操作列を作り、メモリ上のモデルと突き合わせる (途中・unmount 後の再マウント後にも全体比較)。dump に tools/ops_ref.py --tree と同じ書式でモデルを書く
@@ -469,25 +469,27 @@ static uint32_t crc32c(const uint8_t* p, size_t n) {
   uint32_t c = 0xFFFFFFFFu; for (size_t i = 0; i < n; i++) c = tab[(c ^ p[i]) & 255] ^ (c >> 8); return ~c;
 }
 
+// 参照用の XXH64 (xxHash の公開仕様どおり。btrfs_volume.cpp の実装とは別に、仕様の文章の順で書いた)
 static uint64_t xxh64(const uint8_t* p, size_t n) {
-  const uint64_t P1 = 11400714785074694791ull, P2 = 14029467366897019727ull, P3 = 1609587929392839161ull, P4 = 9650029242287828579ull, P5 = 2870177450012600261ull;
-  auto rd64 = [](const uint8_t* q) { uint64_t v; std::memcpy(&v, q, 8); return v; };
-  auto rd32 = [](const uint8_t* q) { uint32_t v; std::memcpy(&v, q, 4); return v; };
-  auto rol = [](uint64_t x, int r) { return (x << r) | (x >> (64 - r)); };
-  auto rnd = [&](uint64_t acc, uint64_t in) { return rol(acc + in * P2, 31) * P1; };
-  auto mrg = [&](uint64_t acc, uint64_t v) { return (acc ^ rnd(0, v)) * P1 + P4; };
-  const uint8_t* e = p + n; uint64_t h;
+  const uint64_t kA = 11400714785074694791ull, kB = 14029467366897019727ull, kC = 1609587929392839161ull, kD = 9650029242287828579ull, kE = 2870177450012600261ull;
+  auto load64 = [](const uint8_t* q) { uint64_t v; std::memcpy(&v, q, 8); return v; };
+  auto load32 = [](const uint8_t* q) { uint32_t v; std::memcpy(&v, q, 4); return v; };
+  auto rotate = [](uint64_t x, unsigned r) { return (x << r) | (x >> (64u - r)); };
+  auto mix_in = [&](uint64_t acc, uint64_t w) { return rotate(acc + w * kB, 31) * kA; };
+  uint64_t h = kE;
+  size_t pos = 0;
   if (n >= 32) {
-    uint64_t v1 = P1 + P2, v2 = P2, v3 = 0, v4 = 0 - P1;
-    do { v1 = rnd(v1, rd64(p)); v2 = rnd(v2, rd64(p + 8)); v3 = rnd(v3, rd64(p + 16)); v4 = rnd(v4, rd64(p + 24)); p += 32; } while (p + 32 <= e);
-    h = rol(v1, 1) + rol(v2, 7) + rol(v3, 12) + rol(v4, 18);
-    h = mrg(h, v1); h = mrg(h, v2); h = mrg(h, v3); h = mrg(h, v4);
-  } else h = P5;
+    uint64_t acc[4] = {kA + kB, kB, 0, 0 - kA};
+    for (; pos + 32 <= n; pos += 32)
+      for (unsigned k = 0; k < 4; k++) acc[k] = mix_in(acc[k], load64(p + pos + 8 * k));
+    h = rotate(acc[0], 1) + rotate(acc[1], 7) + rotate(acc[2], 12) + rotate(acc[3], 18);
+    for (unsigned k = 0; k < 4; k++) h = (h ^ mix_in(0, acc[k])) * kA + kD;
+  }
   h += n;
-  while (p + 8 <= e) { h ^= rnd(0, rd64(p)); h = rol(h, 27) * P1 + P4; p += 8; }
-  if (p + 4 <= e) { h ^= (uint64_t)rd32(p) * P1; h = rol(h, 23) * P2 + P3; p += 4; }
-  while (p < e) { h ^= (*p++) * P5; h = rol(h, 11) * P1; }
-  h ^= h >> 33; h *= P2; h ^= h >> 29; h *= P3; h ^= h >> 32;
+  for (; pos + 8 <= n; pos += 8) h = rotate(h ^ mix_in(0, load64(p + pos)), 27) * kA + kD;
+  if (pos + 4 <= n) { h = rotate(h ^ (static_cast<uint64_t>(load32(p + pos)) * kA), 23) * kB + kC; pos += 4; }
+  for (; pos < n; pos++) h = rotate(h ^ (static_cast<uint64_t>(p[pos]) * kE), 11) * kA;
+  h ^= h >> 33; h *= kB; h ^= h >> 29; h *= kC; h ^= h >> 32;
   return h;
 }
 static void fix_csum(std::vector<uint8_t>& b, size_t base, size_t len, int type) {

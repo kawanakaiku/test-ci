@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // Btrfs 書き込みエンジン (btrfs_volume.cpp の struct BtrfsVolume::Impl の中に #include される。USBMEM_NTFS_WRITE のビルドだけ)。docs/btrfs-write.md
 //
-// 方針 (カーネルの fs/btrfs を載せずに、ディスク上の形式を直接 COW で更新する):
+// 方針 (ディスク上の形式を直接 COW で更新する):
 //  - ツリーブロックは必ず新しい場所 (空き領域) に書く。現世代で作ったブロックだけをその場で更新する (dirty 表)。確定済みのブロックは決して上書きしない。
 //  - トランザクション内で解放したブロックは、コミットが終わるまで再利用しない (pinned: free には戻すが avail には戻さない)。
 //  - コミット: (1) 遅延参照 (extent ツリー)・ブロックグループ項目・空き領域ツリー・ルート項目が安定するまで繰り返し更新
@@ -57,7 +57,7 @@
   u32 leaf_body() const { return nodesize - static_cast<u32>(kHdr); }
   u32 max_item() const { return leaf_body() / 2 - static_cast<u32>(kItemSz); }          // 1 項目の最大データ長 (分割で必ず収まる上限)
   u32 max_ptrs() const { return leaf_body() / static_cast<u32>(kPtrSz); }
-  u32 max_ext_item() const { return (leaf_body() >> 4) - static_cast<u32>(kItemSz); }   // BTRFS_MAX_EXTENT_ITEM_SIZE
+  u32 max_ext_item() const { return (leaf_body() >> 4) - static_cast<u32>(kItemSz); }   // 1 つの extent 項目の最大の大きさ (葉の本体の 1/16 から項目ヘッダを引いた値)
   u32 inline_max() const { return std::min<u32>({2048u, sectorsize - 1, max_item() - 21}); }
 
   static u32 item_off(const Node& n, u32 i) { return le32(&n.d[kHdr + static_cast<size_t>(i) * kItemSz + 17]); }

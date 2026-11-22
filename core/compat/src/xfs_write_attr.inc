@@ -1,14 +1,14 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // XFS 書き込み: 属性フォーク (xattr) と親ポインタ (parent pointer)。xfs_write_ops.inc の後で Impl の中に #include される。docs/xfs-write.md
 //
-// 親ポインタ (XFS_SB_FEAT_INCOMPAT_PARENT) は、子の inode の属性フォークに持つ「(親の中での名前) → (親の inode 番号, 親の世代)」の属性 (名前空間 XFS_ATTR_PARENT)。
+// 親ポインタ (incompat 機能ビット「parent」) は、子の inode の属性フォークに持つ「(親の中での名前) → (親の inode 番号, 親の世代)」の属性 (属性の名前空間 = 親ポインタ用の専用ビット)。
 // ファイル / ディレクトリ / シンボリックリンクの作成・hard link・unlink・rename のたびに親ポインタを足す / 外す。
 //
 // 属性フォークは 2 形式だけを書く:
 //  - short form (inode の中。名前 / 値は 255 バイトまで。エントリは足した順)
 //  - leaf 形式 (extent 形式の属性フォークの 1 ブロックだけ。V5 の attr3 leaf。エントリはハッシュ順)。1 ブロックに収まらなくなる (node 形式が要る) と EMLINK (hard link が多すぎる)
 // それ以外 (node 形式・bmbt 形式の属性フォーク、リモート値、INCOMPLETE のエントリ) を持つ inode への変更は EOPNOTSUPP。
-// 属性フォークの大きさ (di_forkoff) は、データフォークに必要な分を残して決める (カーネルの xfs_attr_shortform_bytesfit と同じ考え方)。
+// 属性フォークの大きさ (di_forkoff) は、データフォークに必要な分を残して決める (短い形式の属性が inode の残りに収まるか、で決める。XFS の形式では di_forkoff は 8 バイト単位)。
 // 書き込みは「全エントリを読んで、変更して、全部書き直す」(1 inode あたり高々 inode の大きさ / 1 ブロック)。
 
   static constexpr uint8_t kBlftAttrLeaf = 16;
@@ -19,7 +19,7 @@
 
   static Own own_attr(uint64_t ino, uint64_t lblk) { return Own{ino, (lblk & kRmOffMask) | kRmAttr}; }
   uint32_t lit_size() const { return inodesize - 176; }
-  // カーネルの xfs_default_attroffset >> 3 (属性フォークを新しく作るときの di_forkoff の既定)
+  // 属性フォークを新しく作るときの di_forkoff の既定 (inode の大きさと、機能 (rmapbt など) による inode の中身の大きさから求める)
   uint32_t default_forkoff() const { return inodesize == 256 ? ((lit_size() - 36) >> 3) : (196u >> 3); }
   // 親ポインタを持たせるときにシンボリックリンクをインラインに置ける最大の長さ (属性フォークに既定の領域を残す)
   uint32_t local_data_limit() const { return has_parent ? default_forkoff() * 8 : lit_size(); }

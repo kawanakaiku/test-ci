@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // XFS 書き込み: 逆引き B+木 (rmapbt)。xfs_write_alloc.inc の後で Impl の中に #include される。docs/xfs-write.md
 //
-// rmapbt は AG ごとに「ブロック範囲 → 持ち主 (inode / AG 内部)」を持つ B+木。ブロックの確保・解放のたびに更新する (Linux の xfs_rmap_map / xfs_rmap_unmap と同じ規則で、
-// 隣と併合 / 分割する。xfs_repair が自分で作り直した結果と 1 レコードずつ比べるので、併合の規則はカーネルと同じでなければならない)。
+// rmapbt は AG ごとに「ブロック範囲 → 持ち主 (inode / AG 内部)」を持つ B+木。ブロックの確保・解放のたびに更新する (隣と併合 / 分割する規則は XFS の形式が決めている。
+// xfs_repair が自分で作り直した結果と 1 レコードずつ比べるので、併合の規則はそれと同じでなければならない)。
 //  - レコード (葉, 24 バイト): startblock(4) blockcount(4) owner(8) offset(8)。owner は inode 番号か特別な持ち主 (OWN_FS / OWN_AG / OWN_INOBT / OWN_INODES など = 負の値)。
 //    offset の上位 3 ビットはフラグ (属性フォーク / bmbt ブロック / 書き込み前 extent)、下位 54 ビットが論理ブロック。
 //  - ノード: 各エントリが (低いキー, 高いキー) の 2 つ (各 20 バイト) と子へのポインタ。高いキーは部分木の最大の「レコードの最後のブロック」(オーバーラップする区間木)。
@@ -321,7 +321,7 @@
     return rm_collapse(ag);
   }
 
-  // ============ 公開: map / unmap (xfs_rmap_map / xfs_rmap_unmap 相当) ============
+  // ============ 公開: map / unmap (確保・解放に伴う rmap の更新) ============
   static bool rm_mergeable(const Rm& r, uint64_t owner, uint64_t offraw) { return r.owner == owner && ((r.off ^ offraw) & kRmFlags) == 0; }
   // [bno, bno+len) を (owner, offraw) の持ち主として足す。隣と併合する
   int rm_map(uint32_t ag, uint32_t bno, uint32_t len, uint64_t owner, uint64_t offraw) {

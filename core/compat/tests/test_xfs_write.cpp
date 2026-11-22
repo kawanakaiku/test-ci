@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // XFS 書き込みのテスト (USBMEM_NTFS_WRITE=ON ビルド用。docs/xfs-write.md)。独立実装 (xfs_repair -n / xfs_db) との突き合わせはシェル側 (tools/run_xfs_write_tests.sh)。
 //   --ops <img> <script>              書き込みマウントで操作列を実行 → sync → unmount。環境変数 USBMEM_CRASH_AT/MODE/SEED/TORN で電源断を模擬。
 //   --model <img> <seed> <nops> [dump] 乱数で操作列を作り、メモリ上のモデルと突き合わせる (途中・unmount 後の再マウント後にも全体比較)。dump に tools/ops_ref.py --tree と同じ書式でモデルを書く

@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
-// Btrfs の読み取り専用ボリューム (自前のリーダー。Linux の fs/btrfs は載せていない: docs/btrfs-port.md)。
-// 展開 (zlib / lzo / zstd) だけ third_party/kernel-lib (無改変) を使うので、リンクすると GPL-2.0-or-later 扱い。
+// SPDX-License-Identifier: Apache-2.0
+// Btrfs のボリューム (自前のリーダー + 実験的な書き込み。Linux の fs/btrfs のコードは含まない: docs/btrfs-port.md)。
+// 圧縮 extent (zlib / lzo / zstd) の展開は core の展開器 (usbmem/decomp.h。docs/decomp.md)。
 // 既定は読み取り専用 (書き込みは EROFS)。mount_rw (USBMEM_NTFS_WRITE=ON のビルド) は、条件を満たす single / DUP のボリュームだけ書き込み可にする (docs/btrfs-write.md)。
 // 複数デバイス / RAID0・5・6・10 / 暗号化 / zoned は理由付きで拒否 (EOPNOTSUPP)。
 #pragma once

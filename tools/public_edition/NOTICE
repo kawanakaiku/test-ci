@@ -8,7 +8,8 @@ requires the whole application to be published under the same terms).
 The Linux-kernel-derived filesystem drivers, the LinuxCompat layer and the
 FUSE-based wrappers (ntfs-3g, wimlib) of the full project are not part of it.
 
-Filesystems other than F2FS can be served by a separately distributed helper
+Filesystems other than F2FS, Btrfs and XFS (which are implemented in this
+edition from their public on-disk formats) can be served by a separately distributed helper
 process ("kfsd", GPL-2.0, its source published separately). This edition only
 talks to it over a socket (RPC); kfsd is neither included in this repository
 nor in this edition's APK, and no code of it is linked into this edition.
@@ -20,14 +21,24 @@ Third-party components that are used (not copied into this repository):
     Resolved from Google's Maven repository and Maven Central at build time.
   - Gradle Wrapper (android/gradle/wrapper/gradle-wrapper.jar), Gradle Inc.
     Apache License 2.0.
-  - zlib (QCOW2 / VMDK compressed clusters): the system libz.so (Android NDK
-    sysroot, or the host's zlib). zlib License. Not bundled in the APK.
+  - zlib (QCOW2 / VMDK compressed clusters, Btrfs zlib extents): the system
+    libz.so (Android NDK sysroot, or the host's zlib). zlib License. Not
+    bundled in the APK.
 
 Interoperability notes (formats only; no code from these projects is included):
 
   - The mapfile written by the data-rescue engine is compatible with GNU
     ddrescue's mapfile format. The backup image format is compatible with
     Partclone's image format 0002 and the LZ4 frame format.
+  - The LZ4 block, LZO1X (including LZO-RLE) and Zstandard decompressors
+    (core/src/decomp*.cpp, used for Btrfs and F2FS compression) are written
+    from the published format descriptions (LZ4 block format, RFC 8878) and
+    checked against the output of the reference compressors. No code of
+    those projects is included.
+  - Btrfs, XFS and F2FS are implemented from their public on-disk format
+    documentation (btrfs wiki, "XFS Algorithms & Data Structures", the F2FS
+    layout). Field layouts and constants were checked against the kernel's
+    format headers; no kernel code is included (docs/provenance-btrfs-xfs.md).
   - LUKS1/LUKS2 (dm-crypt data layer) and BitLocker are implemented from the
     public on-disk format documentation. Test vectors under core/tests are
     outputs of public reference implementations (hashlib, cryptography,

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // Btrfs 読み取りリーダー (core/compat/src/btrfs_volume.cpp) のテスト。
 // 使い方: usbmem_btrfs_tests <fixture_dir>            tools/gen_btrfs_fixture.py が作った *.img / *.manifest を全部検証 + サブボリューム / nodatasum / 複数デバイス / ログ / データ破損
 //         usbmem_btrfs_tests --corrupt <fixture_dir>  壊れたボリューム (スーパーブロックの全フィールド・メタデータ) が、クラッシュせず失敗する/読めること

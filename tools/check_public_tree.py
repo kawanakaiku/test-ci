@@ -10,6 +10,7 @@
   files      .pyc / __pycache__ / .git / ディスクイメージ・APK・鍵・資格情報の拡張子 / 個人のメモ (pw, usbmem_testset.log) が無い
   paths      個人環境の絶対パス (/home/… /run/media/… /Users/…) が無い
   email      メールアドレスらしき文字列が無い
+  devices    実機の機種名 (F-51A・J9260・XQ-FS44・Xperia・A80 Pro・Ratoc) が無い (個人の持ち物が分かるため。公開版では manifest の scrub で番号付きの端末名にする)
   account    テスト用リポジトリの `<アカウント>/test-ci` が無い (`<owner>/test-ci` は可)。--forbid-word で指定した語 (CI ではリポジトリの所有者名) も無い
   root       LICENSE (Apache-2.0 の全文) と NOTICE と README.md が根にある
   closure    C / C++ の #include "…" がツリー内で解決できる。CMake が参照する tools/ のファイルがツリーにある (単独でビルドできることの静的な確認)
@@ -39,6 +40,7 @@ P_MEDIA = "/" + "run/media/"
 P_USERS = "/" + "Users/"
 PATH_RX = re.compile("(" + "|".join(re.escape(x) for x in (P_HOME, P_MEDIA, P_USERS)) + r")[A-Za-z0-9_.-]*")
 EMAIL_RX = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}")
+DEVICE_RX = re.compile(r"F-51A|J9260|XQ-FS44|Xperia|A80 ?Pro|Ratoc")
 ACCOUNT_RX = re.compile(r"(<owner>|[^\s/\"'`()<>\[\],]*)/test-ci\b")
 
 
@@ -141,6 +143,8 @@ def check(root, forbid_words, closure=True):
             err("paths", rel, "個人環境の絶対パス: '%s' (L%d)" % (m.group(0), line_of(text, m.start())))
         for m in EMAIL_RX.finditer(text):
             err("email", rel, "メールアドレスらしき文字列: '%s' (L%d)" % (m.group(0), line_of(text, m.start())))
+        for m in DEVICE_RX.finditer(text):
+            err("devices", rel, "実機の機種名: '%s' (L%d)" % (m.group(0), line_of(text, m.start())))
         for m in ACCOUNT_RX.finditer(text):
             if m.group(1) != "<owner>":
                 err("account", rel, "テスト用リポジトリのアカウント名: '%s' (L%d)" % (m.group(0), line_of(text, m.start())))

@@ -242,14 +242,14 @@ git log --stat | head                                                   # 履歴
 
 ## 9. 公開前のチェックリスト (ユーザー用)
 
-1. [ ] 3.5 章の relicense 8 ファイルを Apache-2.0 で出してよいか確認する。3.4 章の除外 (Btrfs / XFS など) を戻すか決める。
-2. [ ] 公開版のライセンスを確定する (既定 Apache-2.0)。`tools/public_edition/NOTICE` の著作権者の表記 (「android-usbmem contributors」の仮置き) と `README.md` を直す。
-3. [ ] `tools/export_public.sh` を実行し、`check_public_tree.py` が OK であること。出力を目で見る (特に `docs/` の抜粋、機種名: F-51A・J9260・XQ-FS44・Ratoc などがコメントに残る。docs/release-audit.md 2.5 章)。
+1. [x] (2026-11-23、ユーザーが一任) 3.5 章の relicense 8 ファイルを Apache-2.0 で出す。カーネルの `#include` ・著作権表記が無く、すべてこのリポジトリで書かれたことを確認した。3.4 章の除外 (Btrfs / XFS など) を戻すか決める。
+2. [x] (2026-11-23、ユーザーが一任) 公開版のライセンスは Apache-2.0、NOTICE の著作権者は個人名を入れず「android-usbmem contributors」で確定。kfsd (別配布の GPL-2.0 のプロセス) の説明を NOTICE に足した。以下は元の項目: `tools/public_edition/NOTICE` の著作権者の表記 (「android-usbmem contributors」の仮置き) と `README.md` を直す。
+3. [x] (2026-11-23) 実行して OK。機種名は manifest の `scrub` で番号付きの端末名 (端末 A〜D) に置換し、`check_public_tree.py` の `devices` 検査で再混入を防ぐ。以下は元の項目: `tools/export_public.sh` を実行し、`check_public_tree.py` が OK であること。出力を目で見る (特に `docs/` の抜粋、機種名: F-51A・J9260・XQ-FS44・Ratoc などがコメントに残る。docs/release-audit.md 2.5 章)。
 4. [ ] 公開版の履歴を、7 章の手順で新しく作る (個人版の履歴は公開しない)。
 5. [ ] 公開先のアカウント名が決まったら、`docs` / `README` のリポジトリ参照を確認する (`<owner>` の伏せ字)。
 6. [ ] gitleaks と `git grep` を公開用のクローンで再実行する (docs/release-audit.md 1 章)。
 7. [ ] Play 配布を考えるなら、アプリ内の「オープンソースライセンス」画面 (AndroidX 等の Apache-2.0 の通知) と exFAT 特許・targetSdk の確認 (docs/licenses.md の未解決事項。公開版には exFAT ドライバが無いが、検査・mkfs はある)。
-8. [ ] 公開版の APK の `applicationId` が個人版と同じ (`org.usbmem.app`)。同じ端末に両方を入れたい場合は `applicationIdSuffix` を足す (今は足していない。署名鍵が違うと上書きインストールできない)。
+8. [x] (2026-11-23、ユーザーが一任) 個人版と同じ `org.usbmem.app` のまま (個人版の上書きインストールを壊さないため)。両方を入れたいときは `applicationIdSuffix` を足す。以下は元の項目: 公開版の APK の `applicationId` が個人版と同じ (`org.usbmem.app`)。同じ端末に両方を入れたい場合は `applicationIdSuffix` を足す (今は足していない。署名鍵が違うと上書きインストールできない)。
 9. [ ] `main` だけを push する (他のブランチ・個人版の履歴は公開しない)。
 
 ## 10. 残る課題

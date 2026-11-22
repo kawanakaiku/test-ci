@@ -203,5 +203,15 @@ exclude   own-doc docs/**                               # 上以外: カーネ�
 # ============================================================ 公開版のツリーにだけ効く置換 (ファイルは変えない)
 scrub     dev  s!https://github\.com/[A-Za-z0-9_.-]+/test-ci!https://github.com/<owner>/test-ci!
 scrub     dev  s![A-Za-z0-9_.-]+/test-ci!<owner>/test-ci!
+# 実機の機種名 (個人の持ち物が分かる) は、公開版では番号付きの端末名にする。長いものから順に置換する
+scrub     dev  s!Ratoc RS-EC32-U3R!USB RAID ケース!
+scrub     dev  s!Ratoc RAID!USB RAID ケース!
+scrub     dev  s!Ratoc!USB RAID ケース!
+scrub     dev  s!Xperia XQ-FS44!端末 C!
+scrub     dev  s!XQ-FS44!端末 C!
+scrub     dev  s!Xperia!端末 C!
+scrub     dev  s!A80 ?Pro!端末 D!
+scrub     dev  s!F-51A!端末 A!
+scrub     dev  s!J9260!端末 B!
 # AndroidManifest の :wimfuse サービス (個人版の FUSE 層。WimFuseService は公開版に無い) を、直前のコメントごと外す。check_public_tree.py が、残っていれば NG にする。\x21 = "!" (この書式は ! を使えない)
 scrub     own  s!(?s)[ \t]*<\x21-- 個人版の FUSE 層 \(wimfuse\).*?-->\n[ \t]*<service\s+android:name="\.wimfuse\.WimFuseService".*?/>\n!!

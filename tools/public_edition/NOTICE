@@ -8,6 +8,11 @@ requires the whole application to be published under the same terms).
 The Linux-kernel-derived filesystem drivers, the LinuxCompat layer and the
 FUSE-based wrappers (ntfs-3g, wimlib) of the full project are not part of it.
 
+Filesystems other than F2FS can be served by a separately distributed helper
+process ("kfsd", GPL-2.0, its source published separately). This edition only
+talks to it over a socket (RPC); kfsd is neither included in this repository
+nor in this edition's APK, and no code of it is linked into this edition.
+
 Third-party components that are used (not copied into this repository):
 
   - AndroidX, Jetpack Compose, Material 3, Kotlin standard library

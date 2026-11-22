@@ -33,7 +33,7 @@ private enum class Tab(@StringRes val label: Int, val icon: Int) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppScaffold(model: AppModel, usb: UsbActions, image: ImageActions, diag: DiagnosticsActions) {
+fun AppScaffold(model: AppModel, usb: UsbActions, image: ImageActions, diag: DiagnosticsActions, disk: DiskToolsActions? = null) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     Scaffold(
         topBar = { CenterAlignedTopAppBar(title = { Text(stringResource(R.string.app_name)) }) },
@@ -49,6 +49,8 @@ fun AppScaffold(model: AppModel, usb: UsbActions, image: ImageActions, diag: Dia
         val m = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         androidx.compose.runtime.key(tab) {   // タブごとに別のスクロール位置
             Column(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState())) {
+                // ディスクツール (検査・フォーマットなど。docs/disk-ui.md): 入口のボタンが DiskToolsNav を立てたら、タブの中身の代わりに出す
+                if (disk != null && DiskToolsNav.target != null) { DiskToolsHost(disk, m); return@Column }
                 when (Tab.entries[tab]) {
                     Tab.Usb -> UsbScreen(model, usb, m)
                     Tab.Image -> ImageScreen(image, m)

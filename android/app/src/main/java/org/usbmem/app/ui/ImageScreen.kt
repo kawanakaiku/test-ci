@@ -250,6 +250,7 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
                             }
                             Text(stringResource(if (p.extendedContainer) R.string.common_partition_detail_extended else R.string.common_partition_detail, formatBytes(p.sizeBytes), p.typeName, p.startLba), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             val src = result.uri
+                            if (src != null && !p.extendedContainer && !t.wholeDeviceVolume) DiskToolsEntryButton(DiskTarget(DiskTargetKind.Image, src.toString(), "${result.label ?: "image"} #${p.index}", imageWritable = allowWrite, preselectStart = p.startBytes), tag = "disk_tools_part_${p.index}", compact = true, enabled = !busy)
                             if (CryptoMount.isCryptoFs(p.fs) && src != null) {
                                 val lbl = (result.label ?: "image") + (if (t.wholeDeviceVolume) "" else " #${p.index}")
                                 Button(onClick = { askUnlock(src, p, lbl) }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("crypto_unlock_button")) { Text(stringResource(R.string.crypto_unlock_button)) }
@@ -257,6 +258,8 @@ fun ImageScreen(a: ImageActions, modifier: Modifier = Modifier) {
                         }
                     }
                     t.diagnostics.forEach { d -> Text("${d.severity}: ${d.message}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    // ディスクツール (検査・フォーマット・パーティション編集・バックアップ・救出。docs/disk-ui.md)。書き込みは、上の「書き込みを許可」を入れたときだけ
+                    result.uri?.let { u -> DiskToolsEntryButton(DiskTarget(DiskTargetKind.Image, u.toString(), result.label ?: "image", imageWritable = allowWrite), Modifier.fillMaxWidth(), tag = "disk_tools_image", enabled = !busy) }
                 }
             }
         }

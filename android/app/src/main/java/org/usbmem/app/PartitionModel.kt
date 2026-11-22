@@ -18,6 +18,10 @@ data class Partition(
     val name: String,
     val typeName: String,
     val fs: String,
+    /** FS のラベル / UUID と PARTUUID (ネイティブが読めたときだけ。無ければ空)。ディスクツールの画面が、書き込み先の取り違えを防ぐ表示に使う */
+    val fsLabel: String = "",
+    val fsUuid: String = "",
+    val partUuid: String = "",
 )
 
 data class Diagnostic(val severity: String, val code: String, val message: String)
@@ -63,6 +67,9 @@ data class PartitionTable(
                         name = p.getString("name"),
                         typeName = p.getString("typeName"),
                         fs = p.getString("fs"),
+                        fsLabel = p.optString("fsLabel", ""),
+                        fsUuid = p.optString("fsUuid", ""),
+                        partUuid = p.optString("partUuid", ""),
                     )
                 },
                 diagnostics = List(ds.length()) { i ->

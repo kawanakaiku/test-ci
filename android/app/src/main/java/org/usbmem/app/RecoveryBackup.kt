@@ -22,6 +22,8 @@ object RecoveryNative {
     @JvmStatic external fun nativeJobProgress(job: Long): ByteArray?
     @JvmStatic external fun nativeJobFree(job: Long)
     @JvmStatic external fun nativeRescueRun(inHandle: Long, outHandle: Long, mapPath: String?, opts: LongArray?, job: Long, resultOut: Array<ByteArray?>?): Int
+    /** 開始前の検査だけ (rescue_preflight)。opts は先頭 5 要素 (start / length / outOffset / sectorSize / clusterSectors) だけ使う。戻り値 0 = 検査できた (拒否でも 0)。 */
+    @JvmStatic external fun nativeRescuePreflight(inHandle: Long, outHandle: Long, mapPath: String?, opts: LongArray?, resultOut: Array<ByteArray?>?): Int
     @JvmStatic external fun nativeBackupRun(srcHandle: Long, imagePath: String, lz4: Boolean, fullIfUnclean: Boolean, job: Long, resultOut: Array<ByteArray?>?): Int
     @JvmStatic external fun nativeInspect(imagePath: String, verify: Boolean, resultOut: Array<ByteArray?>?): Int
     @JvmStatic external fun nativeRestorePlan(imagePath: String, target: Long, inUse: Boolean, verifyAll: Boolean, planOut: LongArray, jsonOut: Array<ByteArray?>?): Int
@@ -70,6 +72,16 @@ private fun parse(rc: Int, out: Array<ByteArray?>): JSONObject {
 }
 
 object Rescue {
+    /**
+     * 開始前の検査 (読み取り元は読まず、出力にも書かない)。結果 JSON: ok / stop / code / message / inputSize / outputSize /
+     * mapfile ("none" "new" "resume" "corrupt" "unreadable") / finished / nonTried / nonTrimmed / nonScraped / bad。ok = true なら [run] を始められる。
+     */
+    fun preflight(inHandle: Long, outHandle: Long, mapPath: String?, options: RescueOptions = RescueOptions()): JSONObject {
+        val out = arrayOfNulls<ByteArray>(1)
+        val rc = RecoveryNative.nativeRescuePreflight(inHandle, outHandle, mapPath, options.toArray(), out)
+        return parse(rc, out)
+    }
+
     /**
      * 読み取り元 [inHandle] から出力先 [outHandle] へ複製する。[mapPath] があれば続きから行い、進捗を保存し続ける (壊れていれば断る)。
      * 結果 JSON の "stop": finished / cancelled / safety-abort / input-gone / output-error / mapfile-error / bad-argument。

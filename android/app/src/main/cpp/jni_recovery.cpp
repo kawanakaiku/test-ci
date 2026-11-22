@@ -68,6 +68,23 @@ JNIEXPORT jint JNICALL Java_org_usbmem_app_RecoveryNative_nativeRescueRun(JNIEnv
   return rc;
 }
 
+// 開始前の検査だけ (nativeRescueRun の最初の検査)。opts は nativeRescueRun と同じ配列 (先頭の 5 要素だけ使う)。戻り値 0 = 検査できた (拒否でも 0)。結果の JSON は resultOut[0]
+JNIEXPORT jint JNICALL Java_org_usbmem_app_RecoveryNative_nativeRescuePreflight(JNIEnv* env, jclass, jlong in, jlong out, jstring mapPath, jlongArray opts, jobjectArray resultOut) {
+  usbmem_rescue_options o;
+  std::memset(&o, 0, sizeof o);
+  if (opts && env->GetArrayLength(opts) >= 5) {
+    jlong v[5];
+    env->GetLongArrayRegion(opts, 0, 5, v);
+    o.start = static_cast<unsigned long long>(v[0]); o.length = static_cast<unsigned long long>(v[1]); o.out_offset = static_cast<unsigned long long>(v[2]);
+    o.sector_size = static_cast<unsigned>(v[3]); o.cluster_sectors = static_cast<unsigned>(v[4]);
+  }
+  Utf mp(env, mapPath);
+  char* json = nullptr;
+  int rc = usbmem_rescue_preflight(dev(in), dev(out), mp.c(), &o, &json);
+  put_out(env, resultOut, json);
+  return rc;
+}
+
 JNIEXPORT jint JNICALL Java_org_usbmem_app_RecoveryNative_nativeBackupRun(JNIEnv* env, jclass, jlong src, jstring imagePath, jboolean lz4, jboolean full, jlong job,
                                                                          jobjectArray resultOut) {
   Utf p(env, imagePath);

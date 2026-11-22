@@ -45,6 +45,12 @@ typedef struct usbmem_rescue_options {
  *                    "errc":N,"finished":..,"nonTried":..,"nonTrimmed":..,"nonScraped":..,"bad":..,"readOps":..,"readErrors":..,"bytesCopied":..} */
 int usbmem_rescue_run(usbmem_device* in, usbmem_device* out, const char* mapfile_path, const usbmem_rescue_options* opt, usbmem_rjob* job, char** out_result_json);
 
+/* 開始前の検査だけ (usbmem_rescue_run の最初の検査と同じ。入力は読まず、出力にも書かない)。mapfile_path があれば読んで、その状態も返す。
+ * 戻り値 0 = 検査できた (拒否でも 0。理由は JSON)。*out_json: {"ok":bool,"stop":"finished|bad-argument","code":..,"message":..,"inputSize":..,"outputSize":..,
+ *   "mapfile":"none|new|resume|corrupt|unreadable","finished":..,"nonTried":..,"nonTrimmed":..,"nonScraped":..,"bad":..}
+ * ok = true なら usbmem_rescue_run を始められる (code = "ok")。UI が「開始前の検査」の結果として見せる。 */
+int usbmem_rescue_preflight(usbmem_device* in, usbmem_device* out, const char* mapfile_path, const usbmem_rescue_options* opt, char** out_json);
+
 /* ---- バックアップ (Partclone 形式) */
 /* src (ファイルシステムの先頭から始まるデバイス。パーティションなら usbmem_device_sub_range で切り出す) の使用中ブロックだけを
  * image_path に書く (既存ファイルは置き換える)。lz4 != 0 なら LZ4 フレームで圧縮する。full_if_unclean != 0 なら、割り当て情報が信用できない

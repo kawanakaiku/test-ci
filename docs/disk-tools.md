@@ -101,4 +101,4 @@ mkfs の検証 (`tools/dt_mkfs.py`): 0xA5 で埋めたイメージに作って�
 | JNI | `jni_disktools.cpp` (`DiskTools.native*`) | 同左 |
 | Kotlin | `DiskCheck.check`, `DiskJob` | `MkfsSession.open / plan / apply`, `MkfsSession.restore` |
 
-UI は未接続。
+画面は docs/disk-ui.md (検査・フォーマットの画面と、DiskToolsController 経由の接続)。

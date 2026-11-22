@@ -7,7 +7,7 @@
 
 - トリガは `workflow_dispatch` (手動) と、`usbmem-ci` ブランチへの push だけ。他のブランチでは動かない。
   `workflow_dispatch` はワークフローが既定ブランチにあるリポジトリでしか手動実行できないので、既定ブランチに置かない運用 (テスト用の別リポジトリに `usbmem-ci` ブランチを push する) では push で起動する。
-- 1 グループだけ回したいとき (修正の繰り返し): `crypt-ui` と `ro-misc` は、ブランチ名を `usbmem-ci-only-crypt-ui` / `usbmem-ci-only-ro-misc` (`-only-<グループ>` で終わる名前) にして push すると、そのグループだけが起動する (どちらも Host tests は「未知の構成」で即失敗するが無視してよい) `wim-fuse` (個人版の FUSE 層。下の `wim-fuse` 行) は `usbmem-ci-only-wim-fuse` (式に関数 `replace` が無いので汎用にはしていない)。`workflow_dispatch` の `groups` 入力なら任意のグループを 1 つ指定できる (ワークフローが既定ブランチにあるときだけ)。
+- 1 グループだけ回したいとき (修正の繰り返し): `crypt-ui` と `ro-misc` と `disk-ui` は、ブランチ名を `usbmem-ci-only-crypt-ui` / `usbmem-ci-only-ro-misc` / `usbmem-ci-only-disk-ui` (`-only-<グループ>` で終わる名前) にして push すると、そのグループだけが起動する (どちらも Host tests は「未知の構成」で即失敗するが無視してよい) `wim-fuse` (個人版の FUSE 層。下の `wim-fuse` 行) は `usbmem-ci-only-wim-fuse` (式に関数 `replace` が無いので汎用にはしていない)。`workflow_dispatch` の `groups` 入力なら任意のグループを 1 つ指定できる (ワークフローが既定ブランチにあるときだけ)。
 - 実行: `git push <リポジトリ> HEAD:refs/heads/usbmem-ci` → `gh run watch` / `gh run view --log-failed`。
 - ジョブは matrix で 7 グループ (`wim-fuse` を含む) に分かれ、`max-parallel: 4`・`fail-fast: false` (1 グループが落ちても他は最後まで走る)。
   各ジョブが独立に「SDK/NDK 導入 → APK ビルド → フィクスチャ生成 → エミュレータ起動 → テスト」を行う。結果の表は各ジョブの Summary にも出る。
@@ -25,6 +25,7 @@
 | `squash-erofs` | `squashfs`、`erofs`、`f2fs` (`ext` イメージのみ) | 約 6 分 |
 | `nested-ntfs` | `nested`、`write` (NTFS 書き込み + SAF) | 約 5 分 |
 | `crypt-ui` | `crypt_ui` (`CryptoUiTest`: 暗号ボリュームの UI。実画面を操作して LUKS2 / BitLocker を解錠・書き込み・ロック、中の ext4 のジャーナル未再生の「読み取り専用で開く」確認、パスワードの記憶 (`vault_*` 4 件。本物の AndroidKeyStore の鍵 + 偽の認証)。このグループのジョブは `VaultTest` (JVM 単体試験) も Gradle で実行する。フィクスチャは `tools/gen_crypt_ui_fixture.py`。docs/crypto-volumes.md 10 章) | 10 件成功 (run 43935001413、コミット 5204d16、約 9 分。パスワードの記憶 `vault_*` 4 件 + `VaultTest` の JVM 単体試験も成功)。以前: 6 件 (run 43917601086。単独実行 15 分。3 件は ジャーナル未再生の確認フロー)。以前: 3 件 (run 43660009210。全 6 グループ成功、18 分) |
+| `disk-ui` | `disk_ui` (`DiskUiTest`: ディスクツールの画面。検査 / フォーマット (ext2・exFAT・FAT32) / パーティション編集 / バックアップ・復元 / 救出 (取り消し → 続きから → 完了)、確認ダイアログのキャンセルで何も変わらないこと、読み取り専用で書けないこと、偽の USB セッション、横向き・大きい文字。書いたイメージは `run-as` で取り出し、ホストの `e2fsck -fn` / `fsck.fat -n` / `fsck.exfat -n` / `sgdisk -v -p` / `cmp` で外から検証 (`ci_android_tests.sh` の `disk_ui_verify`)。フィクスチャは `tools/gen_disk_ui_fixture.py`。docs/disk-ui.md) | 未実行 (実装直後。結果はここに追記する) |
 | `wim-fuse` | `wim_fuse` (`WimFuseTest` + `WimNestedTest`: 個人版の FUSE 層 (wimlib の wimmount を別プロセス `libwimfuse.so` で動かす)。ジョブの中で NDK の `tools/wimfuse/build_android.sh` が `libwimfuse.so` をビルドし (`-PusbmemWimFuse`)、`:wimfuse` プロセスの Service から exec して、小さな WIM (LZX / 無圧縮 / LZMS / 2 イメージ) の全ツリーを元のツリー (sha256) と突き合わせる。子プロセスの後始末 (閉じる・サービス死亡・アプリ終了で 0 になる)、一時コピーが作られないこと、SAF 経由の読み。フィクスチャは `tools/fuseshim/gen_wim_fixture.py`。**既定のグループに入れた** (2026-11-22、wimlib の統合。下の「wim-fuse グループと wimfuse-build.yml」の判断)。`usbmem-ci-only-wim-fuse` で単独でも回せる。docs/fuse-layer.md 10 章) | 52 件成功 (run 44906971508、約 7 分、ブランチ `usbmem-ci-only-wim-fuse`。fuse-layer.md 10.6) |
 | `ro-misc` | `ext2_read`、`ext4_read`、`exfat_read`、`iso_read`、`ntfs_read`、`app_misc` | 約 6 分 |
 

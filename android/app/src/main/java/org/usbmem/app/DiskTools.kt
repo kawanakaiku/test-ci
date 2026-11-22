@@ -191,11 +191,12 @@ class MkfsSession private constructor(private var h: Long) : AutoCloseable {
         /**
          * [deviceHandle] の [offset, offset+length) に [fsName] ("ext2" / "exfat" / "fat32") を作る計画を作る。
          * [clusterSize] = 0 は自動 (ext2 ではブロックサイズ)。[length] = 0 はデバイスの終わりまで。[inUse] = マウント中 (計画が不可になる)。
+         * [seed] != 0 はボリュームの UUID / シリアルを決定的に作る、[timestampSec] != 0 は記録する時刻を固定する (同じ引数で開き直せば同じ計画になる = UI が「計画 → 確認 → 適用」を別々の open で行える)。
          */
         fun open(deviceHandle: Long, fsName: String, offset: Long = 0, length: Long = 0, label: String? = null, clusterSize: Int = 0, sectorSize: Int = 0,
-                 inodeRatio: Int = 0, inodeSize: Int = 0, inUse: Boolean = false): MkfsSession {
+                 inodeRatio: Int = 0, inodeSize: Int = 0, inUse: Boolean = false, seed: Long = 0, timestampSec: Long = 0): MkfsSession {
             val h = DiskTools.nativeMkfsOpen(deviceHandle, fsName.toByteArray(Charsets.UTF_8), offset, length, label?.toByteArray(Charsets.UTF_8), clusterSize,
-                sectorSize, inodeRatio, inodeSize, inUse, 0, 0)
+                sectorSize, inodeRatio, inodeSize, inUse, seed, timestampSec)
             if (Handle.isError(h)) {
                 val code = (-h).toInt()
                 val parts = String(DiskTools.nativeMkfsLastError(0), Charsets.UTF_8).split('\n', limit = 2)
@@ -229,6 +230,16 @@ class MkfsSession private constructor(private var h: Long) : AutoCloseable {
             val b = DiskTools.nativeMkfsCapabilities(length, sectorSize, clusterSize, e) ?: throw DiskToolsException(e[0], "capabilities-failed", "capabilities failed: ${NativeBridge.nativeErrcName(e[0])}")
             return JSONArray(String(b, Charsets.UTF_8))
         }
+
+        /** 作れるファイルシステムの候補 (名前を知っているもの。実際に作れるかは [supportedFormats] が [minSize] で問い合わせる)。UI はこの一覧を直接使わない */
+        private val KNOWN_FORMATS = listOf("ext2", "ext3", "ext4", "exfat", "fat32", "fat16", "fat12", "ntfs")
+
+        /**
+         * 作れるファイルシステムとその最小サイズ (バイト) を、ネイティブに問い合わせて返す (最小サイズ 0 = 非対応は除く)。UI の選択肢はこれで作る。
+         * 他の担当が ext3/4・FAT16/12・NTFS を足して [minSize] が 0 でなくなれば、画面の選択肢に自動で加わる。
+         */
+        fun supportedFormats(sectorSize: Int = 512): List<Pair<String, Long>> =
+            KNOWN_FORMATS.mapNotNull { n -> minSize(n, sectorSize).takeIf { it > 0 }?.let { n to it } }
 
         /** 作成に必要な最小サイズ (バイト)。0 = 非対応 */
         fun minSize(fsName: String, sectorSize: Int = 512): Long = DiskTools.nativeMkfsMinSize(fsName.toByteArray(Charsets.UTF_8), sectorSize)

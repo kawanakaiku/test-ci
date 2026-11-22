@@ -89,7 +89,7 @@ def main():
     with tempfile.TemporaryDirectory() as tree:
         make_tree(tree, "p1")
         run([tool("mke2fs"), "-q", "-t", "ext2", "-b", "1024", "-L", "DUIP1", "-F", "-E", f"offset={1 * MIB},root_owner=0:0", "-d", tree, gpt, str(7 * 1024)])
-    run([tool("mkfs.fat"), "-F", "16", "-n", "DUIP2", "--offset", str(16384), gpt, str(7 * 1024)])
+    run([tool("mkfs.fat"), "-F", "16", "-s", "1", "-n", "DUIP2", "--offset", str(16384), gpt, str(7 * 1024)])
     p = run([tool("sgdisk"), "-p", gpt]).stdout
     if "DUIP1" not in p or "DUIP2" not in p:
         sys.exit(f"gpt2.img layout is unexpected:\n{p}")

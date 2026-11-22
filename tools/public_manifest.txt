@@ -189,6 +189,7 @@ include   own-doc docs/architecture.md
 include   own-doc docs/blockdev-formats.md
 include   own-doc docs/crypto-volumes.md
 include   own-doc docs/disk-tools.md
+include   own-doc docs/disk-ui.md
 include   own-doc docs/f2fs-port.md
 include   own-doc docs/f2fs-write.md
 include   own-doc docs/media-kind.md

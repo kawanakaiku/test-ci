@@ -182,6 +182,9 @@ private fun DeviceCard(d: UsbDeviceState, a: UsbActions, canRelease: Boolean = f
             // ---- パーティション一覧と公開中ボリューム
             PartitionList(d, t, a, onLink = { linkFor = it })
 
+            // ---- ディスクツール (検査・フォーマット・パーティション編集・バックアップ・救出。docs/disk-ui.md)
+            DiskToolsEntryButton(DiskTarget(DiskTargetKind.Usb, d.key, d.title), Modifier.fillMaxWidth(), tag = "disk_tools_usb", enabled = idle)
+
             // ---- ディスクの電源 (スピンダウン)。書き込み確定のために公開中のボリュームを閉じてから止める
             PowerSection(d, a)
 
@@ -376,6 +379,7 @@ private fun PartitionList(d: UsbDeviceState, t: PartitionTable, a: UsbActions, o
                     if (pub != null) Chip(pub.modeText, severity = if (pub.writable) Severity.Warning else Severity.Success)
                 }
                 Text(stringResource(if (p.extendedContainer) R.string.common_partition_detail_extended else R.string.common_partition_detail, formatBytes(p.sizeBytes), p.typeName, p.startLba), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!p.extendedContainer && !t.wholeDeviceVolume) DiskToolsEntryButton(DiskTarget(DiskTargetKind.Usb, d.key, "${d.title} #${p.index}", preselectStart = p.startBytes), tag = "disk_tools_part_${p.index}", compact = true, enabled = d.busy == null)
                 if (crypt && !t.wholeDeviceVolume) {
                     CryptoPartitionActions(d, cryptPubs, a, onLink, p.startBytes, p.sizeBytes, UsbDeviceNaming.volumeLabel(d.productName, d.shortId, p.index, if (d.lunInfo != null) d.lun else null), canPublish)
                 } else if (pub != null) {

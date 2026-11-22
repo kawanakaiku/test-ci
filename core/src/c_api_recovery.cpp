@@ -252,6 +252,50 @@ int usbmem_rescue_run(usbmem_device* in, usbmem_device* out, const char* mapfile
   } catch (...) { return static_cast<int>(Errc::NoMemory); }
 }
 
+int usbmem_rescue_preflight(usbmem_device* in, usbmem_device* out, const char* mapfile_path, const usbmem_rescue_options* o, char** out_json) {
+  if (!in || !in->dev || !out || !out->dev || !out_json) return static_cast<int>(Errc::InvalidArgument);
+  *out_json = nullptr;
+  try {
+    RescueOptions opt;
+    if (o) {
+      opt.start = o->start; opt.length = o->length; opt.out_offset = o->out_offset;
+      opt.sector_size = o->sector_size; opt.cluster_sectors = o->cluster_sectors ? o->cluster_sectors : 64;
+    }
+    const uint64_t in_size = in->dev->size();
+    Mapfile map(in_size);
+    std::string state = "none";
+    std::string path = mapfile_path ? mapfile_path : "";
+    if (!path.empty()) {
+      std::string text;
+      bool exists = false;
+      if (load_text(path, &text, &exists)) {
+        MapMeta meta;
+        Status st = Mapfile::parse(text, in_size, &map, &meta);
+        if (st.ok()) state = "resume";
+        else { state = "corrupt"; map = Mapfile(in_size); }
+      } else {
+        state = exists ? "unreadable" : "new";
+      }
+    }
+    RescueResult r = rescue_preflight(in->dev, out->dev, map, opt);
+    bool ok = r.stop == RescueStop::Finished;
+    std::string code = r.code, msg = r.message, stop = stop_name(r.stop);
+    if (ok && state == "corrupt") { ok = false; stop = "bad-argument"; code = "bad-mapfile"; msg = "the mapfile is corrupt or does not match the input; it will not be changed"; }
+    if (ok && state == "unreadable") { ok = false; stop = "bad-argument"; code = "mapfile-unreadable"; msg = "the mapfile exists but could not be read"; }
+    std::string j = "{\"ok\":" + jbool(ok) + ",\"stop\":";
+    jstr(j, stop);
+    j += ",\"code\":";
+    jstr(j, code);
+    j += ",\"message\":";
+    jstr(j, msg);
+    j += ",\"inputSize\":" + jnum(in_size) + ",\"outputSize\":" + jnum(out->dev->size()) + ",\"mapfile\":";
+    jstr(j, state);
+    j += ",\"finished\":" + jnum(map.count(kFinished)) + ",\"nonTried\":" + jnum(map.count(kNonTried)) + ",\"nonTrimmed\":" + jnum(map.count(kNonTrimmed)) +
+         ",\"nonScraped\":" + jnum(map.count(kNonScraped)) + ",\"bad\":" + jnum(map.count(kBad)) + "}";
+    return emit(j, out_json);
+  } catch (...) { return static_cast<int>(Errc::NoMemory); }
+}
+
 int usbmem_backup_run(usbmem_device* src, const char* image_path, int lz4, int full_if_unclean, usbmem_rjob* job, char** out_json) {
   if (!src || !src->dev || !image_path || !out_json) return static_cast<int>(Errc::InvalidArgument);
   *out_json = nullptr;

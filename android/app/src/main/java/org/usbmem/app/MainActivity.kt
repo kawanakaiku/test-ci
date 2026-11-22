@@ -44,6 +44,8 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
     private val usbManager by lazy { getSystemService(USB_SERVICE) as UsbManager }
     private val sessions get() = UsbSessions.manager(this)   // 毎回引く (計装テストが UsbSessions.testOverride で差し替えられるように)
     private val model = AppModel.shared
+    /** ディスクツール (検査・フォーマット・パーティション編集・バックアップ・救出) の処理。計装テストが同じ実体を使う (docs/disk-ui.md) */
+    val diskTools: DiskToolsController by lazy { DiskToolsController(applicationContext, model) }
     /** 権限を得た機器のシリアル (識別子の元)。メインスレッドだけで読み書きする */
     private val serials = HashMap<String, String>()
     /** 複数 LUN と分かったデバイスの LUN 一覧 (デバイス名 → 調査結果)。メインスレッドだけで読み書きする。ここにあるデバイスは LUN ごとのカードで表示する */
@@ -1137,6 +1139,6 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         enableEdgeToEdge()
         VaultProvider.attach(this)   // パスワードの記憶 (生体認証 / 画面ロック) の画面を出す先
         sessions.addListener(sessionListener)
-        setContent { AppTheme { AppScaffold(model, this, this, this) } }
+        setContent { AppTheme { AppScaffold(model, this, this, this, diskTools) } }
     }
 }

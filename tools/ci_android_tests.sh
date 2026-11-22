@@ -8,6 +8,7 @@
 #   squash-erofs   squashfs / erofs / F2FS (mkfs.f2fs + sload.f2fs で作る 1 イメージだけ。カーネル製 k_* は VM が要るので CI では扱わない) / F2FS 書き込み (f2fs_write: 結果を fsck.f2fs とカーネルのループマウントで検証)
 #   nested-ntfs    ネスト (ループバック) マウント / NTFS 書き込み (SAF)
 #   crypt-ui       暗号ボリュームの UI 試験 (CryptoUiTest: 画面を操作して LUKS2 / BitLocker を解錠・書き込み・ロック。tools/gen_crypt_ui_fixture.py)
+#   disk-ui        ディスクツールの UI 試験 (DiskUiTest: 検査・フォーマット・パーティション編集・バックアップ/復元・救出の画面。書き込んだイメージは adb で取り出し、e2fsck / fsck.fat / fsck.exfat / sgdisk / cmp で外から検証。tools/gen_disk_ui_fixture.py。docs/disk-ui.md)
 #   wim-fuse       個人版の FUSE 層 (別プロセスの wimlib の wimmount): WimFuseTest (:wimfuse サービスの exec・RPC・WIM のツリーの一致・子プロセスの後始末)。要 wimtools (フィクスチャ)・-PusbmemWimFuse のビルド (docs/fuse-layer.md 10 章)
 #   kfsd           kfsd (GPL 系の FS ドライバを別プロセスの実行ファイルに分けたもの。docs/kfsd.md) 経由のマウント: KfsdInstrumentedTest (:kfsd サービスの libkfsd.so と別 APK のプラグイン)、既存の読み取りテスト (ext2 / ext4 / exfat / iso / ntfs) と WriteSelfTest を kfsd 経由で通す。要 -PusbmemKfsd=true と :kfsd-plugin のビルド
 #   ro-misc        読み取りテスト (ext2 / ext4 / exFAT / ISO 9660 / NTFS) と アプリ側テスト (DocumentsProvider / リンク / raw イメージ / 転送チューニング)。専用スクリプトが無いので ci_android_tests.sh が直接 push して実行する
@@ -58,6 +59,7 @@ gen_fs() {
     app_misc)    py "$HERE/gen_ext2_fixture.py" "$FIX/ext2" && bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
     write) bash "$HERE/gen_ntfs_fixture.sh" "$FIX/ntfs" ;;
     crypt_ui)    py "$HERE/gen_crypt_ui_fixture.py" "$FIX/crypt_ui" ;;
+    disk_ui)     py "$HERE/gen_disk_ui_fixture.py" "$FIX/disk_ui" ;;
     kfsd_unit)   true ;;   # ext4 のフィクスチャは kfsd_read_local が作る
     kfsd_read_plugin|kfsd_write) true ;;   # kfsd_read_local のフィクスチャを使う (ext2 / ntfs も含む)
     kfsd_read_local) py "$HERE/gen_ext2_fixture.py" "$FIX/ext2" && py "$HERE/gen_ext4_fixture.py" "$FIX/ext4" && py "$HERE/gen_exfat_fixture.py" "$FIX/exfat" && py "$HERE/gen_iso_fixture.py" "$FIX/iso" \
@@ -194,6 +196,60 @@ run_kfsd_write() {
   return $r
 }
 
+# ディスクツールの UI 試験 (docs/disk-ui.md): フィクスチャを送って DiskUiTest を実行し、試験が書いたイメージ (アプリの cache/dui_out) を adb で取り出して、
+# ホストの道具 (e2fsck / fsck.fat / fsck.exfat / sgdisk / cmp) で外から検証する。run-as が使えるのは debuggable なビルド (CI の debug APK)
+disk_ui_verify() {   # disk_ui_verify <取り出したイメージのディレクトリ>
+  local o=$1 rc=0 f
+  chk() { local what=$1; shift; if "$@" >"$o/chk.out" 2>&1; then echo "ok:   $what"; else echo "FAIL: $what"; sed 's/^/      /' "$o/chk.out" | head -20; rc=1; fi; }
+  for f in fmt_ext2 usb_fmt; do
+    [ -f "$o/$f.img" ] || { echo "FAIL: $f.img was not produced"; rc=1; continue; }
+    chk "e2fsck -fn $f.img" e2fsck -fn "$o/$f.img"
+  done
+  [ -f "$o/fmt_ext2.img" ] && chk "label DUIFMT (fmt_ext2.img)" bash -c "dumpe2fs -h '$o/fmt_ext2.img' 2>/dev/null | grep -q 'volume name: *DUIFMT'"
+  [ -f "$o/fmt_fat32.img" ] && chk "fsck.fat -n fmt_fat32.img" fsck.fat -n "$o/fmt_fat32.img" || { [ -f "$o/fmt_fat32.img" ] || { echo "FAIL: fmt_fat32.img was not produced"; rc=1; }; }
+  [ -f "$o/fmt_exfat.img" ] && chk "fsck.exfat -n fmt_exfat.img" fsck.exfat -n "$o/fmt_exfat.img" || { [ -f "$o/fmt_exfat.img" ] || { echo "FAIL: fmt_exfat.img was not produced"; rc=1; }; }
+  # パーティション編集: 削除のあと GPT が 1 つ・健全、残った ext2 も健全。取り消し / 読み取り専用のイメージは 2 つのまま
+  if [ -f "$o/pt_remove.img" ]; then
+    chk "sgdisk -v pt_remove.img" sgdisk -v "$o/pt_remove.img"
+    chk "pt_remove.img has exactly 1 partition" bash -c "[ \"\$(sgdisk -p '$o/pt_remove.img' | grep -cE '^ +[0-9]+ ')\" = 1 ]"
+    chk "e2fsck -fn pt_remove.img p1" e2fsck -fn "$o/pt_remove.img?offset=1048576"
+  else echo "FAIL: pt_remove.img was not produced"; rc=1; fi
+  for f in pt_cancel pt_ro; do
+    [ -f "$o/$f.img" ] || { echo "FAIL: $f.img was not produced"; rc=1; continue; }
+    chk "$f.img still has 2 partitions" bash -c "[ \"\$(sgdisk -p '$o/$f.img' | grep -cE '^ +[0-9]+ ')\" = 2 ]"
+  done
+  # 復元: 書き戻した先が健全で、ラベルが元 (DUICLEAN) になっている
+  if [ -f "$o/res_target.img" ]; then
+    chk "e2fsck -fn res_target.img" e2fsck -fn "$o/res_target.img"
+    chk "res_target.img label restored to DUICLEAN" bash -c "dumpe2fs -h '$o/res_target.img' 2>/dev/null | grep -q 'volume name: *DUICLEAN'"
+  else echo "FAIL: res_target.img was not produced"; rc=1; fi
+  # 救出: 出力が元と一致
+  if [ -f "$o/rescue_out.img" ] && [ -f "$o/rescue_src.img" ]; then chk "cmp rescue_src.img rescue_out.img" cmp "$o/rescue_src.img" "$o/rescue_out.img"
+  else echo "FAIL: rescue images were not produced"; rc=1; fi
+  # 検査・バックアップ・取り消しは、元のイメージを変えない (フィクスチャとの一致)
+  for f in chk_clean:ext2_clean chk_bad:ext2_bad bak_src:ext2_clean res_src:ext2_clean fmt_ro:ext2_clean usb_ro:ext2_clean; do
+    [ -f "$o/${f%%:*}.img" ] || { echo "FAIL: ${f%%:*}.img was not produced"; rc=1; continue; }
+    chk "${f%%:*}.img unchanged" cmp "$o/${f%%:*}.img" "$FIX/disk_ui/${f##*:}.img"
+  done
+  rm -f "$o/chk.out"
+  return $rc
+}
+run_disk_ui() {
+  push_dir "$FIX/disk_ui" dui_ || return 1
+  instr_classes $APP.DiskUiTest; local r=$?
+  local o="$LOG/disk_ui_out"; rm -rf "$o"; mkdir -p "$o"
+  local f
+  for f in $(adbs shell run-as org.usbmem.app ls cache/dui_out 2>/dev/null | tr -d '\r'); do
+    adbs exec-out run-as org.usbmem.app cat "cache/dui_out/$f" > "$o/$f" 2>/dev/null
+  done
+  echo "pulled: $(ls "$o" | wc -l) files"
+  adbs shell run-as org.usbmem.app rm -rf cache/dui_out >/dev/null 2>&1
+  adbs shell 'rm -f /data/local/tmp/dui_*' >/dev/null
+  disk_ui_verify "$o"; local v=$?
+  rm -rf "$o"
+  [ $r -eq 0 ] && [ $v -eq 0 ]
+}
+
 run_fs() {
   case $1 in
     kfsd_unit)   run_kfsd_unit ;;
@@ -223,6 +279,7 @@ run_fs() {
     app_misc)    mkdir -p "$FIX/misc" && cp "$FIX/ext2/b1k.img" "$FIX/misc/ext2_wr.img" \
                    && run_generic $APP.DocumentsProviderTest,$APP.LinkProviderTest,$APP.WriteSelfTestInstrumented,$APP.RawImageInstrumentedTest,$APP.TransferTuningTest,$APP.VaultRealPathTest "$FIX/ntfs:" "$FIX/misc:" ;;
     crypt_ui)    run_generic $APP.CryptoUiTest "$FIX/crypt_ui:cui_" ;;
+    disk_ui)     run_disk_ui ;;
     wim_fuse)    run_wim_fuse ;;
     *) echo "unknown fs $1" >&2; return 2 ;;
   esac
@@ -235,6 +292,7 @@ group_fs() {
     squash-erofs)  echo "squashfs erofs f2fs f2fs_write" ;;
     nested-ntfs)   echo "nested write" ;;
     crypt-ui)      echo "crypt_ui" ;;
+    disk-ui)       echo "disk_ui" ;;
     ro-misc)       echo "ext2_read ext4_read exfat_read iso_read ntfs_read app_misc" ;;
     wim-fuse)      echo "wim_fuse" ;;
     kfsd)          echo "kfsd_unit kfsd_read_local kfsd_read_plugin kfsd_write" ;;

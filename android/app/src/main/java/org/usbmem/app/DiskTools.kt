@@ -26,6 +26,10 @@ object DiskTools {
 
     @JvmStatic external fun nativeMkfsOpen(dev: Long, fsName: ByteArray, offset: Long, length: Long, label: ByteArray?, clusterSize: Int, sectorSize: Int,
                                            inodeRatio: Int, inodeSize: Int, inUse: Boolean, seed: Long, timestamp: Long): Long
+    /** 拡張版。options は "key=value" を改行で区切った UTF-8 (label / cluster_size / sector_size / inode_ratio / inode_size / reserved_percent / uuid / features / journal_size / lazy_journal) */
+    @JvmStatic external fun nativeMkfsOpenEx(dev: Long, fsName: ByteArray, offset: Long, length: Long, options: ByteArray?, inUse: Boolean, seed: Long, timestamp: Long): Long
+    /** 作れるファイルシステムと容量の範囲 (JSON の配列)。length 0 = 容量を問わない */
+    @JvmStatic external fun nativeMkfsCapabilities(length: Long, sectorSize: Int, clusterSize: Int, err: IntArray): ByteArray?
     @JvmStatic external fun nativeMkfsClose(h: Long)
     @JvmStatic external fun nativeMkfsLastError(h: Long): ByteArray
     @JvmStatic external fun nativeMkfsPlanJson(h: Long, err: IntArray): ByteArray?
@@ -138,7 +142,7 @@ data class MkfsPlan(
 )
 
 /**
- * ext2 / exFAT / FAT32 を作る手順。流れ: [open] (計画を作る・書かない) → [plan] → (ユーザーが [MkfsPlan.confirmPhrase] を入力) → [apply]。
+ * ext2 / ext3 / ext4 / FAT12 / FAT16 / FAT32 / exFAT / NTFS (実験的) を作る手順。流れ: [open] (計画を作る・書かない) → [plan] → (ユーザーが [MkfsPlan.confirmPhrase] を入力) → [apply]。
  * 確認文字列は、既存のファイルシステムやパーティション表を壊す計画なら "ERASE xxxxxx"、何も無い領域なら "FORMAT xxxxxx"。
  * 書き込み可で開いたデバイスに対して適用は同時に 1 つだけ。マウント中は拒否する。必ずデバイスを閉じる**前**に [close] すること。
  */
@@ -198,6 +202,32 @@ class MkfsSession private constructor(private var h: Long) : AutoCloseable {
                 throw DiskToolsException(code, parts.getOrElse(0) { "" }, "open failed: ${NativeBridge.nativeErrcName(code)} (${parts.getOrElse(0) { "" }})")
             }
             return MkfsSession(h)
+        }
+
+        /**
+         * [open] の拡張版。[options] のキー: label / cluster_size / sector_size / inode_ratio / inode_size / reserved_percent / uuid (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx) /
+         * features (ext3・ext4: "^resize_inode,64bit" のような mke2fs 風) / journal_size (バイト) / lazy_journal (true|false)。
+         * [fsName] は ext2 / ext3 / ext4 / fat12 / fat16 / fat32 / exfat / ntfs (実験的)。不正なオプションは計画の problems に Error (bad-option) で出る。
+         */
+        fun openEx(deviceHandle: Long, fsName: String, offset: Long = 0, length: Long = 0, options: Map<String, String> = emptyMap(), inUse: Boolean = false): MkfsSession {
+            val text = options.entries.joinToString("\n") { "${it.key}=${it.value.replace('\n', ' ')}" }
+            val h = DiskTools.nativeMkfsOpenEx(deviceHandle, fsName.toByteArray(Charsets.UTF_8), offset, length, text.toByteArray(Charsets.UTF_8), inUse, 0, 0)
+            if (Handle.isError(h)) {
+                val code = (-h).toInt()
+                val parts = String(DiskTools.nativeMkfsLastError(0), Charsets.UTF_8).split('\n', limit = 2)
+                throw DiskToolsException(code, parts.getOrElse(0) { "" }, "open failed: ${NativeBridge.nativeErrcName(code)} (${parts.getOrElse(0) { "" }})")
+            }
+            return MkfsSession(h)
+        }
+
+        /**
+         * 作れるファイルシステムと容量の範囲。UI が選択肢を出すためのもの (何も書かない)。[length] > 0 なら、その容量で作れるか (sizeOk / reasonCode / reason / defaultCluster) も入る。
+         * 各要素: fs / supported / experimental (NTFS) / minBytes / maxBytes / clusterSizes / defaultCluster / labelMax / labelCharset / features (ext) / sizeOk / reasonCode / reason / note。
+         */
+        fun capabilities(length: Long = 0, sectorSize: Int = 512, clusterSize: Int = 0): JSONArray {
+            val e = IntArray(1)
+            val b = DiskTools.nativeMkfsCapabilities(length, sectorSize, clusterSize, e) ?: throw DiskToolsException(e[0], "capabilities-failed", "capabilities failed: ${NativeBridge.nativeErrcName(e[0])}")
+            return JSONArray(String(b, Charsets.UTF_8))
         }
 
         /** 作成に必要な最小サイズ (バイト)。0 = 非対応 */

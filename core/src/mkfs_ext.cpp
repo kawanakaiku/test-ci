@@ -244,7 +244,7 @@ void build_ext(const Params& p, Build* b, bool ext4) {
 
   // ---- グループ数・iノード数・予約 GDT
   uint64_t G = 0, ipg = 0, gdb = 0, itb = 0, rsv = 0;
-  const uint32_t flexsz = F.flex_bg ? 16 : 1;
+  uint32_t flexsz = F.flex_bg ? 16 : 1;
   for (int guard = 0; guard < 16; guard++) {
     G = ceil_div(N - fdb, bpg);
     uint64_t target = ceil_div(N * B, ratio);
@@ -269,6 +269,11 @@ void build_ext(const Params& p, Build* b, bool ext4) {
     uint64_t ovh = (has_backup(G - 1) ? 1 + gdb + rsv : 0) + 2 + itb;
     if (G > 1 && last < ovh + 50) { N = fdb + (G - 1) * bpg; continue; }
     break;
+  }
+  // flex_bg のまとまり (ビットマップと iノードテーブルを先頭のグループに集める) が 1 グループに収まらないとき (1 KiB ブロックの数百 MiB など) は、まとまりを小さくする
+  if (F.flex_bg) {
+    const uint64_t g0 = (G == 1 ? N - fdb : bpg) - (has_backup(0) ? 1 + gdb + rsv : 0);
+    while (flexsz > 1 && std::min<uint64_t>(flexsz, G) * (2 + itb) + 40 > g0) flexsz /= 2;
   }
   if (ipg < 16 || ipg * G < 16) { b->error("too-small", "too few inodes"); return; }
   if (ipg * G > 0xFFFFFFFFull) { b->error("too-large", "too many inodes; use a larger bytes-per-inode ratio"); return; }
@@ -468,7 +473,7 @@ void build_ext(const Params& p, Build* b, bool ext4) {
   p32(&sb[0x108], now);
   if (isz > 128) { p16(&sb[0x15C], 32); p16(&sb[0x15E], 32); }
   p32(&sb[0x160], 1);   // signed_directory_hash
-  if (F.flex_bg) sb[0x174] = 4;
+  if (F.flex_bg) { uint8_t lg = 0; while ((1u << (lg + 1)) <= flexsz) lg++; sb[0x174] = lg; }
   if (F.meta_csum) sb[0x175] = 1;
 
   // ---- iノード組み立ての道具

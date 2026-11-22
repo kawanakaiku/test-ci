@@ -182,6 +182,23 @@ bool looks_like_partition_table(BlockDevice& dev, uint64_t off, uint32_t ss, Sta
 
 }  // namespace
 
+namespace {
+
+void run_builder(const Params& prm, Build* b) {
+  switch (prm.opt.fs) {
+    case FsType::Fat32: mkfsimpl::build_fat32(prm, b); break;
+    case FsType::Fat16: mkfsimpl::build_fat1216(prm, b, true); break;
+    case FsType::Fat12: mkfsimpl::build_fat1216(prm, b, false); break;
+    case FsType::Exfat: mkfsimpl::build_exfat(prm, b); break;
+    case FsType::Ntfs: mkfsimpl::build_ntfs(prm, b); break;
+    case FsType::Ext3: mkfsimpl::build_ext(prm, b, false); break;
+    case FsType::Ext4: mkfsimpl::build_ext(prm, b, true); break;
+    default: mkfsimpl::build_ext2(prm, b); break;
+  }
+}
+
+}  // namespace
+
 bool Mkfs::supported(FsType fs) {
   return fs == FsType::Ext2 || fs == FsType::Ext3 || fs == FsType::Ext4 || fs == FsType::Exfat || fs == FsType::Fat32 || fs == FsType::Fat16 || fs == FsType::Fat12 || fs == FsType::Ntfs;
 }
@@ -199,6 +216,64 @@ uint64_t Mkfs::min_size(FsType fs, uint32_t ss) {
     case FsType::Fat32: return (65525ull + 32 + 2 * mkfsimpl::ceil_div(65527ull * 4, ss)) * ss;
     default: return 0;
   }
+}
+
+std::vector<MkfsCapability> Mkfs::capabilities(uint64_t length, uint32_t sector_size, uint32_t cluster_size) {
+  if (sector_size < 512 || sector_size > 4096 || !mkfsimpl::pow2(sector_size)) sector_size = 512;
+  const uint64_t KiB = 1024, MiB = KiB * KiB, GiB = KiB * MiB, TiB = KiB * GiB;
+  std::vector<MkfsCapability> v;
+  const FsType order[] = {FsType::Ext2, FsType::Ext3, FsType::Ext4, FsType::Fat12, FsType::Fat16, FsType::Fat32, FsType::Exfat, FsType::Ntfs};
+  for (FsType fs : order) {
+    MkfsCapability c;
+    c.fs = fs;
+    c.supported = supported(fs);
+    c.experimental = fs == FsType::Ntfs;
+    c.min_bytes = min_size(fs, sector_size);
+    auto pow2_range = [&](uint64_t lo, uint64_t hi) {
+      for (uint64_t x = std::max<uint64_t>(lo, sector_size); x <= hi; x *= 2) c.cluster_sizes.push_back(static_cast<uint32_t>(x));
+    };
+    switch (fs) {
+      case FsType::Ext2: case FsType::Ext3:
+        c.max_bytes = 0xFFFFFFFFull * 4096; pow2_range(1024, 4096); c.label_max = 16; c.label_charset = "utf8";
+        c.features = fs == FsType::Ext3 ? mkfsimpl::ext_feature_list(false) : std::vector<std::string>();
+        c.note = fs == FsType::Ext3 ? "block-mapped file system with a journal" : "no journal";
+        break;
+      case FsType::Ext4:
+        c.max_bytes = 1ull << 60; pow2_range(1024, 4096); c.label_max = 16; c.label_charset = "utf8";
+        c.features = mkfsimpl::ext_feature_list(true);
+        c.note = "extent, flex_bg, metadata_csum, journal; 64bit is added automatically for 2^32 blocks or more";
+        break;
+      case FsType::Fat12: c.max_bytes = 4084ull * 65536; pow2_range(512, 65536); c.label_max = 11; c.label_charset = "ascii-upper"; break;
+      case FsType::Fat16: c.max_bytes = 65524ull * 65536; pow2_range(512, 65536); c.label_max = 11; c.label_charset = "ascii-upper"; break;
+      case FsType::Fat32: c.max_bytes = std::min<uint64_t>(0xFFFFFFFFull * sector_size, 0x0FFFFFF4ull * 65536); pow2_range(512, 65536); c.label_max = 11; c.label_charset = "ascii-upper"; break;
+      case FsType::Exfat: c.max_bytes = 0xFFFFFFF5ull * (32 * MiB); pow2_range(512, 32 * MiB); c.label_max = 11; c.label_charset = "utf16"; break;
+      case FsType::Ntfs: c.max_bytes = 0xFFFFFFFEull * 65536; pow2_range(512, 65536); c.label_max = 32; c.label_charset = "utf16"; c.note = "experimental"; break;
+      default: break;
+    }
+    (void)GiB; (void)TiB;
+    if (length) {
+      Params prm;
+      prm.opt.fs = fs;
+      prm.opt.cluster_size = cluster_size;
+      prm.opt.seed = 1;
+      prm.length = length;
+      prm.sector_size = sector_size;
+      prm.now = 1700000000ull;
+      Build b;
+      if (!c.supported) { c.size_ok = false; c.reason_code = "unsupported-fs"; c.reason = "this file system cannot be created"; }
+      else if (length < c.min_bytes) { c.size_ok = false; c.reason_code = "too-small"; c.reason = "the volume is smaller than the minimum size (" + std::to_string(c.min_bytes) + " bytes)"; }
+      else {
+        run_builder(prm, &b);
+        for (auto& d : b.problems)
+          if (d.severity == Severity::Error) { c.size_ok = false; c.reason_code = d.code; c.reason = d.message; break; }
+        if (c.size_ok) {
+          for (auto& kv : b.layout) if (kv.first == "clusterSize" || kv.first == "blockSize") c.default_cluster = static_cast<uint32_t>(std::strtoull(kv.second.c_str(), nullptr, 10));
+        }
+      }
+    }
+    v.push_back(std::move(c));
+  }
+  return v;
 }
 
 MkfsResult Mkfs::plan(BlockDevice& dev, const MkfsOptions& opt, MkfsPlan* out) {
@@ -261,16 +336,7 @@ MkfsResult Mkfs::plan(BlockDevice& dev, const MkfsOptions& opt, MkfsPlan* out) {
   prm.sector_size = ss;
   prm.now = opt.timestamp ? opt.timestamp : static_cast<uint64_t>(std::time(nullptr));
   Build b;
-  switch (opt.fs) {
-    case FsType::Fat32: mkfsimpl::build_fat32(prm, &b); break;
-    case FsType::Fat16: mkfsimpl::build_fat1216(prm, &b, true); break;
-    case FsType::Fat12: mkfsimpl::build_fat1216(prm, &b, false); break;
-    case FsType::Ntfs: mkfsimpl::build_ntfs(prm, &b); break;
-    case FsType::Exfat: mkfsimpl::build_exfat(prm, &b); break;
-    case FsType::Ext3: mkfsimpl::build_ext(prm, &b, false); break;
-    case FsType::Ext4: mkfsimpl::build_ext(prm, &b, true); break;
-    default: mkfsimpl::build_ext2(prm, &b); break;
-  }
+  run_builder(prm, &b);
   for (auto& d : b.problems) out->problems.push_back(d);
   out->changes = b.changes;
   out->layout = b.layout;
@@ -589,6 +655,27 @@ std::string mkfs_plan_to_json(const MkfsPlan& p) {
   }
   o += "],\"deviceId\":\"" + jesc(p.device_id) + "\",\"planHash\":\"" + p.plan_hash + "\",\"confirmPhrase\":\"" + jesc(p.confirm_phrase) + "\"}";
   return o;
+}
+
+std::string mkfs_capabilities_to_json(const std::vector<MkfsCapability>& caps) {
+  std::string o = "[";
+  for (size_t i = 0; i < caps.size(); i++) {
+    auto& c = caps[i];
+    if (i) o += ",";
+    o += "{\"fs\":\"" + std::string(fs_type_name(c.fs)) + "\"";
+    o += ",\"supported\":" + std::string(c.supported ? "true" : "false");
+    o += ",\"experimental\":" + std::string(c.experimental ? "true" : "false");
+    o += ",\"minBytes\":\"" + std::to_string(c.min_bytes) + "\",\"maxBytes\":\"" + std::to_string(c.max_bytes) + "\"";
+    o += ",\"clusterSizes\":[";
+    for (size_t k = 0; k < c.cluster_sizes.size(); k++) o += (k ? "," : "") + std::to_string(c.cluster_sizes[k]);
+    o += "],\"defaultCluster\":" + std::to_string(c.default_cluster);
+    o += ",\"labelMax\":" + std::to_string(c.label_max) + ",\"labelCharset\":\"" + jesc(c.label_charset) + "\"";
+    o += ",\"features\":[";
+    for (size_t k = 0; k < c.features.size(); k++) o += (k ? ",\"" : "\"") + jesc(c.features[k]) + "\"";
+    o += "],\"sizeOk\":" + std::string(c.size_ok ? "true" : "false");
+    o += ",\"reasonCode\":\"" + jesc(c.reason_code) + "\",\"reason\":\"" + jesc(c.reason) + "\",\"note\":\"" + jesc(c.note) + "\"}";
+  }
+  return o + "]";
 }
 
 std::string mkfs_result_to_json(const MkfsResult& r) {

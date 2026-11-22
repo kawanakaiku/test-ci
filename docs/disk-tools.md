@@ -53,10 +53,11 @@ NTFS は `ntfsfix -n` が dirty / ログ未クリーンを報告しないため�
 `ASan` 付きの実行: `cmake -S core -B build-asan -DUSBMEM_BUILD_TESTS=ON -DUSBMEM_SANITIZE=ON` → `ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0 tools/check_disktools.py build-asan/usbmem_disktools_cli all`
 (環境によっては `verify_asan_link_order=0` が要る)。単体テスト (`usbmem_disktools_tests`) も同じ設定で通る。
 
-## 3. mkfs (ext2 / exFAT / FAT32)
+## 3. mkfs (ext2 / ext3 / ext4 / FAT12 / FAT16 / FAT32 / exFAT / NTFS)
 
 `Mkfs::plan` → `Mkfs::make_confirm_token` → `Mkfs::apply` (`core/include/usbmem/mkfs.h`)。C API は `usbmem_mkfs_*`、Kotlin は `MkfsSession`。
-NTFS の mkfs は対象外。FAT12/16 も対象外 (FAT32 が小さすぎる容量は理由を示して拒否する)。
+ext3 / ext4 / FAT12 / FAT16 / NTFS (実験的) は `docs/mkfs-extended.md` (構造・既定・mke2fs / mkfs.fat / mkntfs との差・容量の範囲の問い合わせ `capabilities`・検証)。
+小さすぎる / 大きすぎる容量は、どの形式でも理由コードを示して拒否する。
 
 安全モデル (パーティション編集 `docs/partition-edit.md` と同じ流儀):
 
@@ -85,7 +86,7 @@ mkfs の検証 (`tools/dt_mkfs.py`): 0xA5 で埋めたイメージに作って�
 
 ### 既知の制限
 
-- ext2 以外の ext (ext3/4 のジャーナル・extent・メタデータチェックサム) は作れない (要件は ext2 まで)。
+- ext3 / ext4 / FAT12 / FAT16 / NTFS は `docs/mkfs-extended.md`。NTFS は実験的 (Windows の chkdsk は未確認)。ext4 の `orphan_file` / `metadata_csum_seed` は作らない。
 - exFAT のアップケーステーブルは Windows 標準のものと完全には一致しない (BMP の単純な大文字写像)。Linux・Android・Windows とも表のチェックサムを検証して使う。
 - FAT32 のブートコードは起動しない (停止するだけ)。起動可能なディスクは作らない。
 - 実機 (USB メモリ) への書き込みは行っていない (イメージファイルと `MemoryDevice` のみ)。実機での確認は未了。

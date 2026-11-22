@@ -2,7 +2,8 @@
 // DiskTools の検証用 CLI。tools/check_disktools.py が呼ぶ。
 //   usbmem_disktools_cli check <image> [--fs NAME] [--range OFF LEN]   読み取り専用で検査して JSON を出す。
 //     終了コード: 0 clean / 1 warnings / 2 errors / 3 unsupported / 4 incomplete / 10 I/O 失敗
-//   usbmem_disktools_cli mkfs <image> --fs fat32|exfat|ext2 [--label L] [--cluster N] [--sector N] [--seed N] [--timestamp T]
+//   usbmem_disktools_cli caps [LENGTH [SECTOR [CLUSTER]]]   作れるファイルシステムの一覧と容量の範囲 (JSON)
+//   usbmem_disktools_cli mkfs <image> --fs fat12|fat16|fat32|exfat|ext2|ext3|ext4|ntfs [--uuid U] [--features F] [--label L] [--cluster N] [--sector N] [--seed N] [--timestamp T]
 //                         [--ratio N] [--inode-size N] [--range OFF LEN] [--plan-only] [--backup FILE]
 //     イメージファイルに計画→(自動確認)→適用して {"plan":..,"result":..} を出す。検証専用 (実デバイスには使わない)。
 //     終了コード: 0 作成して検証まで通った / 2 計画が不可 / 3 適用に失敗 / 10 I/O 失敗
@@ -18,6 +19,14 @@
 using namespace usbmem;
 
 int main(int argc, char** argv) {
+  // caps [LENGTH_BYTES [SECTOR [CLUSTER]]]: 作れるファイルシステムと容量の範囲 (JSON)
+  if (argc >= 2 && !std::strcmp(argv[1], "caps")) {
+    uint64_t len = argc > 2 ? std::strtoull(argv[2], nullptr, 0) : 0;
+    uint32_t sec = argc > 3 ? static_cast<uint32_t>(std::strtoul(argv[3], nullptr, 0)) : 512;
+    uint32_t cl = argc > 4 ? static_cast<uint32_t>(std::strtoul(argv[4], nullptr, 0)) : 0;
+    std::printf("%s\n", mkfs_capabilities_to_json(Mkfs::capabilities(len, sec, cl)).c_str());
+    return 0;
+  }
   if (argc >= 3 && !std::strcmp(argv[1], "check")) {
     BlockDevicePtr dev;
     Status st = RawImageDevice::open_path(argv[2], true, 512, &dev);

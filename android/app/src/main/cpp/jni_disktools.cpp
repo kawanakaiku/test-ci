@@ -124,6 +124,22 @@ JNIEXPORT jlong JNICALL DT(nativeMkfsOpen)(JNIEnv* env, jclass, jlong dev, jbyte
   if (rc != 0) return -static_cast<jlong>(rc);
   return reinterpret_cast<jlong>(h);
 }
+// 拡張版 (options は "key=value" を改行で区切った UTF-8。docs/mkfs-extended.md)
+JNIEXPORT jlong JNICALL DT(nativeMkfsOpenEx)(JNIEnv* env, jclass, jlong dev, jbyteArray fsName, jlong offset, jlong length, jbyteArray options, jboolean inUse,
+                                             jlong seed, jlong timestamp) {
+  Utf8 fs(env, fsName), op(env, options);
+  usbmem_mkfs* h = nullptr;
+  int rc = usbmem_mkfs_open_ex(dv(dev), fs.c(), static_cast<unsigned long long>(offset), static_cast<unsigned long long>(length), op.c(), inUse ? 1 : 0,
+                               static_cast<unsigned long long>(seed), static_cast<unsigned long long>(timestamp), &h);
+  if (rc != 0) return -static_cast<jlong>(rc);
+  return reinterpret_cast<jlong>(h);
+}
+// 作れるファイルシステムと容量の範囲 (JSON の配列)。length 0 = 容量を問わない
+JNIEXPORT jbyteArray JNICALL DT(nativeMkfsCapabilities)(JNIEnv* env, jclass, jlong length, jint sectorSize, jint clusterSize, jintArray err) {
+  return json_call(env, err, [&](char** o) {
+    return usbmem_mkfs_capabilities_json(static_cast<unsigned long long>(length), static_cast<unsigned>(sectorSize), static_cast<unsigned>(clusterSize), o);
+  });
+}
 JNIEXPORT void JNICALL DT(nativeMkfsClose)(JNIEnv*, jclass, jlong h) { usbmem_mkfs_close(mk(h)); }
 // "code\nmessage" (UTF-8)。h == 0 なら直近の open の失敗
 JNIEXPORT jbyteArray JNICALL DT(nativeMkfsLastError)(JNIEnv* env, jclass, jlong h) {

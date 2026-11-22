@@ -1,23 +1,3 @@
-
-def _xfs_supports(opt_args):
-    """この mkfs.xfs が opt_args (例 ["-m", "rmapbt=0"]) を受け付けるか (-N: 何も書かない)。"""
-    import subprocess, tempfile
-    try:
-        with tempfile.NamedTemporaryFile(prefix="xfsprobe") as f:
-            f.truncate(300 * 1024 * 1024)
-            r = subprocess.run(["mkfs.xfs", "-N", "-q"] + opt_args + [f.name], capture_output=True)
-            return r.returncode == 0
-    except OSError:
-        return False
-
-
-def _xfs_mkfs_m_opts():
-    return ",rmapbt=0" if _xfs_supports(["-m", "rmapbt=0"]) else ""
-
-
-def _xfs_mkfs_n_opts():
-    return ["-n", "parent=0"] if _xfs_supports(["-n", "parent=0"]) else []
-
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 """実機 USB メモリ 3 本 (プロファイル A / B / C) に、検証用のパーティション構成と決定的なテストデータを作る**ユーザー実行用**スクリプト。
@@ -54,6 +34,43 @@ import tempfile
 import time
 import unicodedata
 import uuid
+
+def _xfs_supports(opt_args):
+    """この mkfs.xfs が opt_args (例 ["-m", "rmapbt=0"]) を受け付けるか (-N: 何も書かない)。"""
+    try:
+        with tempfile.NamedTemporaryFile(prefix="xfsprobe") as f:
+            f.truncate(300 * 1024 * 1024)
+            r = subprocess.run(["mkfs.xfs", "-N", "-q"] + opt_args + [f.name], capture_output=True)
+            return r.returncode == 0
+    except OSError:
+        return False
+
+
+# 環境変数 USBMEM_XFS_FEATURES (tools/xfs_common.sh と同じ名前): base (既定。rmapbt=0 / parent=0。書き込みの基本試験用)、
+# rmapbt (rmapbt=1 / parent=0)、parent (rmapbt=1 / parent=1)、all (mkfs.xfs の既定のまま。7.x は rmapbt=1 / parent=1 / reflink=1)。
+# アプリの XFS の書き込みは rmapbt・親ポインタ・reflink の (共有していない) 範囲に対応している (docs/xfs-write.md)。
+def _xfs_features():
+    v = os.environ.get("USBMEM_XFS_FEATURES", "base")
+    if v not in ("base", "rmapbt", "parent", "all"):
+        raise SystemExit("USBMEM_XFS_FEATURES は base / rmapbt / parent / all のどれか: %r" % v)
+    return v
+
+
+def _xfs_mkfs_m_opts():
+    feat = _xfs_features()
+    if feat == "all":
+        return ""
+    want = "rmapbt=1" if feat in ("rmapbt", "parent") else "rmapbt=0"
+    return "," + want if _xfs_supports(["-m", want]) else ""
+
+
+def _xfs_mkfs_n_opts():
+    feat = _xfs_features()
+    if feat == "all":
+        return []
+    want = "parent=1" if feat == "parent" else "parent=0"
+    return ["-n", want] if _xfs_supports(["-n", want]) else []
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 # 文字コード (ファイル名に日本語・濁点の結合文字を使うので、Python のファイルシステム文字コードは UTF-8 が必須)
@@ -1134,8 +1151,8 @@ def fs_plan(pp, dev, stage, out, opts):
             add(Cmd(["ntfsinfo", "-m", dev], kind="check", note="独立実装 (libntfs-3g) がダーティと認識することの確認 (出力に 'scheduled for check' があれば OK)"))
     elif fs == "xfs":
         add(S("@stage"))
-        # 新しい mkfs.xfs (7.x) の既定 (rmapbt=1 / parent=1) は、アプリの書き込みが拒否する構成 (docs/xfs-write.md)。
-        # 実機の書き込み試験ができるよう、無効にして作る。古い mkfs.xfs に無いオプションは外す。
+        # 既定 (USBMEM_XFS_FEATURES=base) は rmapbt=0 / parent=0 (書き込みの基本試験用)。環境変数で rmapbt / parent / all も作れる (関数の説明を参照)。
+        # 古い mkfs.xfs に無いオプションは外す。
         add(Cmd(["mkfs.xfs", "-f", "-q", "-L", lab, "-m", "uuid=" + u + _xfs_mkfs_m_opts()] + _xfs_mkfs_n_opts() + ["-p", stage, dev]))
         add(S("@rmstage"))
         add(Cmd(["xfs_repair", "-n", dev], kind="check"))
@@ -2398,9 +2415,12 @@ def acquire_single_instance_lock():
     return f
 
 
-def estimate_work_need(layout, opts):
+def estimate_work_need(layout, opts, only=None):
+    """only (パーティション名の集合) を指定すると、そのパーティションだけの見積り (--only で一部だけ作るとき)。"""
     need = 0
     for pp in layout.parts:
+        if only and pp.name not in only:
+            continue
         c = caps_for(pp.spec, pp.size, opts.no_big, opts.small_count)
         n = 300 * MiB + (GiB if c.gib else 0) + (4 * GiB + 512 * MiB if c.big else 0)
         if pp.fs in ("squashfs", "erofs", "iso", "bitlocker", "udf"):
@@ -2583,8 +2603,8 @@ def estimate_image_usage(pp, opts):
     return min(data + over, pp.size)
 
 
-def estimate_images_need(layout, opts):
-    return int(sum(estimate_image_usage(pp, opts) for pp in layout.parts) * 1.1) + 64 * MiB
+def estimate_images_need(layout, opts, only=None):
+    return int(sum(estimate_image_usage(pp, opts) for pp in layout.parts if not only or pp.name in only) * 1.1) + 64 * MiB
 
 
 def main_run(argv):
@@ -2784,7 +2804,8 @@ def main_run(argv):
     except Exception:
         mi_work = []
     if not flash_only:
-        need_img, need_work = estimate_images_need(layout, opts), estimate_work_need(layout, opts)
+        only_names = set(args.only.split(",")) if args.only else None   # --only のときは、そのパーティションだけの見積り
+        need_img, need_work = estimate_images_need(layout, opts, only_names), estimate_work_need(layout, opts, only_names)
         os.makedirs(imgdir, exist_ok=True)
         same_fs = os.stat(imgdir).st_dev == os.stat(work).st_dev
         checks = [("イメージ置き場", imgdir, need_img + (need_work if same_fs else 0))] + ([] if same_fs else [("作業ディレクトリ", work, need_work)])

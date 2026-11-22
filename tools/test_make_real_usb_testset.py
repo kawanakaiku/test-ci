@@ -379,7 +379,8 @@ class MainSafetyTests(unittest.TestCase):
     def test_dry_run_default_runs_nothing(self):
         rc, out, calls = self.run_main([])
         self.assertEqual(rc, 0)
-        self.assertEqual(calls, [])
+        # mkfs.xfs -N (何も書かない。オプションを受け付けるかの確認) だけは動いてよい
+        self.assertEqual([c for c in calls if not (c[:3] == ["mkfs.xfs", "-N", "-q"])], [])
         for p in "ABC":
             self.assertIn("プロファイル %s" % p, out)
         self.assertIn("dry-run", out)
@@ -980,6 +981,16 @@ class RootFreePlanTests(unittest.TestCase):
         self.assertLess(full, lay.dev_size)
         # LUKS / BitLocker 風は全面が非ゼロになるので、そのサイズ分は必ず見込む
         self.assertGreaterEqual(small, sum(pp.size for pp in lay.parts if pp.fs in ("luks", "bitlocker")))
+
+    def test_estimate_respects_only(self):
+        # --only で一部だけ作るときは、そのパーティションだけを見積もる (全体の 21 GiB 前後を要求しない)
+        lay = M.compute_layout(M.PROFILES["C"], M.PROFILES["C"].expected)
+        name = next(pp.name for pp in lay.parts if pp.fs == "xfs")
+        one_img = M.estimate_images_need(lay, M.Opts(), {name})
+        one_work = M.estimate_work_need(lay, M.Opts(), {name})
+        self.assertLess(one_img, M.estimate_images_need(lay, M.Opts()) // 2)
+        self.assertGreater(one_work, 4 * M.GiB)   # 4.5 GiB のファイルのステージ
+        self.assertEqual(M.estimate_images_need(lay, M.Opts(), None), M.estimate_images_need(lay, M.Opts()))
 
 
 class LuksXtsTests(unittest.TestCase):

@@ -170,3 +170,5 @@ libfdisk (util-linux) は LGPL-2.1+ で、アプリの native 層 (すでに GPL
 4. **検証の独立性**: 実装を libfdisk にすると、参照にしている sfdisk / fdisk と同じコードで書いて同じコードで確認することになり、独立検証にならない。自前実装を sfdisk / sgdisk / parted で照合する方が検証として意味がある。
 
 `sha256` も自前 (外部の暗号ライブラリを入れない)。新しい外部依存・同梱コードは無いので `docs/licenses.md` の更新は不要 (libfdisk の項目は「採用しない」と記録した)。
+
+失われた表の復元案 (パーティション探索の結果から GPT/MBR を作り直す案を、この編集セッションに積む) とブートセクタの修復は `docs/partition-scan.md`。

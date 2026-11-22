@@ -74,6 +74,9 @@ class PartitionEditSession private constructor(private var h: Long) : AutoClosea
     private fun s(x: String) = x.toByteArray(Charsets.UTF_8)
     private fun live(): Long { check(Handle.valid(h)) { "closed" }; return h }
 
+    /** PartitionScanner.queueProposal が案を積むための生のハンドル (他の用途では使わない) */
+    internal fun nativeHandle(): Long = live()
+
     private fun fail(rc: Int, what: String): Nothing {
         val parts = String(PartitionEditor.nativeLastError(h), Charsets.UTF_8).split('\n', limit = 2)
         val detail = parts.getOrElse(0) { "" }

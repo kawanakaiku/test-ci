@@ -52,6 +52,8 @@ class UsbApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // kfsd (別プロセスの FS ドライバ。docs/kfsd.md): 設定に従って、マウントを kfsd 経由にするか決める (個人版の既定はプロセス内、公開版の既定は kfsd 経由)
+        try { org.usbmem.app.kfsd.Kfsd.configure(this) } catch (t: Throwable) { android.util.Log.w("kfsd", "configure failed: $t") }
         val f = IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED)
         if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(detachReceiver, f, Context.RECEIVER_NOT_EXPORTED) else @Suppress("UnspecifiedRegisterReceiverFlag") registerReceiver(detachReceiver, f)
     }

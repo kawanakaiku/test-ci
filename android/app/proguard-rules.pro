@@ -5,3 +5,7 @@
 # スタックトレースの行番号は残す (難読化したクラス名は mapping.txt で戻せる)
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
+
+# kfsd (docs/kfsd.md): ネイティブ (jni_kfsd.cpp) が KfsdNative.spawnChildFd を名前で探し、JNI が KfsdNative / KfsdSpawnNative のメソッドを名前で解決する
+-keep class org.usbmem.app.kfsd.KfsdNative { *; }
+-keep class org.usbmem.app.kfsd.KfsdSpawnNative { *; }

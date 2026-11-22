@@ -184,7 +184,7 @@ def check(manifest: Path, src_dirs, quiet=False):
                       f"本当に使うなら tools/check_manifest_permissions.py の RULES に使う API を足し、使わないなら消す")
 
     for p, t in files:
-        decls = [(m.group(1), m.group(2)) for m in CLASS_DECL.finditer(t)] + [(m.group(1), m.group(2)) for m in JAVA_CLASS_DECL.finditer(t)]
+        decls = [(m.group(1), m.group(2)) for m in CLASS_DECL.finditer(t) if not re.search(r"\babstract\b", m.group(0).split("class", 1)[0])]   # abstract は宣言できない (共通部。具象クラスがマニフェストに載る) + [(m.group(1), m.group(2)) for m in JAVA_CLASS_DECL.finditer(t)]
         for cls, base in decls:
             base = base.rsplit(".", 1)[-1]
             for kind, bases in COMPONENT_BASES.items():

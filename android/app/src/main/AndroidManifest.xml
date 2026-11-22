@@ -6,6 +6,10 @@
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <!-- パスワードの記憶 (Keystore + BiometricPrompt): BiometricManager.canAuthenticate が要る。無いと SecurityException で「記憶する」が一切出ない (2026-11-19 に AVD で発見)。 -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- kfsd のプラグイン APK (別 APK。org.usbmem.kfsd。docs/kfsd.md 6 章) を探すためのパッケージの可視性 (Android 11 以降) -->
+    <queries>
+        <package android:name="org.usbmem.kfsd" />
+    </queries>
     <application
         android:name=".UsbApp"
         android:allowBackup="false"
@@ -32,6 +36,11 @@
                 <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+        <!-- kfsd (GPL 系の FS ドライバを別プロセスの実行ファイルに分けたもの。docs/kfsd.md): 別プロセス (:kfsd) で libkfsd.so (個人版の -PusbmemKfsd=true のビルドだけが持つ) を起こして見張るサービス。アプリの外へは公開しない -->
+        <service
+            android:name=".kfsd.KfsdService"
+            android:process=":kfsd"
+            android:exported="false" />
         <!-- 個人版の FUSE 層 (wimfuse): 別プロセス (:wimfuse) で libwimfuse.so (wimlib の wimmount) を exec・監督するサービス。アプリの外へは公開しない。docs/fuse-layer.md 10 章 -->
         <service
             android:name=".wimfuse.WimFuseService"

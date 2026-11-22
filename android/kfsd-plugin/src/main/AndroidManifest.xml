@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- kfsd のプラグイン APK (試作。docs/kfsd.md 6 章 (b))。権限は要らない (kfsd は、本体から渡された socket と、本体が読み書きさせるデバイスだけを使う)。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:label="USB Storage kfsd plugin"
+        android:allowBackup="false"
+        android:extractNativeLibs="true"
+        android:hasCode="true">
+        <!-- 本体 (org.usbmem.app) が bindService で起こす。署名が同じアプリだけを PluginService が受け付ける。別プロセスにはしない (この APK 全体が、本体とは別の uid の別プロセス) -->
+        <service
+            android:name=".PluginService"
+            android:exported="true" />
+    </application>
+</manifest>

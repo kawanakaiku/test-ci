@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// mkfs (ファイルシステムの新規作成): ext2 / exFAT / FAT32 のみ。NTFS は対象外。設計は docs/disk-tools.md。
+// mkfs (ファイルシステムの新規作成): ext2 / ext3 / ext4 / FAT12 / FAT16 / FAT32 / exFAT / NTFS (実験的)。設計は docs/disk-tools.md と docs/mkfs-extended.md。
 //
 // 安全の要点 (partition_edit.h と同じ流儀):
 //  - 「計画 → 確認トークン → 適用」の 3 段。plan() は何も書かない。
@@ -22,7 +22,7 @@
 namespace usbmem {
 
 struct MkfsOptions {
-  FsType fs = FsType::Unknown;   // Ext2 / Exfat / Fat32 のみ
+  FsType fs = FsType::Unknown;   // Ext2 / Ext3 / Ext4 / Fat12 / Fat16 / Fat32 / Exfat / Ntfs
   uint64_t offset = 0;           // デバイス内の開始バイト (パーティションの先頭)
   uint64_t length = 0;           // バイト。0 = デバイスの終わりまで
   std::string label;             // UTF-8。ext2: 16 バイトまで / FAT32: 11 バイトまで (大文字化・ASCII の安全な文字) / exFAT: 11 文字まで
@@ -35,6 +35,29 @@ struct MkfsOptions {
   uint64_t seed = 0;             // 0 以外ならボリュームシリアル / UUID を決定的に作る (テスト用)。0 = OS 乱数
   uint64_t timestamp = 0;        // ファイルシステムに記録する時刻 (UNIX 秒)。0 = 現在時刻
   bool in_use = false;           // マウント中など。true の間は適用を拒否する
+  // --- 拡張 (docs/mkfs-extended.md)。既定のままなら従来の挙動
+  std::string uuid;              // ボリュームの UUID / シリアル。"xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" (ext: UUID、FAT/NTFS: 先頭バイトからシリアルを作る)。空 = 乱数 (seed があれば決定的)
+  std::string features;          // ext3 / ext4: mke2fs の -O に近い "name,^name,..." (docs/mkfs-extended.md 2 章)。空 = 既定
+  uint64_t journal_size = 0;     // ext3 / ext4: ジャーナルのバイト数。0 = mke2fs の既定 (容量から決める)
+  bool lazy_journal_init = false;  // ext3 / ext4: ジャーナル領域をゼロ埋めしない (ジャーナルのスーパーブロックだけ書く。疎なイメージ向け)
+};
+
+// 対応状況の問い合わせ (UI が選択肢を出すため。何も書かない)
+struct MkfsCapability {
+  FsType fs = FsType::Unknown;
+  bool supported = false;
+  bool experimental = false;           // NTFS
+  uint64_t min_bytes = 0;              // 作れる最小の容量 (セクタサイズ依存)
+  uint64_t max_bytes = 0;              // 作れる最大の容量 (0 = 制限なし相当)。既定のクラスタ / ブロックサイズで
+  std::vector<uint32_t> cluster_sizes; // 選べるクラスタ / ブロックサイズ (バイト)
+  uint32_t default_cluster = 0;        // 与えた容量での既定 (容量 0 なら 0)
+  uint32_t label_max = 0;              // ラベルの最大文字数 (ext: バイト数)
+  std::string label_charset;           // "ascii-upper" / "utf8" / "utf16"
+  std::vector<std::string> features;   // 選べる機能 (ext)。"name" = 既定で有効、"^name" は無効
+  bool size_ok = true;                 // 容量を与えたとき、作れるか
+  std::string reason;                  // 作れない理由 (size_ok == false のとき)
+  std::string reason_code;             // "too-small" / "too-large" ...
+  std::string note;
 };
 
 // 書く領域。data が空なら length バイトのゼロ埋め。offset は range 先頭 (MkfsOptions::offset) からのバイト位置。
@@ -100,7 +123,10 @@ class Mkfs {
   // 作成に必要な最小サイズ (バイト)。0 = 非対応
   static uint64_t min_size(FsType fs, uint32_t sector_size = 512);
   static bool supported(FsType fs);
+  // 対応状況。length > 0 なら、その容量で作れるか (理由つき) も調べる。何も書かない。cluster_size > 0 ならそのクラスタサイズで調べる
+  static std::vector<MkfsCapability> capabilities(uint64_t length = 0, uint32_t sector_size = 512, uint32_t cluster_size = 0);
 };
+std::string mkfs_capabilities_to_json(const std::vector<MkfsCapability>& caps);
 
 std::string mkfs_plan_to_json(const MkfsPlan& plan);
 std::string mkfs_result_to_json(const MkfsResult& r);

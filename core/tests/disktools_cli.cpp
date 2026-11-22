@@ -59,8 +59,13 @@ int main(int argc, char** argv) {
       uint64_t v = 0;
       if (a == "--fs" && i + 1 < argc) {
         std::string n = argv[++i];
-        mo.fs = n == "fat32" ? FsType::Fat32 : n == "exfat" ? FsType::Exfat : n == "ext2" ? FsType::Ext2 : FsType::Unknown;
+        mo.fs = n == "fat32" ? FsType::Fat32 : n == "fat16" ? FsType::Fat16 : n == "fat12" ? FsType::Fat12 : n == "exfat" ? FsType::Exfat : n == "ext2" ? FsType::Ext2 :
+                n == "ext3" ? FsType::Ext3 : n == "ext4" ? FsType::Ext4 : n == "ntfs" ? FsType::Ntfs : FsType::Unknown;
       } else if (a == "--label" && i + 1 < argc) mo.label = argv[++i];
+      else if (a == "--uuid" && i + 1 < argc) mo.uuid = argv[++i];
+      else if (a == "--features" && i + 1 < argc) mo.features = argv[++i];
+      else if (a == "--journal-size") { num(&mo.journal_size); }
+      else if (a == "--lazy-journal") mo.lazy_journal_init = true;
       else if (a == "--cluster") { num(&v); mo.cluster_size = static_cast<uint32_t>(v); }
       else if (a == "--sector") { num(&v); mo.sector_size = static_cast<uint32_t>(v); bs = static_cast<uint32_t>(v); }
       else if (a == "--seed") num(&mo.seed);
@@ -92,6 +97,6 @@ int main(int argc, char** argv) {
     std::puts((out + ",\"result\":" + mkfs_result_to_json(r) + "}").c_str());
     return r.ok() && r.verified ? 0 : 3;
   }
-  std::fprintf(stderr, "usage: %s check <image> [--fs fat12|fat16|fat32|exfat|ext2|ext3|ext4|ntfs] [--range OFFSET LENGTH]\n       %s mkfs <image> --fs fat32|exfat|ext2 ...\n", argv[0], argv[0]);
+  std::fprintf(stderr, "usage: %s check <image> [--fs fat12|fat16|fat32|exfat|ext2|ext3|ext4|ntfs] [--range OFFSET LENGTH]\n       %s mkfs <image> --fs fat12|fat16|fat32|exfat|ext2|ext3|ext4|ntfs ...\n", argv[0], argv[0]);
   return 64;
 }

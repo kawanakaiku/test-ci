@@ -164,7 +164,7 @@ int usbmem_mkfs_open(usbmem_device* dev, const char* fs_name, unsigned long long
     o.fs = parse_fs(fs_name);
     if (!Mkfs::supported(o.fs)) {
       t_open_code = "unsupported-fs";
-      t_open_msg = "only ext2, exFAT and FAT32 can be created";
+      t_open_msg = "this file system type cannot be created";
       return static_cast<int>(Errc::Unsupported);
     }
     o.offset = offset;

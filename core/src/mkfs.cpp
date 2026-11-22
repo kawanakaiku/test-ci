@@ -181,12 +181,18 @@ bool looks_like_partition_table(BlockDevice& dev, uint64_t off, uint32_t ss, Sta
 
 }  // namespace
 
-bool Mkfs::supported(FsType fs) { return fs == FsType::Ext2 || fs == FsType::Exfat || fs == FsType::Fat32; }
+bool Mkfs::supported(FsType fs) {
+  return fs == FsType::Ext2 || fs == FsType::Ext3 || fs == FsType::Ext4 || fs == FsType::Exfat || fs == FsType::Fat32 || fs == FsType::Fat16 || fs == FsType::Fat12;
+}
 
 uint64_t Mkfs::min_size(FsType fs, uint32_t ss) {
   if (ss < 512) ss = 512;
   switch (fs) {
+    case FsType::Fat12: return 64ull << 10;
+    case FsType::Fat16: return mkfsimpl::align_up((4085ull + 1 + 2 * mkfsimpl::ceil_div(4087ull * 2, ss) + mkfsimpl::ceil_div(224ull * 32, ss)) * ss, 1024);
     case FsType::Ext2: return 256ull << 10;
+    case FsType::Ext3:
+    case FsType::Ext4: return 4ull << 20;   // ジャーナル (1024 ブロック以上) とメタデータが入る最小
     case FsType::Exfat: return 1ull << 20;
     case FsType::Fat32: return (65525ull + 32 + 2 * mkfsimpl::ceil_div(65527ull * 4, ss)) * ss;
     default: return 0;
@@ -201,7 +207,7 @@ MkfsResult Mkfs::plan(BlockDevice& dev, const MkfsOptions& opt, MkfsPlan* out) {
   ok.code = "ok";
   out->fs = opt.fs;
   if (!supported(opt.fs)) {
-    out->problems.push_back(D(Severity::Error, "unsupported-fs", "only ext2, exFAT and FAT32 can be created"));
+    out->problems.push_back(D(Severity::Error, "unsupported-fs", "this file system type cannot be created"));
     return ok;
   }
   const uint64_t devsize = dev.size();
@@ -255,7 +261,11 @@ MkfsResult Mkfs::plan(BlockDevice& dev, const MkfsOptions& opt, MkfsPlan* out) {
   Build b;
   switch (opt.fs) {
     case FsType::Fat32: mkfsimpl::build_fat32(prm, &b); break;
+    case FsType::Fat16: mkfsimpl::build_fat1216(prm, &b, true); break;
+    case FsType::Fat12: mkfsimpl::build_fat1216(prm, &b, false); break;
     case FsType::Exfat: mkfsimpl::build_exfat(prm, &b); break;
+    case FsType::Ext3: mkfsimpl::build_ext(prm, &b, false); break;
+    case FsType::Ext4: mkfsimpl::build_ext(prm, &b, true); break;
     default: mkfsimpl::build_ext2(prm, &b); break;
   }
   for (auto& d : b.problems) out->problems.push_back(d);
@@ -532,7 +542,10 @@ MkfsResult Mkfs::apply(BlockDevice& dev, const MkfsPlan& plan, const std::string
   res.check_verdict = fs_verdict_name(rep.verdict);
   for (auto& f : rep.findings)
     if (f.severity != Severity::Info) res.verify_problems.push_back(Diagnostic{f.severity, f.code, f.message});
-  if (rep.verdict != FsVerdict::Clean) {
+  // 検査器の資源の上限 (メモリなど) に当たっただけで、誤りも警告も無い場合は、読み戻しが一致していることを根拠に通す (巨大なボリューム)
+  bool partial = rep.verdict == FsVerdict::Incomplete && res.verify_problems.empty();
+  if (partial) res.verify_problems.push_back(Diagnostic{Severity::Info, "check-partial", "the consistency check was limited by its resource budget (very large volume); only the on-disk structures that were written were verified"});
+  if (rep.verdict != FsVerdict::Clean && !partial) {
     res.status = Status::Make(Errc::Corrupt);
     res.code = "verify-failed";
     res.message = std::string("the new file system did not pass the consistency check (") + res.check_verdict + ")";

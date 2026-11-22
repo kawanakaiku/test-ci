@@ -3,7 +3,7 @@
 # core/CMakeLists.txt の末尾から include される。usbmem_core にだけ依存する (Android 非依存・PC でテスト可能)。
 add_library(usbmem_disktools STATIC
   src/fscheck.cpp src/fscheck_fat.cpp src/fscheck_exfat.cpp src/fscheck_ext.cpp src/fscheck_ntfs.cpp
-  src/mkfs.cpp src/mkfs_fat32.cpp src/mkfs_exfat.cpp src/mkfs_ext2.cpp
+  src/mkfs.cpp src/mkfs_fat32.cpp src/mkfs_fat16.cpp src/mkfs_exfat.cpp src/mkfs_ext2.cpp src/mkfs_ext.cpp
   src/c_api_disktools.cpp)
 target_include_directories(usbmem_disktools PUBLIC include)
 target_link_libraries(usbmem_disktools PUBLIC usbmem_core)

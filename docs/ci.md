@@ -289,3 +289,6 @@ Android のエミュレータ試験 (`android-emulator.yml`) はこのブラン�
 中身: `kfsd_unit` (KfsdInstrumentedTest: libkfsd.so の exec・ツリーと内容がプロセス内と一致 (local / plugin)・閉じると kfsd が終わる・kfsd を kill しても本体が落ちない・プラグインが無いと ENOPKG・子が残らない)、`kfsd_read_local` / `kfsd_read_plugin` (既存の
 Ext2 / Ext4 / Exfat / Isofs / Ntfs / VolumeState / DirtyConfirmUi の計装テストを、kfsd 経由 (libkfsd.so / プラグイン) で通す。テストの中身は変えない。経由の指定は、デバッグビルドだけが読む `/data/local/tmp/usbmem_kfsd`)、`kfsd_write` (WriteSelfTestInstrumented を kfsd 経由で)。
 
+結果 (kfsd 段階 3、2026-11-22): `usbmem-ci-full-kfsd3` で Host tests run 44960382930 (4 構成成功)・Public edition run 44960382936 (成功)・Android emulator tests run 44960383001 (kfsd を含む 8 グループ成功)。詳細と、途中で見つかった問題 (リンク・NDK のバージョン・wsan の応答なし) は docs/kfsd.md 9 章。
+wsan の「ランナーが応答しなくなった」(run 44926716327 / 44951708453 / main の run 44947441726) は、kfsd の差分試験をサニタイザ構成で直列にしたあとの run で再現しなかった (1 回分。再発したら記録する)。
+

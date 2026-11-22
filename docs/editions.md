@@ -324,3 +324,8 @@ CI の結果は 12.2。
 公開版に**入らない** (個人版 / kfsd の配布物だけ): `core/kfsd/src/kfsd_mount.{h,cpp}` (FS の判別とマウント = カーネル由来のドライバを呼ぶ)、`kfsd_main.cpp` (kfsd の実行ファイル)、`tests/test_kfsd_diff.cpp`・`bench_kfsd.cpp` (プロセス内との差分試験・性能測定)。
 公開版の JNI (`jni_ntfs.cpp`) は、kfsd の扱う FS を判別できたら ENOPKG (65) を返し、UI は「この FS には kfsd (プラグイン) が必要です」を出す。Android で kfsd (`libkfsd.so` / プラグイン APK) へ繋ぐ層は段階 3 (docs/kfsd.md 8 章)。
 `tools/license_inventory.py` に kfsd のコンポーネントを足し、`check_public_tree.py` のインクルード走査に `core/kfsd/include`・`core/kfsd/src` を足した (公開版の閉包の検査)。公開版の CI は `usbmem-ci-full-kfsd` で確認 (docs/ci.md)。
+
+公開版と kfsd (段階 3): 公開版の JNI (`jni_kfsd.cpp`) は kfsd へつなぐ入口を持ち、既定は「kfsd 経由」(F2FS だけ自前でプロセス内)。本体は別 APK のプラグイン (`org.usbmem.kfsd`、GPL-2.0。`android/kfsd-plugin/`。公開版のツリーには入れない) を、署名が同じ場合だけ bound service で起こして使う。
+プラグインが無いと ENOPKG (65) で、UI は「この FS には kfsd (プラグイン) が必要です」を出す。公開版のツリーに入る kfsd 関連: `android/kfsd-common/**` (起こす共通部。Apache-2.0)、`android/app/src/main/java/org/usbmem/app/kfsd/**`、`jni_kfsd.{h,cpp}`、`core/kfsd` の Apache-2.0 の部分。
+公開版 CI (run 44960382936) で成功。個人版 (`-PusbmemKfsd=true`) は libkfsd.so を APK に持つ (GPL。配らない)。
+

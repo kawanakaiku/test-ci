@@ -225,7 +225,26 @@ Gradle の `-PusbmemKfsd=true` のとき (CMake の `USBMEM_KFSD_EXE=ON`)、kfsd
 | 3 | Android: `:kfsd` サービス + `libkfsd.so`・JNI の kfsd 経由マウント (切替)・emulator の `kfsd` グループ・(b) プラグイン APK の試作 | 済 (6 章。CI の結果は 9 章) |
 | 4 | 公開版への反映 (manifest・UI の「プラグインが必要」・docs・公開版の CI) | 済 (manifest・公開版の JNI の ENOPKG・UI の文言・docs。公開版 CI 成功: run 44936730057)。Android の kfsd への接続は段階 3 |
 
-## 9. 残る課題 (現時点)
+## 9. Android の試験の結果 (段階 3、2026-11-22、kawanakaiku/test-ci)
+
+`usbmem-ci-full-kfsd3` (db・全構成): Host tests run 44960382930 (plain / san / wsan / wrel すべて成功)、Public edition run 44960382936 (成功)、Android emulator tests run 44960383001 (ext-fat / btrfs-xfs / squash-erofs / nested-ntfs / ro-misc / crypt-ui / wim-fuse / **kfsd** すべて成功)。
+`kfsd` グループ (API 34 の x86_64 エミュレータ):
+
+| テスト | 結果 |
+|---|---|
+| `KfsdInstrumentedTest` (8 件): libkfsd.so の exec と `--version`・:kfsd は別プロセス・ext4 (6050 エントリ) のツリー + 先頭 8 KiB の sha256 がプロセス内と一致 (local / plugin)・閉じると kfsd が終了コード 0 で終わる・kfsd を SIGKILL しても本体は落ちず、以降の呼び出しは errno 32 (EPIPE) で失敗し、再マウントはできる (local / plugin)・プラグインが無いと ENOPKG (65)・子が残らない | 成功 |
+| 既存の Ext2 / Ext4 / Exfat / Isofs / Ntfs / VolumeState / DirtyConfirmUi の計装テスト (44 件) を kfsd 経由 (libkfsd.so) で | 成功 (テストは変えていない) |
+| 同じ 44 件を、別 APK のプラグイン経由で | 成功 |
+| WriteSelfTestInstrumented (2 件。NTFS / ext2 の書き込み) を kfsd 経由で | 成功 |
+
+プラグインは別 UID (u0_aNNN) の別プロセスで動き、ps で `org.usbmem.kfsd` として見える。socketpair は Binder で渡した fd で、SELinux の拒否は出なかった。
+測定 (エミュレータ・ext4 の 6050 エントリのツリーの走査と先頭 8 KiB の読み。**参考値**: エミュレータは CPU の共有が不安定で、同じテストでも 2.4〜9 秒ばらつく): プロセス内 2.4 s (ウォームアップ後)、プラグイン経由 3.7 s、libkfsd.so 経由 9.5 s (同じ run でプロセス内の最初の測定が 9.0 s だったので、JIT / キャッシュの影響が大きい)。
+ホストの測定 (4 章) のとおり、メタデータ中心の走査は RPC の往復で 1.3〜4 倍になる。
+
+CI で見つかった問題と対処 (記録): (1) libkfsd.so のリンクに `log` が要る (LinuxCompat が `__android_log_print`) (2) AGP は `EXCLUDE_FROM_ALL` を見ずにすべてのターゲットをビルドするので、`-PusbmemKfsd` なしのビルドでも kfsd をリンクできるようにした (3) プラグイン APK は本体と同じ NDK / CMake のバージョンを指定する
+(4) `posix_spawn` は API 28 以降なので、kfsd のクライアントも JNI の起動も fork + exec にした (minSdk 26) (5) 全構成の run で wsan だけ「ランナーが応答しなくなった」で 2 回落ちた (メモリ逼迫の疑い。kfsd の差分試験をサニタイザ構成では直列にし、ASan の隔離領域を小さくして解消。原因は確定していない)。
+
+## 10. 残る課題 (現時点)
 
 - (解決済み) `mount_auto` の重複: jni_ntfs.cpp のプロセス内マウントは `kfsd::mount_auto` (kfsd_mount.cpp) を呼ぶ。公開版 (kfsd_mount.cpp が無い) だけ、F2FS の分岐を jni_ntfs.cpp に持つ。
 - kfsd の seccomp。共有メモリ (memfd / ashmem) による read のゼロコピー (4 章の数字を見て判断)。

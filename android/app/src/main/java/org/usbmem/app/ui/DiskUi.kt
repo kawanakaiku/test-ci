@@ -419,7 +419,7 @@ fun PartitionBar(t: PartitionTable, tag: String, modifier: Modifier = Modifier) 
     val segs = remember(t) { segmentsOf(t) }
     val free = segs.filter { it.free }.sumOf { it.size }
     val desc = stringResource(R.string.dt_bar_desc, t.kind.uppercase(), formatBytes(t.diskBytes), segs.count { !it.free }, formatBytes(free)) +
-        segs.filter { !it.free }.joinToString("") { " " + stringResource(R.string.dt_bar_desc_part, it.index, fsText(it.fs), formatBytes(it.size)) }
+        segs.filter { !it.free }.map { " " + stringResource(R.string.dt_bar_desc_part, it.index, fsText(it.fs), formatBytes(it.size)) }.joinToString("")
     Row(
         modifier.fillMaxWidth().height(44.dp).clip(MaterialTheme.shapes.small).testTag(tag).clearAndSetSemantics { contentDescription = desc },
         horizontalArrangement = Arrangement.spacedBy(2.dp),

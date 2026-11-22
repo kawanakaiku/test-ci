@@ -408,6 +408,12 @@ class SwitchDevice final : public BlockDevice {
   BlockDevicePtr b_;
 };
 
+// pid が 1 より大きいときだけシグナルを送る。pid が 0 / -1 (spawn の失敗で初期値のまま、など) のまま ::kill すると、
+// kill(-1, SIGKILL) が「自分が権限を持つ全プロセス」(CI では runner のプロセスも) を殺し、「The hosted runner lost communication」になる
+void safe_kill(pid_t pid, int sig) {
+  if (pid > 1) ::kill(pid, sig);
+}
+
 bool pid_gone(pid_t pid, int ms) {
   for (int i = 0; i < ms / 20; i++) {
     if (::kill(pid, 0) != 0 && errno == ESRCH) return true;
@@ -434,7 +440,7 @@ int run_abnormal(const std::string& dir) {
     CHECK_EQ(o.v->readdir(o.v->root(), &ents), 0);
     pid_t pid = o.rpc->pid();
     CHECK(pid > 0);
-    ::kill(pid, SIGKILL);
+    safe_kill(pid, SIGKILL);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     FsStat st;
     CHECK_EQ(o.v->stat(o.v->root(), &st), -EPIPE);
@@ -459,7 +465,7 @@ int run_abnormal(const std::string& dir) {
     }
     CHECK(exited);
     if (exited) { CHECK(WIFEXITED(st)); CHECK_EQ(WEXITSTATUS(st), 1); }
-    else { ::kill(pid, SIGKILL); ::waitpid(pid, &st, 0); }
+    else { safe_kill(pid, SIGKILL); ::waitpid(pid, &st, 0); }
   }
   // 3. 本体のプロセスが死んだ (デストラクタなし): kfsd も終わる
   {
@@ -483,7 +489,7 @@ int run_abnormal(const std::string& dir) {
     if (kp > 0) {
       bool gone = pid_gone(kp, 5000);
       CHECK(gone);
-      if (!gone) ::kill(kp, SIGKILL);
+      if (!gone) safe_kill(kp, SIGKILL);
     }
   }
   // 4. 応答しない kfsd (SIGSTOP): タイムアウトで見切り、kfsd は殺される
@@ -496,7 +502,7 @@ int run_abnormal(const std::string& dir) {
     CHECK(r != nullptr);
     if (r) {
       pid_t pid = r->pid();
-      ::kill(pid, SIGSTOP);
+      safe_kill(pid, SIGSTOP);
       FsStat st;
       double t0 = now_ms();
       int rc = r->stat(r->root(), &st);
@@ -564,7 +570,7 @@ int run_abnormal(const std::string& dir) {
     CHECK_EQ(kfsd::spawn_connect(g_kfsd, {}, name, &pid2), 0);
     int fd2 = -1;
     CHECK_EQ(kfsd::accept_peer(ls, 10000, static_cast<int>(::getuid()) + 1, &fd2), -EACCES);
-    ::kill(pid2, SIGKILL);
+    safe_kill(pid2, SIGKILL);
     int st2;
     ::waitpid(pid2, &st2, 0);
     CHECK_EQ(kfsd::accept_peer(ls, 200, -1, &fd2), -ETIMEDOUT);

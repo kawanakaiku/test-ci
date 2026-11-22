@@ -11,19 +11,11 @@
 #include <mutex>
 #include <new>
 
+#include "c_api_partedit_internal.h"
 #include "usbmem/c_api_internal.h"
 #include "usbmem/partition_edit.h"
 
 using namespace usbmem;
-
-struct usbmem_partedit {
-  std::unique_ptr<PartitionEditor> ed;
-  EditPlan plan;
-  bool has_plan = false;
-  std::vector<uint8_t> last_backup;
-  std::string err_code, err_msg;
-  std::mutex mu;
-};
 
 namespace {
 

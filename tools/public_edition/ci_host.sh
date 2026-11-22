@@ -10,7 +10,7 @@ sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   cmake ninja-build g++ python3 e2fsprogs dosfstools exfatprogs ntfs-3g mtools f2fs-tools \
   gdisk fdisk bc cryptsetup-bin nbdkit libnbd-bin qemu-utils partclone gddrescue zlib1g-dev \
-  python3-cryptography python3-numpy squashfs-tools fuse2fs fuse3 exfat-fuse
+  python3-cryptography python3-numpy squashfs-tools fuse2fs fuse3 exfat-fuse testdisk
 echo user_allow_other | sudo tee -a /etc/fuse.conf >/dev/null
 
 # runner の /dev/shm はユーザークォータで約 6 GB に制限される。クォータなしの tmpfs を重ねる

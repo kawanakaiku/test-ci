@@ -1229,6 +1229,7 @@ EditResult PartitionEditor::repair_gpt(GptRepairKind kind) {
     case GptRepairKind::CopyBackupToPrimary:
       if (!g.backup.usable()) return fail(Errc::InvalidArgument, "gpt-backup-unusable", "the backup GPT is not usable");
       m = I.model_from_copy(g.backup, false);
+      if (!g.mbr_protective_ok && !g.mbr_hybrid) m.rebuild_mbr = true;  // 先頭ごと消えて保護 MBR も無いとき、tools が GPT と認識できるように一緒に作る
       break;
     case GptRepairKind::MoveBackupToEnd: {
       const GptCopyInfo* src = g.primary.usable() ? &g.primary : (g.primary.truncated && g.primary.entries_valid) ? &g.primary : g.backup.usable() ? &g.backup : nullptr;

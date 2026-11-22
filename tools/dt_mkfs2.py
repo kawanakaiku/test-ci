@@ -63,12 +63,31 @@ def ext_extra_for(expect_in, expect_out):
     return extra
 
 
+def mtools_scaled(img):
+    """mtools で書いて読み戻す。書くファイルの大きさはイメージの 1/6 まで (100 KiB の FAT12 に 300 KB は入らない)"""
+    env = dict(os.environ, MTOOLS_SKIP_CHECK="1")
+    n = max(1000, min(300000, os.path.getsize(img) // 6))
+    src = os.path.join(os.path.dirname(img), "payload.bin")
+    with open(src, "wb") as f:
+        f.write(bytes((i * 7 + 3) & 0xFF for i in range(n)))
+    for cmd in (["mdir", "-i", img, "::"], ["mmd", "-i", img, "::/sub"], ["mcopy", "-i", img, src, "::/sub/payload.bin"], ["mcopy", "-i", img, src, "::/Long File Name.bin"]):
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+        if p.returncode != 0:
+            return True, "MTOOLS: " + " ".join(cmd[:1]) + " failed (payload %d bytes): " % n + p.stdout.decode("utf-8", "replace")
+    out = os.path.join(os.path.dirname(img), "back.bin")
+    p = subprocess.run(["mcopy", "-n", "-i", img, "::/sub/payload.bin", out], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    if p.returncode != 0 or open(out, "rb").read() != open(src, "rb").read():
+        return True, "MTOOLS: read-back of the copied file differs"
+    b, t = ref_fat32(img)
+    return b, "after mcopy: " + t
+
+
 def fat_extra(img):
     p = run(["7z", "l", img]) if shutil.which("7z") else None
     if p is not None and p.returncode != 0:
         return True, "7z cannot read the image: " + p.stdout.decode("utf-8", "replace")[:300]
     if shutil.which("mcopy") and shutil.which("mdir"):
-        return mtools_extra(img)
+        return mtools_scaled(img)
     return False, "7z ok (mtools not installed)"
 
 
@@ -112,7 +131,8 @@ def case(res, name, cli, d, size, garbage, fs, args, ref, extra=None):
     rb, rt = ref(img)
     if extra and not rb:
         eb, et = extra(img)
-        rb, rt = rb or eb, rt + "\n" + et
+        rt = (et + "\n" + rt) if eb else (rt + "\n" + et)   # 失敗した方 (mtools など) の説明を先頭に
+        rb = rb or eb
     res.add(name, rb, False, rt)
     return not rb
 
@@ -245,9 +265,24 @@ def run_random(cli, res, d, n, seed):
         size += rnd.choice([0, 0, rnd.randrange(0, 4096)])
         sector = rnd.choice([512, 512, 512, 4096])
         args = []
-        if sector != 512:
+        bnd = rnd.random() < 0.35   # 境界付近 (クラスタ数の上限・下限、最小容量)
+        if bnd:
+            if fs == "fat12":
+                size = rnd.choice([rnd.randrange(64, 513) * 1024, rnd.randrange(128, 1025) * 512, 4084 * 512 + rnd.randrange(-40, 80) * 512 + 20 * 512])
+            elif fs == "fat16":
+                c = rnd.choice([512, 1024, 2048, 4096])
+                size = rnd.choice([rnd.randrange(2048, 2300) * 1024, c * rnd.choice([4085, 4100, 65524, 65500, 65560]) + rnd.randrange(-30, 100) * 512])
+                if size > 2 * MiB and rnd.random() < 0.7:
+                    args += ["--cluster", str(c)]
+            elif fs in ("ext3", "ext4"):
+                size = rnd.choice([4 * MiB, 4 * MiB + rnd.randrange(0, 2048) * 512, rnd.randrange(4, 10) * MiB + rnd.randrange(0, 3) * 1024])
+                args += ["--cluster", str(rnd.choice([1024, 2048, 4096]))]
+            else:
+                size = rnd.choice([2 * MiB, 2 * MiB + rnd.randrange(0, 512) * 512, rnd.randrange(2, 9) * MiB])
+            size = max(size, 4096 * 8)
+        if sector != 512 and not bnd:
             args += ["--sector", str(sector)]
-        if rnd.random() < 0.5:
+        if rnd.random() < 0.5 and "--cluster" not in args:
             cs = rnd.choice([512, 1024, 2048, 4096, 8192, 16384, 32768, 65536] if fs in ("fat12", "fat16", "ntfs") else [1024, 2048, 4096])
             args += ["--cluster", str(cs)]
         if rnd.random() < 0.4:
@@ -265,6 +300,10 @@ def run_random(cli, res, d, n, seed):
         c, j = cli_mkfs(cli, img, ["--fs", fs] + args)
         if c == 0:
             rb, rt = refs[fs][0](img)
+            if fs in ("fat12", "fat16") and not rb and "--sector" not in args:
+                eb, et = fat_extra(img)
+                rt = (et + "\n" + rt) if eb else rt
+                rb = rb or eb
             res.add(name, rb, False, rt)
         elif c == 2:
             codes = {p.get("code") for p in j.get("plan", {}).get("problems", []) if p.get("severity") == "error"}

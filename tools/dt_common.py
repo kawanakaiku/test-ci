@@ -68,7 +68,7 @@ class Result:
         self.rows.append((name, status, ref_problem, our_problem, our_codes or [], ref_txt))
         print("%-9s %-34s ref=%-5s ours=%-5s %s" % (status, name, "BAD" if ref_problem else "ok", "BAD" if our_problem else "ok", ",".join(our_codes or [])))
         if status in ("FN", "FP") and ref_txt:
-            print("          ref: " + ref_txt.strip().replace("\n", " | ")[:300])
+            print("          ref: " + ref_txt.strip().replace("\n", " | ")[:3000])   # 指摘は切らずに出す (CI のログで原因が分かるように)
         sys.stdout.flush()
 
     def summary(self, title):

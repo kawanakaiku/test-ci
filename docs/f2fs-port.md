@@ -5,10 +5,10 @@
 ## 先に結論 (実用上の範囲)
 
 - F2FS (Flash-Friendly File System、Android のデータ領域や一部の USB メモリ / SD カードで使われる) を**読み取り専用**でマウントできる。書き込みは常に拒否 (`EROFS`)。
-- **Linux の `fs/f2fs` は取り込んでいない。** 他の移植 (ext4 / squashfs / erofs など) と違い、無改変インポートではなく、**オンディスク形式から書き起こした自前のリーダー** (`core/compat/src/f2fs_volume.cpp`、約 700 行、Apache-2.0) である。カーネルのソースは、レイアウト (構造体のオフセットと意味) を確かめる仕様書として読んだだけで、コードは写していない。
+- **Linux の `fs/f2fs` は取り込んでいない。** 他の移植 (ext4 / squashfs / erofs など) と違い、無改変インポートではなく、**オンディスク形式から書き起こした自前のリーダー** (`core/compat/src/f2fs_volume.cpp`、約 700 行、Apache-2.0) である。カーネルのソースは、レイアウト (構造体のオフセットと意味) を確かめる仕様書として読んだだけで、コードは写していない (2026-11-23 にカーネル全体と機械的に照合し、写しだった 2 か所 (ディレクトリのハッシュ、ノードの種別の判定) は形式の記述から書き直した: docs/provenance-btrfs-xfs.md)。
   - 理由: `fs/f2fs` はセグメント管理 (SIT / SSA の更新、GC スレッド、チェックポイント書き込み)、sysfs / debugfs、shrinker、per-CPU カウンタ、fscrypt / fsverity などと一体で、LinuxCompat に載せるには読み取りに要らない部分の大半を空実装にする必要があり、メモリと時間の見積もりが合わなかった。読み取りに必要な部分 (スーパーブロック、チェックポイント、NAT、ノード木、ディレクトリ、圧縮クラスタ) は小さい。
   - その代わり、**ドライバの出力そのものは検証にならない**ので、検証は外部のものに頼っている (後述: `mkfs.f2fs` / `sload.f2fs` / `fsck.f2fs` / `dump.f2fs`、そして QEMU 上の本物の Linux カーネルが書いたイメージ)。
-- 圧縮 (lz4 / lzo / lzo-rle / zstd) の展開だけは、squashfs / erofs と共有する `usbmem_kdecomp` (Linux `lib/` の無改変) を使う。そのため、このリーダーを含む共有ライブラリは従来どおり GPL 扱い (docs/licenses.md)。
+- 圧縮 (lz4 / lzo / lzo-rle / zstd) の展開は、core の自前の展開器 (`core/include/usbmem/decomp.h`。docs/decomp.md) を使う。GPL 系のライブラリには依存しない (公開版でも圧縮ファイルを読める)。
 - 対応: インライン データ / インライン ディレクトリ / インライン xattr 領域 (固定 50 ワードと `flexible_inline_xattr`)、`extra_attr`、直接 / 間接 / 二重間接 / 三重間接のブロック木、圧縮ファイル (クラスタの大きさ 2〜64 ブロック)、シンボリックリンク、ハードリンク、特殊ファイル (一覧と stat のみ)、`inode_checksum` / `sb_checksum` / `inode_crtime` / `lost_found` / `quota` (読むだけ) 付きのイメージ、2 つのチェックポイント パックの新しい方の選択、NAT ジャーナル (compact / 通常)。
 - マウントしない (理由を返す): 暗号化 / casefold / fs-verity / ブロック サイズが 4 KiB 以外 / セグメントあたりのブロック数が 512 以外 / zoned / multi-device / device alias / packed SSA / 未知の機能ビット → `EOPNOTSUPP` (95)。壊れている、またはチェックポイントの ERROR / FSCK / QUOTA_NEED_FSCK / RESIZEFS フラグ、または **fsync 済みで回復 (roll-forward) が必要な状態** → `EUCLEAN` (117)。
 - `EUCLEAN` のうち「回復が必要」と「フラグ」の場合に限り、確認ダイアログのあとで `allow_noload` (ext4 のジャーナル無視と同じ形) により、**回復を無視して**チェックポイントの時点の内容を読み取り専用で開ける (`recovery_ignored()` が true)。古い内容が見えることがある。
@@ -20,7 +20,7 @@
 |---|---|
 | `core/compat/public/usbmem/f2fs_volume.h` | `F2fsVolume` (`FsVolume` の実装)、`F2fsMountOptions { allow_noload }` |
 | `core/compat/src/f2fs_volume.cpp` | リーダー本体 |
-| `core/compat/src/f2fs_decomp.c` | 圧縮クラスタの展開 (lzo / lz4 / zstd。`usbmem_kdecomp` を使う薄い C の層) |
+| `core/compat/src/f2fs_decomp.cpp` | 圧縮クラスタの展開 (lzo / lzo-rle / lz4 / zstd。core の展開器を呼ぶ薄い層) |
 | `core/compat/f2fs.cmake` | ターゲット `usbmem_f2fs` とテスト (ctest `f2fs_*`) |
 | `core/compat/tests/test_f2fs.cpp` | テスト (読み取り / 破壊 / I/O エラー / ファジング / noload) |
 | `tools/gen_f2fs_fixture.py` | `mkfs.f2fs` + `sload.f2fs` + `fsck.f2fs` でイメージを作る |

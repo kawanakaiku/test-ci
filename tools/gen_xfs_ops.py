@@ -5,7 +5,7 @@
   gen_xfs_ops.py crashseed <dir> / crashops <出力>   電源断の検査用 (小さな操作列。ディレクトリ形式の変わり目をまたぐ)
   gen_xfs_ops.py ops <出力> [seeded|createonly]   操作列を出力 (書式は usbmem_xfs_write_tests --ops / tools/ops_ref.py と同じ)。seeded なら seed のファイル・ディレクトリにも書く。createonly は seed のディレクトリへの追加だけ (既存ファイルの中身は変えない・削除しない)
 既定 (createonly 以外) の操作列は Full の操作 (truncate / unlink / rmdir / rename / link。sf / block / leaf 形式のディレクトリ・bmbt 形式のファイルを含む) も含む。createonly は含まない (アプリが CreateOnly で開く場合の列)。
-tools/run_xfs_write_tests.sh (ホスト) と tools/run_android_xfs_write_test.sh (Android) が共有する。docs/xfs-write.md"""
+tools/run_xfs_write_tests.sh (ホスト) と、個人版の Android 実機・エミュレータ用の書き込み試験が共有する。docs/xfs-write.md"""
 import os
 import sys
 

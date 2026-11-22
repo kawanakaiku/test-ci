@@ -11,6 +11,8 @@ class EditionTest {
         assertEquals(setOf("f2fs"), Edition.parseFs("""{"edition":"public","fs":["f2fs"]}"""))
         assertEquals(setOf("ext3", "ext4", "fat32"), Edition.parseFs("""{"edition":"personal","fs":["ext3","ext4","fat32"]}"""))
         assertEquals(emptySet<String>(), Edition.parseFs("""{"edition":"public","fs":[]}"""))
+        // 公開版の FS (自前の F2FS / Btrfs / XFS。ネイティブの jni_edition.h が返す並び)
+        assertEquals(setOf("btrfs", "f2fs", "xfs"), Edition.parseFs("""{"edition":"public","fs":["btrfs","f2fs","xfs"]}"""))
     }
 
     @Test fun editionName_isKnown() {

@@ -1,18 +1,14 @@
-# SPDX-License-Identifier: Apache-2.0 (本ファイル) — btrfs_volume.cpp は自前のリーダー、btrfs_decomp.c と usbmem_kdecomp は GPL-2.0 系
+# SPDX-License-Identifier: Apache-2.0
 # Btrfs の読み取り専用リーダー。core/compat/CMakeLists.txt の末尾から include される。docs/btrfs-port.md
 # 他のファイルシステムのターゲットと衝突しないよう、このファイルに集める。
-add_library(usbmem_btrfs STATIC ${CMAKE_CURRENT_LIST_DIR}/src/btrfs_volume.cpp ${CMAKE_CURRENT_LIST_DIR}/src/btrfs_decomp.c)
+add_library(usbmem_btrfs STATIC ${CMAKE_CURRENT_LIST_DIR}/src/btrfs_volume.cpp)
 set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/src/btrfs_volume.cpp PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/src/btrfs_write.inc;${CMAKE_CURRENT_LIST_DIR}/src/btrfs_write_ops.inc")
 target_include_directories(usbmem_btrfs PUBLIC public)
-target_compile_options(usbmem_btrfs PRIVATE
-  $<$<COMPILE_LANGUAGE:C>:-std=gnu11> $<$<COMPILE_LANGUAGE:C>:-w> $<$<COMPILE_LANGUAGE:C>:-fno-strict-aliasing> $<$<COMPILE_LANGUAGE:C>:-fwrapv>
-  "$<$<COMPILE_LANGUAGE:C>:SHELL:-include stdint.h>" "$<$<COMPILE_LANGUAGE:C>:SHELL:-include stddef.h>" "$<$<COMPILE_LANGUAGE:C>:SHELL:-include endian.h>")
-target_compile_definitions(usbmem_btrfs PRIVATE __KERNEL__)
 if(USBMEM_NTFS_WRITE)
   # 書き込み経路 (src/btrfs_write.inc / btrfs_write_ops.inc) を有効にする。無効なら書き込み入口は全て EROFS。docs/btrfs-write.md
   target_compile_definitions(usbmem_btrfs PRIVATE USBMEM_NTFS_WRITE=1)
 endif()
-target_link_libraries(usbmem_btrfs PUBLIC usbmem_kdecomp usbmem_compat_rt usbmem_transform usbmem_core)
+target_link_libraries(usbmem_btrfs PUBLIC usbmem_fsvol usbmem_transform usbmem_core)
 
 if(USBMEM_BUILD_TESTS)
   add_executable(usbmem_btrfs_tests tests/test_btrfs.cpp)

@@ -60,9 +60,9 @@
 namespace {
 
 // dev 全体のファイルシステムを判別してマウントする。失敗時 nullptr と正の errno。
-//  - kfsd 経由 (RPC) にしてあるとき (jni_kfsd.cpp): 別プロセスの kfsd (GPL 系ドライバ) にマウントさせる。kfsd が無ければ ENOPKG(65)。公開版は F2FS だけプロセス内 (自前)、ほかは kfsd (プラグイン)
+//  - kfsd 経由 (RPC) にしてあるとき (jni_kfsd.cpp): 別プロセスの kfsd (GPL 系ドライバ) にマウントさせる。kfsd が無ければ ENOPKG(65)。公開版は自前の F2FS / Btrfs / XFS だけプロセス内、ほかは kfsd (プラグイン)
 //  - 個人版のプロセス内 (既定): core/kfsd/src/kfsd_mount.cpp の mount_auto (kfsd の実行ファイルと同じ振り分けの規則。以前はここに同じコピーがあった)
-//  - 公開版のプロセス内: 自前の F2FS だけ。判別できたがこの版に入っていない FS は ENOPKG(65) = 「この FS には kfsd (プラグイン) が必要です」
+//  - 公開版のプロセス内: 自前の F2FS / Btrfs / XFS だけ。判別できたがこの版に入っていない FS は ENOPKG(65) = 「この FS には kfsd (プラグイン) が必要です」
 std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, bool rw, int* err, bool allow_noload = false, bool allow_dirty = true) {
 #ifdef USBMEM_FS_NTFS
   if (usbmem_kfsd_rpc_enabled()) return usbmem_kfsd_mount(dev, rw, err, allow_noload, allow_dirty);
@@ -87,7 +87,23 @@ std::unique_ptr<usbmem::FsVolume> mount_auto(const usbmem::BlockDevicePtr& dev, 
     return usbmem::F2fsVolume::mount(dev, err, of);
   }
 #endif
-  // 公開版: F2FS 以外は kfsd (プラグイン) へ。kfsd へつなぐ設定でなければ、または kfsd が無ければ ENOPKG
+#ifdef USBMEM_FS_BTRFS
+  if (t == usbmem::FsType::Btrfs) {
+    // Btrfs は自前実装 (docs/btrfs-port.md)。tree-log が未再生なら EUCLEAN(117)、複数デバイス / RAID / 未知の機能は EOPNOTSUPP(95)。書き込みは F2FS と同じ規則 (docs/btrfs-write.md)
+    if (rw && !allow_noload) return usbmem::BtrfsVolume::mount_rw(dev, err);
+    usbmem::BtrfsMountOptions ob; ob.allow_noload = allow_noload;
+    return usbmem::BtrfsVolume::mount(dev, err, ob);
+  }
+#endif
+#ifdef USBMEM_FS_XFS
+  if (t == usbmem::FsType::Xfs) {
+    // XFS は自前実装 (docs/xfs-port.md)。ログが未再生なら EUCLEAN(117)。書き込みは同じ規則 (docs/xfs-write.md)
+    if (rw && !allow_noload) return usbmem::XfsVolume::mount_rw(dev, err);
+    usbmem::XfsMountOptions ox; ox.allow_noload = allow_noload;
+    return usbmem::XfsVolume::mount(dev, err, ox);
+  }
+#endif
+  // 公開版: 上の自前の FS (F2FS / Btrfs / XFS) 以外は kfsd (プラグイン) へ。kfsd へつなぐ設定でなければ、または kfsd が無ければ ENOPKG
   if (usbmem_kfsd_rpc_enabled() && t != usbmem::FsType::Unknown && t != usbmem::FsType::BitLocker && t != usbmem::FsType::Luks) return usbmem_kfsd_mount(dev, rw, err, allow_noload, allow_dirty);
   // 判別できなかったものは EINVAL (ファイルシステムではない)。判別できたが、この版に入っていない FS は ENOPKG(65)。暗号ボリュームは EPROTONOSUPPORT(93)。
   // UI は Kotlin の Edition (nativeEditionInfo) と合わせて案内する (docs/editions.md、docs/kfsd.md)。

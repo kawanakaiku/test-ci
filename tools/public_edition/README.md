@@ -2,7 +2,7 @@
 
 root 権限なしで、USB ストレージやディスクイメージを扱う Android アプリです。USB ホスト (Mass Storage / BOT) として直接つなぎ、パーティション表の表示と編集、暗号ボリュームの解錠、ディスクの検査と初期化、救出とバックアップなどができます。
 
-> **公開版 (public edition)**: アプリ全体のソース公開を求めるライセンス (GPL 系) のコードを一切含まないビルドです。Linux カーネル由来のファイルシステムドライバを含まないため、**ファイルを読み書きできるファイルシステムは F2FS だけ**です (下の「対応しているもの」)。NTFS・exFAT・FAT・ext2/3/4・Btrfs・XFS・ISO 9660・UDF・squashfs・erofs を開くには、これらを含む別のビルド (個人用。配布されません) が必要です。
+> **公開版 (public edition)**: アプリ全体のソース公開を求めるライセンス (GPL 系) のコードを一切含まないビルドです。Linux カーネル由来のファイルシステムドライバを含まないため、**ファイルを読み書きできるファイルシステムは F2FS・Btrfs・XFS だけ**です (下の「対応しているもの」)。NTFS・exFAT・FAT・ext2/3/4・ISO 9660・UDF・squashfs・erofs を開くには、これらを含む別のビルド (個人用。配布されません) が必要です。
 
 ## 免責 (必ずお読みください)
 
@@ -20,10 +20,10 @@ root 権限なしで、USB ストレージやディスクイメージを扱う A
 | 暗号ボリューム | **LUKS1 / LUKS2** (AES-XTS / CBC、PBKDF2 / Argon2) と **BitLocker** の解錠と読み取り (書き込みは既定で無効・実験的) | docs/crypto-volumes.md。暗号は自前実装 (OpenSSL 等に依存しません) |
 | ディスク検査・初期化 | FAT / exFAT / ext / NTFS の整合性検査 (読み取りのみ)、FAT32 / exFAT / ext2 の mkfs | docs/disk-tools.md |
 | 救出・バックアップ | ddrescue 互換の mapfile による救出、Partclone 形式 (+ LZ4) のバックアップと復元 | docs/recovery-backup.md |
-| ファイルシステム | **F2FS** の読み取り (圧縮されたファイルを除く)。書き込みは実験的で、書き込み有効のビルド (`-PusbmemNtfsWrite=true`) だけ | docs/f2fs-port.md, docs/f2fs-write.md |
-| ネストマウント | ボリューム内のディスクイメージを開く (F2FS の中のイメージ) | docs/nested-mount.md |
+| ファイルシステム | **F2FS・Btrfs・XFS** の読み取り (圧縮されたファイルを含む。展開は自前の展開器)。書き込みは実験的で、書き込み有効のビルド (`-PusbmemNtfsWrite=true`) だけ | docs/f2fs-port.md, docs/btrfs-port.md, docs/xfs-port.md, docs/decomp.md, docs/provenance-btrfs-xfs.md |
+| ネストマウント | ボリューム内のディスクイメージを開く (F2FS / Btrfs / XFS の中のイメージ) | docs/nested-mount.md |
 
-**この版で未対応のファイルシステム**: NTFS、exFAT、FAT12/16/32、ext2/3/4、Btrfs、XFS、ISO 9660、UDF、squashfs、erofs。パーティション一覧には種類が表示されますが、マウントの入口は出ず、「この版では未対応」と案内されます。パーティション表の編集、検査、救出、バックアップは、これらのファイルシステムでも使えます。
+**この版で未対応のファイルシステム**: NTFS、exFAT、FAT12/16/32、ext2/3/4、ISO 9660、UDF、squashfs、erofs。パーティション一覧には種類が表示されますが、マウントの入口は出ず、「この版では未対応」と案内されます。パーティション表の編集、検査、救出、バックアップは、これらのファイルシステムでも使えます。
 
 (`docs/` には、完全版 (個人用ビルドを含む) の設計メモを一部載せています。この版に含まれない機能の記述が混ざることがあります。)
 
@@ -53,11 +53,11 @@ cmake --build build
 (cd build && PATH="$PATH:/sbin:/usr/sbin" ctest -j2 --output-on-failure)
 ```
 
-フィクスチャの生成に、`sfdisk` / `sgdisk` / `mkfs.*` / `cryptsetup` / `qemu-img` / `f2fs-tools` などの外部ツールを使います (無いテストは SKIP されます)。`.github/workflows/ci.yml` が、必要なパッケージと手順を示しています。実機 (本物の USB メモリ) を使うテストは、この版には含まれません。
+フィクスチャの生成に、`sfdisk` / `sgdisk` / `mkfs.*` / `cryptsetup` / `qemu-img` / `f2fs-tools` / `btrfs-progs` / `xfsprogs` / `zstd` / `lzop` などの外部ツールを使います (無いテストは SKIP されます)。`.github/workflows/ci.yml` が、必要なパッケージと手順を示しています。実機 (本物の USB メモリ) を使うテストは、この版には含まれません。
 
 ## 設計
 
-`docs/architecture.md` (全体)、各機能の `docs/*.md`。ソースの構成: `core/` (C++17。パーティション・暗号・イメージ・検査・救出・USB)、`core/compat/` (この版では FsVolume 共通 IF・ネストマウント・F2FS だけ)、`android/` (Kotlin + Jetpack Compose + JNI)。
+`docs/architecture.md` (全体)、各機能の `docs/*.md`。ソースの構成: `core/` (C++17。パーティション・暗号・イメージ・検査・救出・USB)、`core/compat/` (この版では FsVolume 共通 IF・ネストマウント・F2FS / Btrfs / XFS だけ)、`android/` (Kotlin + Jetpack Compose + JNI)。
 
 ## ライセンス
 

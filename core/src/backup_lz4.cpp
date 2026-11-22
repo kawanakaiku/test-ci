@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "backup_internal.h"
+#include "usbmem/decomp.h"
 
 namespace usbmem {
 namespace {
@@ -95,46 +96,9 @@ void compress_block(const uint8_t* src, size_t n, Bytes* out) {
   out->insert(out->end(), src + anchor, src + n);
 }
 
-// ---- ブロック展開 (境界を検査)。dst[0, prefix) は直前までの履歴 (連鎖ブロック用)。出力は dst[prefix, prefix+*out_len)。
+// ---- ブロック展開 (境界を検査)。dst[0, prefix) は直前までの履歴 (連鎖ブロック用)。出力は dst[prefix, prefix+*out_len)。展開器は usbmem/decomp.h と共有 (Btrfs / F2FS の圧縮も同じ)
 bool decompress_block(const uint8_t* in, size_t n, uint8_t* dst, size_t prefix, size_t cap, size_t* out_len) {
-  size_t ip = 0, op = prefix;
-  const size_t limit = prefix + cap;
-  while (ip < n) {
-    uint8_t token = in[ip++];
-    size_t lit = token >> 4;
-    if (lit == 15) {
-      uint8_t b;
-      do {
-        if (ip >= n) return false;
-        b = in[ip++];
-        lit += b;
-        if (lit > limit) return false;
-      } while (b == 255);
-    }
-    if (lit > n - ip || lit > limit - op) return false;
-    std::memcpy(dst + op, in + ip, lit);
-    ip += lit; op += lit;
-    if (ip == n) break;  // 最後の系列はリテラルのみ
-    if (n - ip < 2) return false;
-    size_t off = in[ip] | (static_cast<size_t>(in[ip + 1]) << 8);
-    ip += 2;
-    if (off == 0 || off > op) return false;
-    size_t ml = token & 15;
-    if (ml == 15) {
-      uint8_t b;
-      do {
-        if (ip >= n) return false;
-        b = in[ip++];
-        ml += b;
-        if (ml > limit) return false;
-      } while (b == 255);
-    }
-    ml += 4;
-    if (ml > limit - op) return false;
-    for (size_t i = 0; i < ml; i++, op++) dst[op] = dst[op - off];
-  }
-  *out_len = op - prefix;
-  return true;
+  return usbmem_lz4_block_decompress(in, n, dst, prefix, cap, out_len) == 0;
 }
 
 // ================================================================================================ 書き出し

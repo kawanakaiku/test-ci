@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // xfs_dump: XFS イメージを XfsVolume で開き、ツリーを標準出力へ書く簡易ツール (開発・独立検証用)。
 // 使い方: xfs_dump [--noload] <image> [--cat <path>]
 //   出力: "D <path> <mtime> <nlink>" / "F <path> <size> <mtime> <nlink> <sha256 先頭 16 桁は使わず crc>" / "L <path> <target>" / "S <path> <c|b|p|s>"

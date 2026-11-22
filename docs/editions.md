@@ -37,27 +37,29 @@
 <!-- inventory:table -->
 | コンポーネント | ファイル | SPDX の内訳 | 出所 | 判断 | 公開版 | 説明 |
 |---|--:|---|---|---|--:|---|
-| `.github (CI)` | 13 | (なし) 12, Apache-2.0 1 | dev 12, own 1 | 一部だけ入れる (入る 1 / 除外 12) | 1 | 個人版の CI |
+| `.github (CI)` | 14 | (なし) 13, Apache-2.0 1 | dev 13, own 1 | 一部だけ入れる (入る 1 / 除外 13) | 1 | 個人版の CI |
 | `ルート` | 6 | (なし) 6 | own 4, dev 2 | 一部だけ入れる (入る 4 / 除外 2) | 4 | README など |
-| `android: ビルド設定・リソース・ラッパー` | 20 | (なし) 18, Apache-2.0 2 | own 19, external-permissive 1 | 公開版に入れる | 20 | Gradle / マニフェスト / リソース / Gradle ラッパー (Apache-2.0) |
-| `android: 計装テスト` | 36 | (なし) 36 | dev 36 | 公開版から除外 | 0 | 実機・エミュレータ用。カーネル FS のフィクスチャ・個人の機材を前提にする |
-| `android: JNI` | 11 | Apache-2.0 7, GPL-2.0-or-later 3, (なし) 1 | own 8, own-gpl 3 | 公開版に入れる (SPDX を Apache-2.0 へ書き換え 3) | 11 | 自前の JNI (FS の分岐は USBMEM_FS_* の条件コンパイル) |
-| `android: Kotlin アプリ` | 40 | (なし) 39, Apache-2.0 1 | own 36, external-gpl 4 | 一部だけ入れる (入る 36 / 除外 4) | 36 | 自前の Kotlin。AndroidX / Compose (Apache-2.0) に依存 |
+| `android: ビルド設定・リソース・ラッパー` | 28 | (なし) 21, Apache-2.0 6, GPL-2.0-or-later 1 | own 23, own-gpl 4, external-permissive 1 | 一部だけ入れる (入る 24 / 除外 4) | 24 | Gradle / マニフェスト / リソース / Gradle ラッパー (Apache-2.0) |
+| `android: 計装テスト` | 37 | (なし) 37 | dev 37 | 公開版から除外 | 0 | 実機・エミュレータ用。カーネル FS のフィクスチャ・個人の機材を前提にする |
+| `android: JNI` | 13 | Apache-2.0 9, GPL-2.0-or-later 3, (なし) 1 | own 10, own-gpl 3 | 公開版に入れる (SPDX を Apache-2.0 へ書き換え 3) | 13 | 自前の JNI (FS の分岐は USBMEM_FS_* の条件コンパイル) |
+| `android: Kotlin アプリ` | 43 | (なし) 39, Apache-2.0 4 | own 39, external-gpl 4 | 一部だけ入れる (入る 39 / 除外 4) | 39 | 自前の Kotlin。AndroidX / Compose (Apache-2.0) に依存 |
 | `android: JVM 単体テスト` | 8 | (なし) 8 | own 8 | 公開版に入れる | 8 | JUnit |
-| `core/*.cmake, core/CMakeLists.txt` | 7 | Apache-2.0 7 | own 5, own-gpl 1, external-gpl 1 | 一部だけ入れる (入る 5 / 除外 2) | 5 | 自前: ビルド定義 |
-| `core/compat: ビルド定義` | 8 | Apache-2.0 8 | kernel 7, own 1 | 一部だけ入れる (入る 1 / 除外 7) | 1 | 各カーネル FS のビルド定義 |
-| `core/compat: F2FS (自前)` | 10 | Apache-2.0 8, GPL-2.0-or-later 2 | own 8, own-gpl 2 | 一部だけ入れる (入る 8 / 除外 2) | 8 | 自前: オンディスク形式から書き起こした読み書き。圧縮の展開だけ個人版はカーネル lib |
+| `core/*.cmake, core/CMakeLists.txt` | 8 | Apache-2.0 8 | own 6, own-gpl 1, external-gpl 1 | 一部だけ入れる (入る 6 / 除外 2) | 6 | 自前: ビルド定義 |
+| `core/compat: ビルド定義` | 6 | Apache-2.0 6 | kernel 5, own 1 | 一部だけ入れる (入る 1 / 除外 5) | 1 | 各カーネル FS のビルド定義 |
+| `core/compat: Btrfs / XFS (自前)` | 20 | Apache-2.0 20 | own 20 | 公開版に入れる | 20 | 自前の読み書き (2026-11-23 に出所を調べ直した: docs/provenance-btrfs-xfs.md)。展開は core の自前の展開器。Apache-2.0、公開版に入る |
+| `core/compat: F2FS (自前)` | 9 | Apache-2.0 8, GPL-2.0-or-later 1 | own 8, own-gpl 1 | 一部だけ入れる (入る 8 / 除外 1) | 8 | 自前: オンディスク形式から書き起こした読み書き。圧縮の展開は core の自前の展開器 (core/src/decomp*.cpp) |
 | `core/compat: LinuxCompat ヘッダ` | 165 | (なし) 93, GPL-2.0-or-later 68, GPL-2.0 3, GPL-2.0 WITH Linux-syscall-note 1 | kernel-shim 165 | 公開版から除外 | 0 | カーネルの内部 API の再実装 (<linux/*.h>) |
-| `core/compat: Btrfs / XFS (自前だが GPL 表記)` | 12 | GPL-2.0-or-later 12 | own-gpl 12 | 公開版から除外 | 0 | 自前の読み書き。SPDX が GPL-2.0-or-later (カーネルの lib・形式定義への依存) のため公開版から除外 |
 | `core/compat: カーネル FS ドライバのラッパ・公開ヘッダ` | 28 | GPL-2.0-or-later 28 | kernel 28 | 公開版から除外 | 0 | NTFS / exFAT / ext2 / ext4 / FAT / ISO 9660 / UDF / squashfs / erofs を呼ぶ薄い層 (GPL-2.0-or-later) |
 | `core/compat: FsVolume 共通 IF・ネストマウント` | 5 | GPL-2.0-or-later 5 | own-gpl 5 | 公開版に入れる (SPDX を Apache-2.0 へ書き換え 5) | 5 | 自前: FS 共通のインタフェースと、その上のネストマウント (GPL 表記は安全側。公開版では Apache-2.0 へ) |
 | `core/compat: LinuxCompat 実行時` | 20 | GPL-2.0-or-later 19, Apache-2.0 1 | kernel-shim 20 | 公開版から除外 | 0 | inode / dentry / ページキャッシュ / bio / buffer_head / jbd2 / VFS の再現 |
-| `core/compat: カーネル FS / LinuxCompat のテスト` | 25 | GPL-2.0-or-later 22, Apache-2.0 3 | kernel 24, own 1 | 公開版から除外 | 0 | 上のドライバのテスト (GPL-2.0-or-later 表記が大半) |
+| `core/compat: カーネル FS / LinuxCompat のテスト` | 22 | GPL-2.0-or-later 19, Apache-2.0 3 | kernel 19, own-gpl 2, own 1 | 一部だけ入れる (入る 2 / 除外 20) | 2 | 上のドライバのテスト (GPL-2.0-or-later 表記が大半) |
 | `core/fuseshim (ntfs-3g / wimlib)` | 26 | GPL-2.0-or-later 22, Apache-2.0 2, LGPL-2.1-or-later 2 | external-gpl 26 | 公開版から除外 | 0 | 外部 GPL / LGPL を動かす試作層 (GPL-2.0-or-later) |
-| `core/include` | 26 | Apache-2.0 26 | own 26 | 公開版に入れる | 26 | 自前: 公開 API ヘッダ |
-| `core/src` | 58 | Apache-2.0 58 | own 58 | 公開版に入れる | 58 | 自前: パーティション表・ディスク編集・USB MSC / SCSI・暗号 (AES / SHA / HMAC / PBKDF2 / XTS / Argon2)・LUKS1/2・BitLocker・QCOW2 / VHD / VHDX / VMDK / NBD・DiskTools (fsck / mkfs)・救出 / バックアップ |
-| `core/tests` | 28 | Apache-2.0 27, (なし) 1 | own 27, generated 1 | 公開版に入れる | 28 | 自前: 上のテスト (暗号ベクタは公開値) |
-| `docs` | 47 | (なし) 47 | own-doc 47 | 一部だけ入れる (入る 13 / 除外 34) | 13 | ドキュメント (公開版に入るのは公開版の機能に関するものだけ) |
+| `core/include` | 27 | Apache-2.0 27 | own 27 | 公開版に入れる | 27 | 自前: 公開 API ヘッダ |
+| `core/kfsd: プロトコル・クライアント・サーバ共通部 (Apache-2.0)` | 8 | Apache-2.0 8 | own 8 | 公開版に入れる | 8 | 自前: 本体と kfsd の RPC (kfsd_proto.h) と RpcVolume・serve。ドライバを含まない |
+| `core/kfsd: kfsd の実行ファイル・ドライバ呼び出し (GPL-2.0-or-later)` | 5 | GPL-2.0-or-later 5 | kernel 5 | 公開版から除外 | 0 | カーネル FS ドライバを呼ぶ別プロセスの実行ファイル。個人版と別配布のプラグイン (docs/kfsd.md) |
+| `core/src` | 60 | Apache-2.0 60 | own 60 | 公開版に入れる | 60 | 自前: パーティション表・ディスク編集・USB MSC / SCSI・暗号 (AES / SHA / HMAC / PBKDF2 / XTS / Argon2)・LUKS1/2・BitLocker・QCOW2 / VHD / VHDX / VMDK / NBD・DiskTools (fsck / mkfs)・救出 / バックアップ |
+| `core/tests` | 29 | Apache-2.0 28, (なし) 1 | own 28, generated 1 | 公開版に入れる | 29 | 自前: 上のテスト (暗号ベクタは公開値) |
+| `docs` | 50 | (なし) 50 | own-doc 50 | 一部だけ入れる (入る 19 / 除外 31) | 19 | ドキュメント (公開版に入るのは公開版の機能に関するものだけ) |
 | `third_party/その他` | 1 | (なし) 1 | kernel 1 | 公開版から除外 | 0 | Linux カーネル由来 |
 | `third_party/erofs` | 23 | GPL-2.0-only 13, GPL-2.0-or-later 7, GPL-2.0 WITH Linux-syscall-note 1, (なし) 1, MIT 1 | kernel 23 | 公開版から除外 | 0 | Linux fs/erofs。GPL-2.0 |
 | `third_party/exfat` | 17 | GPL-2.0-or-later 14, GPL-2.0 WITH Linux-syscall-note 2, (なし) 1 | kernel 17 | 公開版から除外 | 0 | Linux fs/exfat。GPL-2.0-or-later |
@@ -69,7 +71,7 @@
 | `third_party/ntfs-resurrection` | 67 | GPL-2.0-or-later 55, (なし) 6, GPL-2.0 WITH Linux-syscall-note 2, MIT 2, GPL-2.0-only 1, ほか 1 種 | kernel 67 | 公開版から除外 | 0 | Linux fs/ntfs (NTFS Resurrection)。GPL-2.0-or-later |
 | `third_party/squashfs` | 34 | GPL-2.0-or-later 24, GPL-2.0-only 8, GPL-2.0 WITH Linux-syscall-note 1, (なし) 1 | kernel 34 | 公開版から除外 | 0 | Linux fs/squashfs。GPL-2.0 |
 | `third_party/udf` | 23 | GPL-2.0-only 14, GPL-2.0 4, (なし) 3, GPL-2.0 WITH Linux-syscall-note 1, LGPL-2.0+ 1 | kernel 23 | 公開版から除外 | 0 | Linux fs/udf。GPL-2.0 (一部 LGPL-2.0+) |
-| `tools` | 160 | (なし) 128, Apache-2.0 31, GPL-2.0-or-later 1 | dev 129, own 24, kernel-patch 3, kernel-shim 2, external-gpl 2 | 一部だけ入れる (入る 24 / 除外 136) | 24 | テスト・フィクスチャ生成・CI の補助 (公開版に入るのは公開版のテストが使うものだけ) |
+| `tools` | 164 | (なし) 128, Apache-2.0 34, GPL-2.0-or-later 2 | dev 115, own 42, kernel-patch 3, kernel-shim 2, external-gpl 2 | 一部だけ入れる (入る 42 / 除外 122) | 42 | テスト・フィクスチャ生成・CI の補助 (公開版に入るのは公開版のテストが使うものだけ) |
 | `tools: FUSE アダプター・fuseshim・xfstests` | 10 | (なし) 9, GPL-2.0-or-later 1 | own-gpl 6, external-gpl 4 | 公開版から除外 | 0 | GPL 表記の自前アダプターと、ntfs-3g / wimlib の取得・試験 |
 <!-- /inventory:table -->
 
@@ -86,9 +88,9 @@
 | ext3 / ext4 | `third_party/ext4` (Linux `fs/ext4` + `fs/jbd2`)。一部 LGPL-2.1 | GPL-2.0 (LGPL-2.1 を含む) | **除外** | |
 | ISO 9660 / UDF | `third_party/isofs`, `third_party/udf` (Linux)。UDF に LGPL-2.0+ | GPL-2.0 (LGPL-2.0+ を含む) | **除外** | |
 | squashfs / erofs | `third_party/squashfs`, `third_party/erofs` (Linux) + `third_party/kernel-lib` (lib/ の展開器) | GPL-2.0 | **除外** | |
-| Btrfs | 自前のリーダー / ライター (`btrfs_volume.cpp` ほか)。**ただし SPDX は GPL-2.0-or-later**、圧縮の展開はカーネルの lib (`btrfs_decomp.c`)、構造体の並びは uapi ヘッダ (`btrfs_tree.h`) を参照 | GPL-2.0-or-later 表記 | **除外 (安全側)** | 要確認。自前と確かめて SPDX を直し、展開を差し替えれば入れられる (10 章) |
-| XFS | 自前のリーダー / ライター (`xfs_volume.cpp` ほか)。**`fs/xfs` の形式定義 (xfs_format.h など。GPL-2.0) を仕様として読んで書いた**とコードの冒頭に明記 | GPL-2.0-or-later 表記 | **除外 (安全側。派生の疑い)** | 「独立に実装」とあるが、`fs/xfs` は uapi ではなく GPL-2.0 のため、除外側に倒した |
-| **F2FS** | **自前** (`f2fs_volume.cpp` + `f2fs_write*.inc`)。オンディスク形式から書き起こした。`fs/f2fs` のコードは写していない (docs/f2fs-port.md。カーネルのソースは構造体のレイアウトを確かめる仕様書として読んだだけ) | Apache-2.0 | **入れる** | 圧縮クラスタの展開 (lz4 / lzo / zstd) だけカーネルの lib なので、公開版は `f2fs_decomp_stub.c` (展開せず `EOPNOTSUPP`)。圧縮されていないファイルは読める |
+| **Btrfs** | **自前** (`btrfs_volume.cpp` + `btrfs_write*.inc`)。btrfs wiki の On-disk Format から書き起こした。圧縮の展開は core の展開器 (zlib = システムの libz、LZO1X・zstd = 自前: docs/decomp.md) | Apache-2.0 (2026-11-23 に SPDX を直した) | **入れる** | 出所の調査と機械照合は docs/provenance-btrfs-xfs.md。書き込みは個人版と同じ扱い (実験的・`USBMEM_NTFS_WRITE` が既定 OFF) |
+| **XFS** | **自前** (`xfs_volume.cpp` + `xfs_write*.inc`)。公開仕様 "XFS Algorithms & Data Structures" から書き起こした。**形式の数値の確認にカーネルの形式定義ヘッダ (xfs_format.h など。GPL-2.0) を読んだ**ことは、コードの冒頭と docs/xfs-port.md に隠さず書いてある | Apache-2.0 (2026-11-23 に SPDX を直した) | **入れる** | カーネル全体 (v7.3 / v6.12) との機械照合で、10 トークン以上の連続一致・コメントの写しは無かった (定型の `rc = f(); if (rc) return rc;` と形式の定数表だけ)。docs/provenance-btrfs-xfs.md。**形式の定義を GPL のヘッダから取ったことの法的な評価は、ユーザーが著作権者として決める** (同ドキュメント 5 章) |
+| **F2FS** | **自前** (`f2fs_volume.cpp` + `f2fs_write*.inc`)。オンディスク形式から書き起こした。`fs/f2fs` のコードは写していない (docs/f2fs-port.md)。機械照合で見つかった写し 2 か所 (ディレクトリのハッシュ、ノードの種別の判定) は、形式の記述から書き直した | Apache-2.0 | **入れる** | 圧縮クラスタ (lz4 / lzo / lzo-rle / zstd) の展開も core の自前の展開器 (2026-11-23。以前は公開版だけ `EOPNOTSUPP`) |
 | fuseshim 経由の NTFS / WIM | `core/fuseshim` (shim・アダプター。GPL-2.0-or-later) + ntfs-3g (GPL-2.0+、fuse-lite は LGPL-2.0)・wimlib (LGPL-3.0+ / GPL-3.0+)。ソースはリポジトリに無い (CI が取得) | GPL / LGPL | **除外** | 本番方針は別プロセス (docs/fuse-layer.md 4 章)。別プロセスでも、配布する側には GPL / LGPL の義務 (ソース・通知) は残る (公開版には入れない) |
 
 > ユーザーが「自前の NTFS / exFAT / FAT」と考えていたものは、**実際にはカーネル由来**である (ファイルを読み書きするドライバ本体)。自前なのは、整合性検査 (fsck 相当) と mkfs (`core/src/fscheck_*.cpp`, `mkfs_*.cpp`) で、これらは公開版に入る。`docs/fs-feature-matrix.md` の「XFS・Btrfs・F2FS (と NTFS) は自前」の「と NTFS」は誤りで、直した。
@@ -105,29 +107,27 @@
 | データ救出 (ddrescue 互換 mapfile)・バックアップ (Partclone 形式 + LZ4) | `core/src/recovery.cpp`, `backup_*.cpp` | 形式の互換のために再実装 (partclone 0.3.49 の実出力の解析。ソースは取り込まない) |
 | USB Mass Storage / SCSI | `core/src/usb_msc.cpp`, `usbdevfs_transport.cpp`, `devices.cpp` | 自前 (`<linux/usbdevice_fs.h>` はシステムのヘッダを include するだけ) |
 | FsVolume 共通 IF・ネストマウント | `core/compat/public/usbmem/fs_volume.h` ほか (3.5 章) | 自前 |
-| F2FS | 3.2 章 | |
+| F2FS・Btrfs・XFS (読み書き) と圧縮データの展開器 | 3.2 章、`core/src/decomp*.cpp` (docs/decomp.md) | 自前 (出所は docs/provenance-btrfs-xfs.md) |
 | Android アプリ | `android/app/src/main/java` (Kotlin)、`cpp` (JNI)、`res` | 自前。AndroidX / Compose / Material3 / Kotlin 標準ライブラリ (Apache-2.0) に依存 (ビルド時に Maven から取得。リポジトリには無い)。Gradle ラッパーの jar (Apache-2.0) だけが外部のバイナリ |
 
 ### 3.4 判断に迷って除外側に倒したもの
 
 | 対象 | 理由 | 戻すには |
 |---|---|---|
-| Btrfs (`btrfs_*`) | 自前だが SPDX が GPL-2.0-or-later。展開はカーネルの lib。形式は uapi の `btrfs_tree.h` を参照 | 自前であることの確認 → SPDX を Apache-2.0 へ → 展開を zlib / 自前デコーダに差し替え → manifest の `exclude` を `relicense` に |
-| XFS (`xfs_*`) | `fs/xfs` の形式定義 (GPL-2.0) を仕様として読んだと明記。SPDX も GPL-2.0-or-later | 同上 (ただし派生かどうかの判断が必要。ユーザーが著作権者として判断する) |
-| `core/compat/tests/test_f2fs_write.cpp` | SPDX が GPL-2.0-or-later (自前のテスト)。公開版の CI は読み取りビルドなので不要 | `relicense` に移し、f2fs の書き込みテストを CI に足す |
-| `core/compat/tests/bench_write_io.cpp` | btrfs も測る個人版のベンチ | — |
+| `core/compat/tests/test_f2fs_write.cpp` | SPDX が GPL-2.0-or-later (自前のテスト)。F2FS の書き込み試験は実カーネルの VM (`tools/f2fs_vm`) との比較が中心で、公開版の CI では回せない | `relicense` に移し、f2fs の書き込みテストを CI に足す |
+| `core/compat/tests/bench_write_io.cpp` | 書き込みの I/O 形を測る個人版のベンチ | — |
 | `docs/` の大半 | カーネル FS の移植記録・実機の検証記録・CI・監査・TODO。個人の機材 (機種名・テスト用リポジトリのアカウント名) を含む | 公開用に書き直す |
 | `android/app/src/androidTest/**` | カーネル FS のフィクスチャと実機 (個人の USB メモリ) を前提にする | F2FS / 暗号 / パーティション編集の計装テストだけを選んで入れる |
 | `tools/` の大半 | カーネル FS・NTFS・実機・開発機のパス (カーネルパッケージ・VM) に依存 | 必要になったものから入れる |
 
-「自前」と書かれていても Linux カーネル (や ntfs-3g) の記述に倣った可能性があるものは、`license_inventory.py --lists` の「カーネルへの言及があるもの」で一覧する (現状の公開版の対象は F2FS の「写していない」という否定の記述だけ)。
+「自前」と書かれていても Linux カーネル (や ntfs-3g) の記述に倣った可能性があるものは、`license_inventory.py --lists` の「カーネルへの言及があるもの」で一覧する (現状の公開版の対象は、F2FS / Btrfs / XFS の「カーネルのコードは含まない」という否定の記述と、XFS の出所の注記)。
 
 ### 3.5 自前だが GPL 表記で、公開版では Apache-2.0 として出すもの (relicense)
 
 次の 8 ファイルは、個人版でカーネル由来の FS ドライバと同じライブラリに入るため SPDX が GPL-2.0-or-later だが、**中身は自前の API 定義・薄い層で、カーネルのコードを含まない** (git の履歴の作者は 1 種類、コードはカーネルのヘッダ・実装を参照していない)。著作権者 (ユーザー) は自分のコードを別のライセンスでも出せるので、書き出しの際に SPDX の行だけを Apache-2.0 に書き換える (個人版のファイルは変えない)。
 
 <!-- inventory:lists -->
-### SPDX を Apache-2.0 へ書き換えて出すもの (relicense: 8)
+### SPDX を Apache-2.0 へ書き換えて出すもの (relicense: 10)
 
 | ファイル | 元の SPDX | 理由 |
 |---|---|---|
@@ -139,26 +139,19 @@
 | `core/compat/public/usbmem/vol_state.h` | GPL-2.0-or-later | 自前のビット定義 (C / C++ 共通) |
 | `core/compat/src/fs_volume.cpp` | GPL-2.0-or-later | 自前 (FsVolume::resolve だけ) |
 | `core/compat/src/nested_mount.cpp` | GPL-2.0-or-later | 自前 (ネストの系譜・ボリューム単位の mutex。FS ドライバを呼ばない) |
+| `core/compat/tests/crash_device.h` | GPL-2.0-or-later | 自前の電源断模擬デバイス (Btrfs / XFS の書き込み試験が使う)。GPL 表記は個人版の他の試験との同居のための安全側 |
+| `core/compat/tests/sha256.h` | GPL-2.0-or-later | 自前のテスト用 SHA-256 |
 
-### 自前だが公開版から外すもの (22)
+### 自前だが公開版から外すもの (13)
 
 | ファイル | SPDX | 理由 |
 |---|---|---|
-| `core/compat/public/usbmem/btrfs_volume.h` | GPL-2.0-or-later | 上と同じ |
-| `core/compat/public/usbmem/xfs_volume.h` | GPL-2.0-or-later | 上と同じ |
-| `core/compat/src/btrfs_decomp.c` | GPL-2.0-or-later | カーネルの展開ライブラリ (zlib / lzo / zstd。GPL 系) を呼ぶラッパ |
-| `core/compat/src/btrfs_volume.cpp` | GPL-2.0-or-later | 自前の Btrfs リーダー / ライター。ただし SPDX は GPL-2.0-or-later、展開はカーネルの lib (btrfs_decomp.c)、形式は uapi ヘッダを参照 → 要確認 = 除外 (docs/btrfs-port.md) |
-| `core/compat/src/btrfs_write.inc` | GPL-2.0-or-later | 上と同じ (書き込みの実装) |
-| `core/compat/src/btrfs_write_ops.inc` | GPL-2.0-or-later | 上と同じ (書き込みの実装) |
-| `core/compat/src/f2fs_decomp.c` | GPL-2.0-or-later | カーネルの展開ライブラリ (usbmem_kdecomp。GPL 系) を呼ぶラッパ |
-| `core/compat/src/xfs_volume.cpp` | GPL-2.0-or-later | 自前の XFS リーダー / ライター。ただし fs/xfs の形式定義 (xfs_format.h など GPL-2.0) を仕様として読んで書いたと明記 → 派生の疑い = 除外 (docs/xfs-port.md) |
-| `core/compat/src/xfs_write.inc` | GPL-2.0-or-later | 上と同じ (書き込みの実装) |
-| `core/compat/src/xfs_write_alloc.inc` | GPL-2.0-or-later | 上と同じ (書き込みの実装) |
-| `core/compat/src/xfs_write_full.inc` | GPL-2.0-or-later | 上と同じ (書き込みの実装) |
-| `core/compat/src/xfs_write_node.inc` | GPL-2.0-or-later | 上と同じ (書き込みの実装) |
-| `core/compat/src/xfs_write_ops.inc` | GPL-2.0-or-later | 上と同じ (書き込みの実装) |
-| `core/compat/tests/bench_write_io.cpp` | Apache-2.0 | btrfs (GPL 表記) も測る個人版のベンチ |
-| `core/compat/tests/test_f2fs_write.cpp` | GPL-2.0-or-later | 書き込みの試験 (GPL-2.0-or-later 表記)。公開版の CI は読み取りビルドのため。必要になったら relicense へ |
+| `android/kfsd-plugin/build.gradle.kts` | - | kfsd のプラグイン APK (別 APK で配る。libkfsd.so = GPL-2.0-or-later を載せる)。本体の公開版には入れない |
+| `android/kfsd-plugin/src/main/AndroidManifest.xml` | - | kfsd のプラグイン APK (別 APK で配る。libkfsd.so = GPL-2.0-or-later を載せる)。本体の公開版には入れない |
+| `android/kfsd-plugin/src/main/cpp/CMakeLists.txt` | GPL-2.0-or-later | kfsd のプラグイン APK (別 APK で配る。libkfsd.so = GPL-2.0-or-later を載せる)。本体の公開版には入れない |
+| `android/kfsd-plugin/src/main/java/org/usbmem/kfsd/PluginService.kt` | - | kfsd のプラグイン APK (別 APK で配る。libkfsd.so = GPL-2.0-or-later を載せる)。本体の公開版には入れない |
+| `core/compat/tests/bench_write_io.cpp` | Apache-2.0 | 書き込みの I/O 形を測る個人版のベンチ |
+| `core/compat/tests/test_f2fs_write.cpp` | GPL-2.0-or-later | 書き込みの試験 (GPL-2.0-or-later 表記)。F2FS の書き込み試験は個人版 (tools/f2fs_vm の実カーネル比較を使う)。必要になったら relicense へ |
 | `core/fuse.cmake` | Apache-2.0 | tools/fuse/usbmem_fuse.cpp (GPL-2.0-or-later 表記) を参照する xfstests 用アダプター |
 | `tools/fuse/fsck_ntfs.sh` | - | 自前の FUSE アダプター usbmem_fuse.cpp (GPL-2.0-or-later 表記。libfuse3 とリンク) と、xfstests の実行・期待値。公開版に FUSE の入口は無い |
 | `tools/fuse/mount.fuse.usbmem` | - | 自前の FUSE アダプター usbmem_fuse.cpp (GPL-2.0-or-later 表記。libfuse3 とリンク) と、xfstests の実行・期待値。公開版に FUSE の入口は無い |
@@ -167,15 +160,20 @@
 | `tools/fuse/usbmem_fuse.cpp` | GPL-2.0-or-later | 自前の FUSE アダプター usbmem_fuse.cpp (GPL-2.0-or-later 表記。libfuse3 とリンク) と、xfstests の実行・期待値。公開版に FUSE の入口は無い |
 | `tools/fuse/xfstests_expected.json` | - | 自前の FUSE アダプター usbmem_fuse.cpp (GPL-2.0-or-later 表記。libfuse3 とリンク) と、xfstests の実行・期待値。公開版に FUSE の入口は無い |
 
-### 公開版に入る「自前」のうち、カーネルへの言及があるもの (要レビュー: 3)
+### 公開版に入る「自前」のうち、カーネルへの言及があるもの (要レビュー: 8)
 
 自前と書かれたファイルの中に、`fs/<名前>/`・「Linux カーネル」・「カーネルのソース」などの言及がある行数。読んだだけ (仕様の確認) か、写したかを人が判断する。
 
 | ファイル | 行数 | 例 |
 |---|--:|---|
 | `android/app/src/main/java/org/usbmem/app/Edition.kt` | 1 | L7 * 公開版 (public) は GPL 系のコード (Linux カーネル由来のドライバなど) を一切含まないビルドで、扱えるファイルシステムがネイティブ層に |
+| `core/compat/public/usbmem/btrfs_volume.h` | 1 | L2 // Btrfs のボリューム (自前のリーダー + 実験的な書き込み。Linux の fs/btrfs のコードは含まない: docs/btrfs-port. |
 | `core/compat/public/usbmem/f2fs_volume.h` | 1 | L2 // F2FS のリーダー + 書き込み (書き込みは USBMEM_NTFS_WRITE ビルドの mount_rw だけ。オンディスク形式からの独自実装。L |
+| `core/compat/src/btrfs_volume.cpp` | 1 | L3 // 読み取りに必要な部分だけを自前で持つ (トランザクション / 遅延参照 / ワークキューなどはない)。Linux の fs/btrfs のコードは含まない |
 | `core/compat/src/f2fs_volume.cpp` | 1 | L3 // Linux の fs/f2fs のコードは含まない (docs/f2fs-port.md)。ブロックサイズ 4 KiB、1 セグメント 512 ブロックの |
+| `tools/provenance_fetch.sh` | 2 | L3 # 出所の機械照合 (tools/provenance_scan.py、docs/provenance-btrfs-xfs.md) のために、Linux カーネ |
+| `tools/provenance_scan.py` | 1 | L3 """自前の Btrfs / XFS / F2FS のコードが、Linux カーネルのコードの写しでないことを機械的に確かめる (docs/provenance |
+| `tools/xfs_vm/kreplay.py` | 1 | L159 if n.endswith("/fs/xfs/xfs.ko.zst") or n.endswith("/fs/xfs/xfs.ko"): |
 
 ### 未分類 (どの規則にも当たらない = 要確認 = 除外: 0)
 
@@ -197,10 +195,10 @@
 
 | 層 | 仕組み |
 |---|---|
-| CMake (`core/`) | `-DUSBMEM_EDITION=personal\|public` (既定 `personal`)。`public` は `core/compat/` に公開版の小さな CMakeLists.txt (overlay) を使い、`core/fuse.cmake` / `fuseshim.cmake` を読み込まない。`core/compat/f2fs.cmake` は `usbmem_kdecomp` (カーネルの展開器) があれば従来どおり、無ければ `f2fs_decomp_stub.c` と `usbmem_fsvol` に切り替わる。**個人版の ctest の一覧は main と同一** (書き込み OFF で 145、ON で 165。確認済み) |
+| CMake (`core/`) | `-DUSBMEM_EDITION=personal\|public` (既定 `personal`)。`public` は `core/compat/` に公開版の小さな CMakeLists.txt (overlay) を使い、`core/fuse.cmake` / `fuseshim.cmake` を読み込まない。公開版の `core/compat/CMakeLists.txt` は `f2fs.cmake` / `btrfs.cmake` / `xfs.cmake` を **個人版と同じファイルのまま** include する (個人版は `usbmem_fsvol` を `usbmem_compat_rt` の ALIAS にして、リンク先を同じ名前にした)。`USBMEM_NTFS_WRITE` (書き込み経路。既定 OFF) も同じ名前のオプションを公開版の CMake が持つ。圧縮データの展開は core の自前の展開器 (`core/decomp.cmake`)。**個人版の ctest の一覧は main と同一** (書き込み OFF で 145、ON で 165。確認済み) |
 | Gradle (`android/app`) | `-PusbmemEdition=personal\|public` (既定 `personal`)。`BuildConfig.EDITION`、公開版は `versionName` に `-public`、`-DUSBMEM_EDITION=public` を CMake へ |
-| JNI (`android/app/src/main/cpp`) | `jni_edition.h` が FS ごとのマクロ `USBMEM_FS_*` を定める (個人版は全部 1、公開版は CMake が `USBMEM_FS_F2FS` だけ定義)。`jni_ntfs.cpp` の `mount_auto` は FS ごとに `#ifdef`。公開版で FS を判別できたがリンクしていないときは `EPROTONOSUPPORT` (93)、判別できなければ `EINVAL`。`nativeEditionInfo()` が `{"edition":..,"fs":[..]}` を返す |
-| Kotlin / UI | `Edition.kt` (`isPublic`、`supports(fs)`。FS の一覧は実行時に `nativeEditionInfo()` で問い合わせる)。`UsbScreen` は、公開版で入っていない FS のパーティションに「この版では未対応です (対応: F2FS)」を出し、マウントのボタンを出さない。`MainActivity.fsRefusalNotice` は 93 を「この版では未対応のファイルシステム」の案内にする。暗号ボリュームの中の FS も同様 (`CryptoMount.innerRanges`)。個人版は `Edition.supports` が常に true |
+| JNI (`android/app/src/main/cpp`) | `jni_edition.h` が FS ごとのマクロ `USBMEM_FS_*` を定める (個人版は全部 1、公開版は CMake が `USBMEM_FS_F2FS` / `USBMEM_FS_BTRFS` / `USBMEM_FS_XFS` を定義)。`jni_ntfs.cpp` の `mount_auto` は FS ごとに `#ifdef`。公開版で FS を判別できたがリンクしていないときは `EPROTONOSUPPORT` (93)、判別できなければ `EINVAL`。`nativeEditionInfo()` が `{"edition":..,"fs":[..]}` を返す |
+| Kotlin / UI | `Edition.kt` (`isPublic`、`supports(fs)`。FS の一覧は実行時に `nativeEditionInfo()` で問い合わせる)。`UsbScreen` は、公開版で入っていない FS のパーティションに「この版では未対応です (対応: BTRFS / F2FS / XFS)」を出し、マウントのボタンを出さない。`MainActivity.fsRefusalNotice` は 93 を「この版では未対応のファイルシステム」の案内にする。暗号ボリュームの中の FS も同様 (`CryptoMount.innerRanges`)。個人版は `Edition.supports` が常に true |
 
 ## 6. 書き出しと検査
 
@@ -242,7 +240,7 @@ git log --stat | head                                                   # 履歴
 
 ## 9. 公開前のチェックリスト (ユーザー用)
 
-1. [x] (2026-11-23、ユーザーが一任) 3.5 章の relicense 8 ファイルを Apache-2.0 で出す。カーネルの `#include` ・著作権表記が無く、すべてこのリポジトリで書かれたことを確認した。3.4 章の除外 (Btrfs / XFS など) を戻すか決める。
+1. [x] (2026-11-23、ユーザーが一任) 3.5 章の relicense 8 ファイルを Apache-2.0 で出す。カーネルの `#include` ・著作権表記が無く、すべてこのリポジトリで書かれたことを確認した。3.4 章の除外のうち Btrfs / XFS は、2026-11-23 に出所を調べ直して公開版へ戻した (docs/provenance-btrfs-xfs.md。XFS の形式定義の出所の評価はユーザーの判断: 同ドキュメント 5 章)。
 2. [x] (2026-11-23、ユーザーが一任) 公開版のライセンスは Apache-2.0、NOTICE の著作権者は個人名を入れず「android-usbmem contributors」で確定。kfsd (別配布の GPL-2.0 のプロセス) の説明を NOTICE に足した。以下は元の項目: `tools/public_edition/NOTICE` の著作権者の表記 (「android-usbmem contributors」の仮置き) と `README.md` を直す。
 3. [x] (2026-11-23) 実行して OK。機種名は manifest の `scrub` で番号付きの端末名 (端末 A〜D) に置換し、`check_public_tree.py` の `devices` 検査で再混入を防ぐ。以下は元の項目: `tools/export_public.sh` を実行し、`check_public_tree.py` が OK であること。出力を目で見る (特に `docs/` の抜粋、機種名: F-51A・J9260・XQ-FS44・Ratoc などがコメントに残る。docs/release-audit.md 2.5 章)。
 4. [ ] 公開版の履歴を、7 章の手順で新しく作る (個人版の履歴は公開しない)。
@@ -254,8 +252,7 @@ git log --stat | head                                                   # 履歴
 
 ## 10. 残る課題
 
-- **F2FS の圧縮ファイルの読み取り** (公開版は未対応): lz4 は `core/src/backup_lz4.cpp` の自前の LZ4 デコーダで足りる可能性がある (F2FS の lz4 クラスタは lz4 のブロック形式)。lzo / zstd は寛容なライセンスの実装を自前で書くか、BSD 系の公開実装を取り込む (zstd は GPL-2.0 OR BSD-3-Clause の BSD 側。`third_party/kernel-lib` の個々のファイルのライセンスは精査が必要)。
-- **Btrfs / XFS を公開版へ**: 3.4 章。Btrfs は自前の確認と展開の差し替え (zlib はシステムライブラリで足りる。lzo / zstd は上と同じ)。
+- **F2FS の圧縮ファイル / Btrfs / XFS** (2026-11-23 に対応済み): 公開版にも入れた。圧縮データの展開は自前の展開器 (docs/decomp.md。zstd を upstream の同梱にしなかった理由もそこ)、出所の機械照合は docs/provenance-btrfs-xfs.md。書き込みは個人版と同じ「実験的・既定 OFF」。公開版の CI に `write` 構成 (書き込み有効の Release で Btrfs / XFS / F2FS と展開器の試験を回す) を足した。
 - **公開版の計装テスト** (エミュレータ): F2FS・暗号・パーティション編集・UI の未対応 FS の案内。今は JVM 単体テストと、APK のシンボル検査だけ。
 - **公開版の docs の整備**: 今は機能に関する docs の一部だけ。カーネル FS への言及が混ざる。
 - 個人版の `core/compat/f2fs.cmake` の書き込みテストは `test_f2fs_write.cpp` が無いと入らない条件を足した (公開版が書き込み有効でも configure が通るように)。

@@ -50,8 +50,8 @@ inline uint16_t le16(const uint8_t* p) { return static_cast<uint16_t>(p[0] | (p[
 inline uint32_t le32(const uint8_t* p) { return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) | (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24); }
 inline uint64_t le64(const uint8_t* p) { return static_cast<uint64_t>(le32(p)) | (static_cast<uint64_t>(le32(p + 4)) << 32); }
 
-// カーネルの crc32_le (反転なし、種を直接渡す)
-uint32_t crc32_le(uint32_t crc, const uint8_t* p, size_t n) {
+// CRC32 (多項式 0xEDB88320 のビット反転なし版。種を直接渡す。F2FS のチェックポイント / inode のチェックサム用)
+uint32_t crc32_seeded(uint32_t crc, const uint8_t* p, size_t n) {
   static uint32_t table[256];
   static std::once_flag once;
   std::call_once(once, [] {
@@ -119,7 +119,7 @@ constexpr uint32_t kFtReg = 1, kFtDir = 2, kFtLnk = 7;
 inline void put16(uint8_t* p, uint32_t v) { p[0] = static_cast<uint8_t>(v); p[1] = static_cast<uint8_t>(v >> 8); }
 inline void put32(uint8_t* p, uint32_t v) { for (int i = 0; i < 4; i++) p[i] = static_cast<uint8_t>(v >> (8 * i)); }
 inline void put64(uint8_t* p, uint64_t v) { for (int i = 0; i < 8; i++) p[i] = static_cast<uint8_t>(v >> (8 * i)); }
-// SIT / NAT のビットマップは MSB 先頭 (f2fs_test_bit)、dentry のビットマップは LSB 先頭 (test_bit_le)
+// SIT / NAT のビットマップは MSB 先頭、dentry のビットマップは LSB 先頭 (形式の定義)
 inline bool bm_msb_get(const uint8_t* m, uint32_t i) { return (m[i >> 3] & (0x80u >> (i & 7))) != 0; }
 inline void bm_msb_set(uint8_t* m, uint32_t i) { m[i >> 3] |= static_cast<uint8_t>(0x80u >> (i & 7)); }
 inline void bm_msb_clr(uint8_t* m, uint32_t i) { m[i >> 3] &= static_cast<uint8_t>(~(0x80u >> (i & 7))); }
@@ -127,49 +127,48 @@ inline bool bm_lsb_get(const uint8_t* m, uint32_t i) { return (m[i >> 3] & (1u <
 inline void bm_lsb_set(uint8_t* m, uint32_t i) { m[i >> 3] |= static_cast<uint8_t>(1u << (i & 7)); }
 inline void bm_lsb_clr(uint8_t* m, uint32_t i) { m[i >> 3] &= static_cast<uint8_t>(~(1u << (i & 7))); }
 
-// f2fs_dentry_hash (TEA、非 casefold)
-void tea_transform(uint32_t buf[4], const uint32_t in[4]) {
-  uint32_t sum = 0, b0 = buf[0], b1 = buf[1], a = in[0], b = in[1], c = in[2], d = in[3];
-  for (int n = 0; n < 16; n++) {
-    sum += 0x9E3779B9u;
-    b0 += ((b1 << 4) + a) ^ (b1 + sum) ^ ((b1 >> 5) + b);
-    b1 += ((b0 << 4) + c) ^ (b0 + sum) ^ ((b0 >> 5) + d);
-  }
-  buf[0] += b0; buf[1] += b1;
+// ディレクトリエントリのハッシュ (f2fs の形式の一部。casefold なし): 名前を 16 バイトずつ 4 語に詰め、TEA (Wheeler-Needham の暗号の 16 周) で状態 2 語を混ぜる。
+// 詰め方: 語の上位側に名前の語を順に入れていき、足りない部分は「残りの長さ」を 4 バイトに繰り返した値 (pad) で埋める。状態の初期値は MD5 と同じ定数。
+uint32_t hash_pack_word(const uint8_t* s, size_t avail, uint32_t pad) {
+  uint32_t v = pad;
+  const size_t k = avail < 4 ? avail : 4;
+  for (size_t j = 0; j < k; j++) v = (v << 8) + s[j];
+  return v;
 }
-void str2hashbuf(const uint8_t* msg, size_t len, uint32_t* buf, int num) {
-  uint32_t pad = static_cast<uint32_t>(len) | (static_cast<uint32_t>(len) << 8);
-  pad |= pad << 16;
-  uint32_t val = pad;
-  if (len > static_cast<size_t>(num) * 4) len = static_cast<size_t>(num) * 4;
-  for (size_t i = 0; i < len; i++) {
-    if ((i % 4) == 0) val = pad;
-    val = msg[i] + (val << 8);
-    if ((i % 4) == 3) { *buf++ = val; val = pad; num--; }
+inline uint32_t tea_mix(uint32_t x, uint32_t ka, uint32_t kb, uint32_t sum) { return ((x << 4) + ka) ^ (x + sum) ^ ((x >> 5) + kb); }
+void hash_mix_block(uint32_t st[4], const uint32_t key[4]) {
+  uint32_t l = st[0], r = st[1], sum = 0;
+  for (int round = 0; round < 16; round++) {
+    sum += 0x9E3779B9u;
+    l += tea_mix(r, key[0], key[1], sum);
+    r += tea_mix(l, key[2], key[3], sum);
   }
-  if (--num >= 0) *buf++ = val;
-  while (--num >= 0) *buf++ = pad;
+  st[0] += l;
+  st[1] += r;
 }
 uint32_t dentry_hash(const uint8_t* name, size_t len) {
-  if ((len == 1 && name[0] == '.') || (len == 2 && name[0] == '.' && name[1] == '.')) return 0;
-  uint32_t buf[4] = {0x67452301u, 0xefcdab89u, 0x98badcfeu, 0x10325476u}, in[4];
-  const uint8_t* p = name;
-  size_t n = len;
-  while (n > 0) {
-    str2hashbuf(p, n, in, 4);
-    tea_transform(buf, in);
-    p += 16;
-    if (n <= 16) break;
-    n -= 16;
+  if (len == 1 && name[0] == '.') return 0;
+  if (len == 2 && name[0] == '.' && name[1] == '.') return 0;
+  uint32_t st[4] = {0x67452301u, 0xefcdab89u, 0x98badcfeu, 0x10325476u};
+  for (size_t off = 0; off < len; off += 16) {
+    const size_t rest = len - off;
+    uint32_t pad = static_cast<uint32_t>(rest) | (static_cast<uint32_t>(rest) << 8);
+    pad |= pad << 16;
+    uint32_t key[4];
+    for (int w = 0; w < 4; w++) {
+      const size_t at = static_cast<size_t>(w) * 4;
+      key[w] = hash_pack_word(name + off + at, rest > at ? rest - at : 0, pad);
+    }
+    hash_mix_block(st, key);
   }
-  return buf[0];   // カーネルの F2FS_HASH_COL_BIT は 1ULL<<63 で、32 ビットの hash には効かない (上位ビットも残す。fsck.f2fs も同じ)
+  return st[0];   // 上位ビットも残す (32 ビット全体がハッシュ。fsck.f2fs も同じ)
 }
-inline uint32_t dir_buckets(uint32_t level, uint32_t dir_level) { return (level + dir_level < 31) ? (1u << (level + dir_level)) : (1u << 30); }
-inline uint32_t bucket_blocks(uint32_t level) { return level < 31 ? 2 : 4; }
-inline uint64_t dir_block_index(uint32_t level, uint32_t dir_level, uint32_t idx) {
+inline uint32_t buckets_at_level(uint32_t level, uint32_t dir_level) { return (level + dir_level < 31) ? (1u << (level + dir_level)) : (1u << 30); }
+inline uint32_t blocks_per_bucket(uint32_t level) { return level < 31 ? 2 : 4; }
+inline uint64_t first_block_of_bucket(uint32_t level, uint32_t dir_level, uint32_t idx) {
   uint64_t b = 0;
-  for (uint32_t i = 0; i < level; i++) b += static_cast<uint64_t>(dir_buckets(i, dir_level)) * bucket_blocks(i);
-  return b + static_cast<uint64_t>(idx) * bucket_blocks(level);
+  for (uint32_t i = 0; i < level; i++) b += static_cast<uint64_t>(buckets_at_level(i, dir_level)) * blocks_per_bucket(i);
+  return b + static_cast<uint64_t>(idx) * blocks_per_bucket(level);
 }
 
 // 1 つのセグメントの状態 (SIT エントリそのもの)
@@ -586,7 +585,7 @@ struct F2fsVolume::Impl {
     uint32_t lss = le32(s + 8), lspb = le32(s + 12);
     if (lss < 9 || lss > 12 || lss + lspb != log_blk) return -kEUCLEAN;
     if (feature & kFeatSbChksum) {
-      if (le32(s + 32) != 3068 || crc32_le(kMagic, s, 3068) != le32(s + 3068)) return -kEUCLEAN;
+      if (le32(s + 32) != 3068 || crc32_seeded(kMagic, s, 3068) != le32(s + 3068)) return -kEUCLEAN;
     }
     if (feature & kFeatEncrypt) return -kEOPNOTSUPP;
     if (feature & kFeatVerity) return -kEOPNOTSUPP;
@@ -738,8 +737,8 @@ struct F2fsVolume::Impl {
     const uint8_t* p = b->data();
     uint32_t off = le32(p + 164);
     if (off < 192 || off > kBlk - 4) return -kEUCLEAN;
-    uint32_t crc = crc32_le(kMagic, p, off);
-    if (off < kBlk - 4) crc = crc32_le(crc, p + off + 4, kBlk - off - 4);
+    uint32_t crc = crc32_seeded(kMagic, p, off);
+    if (off < kBlk - 4) crc = crc32_seeded(crc, p + off + 4, kBlk - off - 4);
     if (crc != le32(p + off)) return -kEUCLEAN;
     uint32_t total = le32(p + 136);
     if (total > kSegBlks || total <= 2) return -kEUCLEAN;
@@ -750,8 +749,8 @@ struct F2fsVolume::Impl {
     const uint8_t* q = b2->data();
     uint32_t off2 = le32(q + 164);
     if (off2 < 192 || off2 > kBlk - 4) return -kEUCLEAN;
-    uint32_t crc2 = crc32_le(kMagic, q, off2);
-    if (off2 < kBlk - 4) crc2 = crc32_le(crc2, q + off2 + 4, kBlk - off2 - 4);
+    uint32_t crc2 = crc32_seeded(kMagic, q, off2);
+    if (off2 < kBlk - 4) crc2 = crc32_seeded(crc2, q + off2 + 4, kBlk - off2 - 4);
     if (crc2 != le32(q + off2) || le64(q) != v1) return -kEUCLEAN;
     *first = b; *ver = v1;
     return 0;

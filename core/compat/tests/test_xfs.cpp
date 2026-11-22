@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // XFS (core/compat/src/xfs_volume.cpp) の読み取りテスト。
 // 使い方: usbmem_xfs_tests <fixture_dir>            tools/gen_xfs_fixture.py が作った *.img / *.manifest を全部検証
 //         usbmem_xfs_tests --features <fixture_dir> スーパーブロックの機能ビット (未知の incompat / needsrepair / 外部ログなど) と、ログの未再生 (noload) の扱い

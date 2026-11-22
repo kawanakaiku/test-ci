@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
-// XFS の読み取り専用リーダ。ディスク形式 (スーパーブロック / AG / inode / extent / bmbt / ディレクトリ各形式 / シンボリックリンク / ログ) を
-// Linux の fs/xfs の形式定義 (xfs_format.h, xfs_da_format.h, xfs_log_format.h, xfs_log_recover.c) を仕様として読み、独立に実装したもの。
-// ログの再生は持たない。書き込み (USBMEM_NTFS_WRITE のビルドだけ) は xfs_write*.inc: ログ (カーネルが再生できる形式) 経由のコミット。docs/xfs-port.md / docs/xfs-write.md
+// SPDX-License-Identifier: Apache-2.0
+// XFS の読み取り専用リーダ。ディスク形式 (スーパーブロック / AG / inode / extent / bmbt / ディレクトリ各形式 / シンボリックリンク / ログ) の独立実装。形式の事実 (フィールドの配置・定数・ハッシュ関数) は公開仕様 "XFS Algorithms & Data Structures" と、カーネルの形式定義ヘッダ (数値の確認) から取り、コードは写していない。
+// 出所と機械的な照合の結果は docs/provenance-btrfs-xfs.md。
+// ログの再生は持たない。書き込み (USBMEM_NTFS_WRITE のビルドだけ) は xfs_write*.inc: ログ (再生側が読める形式) 経由のコミット。docs/xfs-port.md / docs/xfs-write.md
 #include "usbmem/xfs_volume.h"
 
 #include <algorithm>

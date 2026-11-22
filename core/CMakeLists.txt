@@ -49,6 +49,7 @@ endif()
 
 find_package(Threads REQUIRED)
 include(blockdev.cmake)  # 画像形式 / オーバーレイ / NBD (zlib 依存)
+include(decomp.cmake)  # 圧縮データの展開 (zlib / LZ4 / LZO1X / Zstandard。Btrfs・F2FS の圧縮が使う。docs/decomp.md)
 
 if(USBMEM_BUILD_TESTS)
   enable_testing()

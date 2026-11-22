@@ -15,9 +15,9 @@ set(USBMEM_BUILD_KFSD ON CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../../../../../core core)
 add_library(usbmem_jni SHARED jni_kfsd.cpp jni_bridge.cpp jni_ntfs.cpp jni_partedit.cpp jni_transform.cpp jni_blockdev.cpp jni_disktools.cpp jni_recovery.cpp)
 if(USBMEM_EDITION STREQUAL "public")
-  # 公開版 (docs/editions.md): GPL 系を含まない。リンクする FS は自前の F2FS だけ (圧縮ファイルの展開は未対応)。個人版と同じ JNI のコードを、USBMEM_FS_* の条件コンパイルで使う
-  target_compile_definitions(usbmem_jni PRIVATE USBMEM_EDITION_PUBLIC=1 USBMEM_FS_F2FS=1)
-  target_link_libraries(usbmem_jni PRIVATE usbmem_f2fs usbmem_fsvol usbmem_transform usbmem_disktools usbmem_recovery usbmem_core log)
+  # 公開版 (docs/editions.md): GPL 系を含まない。リンクする FS は自前の F2FS / Btrfs / XFS だけ (圧縮の展開は core の自前の展開器)。個人版と同じ JNI のコードを、USBMEM_FS_* の条件コンパイルで使う
+  target_compile_definitions(usbmem_jni PRIVATE USBMEM_EDITION_PUBLIC=1 USBMEM_FS_F2FS=1 USBMEM_FS_BTRFS=1 USBMEM_FS_XFS=1)
+  target_link_libraries(usbmem_jni PRIVATE usbmem_f2fs usbmem_btrfs usbmem_xfs usbmem_fsvol usbmem_transform usbmem_disktools usbmem_recovery usbmem_core log)
 else()
   # jni_ntfs.cpp は GPL-2.0-or-later の NTFS (fs/ntfs) ・exFAT・ext2・ext4・FAT・isofs・udf・squashfs・erofs・btrfs・f2fs・xfs をリンクするため、この共有ライブラリ全体が GPL 扱い (docs/licenses.md)
   target_link_libraries(usbmem_jni PRIVATE usbmem_ntfs usbmem_exfat usbmem_ext2 usbmem_ext4 usbmem_fat usbmem_isofs usbmem_udf usbmem_squashfs usbmem_erofs usbmem_btrfs usbmem_f2fs usbmem_xfs usbmem_transform usbmem_disktools usbmem_recovery usbmem_core log)

@@ -10,7 +10,7 @@ squashfs / erofs / ext4 などは Linux の `fs/*` を無改変で LinuxCompat �
   「読み取りに必要な部分だけ」を切り出しても、`open_ctree` が全部を初期化する。互換層に数百の API を足す作業になり、読み取り専用でも実効が薄い。
 - 読み取りに必要な形式は小さい: スーパーブロック → chunk (論理 → 物理) → root tree → fs tree の B 木 → inode / dir item / file extent。
   自前で約 1000 行 (`core/compat/src/btrfs_volume.cpp`)。ディスク上の値を一切信用しない書き方 (範囲・桁あふれ・ループの検査) を最初から入れられる。
-- 展開だけは既存のカーネルの展開ライブラリ (`third_party/kernel-lib`: `lib/zlib_inflate`・`lib/lzo`・`lib/zstd`、無改変) を使う (`btrfs_decomp.c` の薄いラッパ)。
+- 展開 (zlib / lzo / zstd) は core の展開器 (`core/include/usbmem/decomp.h`。docs/decomp.md: zlib = システムの libz、LZO1X と zstd = 自前) を使う。カーネルのライブラリには依存しない。
 - 副作用: 既定のビルド (`USBMEM_NTFS_WRITE` なし) では、書き込み・tree-log 再生・修復の経路が**コードとして存在しない**。読み取り専用であることが構造で保証される (書き込みは `btrfs_write*.inc` を `USBMEM_NTFS_WRITE` のときだけ取り込む: docs/btrfs-write.md)。
 
 ## 対応範囲
@@ -38,7 +38,7 @@ squashfs / erofs / ext4 などは Linux の `fs/*` を無改変で LinuxCompat �
 ## 構成
 - `core/compat/public/usbmem/btrfs_volume.h` : `usbmem::BtrfsVolume` (`FsVolume` 実装)、`BtrfsMountOptions {allow_noload, subvol_id, verify_data}`、`BtrfsSubvolume`。
 - `core/compat/src/btrfs_volume.cpp` : リーダー本体。全 API は 1 つの mutex で直列化し、例外は外へ出さない。ノードは検証してから LRU 的にキャッシュ (予算 8 MiB)。展開済み extent は 4 つだけキャッシュ。
-- `core/compat/src/btrfs_decomp.c` : zlib / lzo1x / zstd の展開 (カーネルの lib、GPL-2.0)。これを通して `usbmem_kdecomp` にリンクするので、`usbmem_btrfs` をリンクする JNI は GPL 扱い (他の FS と同じ。docs/licenses.md)。
+- 展開は `core/src/decomp*.cpp` (docs/decomp.md)。以前の `btrfs_decomp.c` (カーネルの lib のラッパ) は 2026-11-23 に廃止した。`usbmem_btrfs` は GPL 系のコードを含まず、公開版にも入る (docs/provenance-btrfs-xfs.md)。
 - `core/compat/btrfs.cmake` : ターゲットとテストの登録 (`zfs.cmake` を触らない)。
 - JNI: `jni_ntfs.cpp` の `mount_auto` に `FsType::Btrfs` の分岐 (rw を要求されても読み取り専用)。Kotlin: `NtfsVolume.fsName == "btrfs"`、`journalIgnored`、UI のボタン (読み取り専用でマウント)、`LinkResolver` の対象。
 - 判別は `fs_probe` (オフセット 0x10040 の `_BHRfS_M`) が既にある。

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// F2FS のリーダー + 書き込み (書き込みは USBMEM_NTFS_WRITE ビルドの mount_rw だけ。オンディスク形式からの独自実装。Linux の fs/f2fs は取り込まない: docs/f2fs-port.md)。
-// 圧縮ファイルの展開だけ、カーネルの展開ライブラリ (usbmem_kdecomp。GPL 系) を使う。
+// F2FS のリーダー + 書き込み (書き込みは USBMEM_NTFS_WRITE ビルドの mount_rw だけ。オンディスク形式からの独自実装。Linux の fs/f2fs のコードは含まない: docs/f2fs-port.md)。
+// 圧縮ファイル (lzo / lzo-rle / lz4 / zstd) の展開は core の展開器 (usbmem/decomp.h。docs/decomp.md)。
 #pragma once
 #include "usbmem/fs_volume.h"
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""run_write_tests.sh 用: 操作列 (usbmem_ntfs_tests --ops と同じ書式) を実ファイルシステム上で POSIX 操作として実行する (リファレンス)。
+"""書き込み試験のスクリプト用: 操作列 (usbmem_ntfs_tests --ops と同じ書式) を実ファイルシステム上で POSIX 操作として実行する (リファレンス)。
 使い方: ops_ref.py <root> <script>    /   ops_ref.py --tree <root>  (全エントリを "種別 サイズ sha256 パス" で出力して比較に使う)"""
 import os, sys, hashlib
 def tree(root):

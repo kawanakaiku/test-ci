@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0 (本ファイル) — xfs_volume.cpp は GPL-2.0-or-later (ディスク形式を Linux fs/xfs の形式定義を仕様として独立に実装。カーネルのソースは取り込まない)
+# SPDX-License-Identifier: Apache-2.0
 # XFS の読み取り専用リーダ (docs/xfs-port.md)。core/compat/CMakeLists.txt の末尾から include される。
 add_library(usbmem_xfs STATIC ${CMAKE_CURRENT_LIST_DIR}/src/xfs_volume.cpp)
 set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/src/xfs_volume.cpp PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/src/xfs_write.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_alloc.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_ops.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_full.inc;${CMAKE_CURRENT_LIST_DIR}/src/xfs_write_node.inc")
@@ -7,7 +7,7 @@ if(USBMEM_NTFS_WRITE)
   target_compile_definitions(usbmem_xfs PRIVATE USBMEM_NTFS_WRITE=1)
 endif()
 target_include_directories(usbmem_xfs PUBLIC ${CMAKE_CURRENT_LIST_DIR}/public)
-target_link_libraries(usbmem_xfs PUBLIC usbmem_compat_rt usbmem_core)
+target_link_libraries(usbmem_xfs PUBLIC usbmem_fsvol usbmem_core)
 
 # ---- XFS のテスト: mkfs.xfs -p <dir> (ルート権限不要) で作ったイメージ (v5/v4 × ブロックサイズ × ディレクトリブロック × inode サイズ × 機能) を全項目検証する。
 # tools/gen_xfs_fixture.py は作成後に xfs_repair -n で検査する。ログの未再生・未知の機能ビット・破壊・I/O エラー・fuzz も。

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: Apache-2.0
 // Btrfs 書き込み: 書き込みマウントの検査・読み込み (rw_load) と、ファイル / ディレクトリ操作。btrfs_volume.cpp の Impl の中に btrfs_write.inc の後で #include される。
 // 対象は最上位サブボリューム (ID 5) 1 つだけ。サブボリューム / スナップショット / クォータ / RAID / 圧縮済み extent の新規作成などは持たない (読み取りだけ)。docs/btrfs-write.md
 
@@ -39,7 +39,7 @@
         if (!sb_inrange[i]) continue;
         n_in++;
         if (!sb_valid_seen[i]) return fail("スーパーブロックのミラー " + std::to_string(i) + " が壊れている / 無い");
-        if (sb_gen_seen[i] != generation) return fail("スーパーブロックのミラーの世代が一致しない (電源断の途中かもしれない。Linux で一度マウントして整合させてから)");
+        if (sb_gen_seen[i] != generation) return fail("スーパーブロックのミラーの世代が一致しない (電源断の途中かもしれない。btrfs を実装した OS で一度マウントして整合させてから)");
       }
       if (n_in == 0) return fail("スーパーブロックが見つからない");
     }

@@ -18,13 +18,13 @@ yes | "$SM" --licenses >/dev/null || true
 (cd android && ../tools/ci/retry_gradle.sh ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest -PusbmemEdition=public)
 find android/app/build/outputs/apk -name '*.apk' -exec ls -l {} +
 
-# 公開版の APK のネイティブライブラリに、個人版の FS ドライバ (カーネル由来) のシンボルが無く、公開版の F2FS だけがあること
+# 公開版の APK のネイティブライブラリに、個人版の FS ドライバ (カーネル由来) のシンボルが無く、公開版の F2FS / Btrfs / XFS だけがあること
 apk=$(ls android/app/build/outputs/apk/debug/*.apk | head -1)
 x=$(mktemp -d)
 (cd "$x" && unzip -o -q "$OLDPWD/$apk" 'lib/x86_64/*.so')
 so="$x/lib/x86_64/libusbmem_jni.so"
-nm -D "$so" | grep -E 'F2fsVolume' >/dev/null || { echo "F2fsVolume のシンボルが無い"; exit 1; }
-if nm -D "$so" | grep -E 'NtfsVolume|ExfatVolume|Ext2Volume|Ext4Volume|FatVolume|IsofsVolume|UdfVolume|SquashfsVolume|ErofsVolume|BtrfsVolume|XfsVolume|rt_vfs|lzo1x|ZSTD_decompress|xz_dec'; then
+for v in F2fsVolume BtrfsVolume XfsVolume; do nm -D "$so" | grep -E "$v" >/dev/null || { echo "$v のシンボルが無い"; exit 1; }; done
+if nm -D "$so" | grep -E 'NtfsVolume|ExfatVolume|Ext2Volume|Ext4Volume|FatVolume|IsofsVolume|UdfVolume|SquashfsVolume|ErofsVolume|rt_vfs|lzo1x_decompress_safe|ZSTD_decompress|xz_dec'; then
   echo "個人版のシンボルが公開版の APK にある"; exit 1
 fi
-echo "OK: 公開版の APK のネイティブライブラリは F2FS だけ"
+echo "OK: 公開版の APK のネイティブライブラリは F2FS / Btrfs / XFS だけ"

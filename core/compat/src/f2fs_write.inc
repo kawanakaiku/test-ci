@@ -131,13 +131,13 @@ void F2fsVolume::Impl::finalize_inode(uint8_t* p, uint32_t nid) {
   uint32_t extra = le16(p + 360);
   if (extra < 12) return;                               // i_inode_checksum がインラインの拡張領域に収まらない
   put32(p + 368, 0);
-  uint32_t seed = crc32_le(0xFFFFFFFFu, sb_uuid, 16);
+  uint32_t seed = crc32_seeded(0xFFFFFFFFu, sb_uuid, 16);
   uint8_t t[4];
-  put32(t, nid); uint32_t c = crc32_le(seed, t, 4);
-  put32(t, le32(p + 68)); c = crc32_le(c, t, 4);       // i_generation
-  c = crc32_le(c, p, 368);
-  put32(t, 0); c = crc32_le(c, t, 4);
-  c = crc32_le(c, p + 372, kBlk - 372);
+  put32(t, nid); uint32_t c = crc32_seeded(seed, t, 4);
+  put32(t, le32(p + 68)); c = crc32_seeded(c, t, 4);       // i_generation
+  c = crc32_seeded(c, p, 368);
+  put32(t, 0); c = crc32_seeded(c, t, 4);
+  c = crc32_seeded(c, p + 372, kBlk - 372);
   put32(p + 368, c);
 }
 int F2fsVolume::Impl::mut_node(uint32_t nid, uint32_t owner, NodeVec* out) {
@@ -511,8 +511,8 @@ int F2fsVolume::Impl::dir_find(uint32_t dnid, const std::string& name, uint32_t*
   uint32_t depth = le32(d.blk->data() + 72), dir_level = d.blk->data()[347];
   if (depth > 63) depth = 63;
   for (uint32_t level = 0; level < depth; level++) {
-    uint32_t nbucket = dir_buckets(level, dir_level), nblock = bucket_blocks(level);
-    uint64_t bidx = dir_block_index(level, dir_level, hash % nbucket);
+    uint32_t nbucket = buckets_at_level(level, dir_level), nblock = blocks_per_bucket(level);
+    uint64_t bidx = first_block_of_bucket(level, dir_level, hash % nbucket);
     for (uint32_t k = 0; k < nblock; k++) {
       Blk b; bool hole;
       rc = dir_blk_read(d, bidx + k, &b, &hole);
@@ -591,8 +591,8 @@ int F2fsVolume::Impl::dir_add(uint32_t dnid, const std::string& name, uint32_t i
   if (depth == 0 || depth > 63) return -kEUCLEAN;
   for (uint32_t level = 0; level < 63; level++) {
     if (level == depth) depth++;
-    uint32_t nbucket = dir_buckets(level, dir_level), nblock = bucket_blocks(level);
-    uint64_t bidx = dir_block_index(level, dir_level, hash % nbucket);
+    uint32_t nbucket = buckets_at_level(level, dir_level), nblock = blocks_per_bucket(level);
+    uint64_t bidx = first_block_of_bucket(level, dir_level, hash % nbucket);
     for (uint32_t k = 0; k < nblock; k++) {
       uint64_t blk = bidx + k;
       Blk b; bool hole;
@@ -637,8 +637,8 @@ int F2fsVolume::Impl::dir_del(uint32_t dnid, const std::string& name) {
   uint32_t depth = le32(d.blk->data() + 72), dir_level = d.blk->data()[347];
   if (depth > 63) depth = 63;
   for (uint32_t level = 0; level < depth; level++) {
-    uint32_t nbucket = dir_buckets(level, dir_level), nblock = bucket_blocks(level);
-    uint64_t bidx = dir_block_index(level, dir_level, hash % nbucket);
+    uint32_t nbucket = buckets_at_level(level, dir_level), nblock = blocks_per_bucket(level);
+    uint64_t bidx = first_block_of_bucket(level, dir_level, hash % nbucket);
     for (uint32_t k = 0; k < nblock; k++) {
       uint64_t blk = bidx + k;
       Blk b; bool hole;

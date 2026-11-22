@@ -40,6 +40,8 @@ target_compile_options(usbmem_compat_rt PRIVATE
   $<$<COMPILE_LANGUAGE:C>:-fno-strict-aliasing>
   $<$<COMPILE_LANGUAGE:C>:-fwrapv>)
 target_link_libraries(usbmem_compat_rt PUBLIC usbmem_core Threads::Threads)
+# FS リーダー (自前の Btrfs / XFS / F2FS) が使う FsVolume 共通 IF。公開版では fs_volume.cpp だけの usbmem_fsvol (tools/public_edition/compat_CMakeLists.txt) で、個人版は LinuxCompat 本体が兼ねる
+add_library(usbmem_fsvol ALIAS usbmem_compat_rt)
 
 # 書き込み経路は既定で無効 (未検証)。ON でも実行時に read_only=0 で明示マウントしたときだけ有効。
 option(USBMEM_NTFS_WRITE "NTFS 書き込み経路を有効にする (実験的・未検証)" OFF)
@@ -340,3 +342,18 @@ include(${CMAKE_CURRENT_LIST_DIR}/zfs.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/btrfs.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/f2fs.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/xfs.cmake)
+# ---- 展開器 (core/src/decomp*.cpp) とカーネルの展開ライブラリ (usbmem_kdecomp) の差分試験。個人版だけ (docs/decomp.md)。フィクスチャは core/decomp.cmake の decomp_gen_fixture
+if(USBMEM_BUILD_TESTS AND TARGET usbmem_kdecomp)
+  find_package(Python3 COMPONENTS Interpreter)
+  if(Python3_FOUND AND EXISTS /dev/shm)
+    add_executable(usbmem_decomp_kernel_tests tests/test_decomp_kernel.cpp tests/kdecomp_ref.c)
+    target_compile_options(usbmem_decomp_kernel_tests PRIVATE
+      $<$<COMPILE_LANGUAGE:C>:-std=gnu11> $<$<COMPILE_LANGUAGE:C>:-w>
+      "$<$<COMPILE_LANGUAGE:C>:SHELL:-include stdint.h>" "$<$<COMPILE_LANGUAGE:C>:SHELL:-include stddef.h>" "$<$<COMPILE_LANGUAGE:C>:SHELL:-include endian.h>")
+    target_link_libraries(usbmem_decomp_kernel_tests PRIVATE usbmem_kdecomp usbmem_core)
+    set(DECOMP_FIX_DIR /dev/shm/usbmem_decomp_$ENV{USER})
+    add_test(NAME decomp_kernel COMMAND usbmem_decomp_kernel_tests ${DECOMP_FIX_DIR})
+    add_test(NAME decomp_kernel_fuzz COMMAND usbmem_decomp_kernel_tests --fuzz ${DECOMP_FIX_DIR} 3000 1)
+    set_tests_properties(decomp_kernel decomp_kernel_fuzz PROPERTIES FIXTURES_REQUIRED decomp_fixture TIMEOUT 1800 ENVIRONMENT "ASAN_OPTIONS=verify_asan_link_order=0:detect_leaks=0")
+  endif()
+endif()

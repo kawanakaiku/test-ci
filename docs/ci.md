@@ -292,3 +292,10 @@ Ext2 / Ext4 / Exfat / Isofs / Ntfs / VolumeState / DirtyConfirmUi の計装テ�
 結果 (kfsd 段階 3、2026-11-22): `usbmem-ci-full-kfsd3` で Host tests run 44960382930 (4 構成成功)・Public edition run 44960382936 (成功)・Android emulator tests run 44960383001 (kfsd を含む 8 グループ成功)。詳細と、途中で見つかった問題 (リンク・NDK のバージョン・wsan の応答なし) は docs/kfsd.md 9 章。
 wsan の「ランナーが応答しなくなった」(run 44926716327 / 44951708453 / main の run 44947441726) は、kfsd の差分試験をサニタイザ構成で直列にしたあとの run で再現しなかった (1 回分。再発したら記録する)。
 
+## host tests の wsan の「lost communication」の調査 (2026-11-22、原因は未確定)
+
+kfsd のテストが入った直後、wsan が「The hosted runner lost communication with the server」で 4 回失敗した (44926716327、44947441726 の後、分割 + 並列 2 の 44959800105 / 44966794112)。kfsd 側の対策 (サニタイザ構成では kfsd_bench を動かさず、差分試験を直列にする) が入った版では wsan が 2 回成功した (44960382930 = 74 分、44971767982 = 152 分)。
+試したこと: (1) wsan を ctest の奇数 / 偶数番号で 2 ジョブに分ける: 偶数 (wsan2) は毎回 24〜48 分で成功、奇数 (wsan1) は 3 回落ちた (3477〜6101 秒)。奇数番号の 6 塊を別々の ctest で走らせてログとメモリを artifact に残す診断 run (44995425696、`usbmem-bisect-wsan`) は 2 時間で完走し、落ちなかった。この run の利用可能メモリの最小は 3.4 GB で、メモリ逼迫の証拠は無かった (/dev/shm の使用は最大 6.7 GB)。(2) `kfsd_abnormal` の `kill(pid, SIGKILL)` が、`spawn_connect` の失敗で pid = -1 のまま `kill(-1, SIGKILL)` になる恐れを除いた (`safe_kill`)。これで wsan1 が直ったかは確認できていない (分割 + ガードの run 44991000345 でも wsan1 は落ちた)。結論: 分割は採らない (効果が確認できない)。ガードは安全策として入れた。
+診断 run で見つかったこと: `ntfs_mirror` が `torn03` のケースで 600 秒のタイムアウトになった (ASAN の並列で遅いだけの可能性もある。分割後の run では `fixtures` / `cryptodisk_part` が塊ごとの実行で失敗した例もある。いずれも本番の run では報告されていない)。
+再発したら、ジョブ名ごとの失敗と所要時間を、ここに追記する。ジョブの `timeout-minutes` は、wsan の最大 152 分に対し 180 分では余裕が薄いので 240 分にした。
+

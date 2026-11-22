@@ -336,6 +336,7 @@ if(USBMEM_BUILD_TESTS AND USBMEM_NTFS_WRITE)
 endif()
 # ---- ネスト (ループバック) マウントのホストテスト
 include(${CMAKE_CURRENT_LIST_DIR}/nested.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/mkfs_roundtrip.cmake)   # 自前 mkfs ↔ アプリのドライバの往復 (docs/mkfs-extended.md)
 # ---- 光学メディア系 (ISO 9660 / UDF。読み取り専用)
 include(${CMAKE_CURRENT_LIST_DIR}/optical.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/zfs.cmake)

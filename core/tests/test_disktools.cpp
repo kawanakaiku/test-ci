@@ -2,6 +2,7 @@
 // DiskTools (fscheck / mkfs) の単体テスト。外部ツールとの突き合わせは tools/check_disktools.py。
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 
 #include "test_util.h"
@@ -44,7 +45,9 @@ std::shared_ptr<SpyDevice> make_dev(size_t size, uint8_t fill = 0, bool ro = fal
 }
 
 struct Case { FsType fs; size_t size; const char* name; };
-const Case kCases[] = {{FsType::Fat32, 40u << 20, "fat32"}, {FsType::Exfat, 8u << 20, "exfat"}, {FsType::Ext2, 4u << 20, "ext2"}};
+const Case kCases[] = {{FsType::Fat32, 40u << 20, "fat32"}, {FsType::Exfat, 8u << 20, "exfat"}, {FsType::Ext2, 4u << 20, "ext2"},
+                     {FsType::Ext3, 8u << 20, "ext3"}, {FsType::Ext4, 8u << 20, "ext4"}, {FsType::Fat16, 16u << 20, "fat16"}, {FsType::Fat12, 2u << 20, "fat12"},
+                     {FsType::Ntfs, 8u << 20, "ntfs"}};
 
 MkfsOptions opts(FsType fs) {
   MkfsOptions o;
@@ -86,6 +89,96 @@ TEST(disktools_mkfs_roundtrip_all) {
     CHECK(rep.verdict == FsVerdict::Clean);
     CHECK_EQ(rep.error_count + rep.warning_count, 0);
   }
+}
+
+// ---- 拡張 (ext3 / ext4 / FAT12 / FAT16 / NTFS。docs/mkfs-extended.md)
+TEST(disktools_mkfs_extended_options_and_determinism) {
+  // 同じ seed / timestamp なら計画のハッシュが同じ。UUID を指定するとスーパーブロックに入る
+  for (FsType fs : {FsType::Ext3, FsType::Ext4, FsType::Fat16, FsType::Fat12, FsType::Ntfs}) {
+    auto d1 = make_dev(16u << 20, 0), d2 = make_dev(16u << 20, 0);
+    MkfsPlan a, b;
+    CHECK(Mkfs::plan(*d1, opts(fs), &a).ok() && a.ok);
+    CHECK(Mkfs::plan(*d2, opts(fs), &b).ok() && b.ok);
+    CHECK(a.plan_hash == b.plan_hash);
+    MkfsOptions o = opts(fs);
+    o.seed = 43;
+    MkfsPlan c;
+    CHECK(Mkfs::plan(*d1, o, &c).ok() && c.ok);
+    CHECK(a.plan_hash != c.plan_hash);
+  }
+  auto dev = make_dev(16u << 20, 0);
+  MkfsOptions o = opts(FsType::Ext4);
+  o.uuid = "01234567-89ab-cdef-0123-456789abcdef";
+  o.label = "extlabel";
+  MkfsPlan plan;
+  CHECK(Mkfs::plan(*dev, o, &plan).ok() && plan.ok);
+  CHECK(Mkfs::apply(*dev, plan, token_of(plan), with_backup()).verified);
+  const auto& im = dev->bytes();
+  const uint8_t want[16] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
+  CHECK(std::memcmp(&im[1024 + 0x68], want, 16) == 0);
+  CHECK(std::memcmp(&im[1024 + 0x78], "extlabel", 8) == 0);
+  // 不正な機能・UUID・ジャーナルの大きさ・ext3 に ext4 の機能
+  for (int k = 0; k < 4; k++) {
+    MkfsOptions bad = opts(k == 3 ? FsType::Ext3 : FsType::Ext4);
+    if (k == 0) bad.features = "no_such_feature";
+    if (k == 1) bad.uuid = "xyz";
+    if (k == 2) bad.journal_size = 123;
+    if (k == 3) bad.features = "extent";
+    MkfsPlan p;
+    CHECK(Mkfs::plan(*dev, bad, &p).ok());
+    CHECK(!p.ok);
+  }
+  // ext3 は extent を持たず、ext4 は持つ
+  for (FsType fs : {FsType::Ext3, FsType::Ext4}) {
+    auto d = make_dev(16u << 20, 0);
+    MkfsPlan p;
+    CHECK(Mkfs::plan(*d, opts(fs), &p).ok() && p.ok);
+    CHECK(Mkfs::apply(*d, p, token_of(p), with_backup()).verified);
+    uint32_t incompat = static_cast<uint32_t>(d->bytes()[1024 + 0x60]) | (static_cast<uint32_t>(d->bytes()[1024 + 0x61]) << 8);
+    CHECK(((incompat & 0x40) != 0) == (fs == FsType::Ext4));
+  }
+  // NTFS: 計画に experimental の警告。$LogFile は 0xFF (埋め値)
+  MkfsPlan np;
+  auto nd = make_dev(8u << 20, 0);
+  CHECK(Mkfs::plan(*nd, opts(FsType::Ntfs), &np).ok() && np.ok);
+  bool exp = false;
+  for (auto& pr : np.problems) exp = exp || pr.code == "experimental";
+  CHECK(exp);
+  CHECK(Mkfs::apply(*nd, np, token_of(np), with_backup()).verified);
+  uint64_t mft_lcn = 0;
+  std::memcpy(&mft_lcn, &nd->bytes()[0x30], 8);
+  CHECK(mft_lcn > 0);
+}
+
+TEST(disktools_mkfs_capabilities_and_rejections) {
+  auto caps = Mkfs::capabilities(0, 512, 0);
+  CHECK_EQ(caps.size(), 8);
+  for (auto& c : caps) {
+    CHECK(c.supported);
+    CHECK(c.min_bytes > 0 && c.max_bytes > c.min_bytes);
+    CHECK(!c.cluster_sizes.empty());
+    CHECK(c.label_max > 0);
+  }
+  auto find = [&](const std::vector<MkfsCapability>& v, FsType fs) { for (auto& c : v) if (c.fs == fs) return c; return MkfsCapability(); };
+  CHECK(find(caps, FsType::Ntfs).experimental);
+  auto at3 = Mkfs::capabilities(3u << 20, 512, 0);
+  CHECK(!find(at3, FsType::Ext4).size_ok && find(at3, FsType::Ext4).reason_code == "too-small");
+  CHECK(!find(at3, FsType::Fat32).size_ok);
+  CHECK(find(at3, FsType::Fat12).size_ok && find(at3, FsType::Fat16).size_ok && find(at3, FsType::Ntfs).size_ok);
+  auto at2g = Mkfs::capabilities(2ull << 30, 512, 0);
+  CHECK(!find(at2g, FsType::Fat12).size_ok && find(at2g, FsType::Fat12).reason_code == "too-large");
+  CHECK(find(at2g, FsType::Fat16).size_ok && find(at2g, FsType::Ext4).size_ok && find(at2g, FsType::Fat32).size_ok);
+  // 計画の結果と一致する (容量を満たさないなら計画も不可)
+  for (FsType fs : {FsType::Ext3, FsType::Ext4, FsType::Fat12, FsType::Fat16, FsType::Fat32, FsType::Exfat, FsType::Ntfs}) {
+    for (uint64_t sz : {64ull << 10, 1ull << 20, 3ull << 20, 40ull << 20}) {
+      auto dev = make_dev(static_cast<size_t>(sz), 0);
+      MkfsPlan p;
+      CHECK(Mkfs::plan(*dev, opts(fs), &p).ok());
+      CHECK(p.ok == find(Mkfs::capabilities(sz, 512, 0), fs).size_ok);
+    }
+  }
+  std::string j = mkfs_capabilities_to_json(at3);
+  CHECK(j.find("\"fs\":\"ntfs\"") != std::string::npos && j.find("\"reasonCode\":\"too-small\"") != std::string::npos);
 }
 
 TEST(disktools_mkfs_blank_device_uses_format_phrase) {
@@ -196,10 +289,11 @@ TEST(disktools_mkfs_busy_when_concurrent) {
 TEST(disktools_mkfs_unsupported_and_invalid_options) {
   auto dev = make_dev(64u << 20, 0);
   MkfsPlan p;
-  MkfsOptions o = opts(FsType::Ntfs);
+  MkfsOptions o = opts(FsType::Unknown);   // 作れない形式
   CHECK(Mkfs::plan(*dev, o, &p).ok());
   CHECK(!p.ok);
   o = opts(FsType::Ext4);
+  o.cluster_size = 3000;   // ext のブロックサイズは 1 / 2 / 4 KiB だけ
   CHECK(Mkfs::plan(*dev, o, &p).ok());
   CHECK(!p.ok);
   o = opts(FsType::Fat32);
@@ -483,8 +577,44 @@ TEST(disktools_capi_mkfs_and_check) {
   CHECK(has(take(cj), "\"verdict\":\"incomplete\""));
   usbmem_job_free(j2);
   // 不正な引数
-  CHECK(usbmem_mkfs_open(dev, "ntfs", 0, 0, nullptr, 0, 0, 0, 0, 0, 0, 0, &mk) != 0);
+  CHECK(usbmem_mkfs_open(dev, "btrfs", 0, 0, nullptr, 0, 0, 0, 0, 0, 0, 0, &mk) != 0);
   CHECK(usbmem_mkfs_open(nullptr, "ext2", 0, 0, nullptr, 0, 0, 0, 0, 0, 0, 0, &mk) != 0);
+  usbmem_close(dev);
+  ::unlink(path.c_str());
+}
+
+TEST(disktools_capi_mkfs_open_ex_and_capabilities) {
+  std::string path = test_tmpdir() + "/disktools_openex_" + std::to_string(::getpid()) + ".img";
+  {
+    FILE* f = std::fopen(path.c_str(), "wb");
+    CHECK(f != nullptr);
+    if (!f) return;
+    std::vector<uint8_t> z(1 << 20, 0);
+    for (int i = 0; i < 16; i++) std::fwrite(z.data(), 1, z.size(), f);
+    std::fclose(f);
+  }
+  usbmem_device* dev = nullptr;
+  CHECK_EQ(usbmem_open_path(path.c_str(), 0, &dev), 0);
+  usbmem_mkfs* mk = nullptr;
+  CHECK_EQ(usbmem_mkfs_open_ex(dev, "ext4", 0, 0, "label=OPTS\ncluster_size=2048\nfeatures=^resize_inode\nuuid=01234567-89ab-cdef-0123-456789abcdef", 0, 7, 1700000000, &mk), 0);
+  char* pj = nullptr;
+  CHECK_EQ(usbmem_mkfs_plan_json(mk, &pj), 0);
+  std::string plan = take(pj);
+  CHECK(has(plan, "\"ok\":true"));
+  CHECK(has(plan, "\"blockSize\":\"2048\""));
+  usbmem_mkfs_close(mk);
+  // 不正なオプションは計画の problems に出る (戻り値は 0)
+  CHECK_EQ(usbmem_mkfs_open_ex(dev, "ext4", 0, 0, "no_such_option=1\ncluster_size=abc", 0, 7, 1700000000, &mk), 0);
+  CHECK_EQ(usbmem_mkfs_plan_json(mk, &pj), 0);
+  plan = take(pj);
+  CHECK(has(plan, "\"ok\":false") && has(plan, "bad-option"));
+  usbmem_mkfs_close(mk);
+  CHECK(usbmem_mkfs_open_ex(dev, "btrfs", 0, 0, nullptr, 0, 0, 0, &mk) != 0);
+  char* cj = nullptr;
+  CHECK_EQ(usbmem_mkfs_capabilities_json(3u << 20, 512, 0, &cj), 0);
+  std::string caps = take(cj);
+  CHECK(has(caps, "\"fs\":\"fat16\"") && has(caps, "\"experimental\":true") && has(caps, "\"sizeOk\":false"));
+  CHECK(usbmem_mkfs_capabilities_json(0, 512, 0, nullptr) != 0);
   usbmem_close(dev);
   ::unlink(path.c_str());
 }

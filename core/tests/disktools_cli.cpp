@@ -2,7 +2,8 @@
 // DiskTools の検証用 CLI。tools/check_disktools.py が呼ぶ。
 //   usbmem_disktools_cli check <image> [--fs NAME] [--range OFF LEN]   読み取り専用で検査して JSON を出す。
 //     終了コード: 0 clean / 1 warnings / 2 errors / 3 unsupported / 4 incomplete / 10 I/O 失敗
-//   usbmem_disktools_cli mkfs <image> --fs fat32|exfat|ext2 [--label L] [--cluster N] [--sector N] [--seed N] [--timestamp T]
+//   usbmem_disktools_cli caps [LENGTH [SECTOR [CLUSTER]]]   作れるファイルシステムの一覧と容量の範囲 (JSON)
+//   usbmem_disktools_cli mkfs <image> --fs fat12|fat16|fat32|exfat|ext2|ext3|ext4|ntfs [--uuid U] [--features F] [--label L] [--cluster N] [--sector N] [--seed N] [--timestamp T]
 //                         [--ratio N] [--inode-size N] [--range OFF LEN] [--plan-only] [--backup FILE]
 //     イメージファイルに計画→(自動確認)→適用して {"plan":..,"result":..} を出す。検証専用 (実デバイスには使わない)。
 //     終了コード: 0 作成して検証まで通った / 2 計画が不可 / 3 適用に失敗 / 10 I/O 失敗
@@ -18,6 +19,14 @@
 using namespace usbmem;
 
 int main(int argc, char** argv) {
+  // caps [LENGTH_BYTES [SECTOR [CLUSTER]]]: 作れるファイルシステムと容量の範囲 (JSON)
+  if (argc >= 2 && !std::strcmp(argv[1], "caps")) {
+    uint64_t len = argc > 2 ? std::strtoull(argv[2], nullptr, 0) : 0;
+    uint32_t sec = argc > 3 ? static_cast<uint32_t>(std::strtoul(argv[3], nullptr, 0)) : 512;
+    uint32_t cl = argc > 4 ? static_cast<uint32_t>(std::strtoul(argv[4], nullptr, 0)) : 0;
+    std::printf("%s\n", mkfs_capabilities_to_json(Mkfs::capabilities(len, sec, cl)).c_str());
+    return 0;
+  }
   if (argc >= 3 && !std::strcmp(argv[1], "check")) {
     BlockDevicePtr dev;
     Status st = RawImageDevice::open_path(argv[2], true, 512, &dev);
@@ -59,8 +68,13 @@ int main(int argc, char** argv) {
       uint64_t v = 0;
       if (a == "--fs" && i + 1 < argc) {
         std::string n = argv[++i];
-        mo.fs = n == "fat32" ? FsType::Fat32 : n == "exfat" ? FsType::Exfat : n == "ext2" ? FsType::Ext2 : FsType::Unknown;
+        mo.fs = n == "fat32" ? FsType::Fat32 : n == "fat16" ? FsType::Fat16 : n == "fat12" ? FsType::Fat12 : n == "exfat" ? FsType::Exfat : n == "ext2" ? FsType::Ext2 :
+                n == "ext3" ? FsType::Ext3 : n == "ext4" ? FsType::Ext4 : n == "ntfs" ? FsType::Ntfs : FsType::Unknown;
       } else if (a == "--label" && i + 1 < argc) mo.label = argv[++i];
+      else if (a == "--uuid" && i + 1 < argc) mo.uuid = argv[++i];
+      else if (a == "--features" && i + 1 < argc) mo.features = argv[++i];
+      else if (a == "--journal-size") { num(&mo.journal_size); }
+      else if (a == "--lazy-journal") mo.lazy_journal_init = true;
       else if (a == "--cluster") { num(&v); mo.cluster_size = static_cast<uint32_t>(v); }
       else if (a == "--sector") { num(&v); mo.sector_size = static_cast<uint32_t>(v); bs = static_cast<uint32_t>(v); }
       else if (a == "--seed") num(&mo.seed);
@@ -92,6 +106,6 @@ int main(int argc, char** argv) {
     std::puts((out + ",\"result\":" + mkfs_result_to_json(r) + "}").c_str());
     return r.ok() && r.verified ? 0 : 3;
   }
-  std::fprintf(stderr, "usage: %s check <image> [--fs fat12|fat16|fat32|exfat|ext2|ext3|ext4|ntfs] [--range OFFSET LENGTH]\n       %s mkfs <image> --fs fat32|exfat|ext2 ...\n", argv[0], argv[0]);
+  std::fprintf(stderr, "usage: %s check <image> [--fs fat12|fat16|fat32|exfat|ext2|ext3|ext4|ntfs] [--range OFFSET LENGTH]\n       %s mkfs <image> --fs fat12|fat16|fat32|exfat|ext2|ext3|ext4|ntfs ...\n", argv[0], argv[0]);
   return 64;
 }

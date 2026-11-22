@@ -164,7 +164,7 @@ int usbmem_mkfs_open(usbmem_device* dev, const char* fs_name, unsigned long long
     o.fs = parse_fs(fs_name);
     if (!Mkfs::supported(o.fs)) {
       t_open_code = "unsupported-fs";
-      t_open_msg = "only ext2, exFAT and FAT32 can be created";
+      t_open_msg = "this file system type cannot be created";
       return static_cast<int>(Errc::Unsupported);
     }
     o.offset = offset;
@@ -191,6 +191,87 @@ int usbmem_mkfs_open(usbmem_device* dev, const char* fs_name, unsigned long long
     *out = h;
     return 0;
   } catch (...) { return static_cast<int>(Errc::NoMemory); }
+}
+
+namespace {
+// "key=value" の並び (改行区切り) を MkfsOptions に反映する。不正は problems に積む用の文字列を返す ("" = 問題なし)
+std::string apply_mkfs_options(const char* text, MkfsOptions* o) {
+  std::string all = text ? text : "", err;
+  size_t pos = 0;
+  while (pos < all.size()) {
+    size_t e = all.find('\n', pos);
+    std::string line = all.substr(pos, e == std::string::npos ? std::string::npos : e - pos);
+    pos = e == std::string::npos ? all.size() : e + 1;
+    if (line.empty()) continue;
+    size_t eq = line.find('=');
+    if (eq == std::string::npos) { err += "malformed option '" + line + "'; "; continue; }
+    std::string k = line.substr(0, eq), v = line.substr(eq + 1);
+    auto num = [&](uint64_t* out) {
+      char* end = nullptr;
+      errno = 0;
+      unsigned long long x = std::strtoull(v.c_str(), &end, 10);
+      if (v.empty() || *end || errno || v[0] == '-') { err += "option " + k + " is not a number; "; return; }
+      *out = x;
+    };
+    uint64_t x = 0;
+    if (k == "label") o->label = v;
+    else if (k == "cluster_size") { num(&x); o->cluster_size = static_cast<uint32_t>(x); }
+    else if (k == "sector_size") { num(&x); o->sector_size = static_cast<uint32_t>(x); }
+    else if (k == "inode_ratio") { num(&x); o->inode_ratio = static_cast<uint32_t>(x); }
+    else if (k == "inode_size") { num(&x); o->inode_size = static_cast<uint32_t>(x); }
+    else if (k == "reserved_percent") { num(&x); o->reserved_percent = static_cast<uint32_t>(x); }
+    else if (k == "uuid") o->uuid = v;
+    else if (k == "features") o->features = v;
+    else if (k == "journal_size") num(&o->journal_size);
+    else if (k == "lazy_journal") o->lazy_journal_init = v == "1" || v == "true";
+    else err += "unknown option '" + k + "'; ";
+  }
+  return err;
+}
+}  // namespace
+
+int usbmem_mkfs_open_ex(usbmem_device* dev, const char* fs_name, unsigned long long offset, unsigned long long length, const char* options, int in_use,
+                        unsigned long long seed, unsigned long long timestamp, usbmem_mkfs** out) {
+  if (!dev || !dev->dev || !out) return static_cast<int>(Errc::InvalidArgument);
+  *out = nullptr;
+  try {
+    MkfsOptions o;
+    o.fs = parse_fs(fs_name);
+    if (!Mkfs::supported(o.fs)) {
+      t_open_code = "unsupported-fs";
+      t_open_msg = "this file system type cannot be created";
+      return static_cast<int>(Errc::Unsupported);
+    }
+    o.offset = offset;
+    o.length = length;
+    o.in_use = in_use != 0;
+    o.seed = seed;
+    o.timestamp = timestamp;
+    std::string oerr = apply_mkfs_options(options, &o);
+    auto* h = new (std::nothrow) usbmem_mkfs();
+    if (!h) return static_cast<int>(Errc::NoMemory);
+    h->dev = dev->dev;
+    MkfsResult r = Mkfs::plan(*h->dev, o, &h->plan);
+    if (!r.ok()) {
+      t_open_code = r.code;
+      t_open_msg = r.message;
+      delete h;
+      return static_cast<int>(r.status.code);
+    }
+    if (!oerr.empty()) {
+      h->plan.problems.push_back(Diagnostic{Severity::Error, "bad-option", oerr});
+      h->plan.ok = false;
+    }
+    h->has_plan = h->plan.ok;
+    *out = h;
+    return 0;
+  } catch (...) { return static_cast<int>(Errc::NoMemory); }
+}
+
+int usbmem_mkfs_capabilities_json(unsigned long long length, unsigned sector_size, unsigned cluster_size, char** out_json) {
+  if (!out_json) return static_cast<int>(Errc::InvalidArgument);
+  *out_json = nullptr;
+  try { return dup_string(mkfs_capabilities_to_json(Mkfs::capabilities(length, sector_size, cluster_size)), out_json); } catch (...) { return static_cast<int>(Errc::NoMemory); }
 }
 
 void usbmem_mkfs_close(usbmem_mkfs* h) { delete h; }

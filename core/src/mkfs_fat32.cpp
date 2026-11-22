@@ -23,7 +23,9 @@ uint32_t default_cluster_bytes(uint64_t vol_bytes) {
   return 32768;
 }
 
-// FAT32 のラベル: ASCII の大文字・数字・安全な記号。11 文字までを空白で埋める。
+}  // namespace
+
+// FAT のラベル: ASCII の大文字・数字・安全な記号。11 文字までを空白で埋める (FAT12 / 16 / 32 共通)。
 bool fat_label(const std::string& in, uint8_t out[11], std::string* why) {
   std::memset(out, ' ', 11);
   std::string s = in;
@@ -39,8 +41,6 @@ bool fat_label(const std::string& in, uint8_t out[11], std::string* why) {
   }
   return true;
 }
-
-}  // namespace
 
 void build_fat32(const Params& p, Build* b) {
   const uint32_t S = p.sector_size;
@@ -92,6 +92,7 @@ void build_fat32(const Params& p, Build* b) {
   const uint32_t total_sectors = static_cast<uint32_t>(V);
 
   auto id = make_random_guid(p.opt.seed);
+  if (!p.opt.uuid.empty() && !parse_uuid(p.opt.uuid, id.data())) { b->error("bad-uuid", "the volume id must look like xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (only the first 4 bytes are used as the serial number)"); return; }
   uint32_t serial = g32(id.data());
   uint32_t hidden = p.opt.hidden_sectors != 0xFFFFFFFFu ? p.opt.hidden_sectors : static_cast<uint32_t>(p.opt.offset / S);
 

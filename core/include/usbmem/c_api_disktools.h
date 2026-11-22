@@ -35,7 +35,7 @@ int usbmem_fscheck_run(usbmem_device* dev, unsigned long long offset, unsigned l
                        unsigned long long memory_limit, usbmem_job* job, char** out_json);
 int usbmem_fscheck_supported(const char* fs_name); /* 1 = 検査できる */
 
-/* ---- mkfs (ext2 / exFAT / FAT32 のみ) */
+/* ---- mkfs (ext2 / ext3 / ext4 / FAT12 / FAT16 / FAT32 / exFAT / NTFS (実験的)。拡張は docs/mkfs-extended.md) */
 typedef struct usbmem_mkfs usbmem_mkfs;
 
 /* 計画を作る (書かない)。fs_name: "ext2" "exfat" "fat32"。length 0 = デバイスの終わりまで。label: NULL 可 (UTF-8)。
@@ -45,6 +45,15 @@ typedef struct usbmem_mkfs usbmem_mkfs;
 int usbmem_mkfs_open(usbmem_device* dev, const char* fs_name, unsigned long long offset, unsigned long long length, const char* label,
                      unsigned cluster_size, unsigned sector_size, unsigned inode_ratio, unsigned inode_size, int in_use, unsigned long long seed,
                      unsigned long long timestamp, usbmem_mkfs** out);
+/* 拡張版。options は "key=value" を改行で区切った文字列 (UTF-8、NULL 可)。キー: label / cluster_size / sector_size / inode_ratio / inode_size /
+ * reserved_percent / uuid / features / journal_size (バイト) / lazy_journal (0|1)。未知のキー・不正な数値は plan_json の problems に Error (bad-option) で出る。
+ * ほかの引数は usbmem_mkfs_open と同じ。 */
+int usbmem_mkfs_open_ex(usbmem_device* dev, const char* fs_name, unsigned long long offset, unsigned long long length, const char* options, int in_use,
+                        unsigned long long seed, unsigned long long timestamp, usbmem_mkfs** out);
+/* 作れるファイルシステムと容量の範囲 (UI が選択肢を出すため。何も書かない)。length > 0 ならその容量で作れるか (sizeOk / reasonCode / reason / defaultCluster) も返す。
+ * cluster_size > 0 ならそのクラスタ / ブロックサイズで調べる。JSON は配列: {fs, supported, experimental, minBytes, maxBytes, clusterSizes[], defaultCluster,
+ * labelMax, labelCharset, features[], sizeOk, reasonCode, reason, note}。 */
+int usbmem_mkfs_capabilities_json(unsigned long long length, unsigned sector_size, unsigned cluster_size, char** out_json);
 void usbmem_mkfs_close(usbmem_mkfs* h);
 /* 直近の失敗の機械可読コード ("bad-token" / "in-use" / "device-changed" / "busy" / "verify-failed" など) と英語メッセージ。 */
 void usbmem_mkfs_last_error(usbmem_mkfs* h, char* code, size_t code_len, char* msg, size_t msg_len);

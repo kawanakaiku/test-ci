@@ -111,6 +111,7 @@ void build_exfat(const Params& p, Build* b) {
   const uint32_t bm_first = 2, up_first = static_cast<uint32_t>(2 + bm_clusters), root_first = static_cast<uint32_t>(2 + bm_clusters + up_clusters);
 
   auto id = make_random_guid(p.opt.seed);
+  if (!p.opt.uuid.empty() && !parse_uuid(p.opt.uuid, id.data())) { b->error("bad-uuid", "the volume id must look like xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (only the first 4 bytes are used as the serial number)"); return; }
   uint32_t serial = g32(id.data());
   const uint32_t percent = static_cast<uint32_t>(used * 100 / cc);
 

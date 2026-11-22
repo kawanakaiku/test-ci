@@ -64,7 +64,8 @@ struct MkfsCapability {
 struct MkfsRegion {
   uint64_t offset = 0;
   uint64_t length = 0;
-  std::vector<uint8_t> data;  // 空 = ゼロ埋め。そうでなければ data.size() == length
+  std::vector<uint8_t> data;  // 空 = fill で埋める (既定はゼロ)。そうでなければ data.size() == length
+  uint8_t fill = 0;           // data が空のときの埋める値 (NTFS の $LogFile は 0xFF)
   std::string what;           // 例: "fat32-boot-sector"
 };
 struct MkfsStage {

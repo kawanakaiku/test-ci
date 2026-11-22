@@ -89,6 +89,8 @@ void build_fat1216(const Params& p, Build* b, bool fat16);   // mkfs_fat16.cpp
 void build_ext(const Params& p, Build* b, bool ext4);   // ext3 / ext4 (mkfs_ext.cpp)
 std::vector<std::string> ext_feature_list(bool ext4);
 void build_exfat(const Params& p, Build* b);
+void build_ntfs(const Params& p, Build* b);   // mkfs_ntfs.cpp (実験的)
+uint64_t ntfs_default_cluster(uint64_t bytes, uint32_t sector);
 void build_ext2(const Params& p, Build* b);
 
 }  // namespace mkfsimpl

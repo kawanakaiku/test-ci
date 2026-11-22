@@ -83,9 +83,10 @@ std::string compute_hash(const MkfsPlan& p) {
       h.update(b, 8);
       mkfsimpl::p64(b, r.length);
       h.update(b, 8);
-      uint8_t kind = r.data.empty() ? 0 : 1;
+      uint8_t kind = r.data.empty() ? (r.fill ? 2 : 0) : 1;
       h.update(&kind, 1);
-      if (kind) h.update(r.data.data(), r.data.size());
+      if (kind == 1) h.update(r.data.data(), r.data.size());
+      else if (kind == 2) h.update(&r.fill, 1);
     }
   }
   return hex_encode(h.finish());
@@ -182,12 +183,13 @@ bool looks_like_partition_table(BlockDevice& dev, uint64_t off, uint32_t ss, Sta
 }  // namespace
 
 bool Mkfs::supported(FsType fs) {
-  return fs == FsType::Ext2 || fs == FsType::Ext3 || fs == FsType::Ext4 || fs == FsType::Exfat || fs == FsType::Fat32 || fs == FsType::Fat16 || fs == FsType::Fat12;
+  return fs == FsType::Ext2 || fs == FsType::Ext3 || fs == FsType::Ext4 || fs == FsType::Exfat || fs == FsType::Fat32 || fs == FsType::Fat16 || fs == FsType::Fat12 || fs == FsType::Ntfs;
 }
 
 uint64_t Mkfs::min_size(FsType fs, uint32_t ss) {
   if (ss < 512) ss = 512;
   switch (fs) {
+    case FsType::Ntfs: return 2ull << 20;
     case FsType::Fat12: return 64ull << 10;
     case FsType::Fat16: return mkfsimpl::align_up((4085ull + 1 + 2 * mkfsimpl::ceil_div(4087ull * 2, ss) + mkfsimpl::ceil_div(224ull * 32, ss)) * ss, 1024);
     case FsType::Ext2: return 256ull << 10;
@@ -263,6 +265,7 @@ MkfsResult Mkfs::plan(BlockDevice& dev, const MkfsOptions& opt, MkfsPlan* out) {
     case FsType::Fat32: mkfsimpl::build_fat32(prm, &b); break;
     case FsType::Fat16: mkfsimpl::build_fat1216(prm, &b, true); break;
     case FsType::Fat12: mkfsimpl::build_fat1216(prm, &b, false); break;
+    case FsType::Ntfs: mkfsimpl::build_ntfs(prm, &b); break;
     case FsType::Exfat: mkfsimpl::build_exfat(prm, &b); break;
     case FsType::Ext3: mkfsimpl::build_ext(prm, &b, false); break;
     case FsType::Ext4: mkfsimpl::build_ext(prm, &b, true); break;
@@ -460,15 +463,18 @@ MkfsResult Mkfs::apply(BlockDevice& dev, const MkfsPlan& plan, const std::string
   res.code = "ok";
   uint64_t total = plan.bytes_to_write, done = 0;
   static const std::vector<uint8_t> zeros(kChunk, 0);
+  static const std::vector<uint8_t> ones(kChunk, 0xFF);
   Status fs = Status::Ok();
   const char* fcode = "write-failed";
   bool cancelled = false;
   for (auto& st : plan.stages) {
     for (auto& r : st.regions) {
+      std::vector<uint8_t> fb;
+      if (r.data.empty() && r.fill && r.fill != 0xFF) fb.assign(kChunk, r.fill);
       for (uint64_t pos = 0; pos < r.length;) {
         if (ao.cancel && ao.cancel->cancelled()) { cancelled = true; break; }
         size_t n = static_cast<size_t>(std::min<uint64_t>(kChunk, r.length - pos));
-        Status ws = dev.write_at(plan.offset + r.offset + pos, r.data.empty() ? zeros.data() : r.data.data() + pos, n);
+        Status ws = dev.write_at(plan.offset + r.offset + pos, r.data.empty() ? (r.fill == 0 ? zeros.data() : r.fill == 0xFF ? ones.data() : fb.data()) : r.data.data() + pos, n);
         if (!ws.ok()) { fs = ws; break; }
         pos += n;
         done += n;
@@ -513,7 +519,7 @@ MkfsResult Mkfs::apply(BlockDevice& dev, const MkfsPlan& plan, const std::string
           size_t n = static_cast<size_t>(std::min<uint64_t>(kChunk, r.length - pos));
           buf.resize(n);
           Status rs = dev.read_at(plan.offset + r.offset + pos, buf.data(), n);
-          bool same = rs.ok() && (r.data.empty() ? std::all_of(buf.begin(), buf.end(), [](uint8_t c) { return c == 0; })
+          bool same = rs.ok() && (r.data.empty() ? std::all_of(buf.begin(), buf.end(), [&](uint8_t c) { return c == r.fill; })
                                                   : std::memcmp(buf.data(), r.data.data() + pos, n) == 0);
           if (!same) {
             res.status = rs.ok() ? Status::Make(Errc::Io) : rs;
@@ -577,7 +583,7 @@ std::string mkfs_plan_to_json(const MkfsPlan& p) {
     for (size_t k = 0; k < p.stages[i].regions.size(); k++) {
       auto& r = p.stages[i].regions[k];
       if (k) o += ",";
-      o += "{\"what\":\"" + jesc(r.what) + "\",\"offset\":\"" + std::to_string(r.offset) + "\",\"length\":\"" + std::to_string(r.length) + "\",\"zero\":" + (r.data.empty() ? "true" : "false") + "}";
+      o += "{\"what\":\"" + jesc(r.what) + "\",\"offset\":\"" + std::to_string(r.offset) + "\",\"length\":\"" + std::to_string(r.length) + "\",\"zero\":" + (r.data.empty() && r.fill == 0 ? "true" : "false") + "}";
     }
     o += "]}";
   }

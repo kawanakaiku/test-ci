@@ -123,7 +123,7 @@ class DiskUiTest {
     private fun waitGone(t: String, ms: Long = 120_000) { rule.waitUntil(ms) { !exists(t) } }
     private fun typeInto(t: String, text: String) { val n = rule.onAllNodesWithTag(t)[0]; try { n.performScrollTo() } catch (_: AssertionError) { }; n.performTextReplacement(text) }
     /** [t] のボタンが押せる (無効でない) ようになるまで待つ。 */
-    private fun waitEnabled(t: String, ms: Long = 120_000) { rule.waitUntil(ms) { rule.onAllNodesWithTag(t).fetchSemanticsNodes().firstOrNull()?.config?.getOrNull(SemanticsProperties.Disabled) == null && exists(t) } }
+    private fun waitEnabled(t: String, ms: Long = 120_000) { rule.waitUntil(ms) { rule.onAllNodesWithTag(t).fetchSemanticsNodes().firstOrNull()?.config?.let { SemanticsProperties.Disabled !in it } == true } }
     private fun textOf(t: String): String = tag(t).fetchSemanticsNode().config[SemanticsProperties.Text].joinToString("") { it.text }
 
     /** 次のファイル選択 (開く / 作る) を、指定のファイルを選んだことにする。null の側は差し替えない。差し替えのたびに登録し直す。 */

@@ -521,6 +521,16 @@ A を PC に戻して確認した: p1 の NTFS はダーティフラグが下り
 
 C の p5 は、この確認のために作り直した (平文は旧 p5 を復号して取り出したものをそのまま使い、`bitlocker_synth.py --protectors pw,rec,bek` で再暗号化。libbde でパスワード・回復キー・BEK のどれでも同じ平文に復号できることを PC で確認してから書いた)。回復キーと BEK は、開発機のホーム直下の `.usbmem-test/` に控えを置いた (リポジトリには入れない)。A の p1 は `make_real_usb_testset.py` の `ntfs_flags(..., set_dirty=True)` でダーティフラグだけを立てた。
 
+### 10.7 XFS の rmapbt + 親ポインタ (C の p1 を作り直して確認、2026-11-22、J9260)
+
+アプリの XFS の書き込みが rmapbt・親ポインタ (parent)・reflink (共有していない範囲) に対応した (docs/xfs-write.md) ので、C の p1 を mkfs.xfs 7.2 の既定の機能 (rmapbt=1 / parent=1 / reflink=1 / nrext64 / exchange) で作り直し、実機で書き込み試験をした。
+
+- 作り方: 環境変数 `USBMEM_XFS_FEATURES=parent` を付けて `make_real_usb_testset.py --profile C --build-only --only p1_xfs ...` (`base` が既定 = 従来どおり rmapbt=0 / parent=0、`rmapbt`、`all` = mkfs の既定のまま)。`--only` は、空き容量・メモリの見積りも対象のパーティションだけにした (以前はプロファイル全体の約 21 GiB を要求して、tmpfs では作れなかった)。イメージは tmpfs に作った (ステージ 4.5 GiB + イメージ 4.6 GiB = 約 9.3 GiB、12 秒)。`xfs_repair -n` は rc=0、`xfs_info` は rmapbt=1・parent=1・reflink=1。
+- 流し込み: 5 GiB のイメージを `ssh <pc> 'sudo dd of=/dev/sdc1 bs=4M oflag=direct conv=fsync'` に流し (約 7 分)、読み戻した SHA-256 がイメージと一致。PC で `xfs_repair -n` rc=0、`mount -o ro,nouuid` してマニフェストの全件一致 (ファイル 3029・ディレクトリ 43・シンボリックリンク 4・4.57 GiB)。
+- 実機 (J9260、CI の `usbmem-ci-apk-*` で作った main d8b2ef8 の APK): `run_android_real_usb_verify.sh --write --devices 090c:2000 --part 1 --stage both` が全ステージ pass。事前 (読み取り専用の全件照合) / CreateOnly (作成・300 KB の書き込み・小さいファイル 10 個・32 MiB の書き込みと照合、既存ファイルの書き込み・縮小・名前変更・削除の拒否) / 再オープン / Full (上書き・縮小・名前変更・移動・20 個・全削除・32 MiB) / 再オープンで 3030 ファイルを照合 (問題 0・余分 0)。32 MiB の書き込みは約 4 秒 (約 8 MB/s)、読み戻しは約 1.2 秒。専用フォルダの残りなし。
+- 試験後に PC へ戻して: `xfs_repair -n` rc=0 (rmapbt・親ポインタの不整合なし)、`mount -o ro,nouuid` してマニフェスト全件一致、`usbmem_*` の残りなし。
+- 注意 (つまずいた点): (1) CI の APK は実行ごとに debug 署名の鍵が違うので、入っているアプリと署名が合わず `INSTALL_FAILED_UPDATE_INCOMPATIBLE` になる。`adb uninstall` してから入れ直す (アプリの設定・Keystore 記憶は消える)。(2) 同じ端末に別の USB (カードリーダー経由の B など) があり、OS が vfat / exFAT をマウントしていると、試験は「OS が USB ボリュームをマウント中です」で中断する (意図した保護)。`sm unmount public:X,Y` で外してから再実行する。(3) USB の許可ダイアログは `--perm` の秒数内に手でタップする必要がある (超えると失敗するので、先に押してもらってから走らせると確実)。(4) 計装テストの照合が hash するのは 69 MiB (4.5 GiB のファイルは hash しない)。大きいファイルの読み取りの整合は PC に戻した後の全件照合が担う。
+
 ## 11. PC に戻した後 (fsck とマニフェスト照合)
 
 USB を PC に戻す (自動マウントさせず、`lsblk` で `/dev/sdX` を確認)。

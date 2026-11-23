@@ -9,7 +9,7 @@ jobs:
       matrix:
         os: [windows-11-arm, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: sound
@@ -38,4 +38,16 @@ jobs:
             if (-not $p.WaitForExit(180000)) { $p.Kill(); "TIMEOUT" }
             "exit=$($p.ExitCode)"
             Get-Content out.txt
+          }
+      - name: winetest
+        shell: pwsh
+        run: |
+          foreach ($t in @(@('tests\mf_test.exe','mf'), @('tests\mfmediaengine_test.exe',''))) {
+            "##### $($t[0]) $($t[1])"
+            $a = @(); if ($t[1]) { $a = @($t[1]) }
+            $p = Start-Process -FilePath $t[0] -ArgumentList $a -NoNewWindow -PassThru -RedirectStandardOutput wt.txt -RedirectStandardError wt-err.txt
+            if (-not $p.WaitForExit(300000)) { $p.Kill(); "TIMEOUT" }
+            "exit=$($p.ExitCode)"
+            Get-Content wt.txt
+            Get-Content wt-err.txt
           }

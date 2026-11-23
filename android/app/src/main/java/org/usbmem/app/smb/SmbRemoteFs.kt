@@ -29,7 +29,12 @@ import com.hierynomus.smbj.share.File as SmbFile
  * 応答が来ないことの検出は、SMBJ の要求ごとのタイムアウト ([SmbRemoteFs.connect] の timeoutSec) が担う。
  */
 internal class SmbSocketFactory(private val connectTimeoutMs: Int) : SocketFactory() {
-    private fun tune(s: Socket): Socket { s.keepAlive = true; s.tcpNoDelay = true; return s }
+    /** 作ったソケット。取り消し・切断のとき、SMBJ の内部の待ち (ネゴシエーション中など。SMBJ 自身は閉じられない) を、ソケットを閉じて起こすために持つ */
+    private val sockets = java.util.concurrent.CopyOnWriteArrayList<Socket>()
+    private fun tune(s: Socket): Socket { s.keepAlive = true; s.tcpNoDelay = true; sockets.add(s); return s }
+
+    /** 全部閉じる (ブロック中の接続・読み書きは例外で戻る。SMBJ の読み取りスレッドが失敗を待ち手へ伝える) */
+    fun closeAll() { for (s in sockets) try { s.close() } catch (_: Exception) { }; sockets.clear() }
 
     private fun open(addr: InetSocketAddress, local: InetSocketAddress?): Socket {
         val s = tune(Socket())
@@ -64,6 +69,7 @@ class SmbRemoteFs private constructor(
     private val connection: Connection,
     private val session: Session,
     private val share: DiskShare,
+    private val sockets: SmbSocketFactory,
     private val chunk: Int,
     override val dialect: String,
     override val encrypted: Boolean,
@@ -190,6 +196,7 @@ class SmbRemoteFs private constructor(
         if (closed) return
         closed = true
         val force = lost
+        if (force) sockets.closeAll()   // 切れた接続への LOGOFF 等で、時間切れまで待たされない
         if (!force) try { share.close() } catch (_: Exception) { }
         if (!force) try { session.close() } catch (_: Exception) { }
         try { if (force) connection.close(true) else connection.close() } catch (_: Exception) { }
@@ -225,6 +232,7 @@ class SmbRemoteFs private constructor(
          * ネットワークの操作なので、メインスレッドから呼ばない。
          */
         fun connect(cfg: SmbConnection, password: CharArray, cancel: SmbCancel? = null, timeoutSec: Int = DEFAULT_TIMEOUT_SEC): SmbRemoteFs {
+            val sockets = SmbSocketFactory(CONNECT_TIMEOUT_MS)
             val config = SmbConfig.builder()
                 .withDialects(dialectsFor(cfg.minVersion))
                 .withMultiProtocolNegotiate(false)
@@ -234,10 +242,20 @@ class SmbRemoteFs private constructor(
                 .withEncryptData(cfg.requireEncryption)
                 .withBufferSize(MAX_BUFFER)
                 .withTimeout(timeoutSec.toLong(), TimeUnit.SECONDS)
-                .withSocketFactory(SmbSocketFactory(CONNECT_TIMEOUT_MS))
+                .withSocketFactory(sockets)
+                // ディレクトリのリース (SMB 3 のキャッシュ): 有効だと 2 回目以降の一覧がサーバーに問い合わせずにキャッシュから返り、
+                // 切断・無応答を一覧で検出できず、他のクライアントの変更も遅れて見えうる。常に最新を取る (リースを使わない)
+                .withDirectoryLeasingEnabled(false)
                 .build()
             val client = SMBClient(config)
-            cancel?.onCancel { client.close() }
+            // 取り消し: ソケットを閉じ (SMBJ の接続はネゴシエーション中だと client.close() では届かない)、接続中のスレッドを起こす
+            val worker = Thread.currentThread()
+            val connecting = java.util.concurrent.atomic.AtomicBoolean(true)
+            cancel?.onCancel {
+                sockets.closeAll()
+                if (connecting.get()) worker.interrupt()
+                client.close()
+            }
             var conn: Connection? = null
             var ses: Session? = null
             var disk: DiskShare? = null
@@ -260,10 +278,11 @@ class SmbRemoteFs private constructor(
                 val writeOk = maxAccess == null || maxAccess.isEmpty() || maxAccess.contains(AccessMask.FILE_WRITE_DATA) || maxAccess.contains(AccessMask.FILE_ADD_FILE) ||
                     maxAccess.contains(AccessMask.GENERIC_WRITE) || maxAccess.contains(AccessMask.GENERIC_ALL)
                 return SmbRemoteFs(
-                    client, c, s, d, minOf(MAX_BUFFER, np.maxReadSize.coerceAtLeast(4096), np.maxWriteSize.coerceAtLeast(4096)),
+                    client, c, s, d, sockets, minOf(MAX_BUFFER, np.maxReadSize.coerceAtLeast(4096), np.maxWriteSize.coerceAtLeast(4096)),
                     dialectName(np.dialect), s.shouldEncryptData(), s.isSigningRequired, writeOk,
                 )
             } catch (e: Throwable) {
+                sockets.closeAll()   // 失敗した接続の後始末 (LOGOFF など) で待たされない
                 try { disk?.close() } catch (_: Exception) { }
                 try { ses?.close() } catch (_: Exception) { }
                 try { conn?.close(true) } catch (_: Exception) { }
@@ -271,6 +290,8 @@ class SmbRemoteFs private constructor(
                 if (cancel?.cancelled == true) throw SmbException(SmbErrorKind.Cancelled)
                 throw SmbErrors.map(e, connecting = true)
             } finally {
+                connecting.set(false)
+                if (cancel?.cancelled == true) Thread.interrupted()   // 取り消しの割り込みを、呼び出し元のスレッドに残さない
                 wipe(password)
                 // AuthenticationContext が持つ配列 (コピーかもしれない) も消す
                 try { wipe(ac.password) } catch (_: Exception) { }

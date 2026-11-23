@@ -337,8 +337,15 @@ class SmbTest {
         val total = 320L * 1024 * 1024
         val maxHeap = Runtime.getRuntime().maxMemory()
         metric("large: total=${total shr 20} MiB, heap limit=${maxHeap shr 20} MiB")
+        // 基準: 通信なしで、データの生成と SHA-256 だけにかかる速さ (転送の遅さが、通信・署名・この生成のどれによるかを切り分ける)
+        run {
+            val base = DigestSink(); val t = System.nanoTime()
+            PatternStream(64L * 1024 * 1024, 3).copyTo(base, 1 shl 20)
+            metric("large baseline: generate+sha256 only ${64 * 1000 / maxOf(1, (System.nanoTime() - t) / 1_000_000)} MiB/s")
+        }
         val fs = SmbRemoteFs.connect(conn(), pw())
         try {
+            metric("large: negotiated ${fs.dialect}, signed=${fs.signed}, encrypted=${fs.encrypted}")
             if (!fs.exists("/out")) fs.mkdir("/out")
             val md = MessageDigest.getInstance("SHA-256")
             var peak = 0L
@@ -378,8 +385,9 @@ class SmbTest {
             val size = 4L * 1024 * 1024 + 3
             fs.copyFrom("/enc.bin", PatternStream(size, 5, md))
             val sink = DigestSink(); fs.copyTo("/enc.bin", sink)
-            assertEquals(hex(md.digest()), hex(sink.md.digest()))
-            expect("enc", "enc.bin", hex(sink.md.digest()), size)
+            val wantEnc = hex(md.digest()); val gotEnc = hex(sink.md.digest())   // digest() は 1 回だけ (2 回目は空データのハッシュになる)
+            assertEquals(wantEnc, gotEnc)
+            expect("enc", "enc.bin", gotEnc, size)
             assertEquals("encrypted hello\n", readText(fs, "/hello-enc.txt"))
         } finally { fs.close() }
         // 暗号化を求めない接続での結果は、情報として出す (サーバーが共有ごとの暗号化を強制する)
@@ -485,8 +493,13 @@ class SmbTest {
             assertTrue(m.id.startsWith("smb-"))
             val before = cr.query(DocumentsContract.buildRootsUri(auth), null, null, null, null)!!.use { it.count }
             assertTrue(before >= 1)
-            try { cr.query(DocumentsContract.buildChildDocumentsUri(auth, "0123456789ab:/"), null, null, null, null)?.close(); fail() } catch (_: Exception) { }
-            assertNotNull(rootRow(m.id))
+            // USB 側の形式の ID (SMB の ID ではない) を問い合わせても、SMB のドキュメントは混ざらない (失敗するか、SMB 以外の行だけ)
+            val foreign = ArrayList<String>()
+            try {
+                cr.query(DocumentsContract.buildChildDocumentsUri(auth, "0123456789ab:/"), arrayOf(Document.COLUMN_DOCUMENT_ID), null, null, null)?.use { while (it.moveToNext()) foreign += it.getString(0) }
+            } catch (_: Exception) { }
+            assertTrue("USB の ID の問い合わせに SMB の行が混ざった: $foreign", foreign.none { it.startsWith("smb-") })
+            assertNotNull("マウントした SMB のルートが消えた", rootRow(m.id))
         } finally { SmbController.unmount(ctx, c) }
     }
 
@@ -535,8 +548,11 @@ class SmbTest {
             assertTrue(m.fs.list("/").isNotEmpty())
             proxy.stalled = true   // 以後、サーバーの応答が届かない
             val t0 = System.nanoTime()
-            try { m.fs.list("/"); fail("stalled list returned") } catch (e: SmbException) {
-                assertEquals(SmbErrorKind.Timeout, e.kind)
+            try {
+                val got = m.fs.list("/")
+                fail("stalled list returned ${got.size} entries after ${(System.nanoTime() - t0) / 1_000_000} ms (キャッシュから返った疑い)")
+            } catch (e: SmbException) {
+                assertEquals("kind=${e.kind}", SmbErrorKind.Timeout, e.kind)
             }
             val ms = (System.nanoTime() - t0) / 1_000_000
             metric("stalled request timed out after $ms ms (limit 3 s)")

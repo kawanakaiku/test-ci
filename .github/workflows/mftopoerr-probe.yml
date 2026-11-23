@@ -1,0 +1,36 @@
+name: mftopoerr-probe
+on:
+  push:
+    branches: [mftopoerr-probe]
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-11-arm, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: os
+        shell: pwsh
+        run: |
+          [Environment]::OSVersion.VersionString
+          (Get-CimInstance Win32_OperatingSystem).Caption
+          (Get-CimInstance Win32_Processor).Name
+          $env:PROCESSOR_ARCHITECTURE
+          (Get-Item C:\Windows\System32\mfmediaengine.dll).VersionInfo.FileVersion
+          (Get-Item C:\Windows\System32\mf.dll).VersionInfo.FileVersion
+          Get-CimInstance Win32_SoundDevice | Select-Object -ExpandProperty Name
+      - name: probe
+        shell: pwsh
+        run: |
+          $exes = @('probe\mftopoerr-x86_64.exe')
+          if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $exes = @('probe\mftopoerr-aarch64.exe') + $exes }
+          foreach ($e in $exes) {
+            "##### $e"
+            $p = Start-Process -FilePath $e -NoNewWindow -PassThru -RedirectStandardOutput out.txt
+            if (-not $p.WaitForExit(180000)) { $p.Kill(); "TIMEOUT" }
+            "exit=$($p.ExitCode)"
+            Get-Content out.txt
+          }

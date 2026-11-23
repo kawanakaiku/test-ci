@@ -565,8 +565,11 @@ class SmbTest {
             assertNull(SmbMounts.takeLost(c.id))
             // 外れた共有のドキュメントは、固まらずに失敗する
             val t1 = System.nanoTime()
-            try { cr.query(DocumentsContract.buildChildDocumentsUri(auth, m.id + ":/"), null, null, null, null)?.close(); fail() } catch (_: Exception) { }
-            assertTrue((System.nanoTime() - t1) / 1_000_000 < 3000)
+            // DocumentsProvider.query は FileNotFoundException を握って null を返す (例外にならない) ので、「null か例外か 0 行」が正しい失敗
+            val rows = try { cr.query(DocumentsContract.buildChildDocumentsUri(auth, m.id + ":/"), null, null, null, null)?.use { it.count } } catch (e: Exception) { null }
+            assertTrue("外れた共有の一覧が行を返した: $rows", rows == null || rows == 0)
+            val ms1 = (System.nanoTime() - t1) / 1_000_000
+            assertTrue("外れた共有の問い合わせが遅い: $ms1 ms", ms1 < 3000)
         } finally { proxy.close() }
     }
 

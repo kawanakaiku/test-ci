@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SMB (ネットワーク共有。docs/smb.md)。USB・イメージは「マウント」、ネットワークの説明は「接続」を使う -->
+<resources>
+    <string name="tab_network">ネットワーク</string>
+
+    <!-- 画面 -->
+    <string name="smb_title">SMB 共有 (NAS・PC の共有フォルダー)</string>
+    <string name="smb_subtitle">共有フォルダーへ接続して、ファイルアプリから使えるようにマウントします。SMB 2 / 3 に対応します (SMB 1 は使いません)。</string>
+    <string name="smb_add">接続を追加</string>
+    <string name="smb_none">保存した接続はありません。「接続を追加」から、ホスト名・共有名・ユーザー名を入れて保存します。</string>
+    <string name="smb_privacy">パスワードは、保存を選ばない限り端末に保存しません。接続に使ったあと、メモリ上の配列はゼロで消します。ログにも出しません。</string>
+    <string name="smb_chip_mounted">マウント中</string>
+    <string name="smb_chip_not_mounted">未接続</string>
+    <string name="smb_chip_saved_password">パスワード保存済み</string>
+    <string name="smb_chip_write">書き込み可</string>
+    <string name="smb_chip_read_only">読み取り専用</string>
+    <string name="smb_chip_encrypted">暗号化</string>
+    <string name="smb_button_mount">マウント</string>
+    <string name="smb_button_unmount">マウント解除</string>
+    <string name="smb_button_edit">編集</string>
+    <string name="smb_button_delete">削除</string>
+    <string name="smb_cd_mount">%1$s をマウント</string>
+    <string name="smb_cd_unmount">%1$s のマウントを解除</string>
+    <string name="smb_cd_edit">%1$s の接続を編集</string>
+    <string name="smb_cd_delete">%1$s の接続を削除</string>
+    <string name="smb_state_mounted">マウント中。ファイルアプリに「%1$s (SMB)」と表示されます</string>
+
+    <!-- 接続の追加・編集 -->
+    <string name="smb_edit_title_new">接続を追加</string>
+    <string name="smb_edit_title_edit">接続を編集</string>
+    <string name="smb_field_name">名前 (ファイルアプリに「名前 (SMB)」と出ます)</string>
+    <string name="smb_field_host">ホスト名または IP アドレス</string>
+    <string name="smb_field_port">ポート (既定 445)</string>
+    <string name="smb_field_share">共有名</string>
+    <string name="smb_field_domain">ドメイン (任意)</string>
+    <string name="smb_field_user">ユーザー名 (空ならゲスト)</string>
+    <string name="smb_field_password">パスワード</string>
+    <string name="smb_password_show">パスワードを表示</string>
+    <string name="smb_password_hide">パスワードを隠す</string>
+    <string name="smb_version_title">SMB のバージョン (下限)</string>
+    <string name="smb_version_hint">SMB 1 は古く安全でないため、使えません。</string>
+    <string name="smb_version_202">SMB 2.0.2 以上</string>
+    <string name="smb_version_21">SMB 2.1 以上</string>
+    <string name="smb_version_30">SMB 3.0 以上</string>
+    <string name="smb_version_311">SMB 3.1.1 のみ</string>
+    <string name="smb_require_encryption">暗号化を必須にする (SMB 3)</string>
+    <string name="smb_require_encryption_desc">暗号化に対応しないサーバーには接続しません。</string>
+    <string name="smb_require_signing">署名を必須にする</string>
+    <string name="smb_require_signing_desc">サーバーが求めるときは、この指定が無くても署名します。</string>
+    <string name="smb_save_password">パスワードをこの端末に保存する</string>
+    <string name="smb_save_password_desc">既定では保存しません。選ぶと、Android Keystore の鍵で暗号化して保存し、使うたびに生体認証または画面ロックを求めます (保存のとき 1 回認証を求めます)。</string>
+    <string name="smb_save_password_kept">保存済みのパスワードがあります。入力欄を空のまま保存すると、そのまま使い続けます。</string>
+    <string name="smb_forget_password">保存したパスワードを削除</string>
+    <string name="smb_test">接続テスト</string>
+    <string name="smb_testing">接続しています…</string>
+    <string name="smb_test_ok">接続できました: %1$s</string>
+    <string name="smb_test_ok_detail">%1$s・共有の直下に %2$d 件%3$s</string>
+    <string name="smb_test_ok_encrypted">・暗号化</string>
+    <string name="smb_test_ok_signed">・署名</string>
+    <string name="smb_test_need_password">ユーザー名を入れたときは、接続テストにパスワードが要ります。</string>
+    <string name="smb_save">保存</string>
+    <string name="smb_cancel_connect">接続を取り消す</string>
+    <string name="smb_err_name">名前を 1〜64 文字で入れてください。</string>
+    <string name="smb_err_host">ホスト名または IP アドレスを確認してください (空白・「/」・「\\」・「@」は使えません)。</string>
+    <string name="smb_err_port">ポートは 1〜65535 の数字です。</string>
+    <string name="smb_err_share">共有名を確認してください (「/ \\ : * ? \" &lt; &gt; |」は使えません)。</string>
+    <string name="smb_err_domain">ドメインに使えない文字があります。</string>
+    <string name="smb_err_user">ユーザー名に使えない文字があります (ドメインは別の欄に入れます)。</string>
+
+    <!-- マウント -->
+    <string name="smb_mount_title">マウント: %1$s</string>
+    <string name="smb_mount_saved_password">保存したパスワードを使います。生体認証または画面ロックを求めます。</string>
+    <string name="smb_mount_guest">ユーザー名が空なので、ゲストで接続します (パスワードは使いません)。</string>
+    <string name="smb_mount_write">書き込みを許可</string>
+    <string name="smb_mount_write_desc">オフなら読み取り専用でマウントします (既定)。サーバー側の権限が優先されます。</string>
+    <string name="smb_mount_button">マウント</string>
+    <string name="smb_mounting">接続しています…</string>
+
+    <!-- 削除 -->
+    <string name="smb_delete_title">接続を削除</string>
+    <string name="smb_delete_text">この接続の設定を消します。保存したパスワードも消します。マウント中なら解除します。サーバーのファイルには何もしません。</string>
+    <string name="smb_delete_confirm">削除</string>
+
+    <!-- 通知 -->
+    <string name="smb_notice_mounted">マウントしました: %1$s</string>
+    <string name="smb_notice_mounted_detail">ファイルアプリの一覧に「%1$s (SMB)」と表示されます。%2$s</string>
+    <string name="smb_notice_mounted_read_only">読み取り専用です。</string>
+    <string name="smb_notice_mounted_write">書き込み可です。</string>
+    <string name="smb_notice_mounted_forced_read_only">サーバー側でこの共有への書き込みが許されていないため、読み取り専用でマウントしました。</string>
+    <string name="smb_notice_unmounted">マウントを解除しました: %1$s</string>
+    <string name="smb_notice_lost">接続が切れたため、マウントを解除しました: %1$s</string>
+    <string name="smb_notice_lost_detail">もう一度「マウント」してください。</string>
+    <string name="smb_notice_saved">保存しました: %1$s</string>
+    <string name="smb_notice_saved_password">パスワードも、Android Keystore で暗号化して保存しました。</string>
+    <string name="smb_notice_password_not_saved">パスワードは保存しませんでした (取り消しまたは失敗)。</string>
+    <string name="smb_notice_deleted">削除しました: %1$s</string>
+    <string name="smb_notice_forgot_password">保存したパスワードを削除しました。</string>
+    <string name="smb_password_invalidated">保存したパスワードは使えなくなっていました (生体認証の登録の変更など)。保存は破棄したので、入力し直してください。</string>
+    <string name="smb_password_recall_failed">保存したパスワードを取り出せませんでした: %1$s</string>
+    <string name="smb_password_not_saved">保存したパスワードがありません。入力してください。</string>
+    <string name="smb_vault_save_title">SMB のパスワードを保存</string>
+    <string name="smb_vault_unlock_title">SMB のパスワードを使う</string>
+
+    <!-- 失敗の種類 -->
+    <string name="smb_error_auth">ユーザー名またはパスワードが違います (アカウントが無効・期限切れ・ロックされているときも、この表示になります)。</string>
+    <string name="smb_error_access">権限がありません。</string>
+    <string name="smb_error_not_found">見つかりません。</string>
+    <string name="smb_error_share_not_found">共有名が見つかりません。サーバーの共有名を確認してください。</string>
+    <string name="smb_error_exists">同じ名前がすでにあります。</string>
+    <string name="smb_error_not_empty">フォルダーが空ではありません。</string>
+    <string name="smb_error_network">サーバーに接続できません。ホスト名・ポート・ネットワーク (Wi-Fi・VPN) を確認してください。</string>
+    <string name="smb_error_disconnected">接続が切れました。</string>
+    <string name="smb_error_timeout">サーバーから応答がありません。</string>
+    <string name="smb_error_no_space">サーバーの空き容量が足りません。</string>
+    <string name="smb_error_busy">ほかのアプリが使用中です。</string>
+    <string name="smb_error_protocol">SMB のバージョン・暗号化・署名の条件がサーバーと合いません。サーバーが SMB 2 / 3 に対応し、条件を満たすか確認してください。</string>
+    <string name="smb_error_invalid_name">使えない名前です。</string>
+    <string name="smb_error_cancelled">取り消しました。</string>
+    <string name="smb_error_read_only">読み取り専用です。</string>
+    <string name="smb_error_other">SMB の処理に失敗しました。</string>
+</resources>

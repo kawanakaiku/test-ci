@@ -230,6 +230,7 @@ include   own-doc docs/nbd.md
 include   own-doc docs/nested-mount.md
 include   own-doc docs/partition-edit.md
 include   own-doc docs/partition-scan.md
+include   own-doc docs/smb.md
 include   own-doc docs/phase3-progress.md
 include   own-doc docs/recovery-backup.md
 exclude   own-doc docs/**                               # 上以外: カーネル FS の移植記録・実機の検証記録・CI・監査・TODO など (公開版では docs/editions.md の要約を README に載せる)

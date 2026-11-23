@@ -164,9 +164,12 @@ class PartitionEditSession private constructor(private var h: Long) : AutoClosea
     enum class GptRepair(val code: Int) { CopyPrimaryToBackup(1), CopyBackupToPrimary(2), MoveBackupToEnd(3), RebuildProtectiveMbr(4) }
 
     companion object {
-        /** [deviceHandle] は NativeBridge が返したデバイスのハンドル。書き込みたいなら書き込み可で開いたデバイスを渡す */
-        fun open(deviceHandle: Long, inUse: Boolean = false, sectorSize: Int = 0): PartitionEditSession {
-            val h = PartitionEditor.nativeOpen(deviceHandle, sectorSize, inUse, 0)
+        /**
+         * [deviceHandle] は NativeBridge が返したデバイスのハンドル。書き込みたいなら書き込み可で開いたデバイスを渡す。
+         * [rngSeed] != 0 は、編集が作る GUID (復元案の「GPT の作り直し」など) を決定的にする (同じ seed で開き直せば同じ計画 = UI が計画と適用を別々の open で行える)。0 = ランダム。
+         */
+        fun open(deviceHandle: Long, inUse: Boolean = false, sectorSize: Int = 0, rngSeed: Long = 0): PartitionEditSession {
+            val h = PartitionEditor.nativeOpen(deviceHandle, sectorSize, inUse, rngSeed)
             if (Handle.isError(h)) {
                 val code = (-h).toInt()
                 val parts = String(PartitionEditor.nativeLastError(0), Charsets.UTF_8).split('\n', limit = 2)

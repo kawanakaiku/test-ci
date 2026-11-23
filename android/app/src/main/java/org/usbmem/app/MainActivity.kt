@@ -1139,6 +1139,7 @@ class MainActivity : ComponentActivity(), UsbActions, ImageActions, DiagnosticsA
         enableEdgeToEdge()
         VaultProvider.attach(this)   // パスワードの記憶 (生体認証 / 画面ロック) の画面を出す先
         sessions.addListener(sessionListener)
+        org.usbmem.app.ui.DiskRecoveryFeatures.registerAll()   // パーティション編集の画面に、失われたパーティションの探索とブートセクタの検査 / 修復を差し込む
         setContent { AppTheme { AppScaffold(model, this, this, this, diskTools) } }
     }
 }

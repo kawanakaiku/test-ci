@@ -3,6 +3,7 @@ package org.usbmem.app.ui
 
 import android.net.Uri
 import org.json.JSONObject
+import org.usbmem.app.BootApplyResult
 import org.usbmem.app.FsCheckResult
 import org.usbmem.app.MkfsApplyResult
 import org.usbmem.app.MkfsPlan
@@ -51,7 +52,34 @@ interface DiskOpJob : AutoCloseable {
 }
 
 /** フォーマットの指定。[seed] != 0 と [timestampSec] != 0 は、同じ指定で開き直したとき同じ計画になるよう、画面が最初の計画で決めて持ち回る。 */
-data class FormatSpec(val fs: String, val label: String, val clusterSize: Int, val seed: Long, val timestampSec: Long)
+data class FormatSpec(
+    val fs: String, val label: String, val clusterSize: Int, val seed: Long, val timestampSec: Long,
+    /** ext3 / ext4 の機能 (mke2fs 風: "^resize_inode,64bit")。空 = 既定 */
+    val features: String = "",
+)
+
+/**
+ * 1 つのファイルシステムの「作れるか」の問い合わせ結果 (ネイティブの Mkfs 容量・機能の問い合わせ。docs/mkfs-extended.md)。
+ * [sizeOk] / [reasonCode] / [reason] は、問い合わせた範囲の大きさで作れるか。[clusterOk] は、その範囲で計画が通るクラスタ (ブロック) サイズ。
+ * [features] は ext の機能 ("name" = 既定で有効、"^name" = 既定で無効)。
+ */
+data class FormatCap(
+    val fs: String, val supported: Boolean, val experimental: Boolean, val minBytes: Long, val maxBytes: Long,
+    val clusterSizes: List<Int>, val clusterOk: List<Int>, val defaultCluster: Int, val labelMax: Int, val labelCharset: String,
+    val features: List<String>, val sizeOk: Boolean, val reasonCode: String, val reason: String,
+)
+
+/** パーティション探索の指定。[seed] は復元案の GUID を決める (探索のあとの適用で同じ計画になるよう、画面が最初に決めて持ち回る)。 */
+data class ScanSpec(val full: Boolean, val minConfidence: Int, val seed: Long)
+
+/** 復元案 1 つ。[json] はネイティブの案 (index / id / title / confidence / planOk / notes / partitions ...)、[plan] はその案を積んだ編集の計画 (書かない。変更後の表を含む)。 */
+class ScanProposal(val json: JSONObject, val plan: PartitionPlan?, val planError: String?)
+
+/** 探索の結果。[cancelled] = 取り消されて途中まで (この場合 [proposals] は空)。 */
+class ScanReport(val result: JSONObject, val cancelled: Boolean, val proposals: List<ScanProposal>)
+
+/** ブートセクタ修復の結果。[after] = 適用後に検査し直した結果 (inspection の JSON)。 */
+data class BootDone(val result: BootApplyResult, val backupName: String?, val after: JSONObject?)
 
 /** パーティション編集の 1 操作。画面が積んで、計画と適用のたびに、同じ順序で新しいセッションへ流す (GUID は画面が決める: 計画と適用で同じ計画になるように)。 */
 sealed interface PartOp {
@@ -80,15 +108,15 @@ interface DiskToolsActions {
     fun readTable(t: DiskTarget): Outcome<PartitionTable>
     fun newCheckJob(): DiskOpJob
     fun newRecoveryJob(): DiskOpJob
+    /** パーティション探索・ブートセクタ検査 / 修復のジョブ (進捗は phase = table / scan / verify / backup / write) */
+    fun newScanJob(): DiskOpJob
 
     // ---- 検査 (読み取り専用)
     fun check(t: DiskTarget, r: DiskRange, job: DiskOpJob): Outcome<FsCheckResult>
 
     // ---- フォーマット
-    /** 作れるファイルシステムと最小サイズ (ネイティブへの問い合わせ。名前は小文字: ext2 / exfat / fat32 ...) */
-    fun formatChoices(): List<Pair<String, Long>>
-    /** [fs] を [r] に作るときに使えるクラスタ / ブロックサイズ (バイト)。0 = 自動を先頭に、計画が通るものだけ (ネイティブの計画で確かめる) */
-    fun formatClusterChoices(t: DiskTarget, r: DiskRange, fs: String): List<Int>
+    /** 作れるファイルシステムと、[r] の大きさで作れるか・使えるクラスタサイズ・ラベルの上限・ext の機能 (ネイティブへの問い合わせ。何も開かない・書かない)。名前は小文字: ext2 / exfat / fat32 ... */
+    fun formatCaps(r: DiskRange, sectorSize: Int): List<FormatCap>
     fun formatPlan(t: DiskTarget, r: DiskRange, spec: FormatSpec): Outcome<MkfsPlan>
     /** 計画を作り直して [expectedPhrase] と一致することを確かめてから、[typed] で適用する (書き込みモード・マウント状態もここで確かめる) */
     fun formatApply(t: DiskTarget, r: DiskRange, spec: FormatSpec, expectedPhrase: String, typed: String, job: DiskOpJob): Outcome<FormatDone>
@@ -99,6 +127,22 @@ interface DiskToolsActions {
     fun partitionApply(t: DiskTarget, ops: List<PartOp>, expectedPhrase: String, typed: String): Outcome<PartitionDone>
     /** 今のパーティション表のバックアップを [dest] (SAF) へ保存する。戻り値 = バイト数 */
     fun partitionBackupTo(t: DiskTarget, dest: Uri): Outcome<Int>
+
+    // ---- 失われたパーティションを探す (TestDisk 相当。探索は読み取り専用。docs/partition-scan.md)
+    /** 探索して、候補と復元案 (案ごとの計画つき) を返す。読み取り専用で開くだけで、何も書かない */
+    fun scanRun(t: DiskTarget, spec: ScanSpec, job: DiskOpJob): Outcome<ScanReport>
+    /**
+     * 復元案を適用する。**探索と案の計画をやり直し**、案の id と確認文字列が画面に見せたものと一致することを確かめてから、[typed] で表だけを書く
+     * (書く前に表の控えをアプリ内へ保存し、書いたあと読み戻して確かめる。書き込みモード・マウント状態もここで確かめる)。
+     */
+    fun scanApply(t: DiskTarget, spec: ScanSpec, proposalId: String, proposalIndex: Int, expectedPhrase: String, typed: String, job: DiskOpJob): Outcome<PartitionDone>
+
+    // ---- ブートセクタの検査 (読み取り専用) / 修復 (書き込み)。ntfsfix のような自動修復は使わない
+    fun bootInspect(t: DiskTarget, r: DiskRange, job: DiskOpJob): Outcome<JSONObject>
+    /** 修復の計画 (書かない)。[repairId] / [source] は検査結果の repairs[].id / source */
+    fun bootPlan(t: DiskTarget, r: DiskRange, repairId: String, source: Long): Outcome<JSONObject>
+    /** 計画を作り直して [expectedPhrase] と一致することを確かめてから、[typed] で適用する (書く前に元の内容をアプリ内へ保存。書き込みモード・マウント状態もここで確かめる) */
+    fun bootApply(t: DiskTarget, r: DiskRange, repairId: String, source: Long, expectedPhrase: String, typed: String, job: DiskOpJob): Outcome<BootDone>
 
     // ---- バックアップ / 復元 (Partclone 形式)
     fun backupRun(t: DiskTarget, r: DiskRange, dest: Uri, lz4: Boolean, fullIfUnclean: Boolean, job: DiskOpJob): Outcome<JSONObject>

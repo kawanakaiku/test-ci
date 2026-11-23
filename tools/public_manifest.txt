@@ -49,6 +49,7 @@ include  own  core/CMakeLists.txt
 include  own  core/blockdev.cmake
 include  own  core/disktools.cmake
 include  own  core/recovery.cmake
+include  own  core/undelete.cmake                       # 削除ファイルの一覧と救出 / カービング (自前のオンディスク解析。docs/undelete-carving.md)
 include  own  core/partscan.cmake                        # パーティション探索 / 失われた表の復元案 / ブートセクタの検査と修復 (docs/partition-scan.md)
 include  own  core/transform.cmake
 include  own  core/decomp.cmake                         # 圧縮データの展開器 (zlib / LZ4 / LZO1X / Zstandard。Btrfs・F2FS の圧縮とバックアップの LZ4。docs/decomp.md)
@@ -152,6 +153,10 @@ exclude   dev  android/app/src/androidTest/**           # 実機・エミュレ�
 include   own  tools/gen_fixtures.py
 include   own  tools/check_partedit_tools.py
 include   own  tools/check_partscan_tools.py
+include   own  tools/check_undelete_tools.py
+include   own  tools/check_carve_tools.py
+include   own  tools/ud_fslib.py                          # FAT / exFAT の最小の書き手 (undelete / carve の検証用)
+include   own  tools/carve_samples.py                     # カービングの検証用の見本ファイルの生成
 include   own  tools/gen_blockdev_fixtures.py
 include   own  tools/check_disktools.py
 include   own  tools/dt_*.py
@@ -230,6 +235,7 @@ include   own-doc docs/nbd.md
 include   own-doc docs/nested-mount.md
 include   own-doc docs/partition-edit.md
 include   own-doc docs/partition-scan.md
+include   own-doc docs/undelete-carving.md
 include   own-doc docs/phase3-progress.md
 include   own-doc docs/recovery-backup.md
 exclude   own-doc docs/**                               # 上以外: カーネル FS の移植記録・実機の検証記録・CI・監査・TODO など (公開版では docs/editions.md の要約を README に載せる)

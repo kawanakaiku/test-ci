@@ -54,6 +54,16 @@ def run(cmd, **kw):
     return subprocess.run(cmd, **kw)
 
 
+FUZZ_IMAGES = []
+
+
+def keep_fuzz(tag, img):
+    """壊れた入力の試験 (fuzz) 用に、削除後・上書き前のイメージを控える"""
+    dst = os.path.join(WORK, "fuzz_" + tag + ".img")
+    shutil.copyfile(img, dst)
+    FUZZ_IMAGES.append((tag, dst))
+
+
 def sha(b):
     return hashlib.sha256(b).hexdigest()
 
@@ -158,7 +168,9 @@ def verify(tag, img, truth, live, expect_low=(), expect_found=None, allow_missin
             check(f["reusedBlocks"] > 0, "%s: overwritten file %s must report reused blocks" % (tag, path))
         else:
             check(same, "%s: %s extracted sha mismatch (level %s, notes %s)" % (tag, path, f["level"], f["notes"]))
-            check(f["level"] == "high", "%s: intact file %s should be high (got %s conf %s notes %s)" % (tag, path, f["level"], f["confidence"], f["notes"]))
+            # FAT の複数クラスタ・exFAT の FAT チェーン喪失は連続の仮定 (署名で裏付けられなければ中)。それ以外は高
+            okl = ("high", "medium") if "layout-assumed-contiguous" in f["notes"] else ("high",)
+            check(f["level"] in okl, "%s: intact file %s should be %s (got %s conf %s notes %s)" % (tag, path, "/".join(okl), f["level"], f["confidence"], f["notes"]))
             check(f["size"] == len(data), "%s: %s size %s != %s" % (tag, path, f["size"], len(data)))
         # 安全: 内容が違うのに「高・中」は許さない
         if not same and f["level"] in ("high", "medium"):
@@ -220,6 +232,8 @@ def test_fat(bits, size_mb, extra_args=(), use_reuse=True):
         p = run(["fsck.fat", "-n", img])
         check(p.returncode == 0, "%s: fsck.fat -n after delete: %s" % (tag, p.stdout.decode()[-300:]))
     lst0 = verify(tag, img, truth, live)
+    if bits in (12, 32):
+        keep_fuzz(tag, img)
     if bits == 16:   # ディレクトリ自体も削除 (中のファイルは「親も削除済み」になる)
         fs = ud_fslib.Fat(img)
         fs.tree = {}
@@ -328,6 +342,7 @@ def test_exfat():
         truth2 = dict(truth)
         truth2["/vdl.bin"] = vdl_expect
         verify(tag, img, truth2, live)
+        keep_fuzz(tag, img)
         # 上書き
         fs = ud_fslib.ExFat(img)
         _rebuild_exfat_tree(fs)
@@ -387,6 +402,7 @@ def test_ext(kind, size_mb=40):
     if which("e2fsck"):
         p = run(["e2fsck", "-fn", img])
         check(p.returncode == 0, "%s: e2fsck after delete: %s" % (tag, p.stdout.decode()[-300:]))
+    keep_fuzz(tag, img)
     # 名前は debugfs の rm が前のエントリの余白に inode 番号つきで残す (最初のエントリは inode がゼロになる)。名前が無いものは inode_N
     lst = cli_list(img)
     files = lst.get("files", [])
@@ -626,6 +642,7 @@ def test_ntfs():
     if which("ntfsfix"):
         pass
     lst = verify(tag, img, truth, live)
+    keep_fuzz(tag, img)
     resident = [f for f in lst["files"] if f["resident"]]
     check(len(resident) >= 1, "ntfs: a resident deleted file should be listed")
     # 参考: ntfsundelete が見つける候補の数 (info)
@@ -673,6 +690,17 @@ def main():
         test_ext(k)
     print("NTFS")
     test_ntfs()
+    # 壊れた入力 (管理情報を少しずつ壊した 2000 回前後)。サニタイザ付きのビルドなら ASan / UBSan が検出する
+    iters = int(os.environ.get("USBMEM_UD_FUZZ_ITERS", "400"))
+    total = 0
+    for tag, img in FUZZ_IMAGES:
+        p = run([CLI, "fuzz", img, str(iters), "12345"], timeout=1800)
+        out = p.stdout.decode("utf-8", "replace").strip()
+        ok = p.returncode == 0
+        check(ok, "fuzz %s: rc=%d %s %s" % (tag, p.returncode, out[:200], p.stderr.decode("utf-8", "replace")[-600:]))
+        if ok:
+            total += iters
+    print("  fuzz: %d corrupted inputs over %d images" % (total, len(FUZZ_IMAGES)), flush=True)
     for i in infos:
         print("info:", i)
     print("== undelete: %d checks, %d failed" % (checks, fails))

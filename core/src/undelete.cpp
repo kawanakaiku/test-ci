@@ -145,7 +145,7 @@ void score_file(DeletedFile& f) {
   int s = f.layout_exact ? 100 : 85;
   if (!f.layout_exact) f.notes.push_back("layout-assumed-contiguous");
   if (f.signature_check == "mismatch") { s -= 35; f.notes.push_back("signature-mismatch"); }
-  else if (f.signature_check == "unknown" && !f.layout_exact) s -= 5;
+  else if (!f.layout_exact && f.signature_check != "match") s = std::min(s, 75);  // 配置が仮定で、先頭も裏付けられない: 「高」にはしない
   if (!f.allocation_known) { s = std::min(s, 70); f.notes.push_back("allocation-unknown"); }
   if (f.allocation_known && f.reused_blocks > 0) {
     // 1 ブロックでも再利用されていれば、内容は壊れている可能性が高い。割合が大きいほど低く、上限は 39 (= 低)

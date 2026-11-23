@@ -4,6 +4,7 @@
 //   extract <image> <outdir> [--range OFF LEN]        一覧の全ファイルを <outdir>/<id> へ書き出し、SHA-256 を JSON で返す
 //   carve   <image> [--types a,b] [--min-size N] [--align N] [--unalloc] [--out DIR] [--state FILE] [--max-hits N] [--range OFF LEN]
 //                                                     カービングして結果を JSON で返す (--out があれば切り出したファイルも書く)
+//   fuzz    <image> <回数> [seed]                      イメージの管理情報 (空でないセクタ) を少しずつ壊して list + extract を繰り返す (クラッシュ・書き込み・暴走が無いこと。ASan/UBSan のビルドで使う)
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -12,7 +13,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
+#include <random>
 #include <string>
+#include <vector>
 
 #include "usbmem/carve.h"
 #include "usbmem/devices.h"
@@ -145,10 +149,86 @@ static int cmd_carve(int argc, char** argv) {
   return st.ok() ? 0 : 1;
 }
 
+// 読み取り専用の土台の上に「壊した数バイト」を重ねて見せるデバイス。書き込みが 1 度でも来たら数える (検査は読み取り専用でなければならない)
+class OverlayDevice final : public BlockDevice {
+ public:
+  OverlayDevice(BlockDevicePtr base, const std::map<uint64_t, uint8_t>& patch) : base_(std::move(base)), patch_(patch) {}
+  Status read_at(uint64_t off, void* buf, size_t len, const IoOptions& io = {}) override {
+    Status s = base_->read_at(off, buf, len, io);
+    if (!s.ok()) return s;
+    auto it = patch_.lower_bound(off);
+    for (; it != patch_.end() && it->first < off + len; ++it) static_cast<uint8_t*>(buf)[it->first - off] = it->second;
+    return s;
+  }
+  Status write_at(uint64_t, const void*, size_t, const IoOptions& = {}) override { writes++; return Status::Make(Errc::ReadOnly); }
+  Status flush() override { return Status::Ok(); }
+  Status close() override { return Status::Ok(); }
+  uint64_t size() const override { return base_->size(); }
+  uint32_t logical_block_size() const override { return base_->logical_block_size(); }
+  bool is_read_only() const override { return true; }
+  std::string describe() const override { return "overlay"; }
+  int writes = 0;
+
+ private:
+  BlockDevicePtr base_;
+  const std::map<uint64_t, uint8_t>& patch_;
+};
+
+static int cmd_fuzz(int argc, char** argv) {
+  if (argc < 4) return 2;
+  BlockDevicePtr base;
+  if (!RawImageDevice::open_path(argv[2], true, 512, &base).ok()) return 3;
+  long iters = std::strtol(argv[3], nullptr, 10);
+  std::mt19937_64 rng(argc > 4 ? std::strtoull(argv[4], nullptr, 0) : 1);
+  // 空でないセクタ (管理情報の候補) を集める。大きなイメージは先頭から一定数
+  std::vector<uint64_t> hot;
+  std::vector<uint8_t> sec(512);
+  for (uint64_t o = 0; o + 512 <= base->size() && hot.size() < 20000; o += 512) {
+    if (!base->read_at(o, sec.data(), 512).ok()) break;
+    for (uint8_t c : sec) if (c) { hot.push_back(o); break; }
+  }
+  if (hot.empty()) return 3;
+  long listed = 0, extracted = 0, errors = 0;
+  for (long it = 0; it < iters; it++) {
+    std::map<uint64_t, uint8_t> patch;
+    int n = 1 + static_cast<int>(rng() % 24);
+    for (int k = 0; k < n; k++) {
+      uint64_t o = hot[rng() % hot.size()] + rng() % 512;
+      int kind = static_cast<int>(rng() % 5);
+      uint8_t cur = 0;
+      if (!base->read_at(o, &cur, 1).ok()) continue;
+      uint8_t v = kind == 0 ? static_cast<uint8_t>(rng()) : kind == 1 ? static_cast<uint8_t>(cur ^ (1u << (rng() % 8))) : kind == 2 ? 0xFF : kind == 3 ? 0x00 : static_cast<uint8_t>(cur + 1);
+      patch[o] = v;
+      if (kind == 4) for (int b = 1; b < 4; b++) patch[o + b] = static_cast<uint8_t>(rng());
+    }
+    OverlayDevice dev(base, patch);
+    UndeleteOptions opt;
+    UndeleteResult r;
+    Status st = list_deleted(dev, opt, &r);
+    if (st.ok()) {
+      listed++;
+      int did = 0;
+      for (const DeletedFile& f : r.files) {
+        if (f.level == RecoverLevel::None || f.size > (32ull << 20) || did >= 6) continue;
+        did++;
+        ExtractResult er;
+        extract_deleted(dev, f, [](const void*, size_t) { return Status::Ok(); }, nullptr, &er);
+        extracted++;
+      }
+      std::string j = undelete_result_to_json(r);
+      if (j.empty()) errors++;
+    }
+    if (dev.writes) { std::printf("{\"error\":\"write-attempted\",\"iteration\":%ld}\n", it); return 4; }
+  }
+  std::printf("{\"iterations\":%ld,\"listed\":%ld,\"extracted\":%ld,\"errors\":%ld}\n", iters, listed, extracted, errors);
+  return errors ? 1 : 0;
+}
+
 int main(int argc, char** argv) {
   if (argc < 3) return 2;
   if (!std::strcmp(argv[1], "list")) return cmd_list(argc, argv);
   if (!std::strcmp(argv[1], "extract")) return cmd_extract(argc, argv);
   if (!std::strcmp(argv[1], "carve")) return cmd_carve(argc, argv);
+  if (!std::strcmp(argv[1], "fuzz")) return cmd_fuzz(argc, argv);
   return 2;
 }

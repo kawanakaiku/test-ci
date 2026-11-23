@@ -367,9 +367,10 @@ bool pdf_validate(CarveReader& r, uint64_t start, uint64_t max_len, Match* m) {
     size_t nd = 0;
     while (i < tail.size() && tail[i] >= '0' && tail[i] <= '9' && nd < 15) { v = v * 10 + static_cast<uint64_t>(tail[i] - '0'); i++; nd++; }
     if (!nd || v >= e - start) return false;
+    // startxref の値は xref テーブル ("xref") か xref ストリームのオブジェクト ("N G obj") を厳密に指す (署名だけの偽物が、遠くの本物の %%EOF に結びつくのを防ぐ)
     const uint8_t* x = r.at(start + v, 4);
     if (!x) return false;
-    bool ok = std::memcmp(x, "xref", 4) == 0 || (x[0] >= '0' && x[0] <= '9') || is_ws(x[0]);
+    bool ok = std::memcmp(x, "xref", 4) == 0 || looks_like_obj(r, start + v);
     if (!ok) return false;
     m->length = fin - start;
     m->ext = "pdf";

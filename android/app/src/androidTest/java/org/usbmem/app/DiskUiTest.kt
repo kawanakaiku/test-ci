@@ -263,6 +263,11 @@ class DiskUiTest {
         waitTag("pt_bar")
         tag("pt_legend").assertExists()
         tag("pt_row_1").assertExists(); tag("pt_row_2").assertExists()
+        // MainActivity が登録した本物の画面 (失われたパーティション・ブートセクタ) が口に入っている。登録が無い口は出ないことを、いったん外して確かめる
+        waitTag("disk_slot_lost_partitions"); waitTag("disk_slot_boot_sector")
+        assertTrue(DiskToolsFeatures.available(DiskSlot.LostPartitions) && DiskToolsFeatures.available(DiskSlot.BootSector))
+        rule.runOnUiThread { DiskSlot.entries.forEach { DiskToolsFeatures.unregister(it) } }
+        waitGone("disk_slot_lost_partitions"); waitGone("disk_slot_boot_sector")
         assertFalse("an unregistered feature slot must stay hidden", exists("disk_slot_lost_partitions"))
         assertFalse(exists("disk_slot_boot_sector"))
         rule.runOnUiThread { DiskToolsFeatures.register(DiskSlot.LostPartitions) { Text("slot-body") } }
@@ -324,6 +329,327 @@ class DiskUiTest {
         clickTag("pt_plan")
         rule.waitUntil(120_000) { exists("pt_plan_card") || exists("pt_plan_error") }
         if (exists("pt_apply")) tag("pt_apply").assertIsNotEnabled()
+        assertEquals(before, sha(img))
+    }
+
+    // ================================================================ フォーマットの選択肢 (ネイティブの容量・機能の問い合わせ)
+
+    @Test fun format_fatAuto_picksFat16_for40MiB() {
+        val img = blank("fmt_fatauto.img", 40)
+        openImageTools(img, writable = true)
+        openTool("disk_tool_format")
+        waitTag("fmt_fs_fat_auto")
+        clickTag("fmt_fs_fat_auto")
+        waitTag("fmt_fat_auto_pick")
+        assertTrue("40 MiB must pick FAT16: ${textOf("fmt_fat_auto_pick")}", textOf("fmt_fat_auto_pick").contains("FAT16"))
+        tag("fmt_cluster_0").assertExists()                     // 自動 (既定) の選択肢が先頭にある
+        typeInto("fmt_label", "autolbl")                       // FAT のラベルは大文字の ASCII に整えられる
+        clickTag("fmt_plan")
+        waitTag("fmt_plan_card")
+        clickTag("fmt_apply")
+        typeAndConfirm()
+        waitTag("fmt_done")
+    }
+
+    @Test fun format_tooSmall_showsReason_andBlocksPlan() {
+        val img = blank("fmt_small.img", 6)
+        val before = sha(img)
+        openImageTools(img, writable = true)
+        openTool("disk_tool_format")
+        waitTag("fmt_fs_fat32")
+        clickTag("fmt_fs_fat32")                                // FAT32 は 6 MiB では作れない
+        waitTag("fmt_cap_reason")
+        tag("fmt_cap_range").assertExists()
+        tag("fmt_plan").assertIsNotEnabled()
+        clickTag("fmt_fs_fat_auto")                             // 自動なら、この容量で作れる FAT12 になる
+        waitTag("fmt_fat_auto_pick")
+        assertTrue(textOf("fmt_fat_auto_pick").contains("FAT12"))
+        waitGone("fmt_cap_reason")
+        tag("fmt_plan").assertIsEnabled()
+        assertEquals(before, sha(img))
+    }
+
+    @Test fun format_ext4_withFeatureOff_inAdvancedSection() {
+        val img = blank("fmt_ext4.img", 40)
+        openImageTools(img, writable = true)
+        openTool("disk_tool_format")
+        waitTag("fmt_fs_ext4")
+        clickTag("fmt_fs_ext4")
+        typeInto("fmt_label", "DUIEXT4")
+        assertFalse("the ext features stay folded until opened", exists("fmt_adv"))
+        waitTag("fmt_adv_toggle")
+        clickTag("fmt_adv_toggle")
+        waitTag("fmt_adv")
+        clickTag("fmt_feat_resize_inode")                       // 既定で有効な resize_inode を外す
+        clickTag("fmt_plan")
+        waitTag("fmt_plan_card")
+        clickTag("fmt_apply")
+        typeAndConfirm()
+        waitTag("fmt_done")
+    }
+
+    @Test fun format_ntfs_isMarkedExperimental() {
+        val img = blank("fmt_ntfs.img", 40)
+        openImageTools(img, writable = true)
+        openTool("disk_tool_format")
+        waitTag("fmt_fs_ntfs")
+        clickTag("fmt_fs_ntfs")
+        waitTag("fmt_ntfs_experimental")
+        typeInto("fmt_label", "DUINTFS")
+        clickTag("fmt_plan")
+        waitTag("fmt_plan_card")
+        clickTag("fmt_apply")
+        typeAndConfirm()
+        waitTag("fmt_done")
+    }
+
+    // ================================================================ 失われたパーティションを探す (TestDisk 相当)
+
+    private fun openPartitionTool(img: File, writable: Boolean) {
+        openImageTools(img, writable)
+        openTool("disk_tool_partition")
+        waitTag("pt_bar")
+    }
+
+    /** 探索を実行して、結果と復元案が出るまで待つ。 */
+    private fun runLostScan() {
+        waitTag("disk_slot_lost_partitions")
+        clickTag("lost_run")
+        waitTag("lost_result")
+        waitTag("lost_prop_0")
+    }
+
+    @Test fun lost_scan_listsCandidatesAndProposals_readOnly() {
+        val img = fixture("lost_mbr.img", "lost_ro.img")
+        val before = sha(img)
+        openPartitionTool(img, writable = false)
+        waitTag("disk_slot_lost_partitions")
+        tag("lost_header_readonly").assertExists()
+        assertFalse("nothing is written before a proposal is chosen", exists("lost_write_card"))
+        runLostScan()
+        tag("lost_found").assertExists()
+        tag("lost_cand_0").assertExists(); tag("lost_cand_1").assertExists()    // ext2 と FAT16 の 2 つ
+        tag("lost_no_write").assertExists()
+        // 復元案ごとに、変更後の表の帯グラフ (TalkBack には帯全体の説明を読ませる)
+        tag("lost_prop_0_bar").assertExists(); tag("lost_prop_1_bar").assertExists()
+        val desc = tag("lost_prop_0_bar").fetchSemanticsNode().config[SemanticsProperties.ContentDescription].joinToString("")
+        assertTrue("the bar must describe itself: $desc", desc.isNotBlank())
+        clickTag("lost_prop_pick_0")
+        waitTag("lost_write_card")
+        tag("lost_need_write").assertExists()                   // 読み取り専用では、適用できない
+        tag("lost_apply").assertIsNotEnabled()
+        tag("lost_backup_guide").assertExists()
+        assertEquals("scanning and planning must not write", before, sha(img))
+    }
+
+    @Test fun lost_mbr_apply_restoresTwoPartitions() {
+        val img = fixture("lost_mbr.img", "lost_mbr_apply.img")
+        openPartitionTool(img, writable = true)
+        runLostScan()
+        clickTag("lost_prop_pick_0")
+        waitTag("lost_write_card")
+        waitEnabled("lost_apply")
+        clickTag("lost_apply")
+        typeAndConfirm()
+        waitTag("lost_done")
+        assertEquals("the table must be back", 2, tableOf(img).partitions.count { !it.protective && !it.extendedContainer })
+    }
+
+    @Test fun lost_gpt_apply_copiesBackupToPrimary() {
+        val img = fixture("lost_gpt.img", "lost_gpt_apply.img")
+        openPartitionTool(img, writable = true)
+        runLostScan()
+        clickTag("lost_prop_pick_0")                            // 信頼度が最も高い案 = 控えから先頭の表を戻す
+        waitTag("lost_write_card")
+        waitEnabled("lost_apply")
+        clickTag("lost_apply")
+        typeAndConfirm()
+        waitTag("lost_done")
+        assertEquals(2, tableOf(img).partitions.count { !it.protective && !it.extendedContainer })
+    }
+
+    @Test fun lost_cancelConfirm_changesNothing() {
+        val img = fixture("lost_mbr.img", "lost_cancel.img")
+        val before = sha(img)
+        openPartitionTool(img, writable = true)
+        runLostScan()
+        clickTag("lost_prop_pick_0")
+        waitTag("lost_write_card")
+        waitEnabled("lost_apply")
+        clickTag("lost_apply")
+        waitTag("disk_confirm_phrase")
+        tag("disk_confirm_ok").assertIsNotEnabled()
+        tag("disk_confirm_input").performTextInput("WRONG")
+        tag("disk_confirm_ok").assertIsNotEnabled()
+        clickTag("disk_confirm_cancel")
+        waitGone("disk_confirm_phrase")
+        assertFalse(exists("lost_done"))
+        assertEquals("cancelling the confirmation must not touch the image", before, sha(img))
+    }
+
+    @Test fun lost_osMountedUsb_refusesApply() {
+        val img = fixture("lost_gpt.img", "lost_usb_mounted.img")
+        val before = sha(img)
+        val st = openFakeUsb(img, WriteMode.Full)
+        rule.runOnUiThread { st.osBlocked = 1 }                 // OS がマウント中のボリュームがある
+        waitTag("disk_tools_usb")
+        clickTag("disk_tools_usb")
+        waitTag("disk_tool_partition")
+        openTool("disk_tool_partition")
+        runLostScan()
+        clickTag("lost_prop_pick_0")
+        waitTag("lost_write_card")
+        waitTag("lost_in_use")
+        tag("lost_apply").assertIsNotEnabled()
+        assertEquals(before, sha(img))
+    }
+
+    @Test fun scan_preCancelledJob_returnsPartialResultWithoutProposals() {
+        val img = fixture("lost_mbr.img", "lost_precancel.img")
+        val before = sha(img)
+        var out: org.usbmem.app.ui.Outcome<org.usbmem.app.ui.ScanReport>? = null
+        val th = Thread {
+            val d = rule.activity.diskTools
+            val job = d.newScanJob()
+            try {
+                job.cancel()
+                out = d.scanRun(DiskTarget(DiskTargetKind.Image, Uri.fromFile(img).toString(), "img"), org.usbmem.app.ui.ScanSpec(false, 0, 1), job)
+            } finally { job.close() }
+        }
+        th.start(); th.join()
+        val r = out?.value
+        assertNotNull("a cancelled scan still returns a result: ${out?.error}", r)
+        assertTrue("it must be marked cancelled", r!!.cancelled)
+        assertTrue("no proposals from a partial scan", r.proposals.isEmpty())
+        assertEquals(before, sha(img))
+    }
+
+    // ================================================================ ブートセクタを検査 / 修復
+
+    /** boot_multi.img の分かりやすい番号: #1 = FAT32、#2 = NTFS、#3 = exFAT (どれも先頭のセクタだけ壊れている) */
+    private fun runBootInspect() {
+        waitTag("disk_slot_boot_sector")
+        clickTag("boot_run")
+        waitTag("boot_result")
+        for (i in 1..3) waitTag("boot_res_$i")
+    }
+
+    @Test fun boot_inspect_listsEachPartition_readOnly_andNoWriteWithoutMode() {
+        val img = fixture("boot_multi.img", "boot_ro.img")
+        val before = sha(img)
+        openPartitionTool(img, writable = false)
+        waitTag("disk_slot_boot_sector")
+        tag("boot_header_readonly").assertExists()
+        tag("boot_no_auto").assertExists()                      // ntfsfix のような自動修復は使わない旨
+        runBootInspect()
+        for (i in 1..3) { tag("boot_verdict_${i}_repairable").assertExists(); tag("boot_findings_$i").assertExists() }
+        tag("boot_no_write").assertExists()
+        tag("boot_repair_card").assertExists()
+        tag("boot_need_write").assertExists()
+        clickTag("boot_plan_1_fat32-restore-primary-from-backup")
+        waitTag("boot_plan_card")
+        tag("boot_plan_writes").assertExists()
+        tag("boot_apply").assertIsNotEnabled()                  // 読み取り専用では、適用できない
+        assertEquals("inspecting and planning must not write", before, sha(img))
+    }
+
+    private fun repairPartition(outName: String, idx: Int, repairId: String) {
+        val img = fixture("boot_multi.img", outName)
+        openPartitionTool(img, writable = true)
+        runBootInspect()
+        tag("boot_verdict_${idx}_repairable").assertExists()
+        clickTag("boot_plan_${idx}_$repairId")
+        waitTag("boot_plan_card")
+        waitEnabled("boot_apply")
+        clickTag("boot_apply")
+        typeAndConfirm()
+        waitTag("boot_done")
+        waitTag("boot_verdict_${idx}_ok")                       // 適用後に検査し直した結果が見える
+        for (other in (1..3) - idx) tag("boot_verdict_${other}_repairable").assertExists()   // ほかのパーティションには触れていない
+    }
+
+    @Test fun boot_repair_fat32_fromBackupSectors() = repairPartition("boot_fat32.img", 1, "fat32-restore-primary-from-backup")
+    @Test fun boot_repair_ntfs_fromLastSector() = repairPartition("boot_ntfs.img", 2, "ntfs-restore-primary-from-backup")
+    @Test fun boot_repair_exfat_fromBackupRegion() = repairPartition("boot_exfat.img", 3, "exfat-restore-main-from-backup")
+
+    @Test fun boot_cancelConfirm_changesNothing() {
+        val img = fixture("boot_multi.img", "boot_cancel.img")
+        val before = sha(img)
+        openPartitionTool(img, writable = true)
+        runBootInspect()
+        clickTag("boot_plan_2_ntfs-restore-primary-from-backup")
+        waitTag("boot_plan_card")
+        waitEnabled("boot_apply")
+        clickTag("boot_apply")
+        waitTag("disk_confirm_phrase")
+        assertTrue(textOf("disk_confirm_phrase").startsWith("REPAIR "))
+        tag("disk_confirm_ok").assertIsNotEnabled()
+        clickTag("disk_confirm_cancel")
+        waitGone("disk_confirm_phrase")
+        assertFalse(exists("boot_done"))
+        assertEquals("cancelling the confirmation must not touch the image", before, sha(img))
+    }
+
+    @Test fun boot_osMountedUsb_refusesRepair() {
+        val img = fixture("boot_multi.img", "boot_usb_mounted.img")
+        val before = sha(img)
+        val st = openFakeUsb(img, WriteMode.Full)
+        rule.runOnUiThread { st.osBlocked = 1 }
+        waitTag("disk_tools_usb")
+        clickTag("disk_tools_usb")
+        waitTag("disk_tool_partition")
+        openTool("disk_tool_partition")
+        runBootInspect()
+        clickTag("boot_plan_1_fat32-restore-primary-from-backup")
+        waitTag("boot_plan_card")
+        waitTag("boot_in_use")
+        tag("boot_apply").assertIsNotEnabled()
+        assertEquals(before, sha(img))
+    }
+
+    // ================================================================ 横向き / 大きい文字 (探索・修復の確認ダイアログ)
+
+    @Test fun lostConfirm_inLandscape_staysUsable() {
+        val img = fixture("lost_mbr.img", "lost_land.img")
+        val before = sha(img)
+        openPartitionTool(img, writable = true)
+        runLostScan()
+        clickTag("lost_prop_pick_0")
+        waitTag("lost_write_card")
+        waitEnabled("lost_apply")
+        clickTag("lost_apply")
+        waitTag("disk_confirm_phrase")
+        inLandscape {
+            tag("disk_confirm_cancel").assertExists()
+            click(tag("disk_confirm_input"))
+            tag("disk_confirm_input").performTextInput(phrase())
+            tag("disk_confirm_ok").assertIsEnabled()
+        }
+        clickTag("disk_confirm_cancel")
+        waitGone("disk_confirm_phrase")
+        assertEquals(before, sha(img))
+    }
+
+    @Test fun bootConfirm_withLargeFont_staysUsable() {
+        val img = fixture("boot_multi.img", "boot_font.img")
+        val before = sha(img)
+        openPartitionTool(img, writable = true)
+        runBootInspect()
+        clickTag("boot_plan_3_exfat-restore-main-from-backup")
+        waitTag("boot_plan_card")
+        waitEnabled("boot_apply")
+        clickTag("boot_apply")
+        waitTag("disk_confirm_phrase")
+        shell("settings put system font_scale 2.0")
+        rule.waitUntil(30_000) { rule.activity.resources.configuration.fontScale >= 1.9f }
+        rule.waitForIdle()
+        waitTag("disk_confirm_phrase")
+        tag("disk_confirm_cancel").assertExists()
+        click(tag("disk_confirm_input"))
+        tag("disk_confirm_input").performTextInput(phrase())
+        tag("disk_confirm_ok").assertIsEnabled()
+        clickTag("disk_confirm_cancel")
+        waitGone("disk_confirm_phrase")
         assertEquals(before, sha(img))
     }
 

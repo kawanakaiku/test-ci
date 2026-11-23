@@ -13,7 +13,9 @@ import org.usbmem.app.ui.DiskOpJob
 import org.usbmem.app.ui.DiskRange
 import org.usbmem.app.ui.DiskTarget
 import org.usbmem.app.ui.DiskTargetKind
+import org.usbmem.app.ui.BootDone
 import org.usbmem.app.ui.DiskToolsActions
+import org.usbmem.app.ui.FormatCap
 import org.usbmem.app.ui.FormatDone
 import org.usbmem.app.ui.FormatSpec
 import org.usbmem.app.ui.OpProgress
@@ -21,6 +23,9 @@ import org.usbmem.app.ui.Outcome
 import org.usbmem.app.ui.PartOp
 import org.usbmem.app.ui.PartitionDone
 import org.usbmem.app.ui.RescueSpec
+import org.usbmem.app.ui.ScanProposal
+import org.usbmem.app.ui.ScanReport
+import org.usbmem.app.ui.ScanSpec
 import java.io.File
 import java.security.MessageDigest
 
@@ -54,6 +59,8 @@ class DiskToolsController(private val ctx: Context, private val model: AppModel)
     } catch (e: DiskToolsException) {
         Outcome(error = failText(e.detail, e.message))
     } catch (e: PartitionEditException) {
+        Outcome(error = failText(e.detail, e.message))
+    } catch (e: PartitionScanException) {
         Outcome(error = failText(e.detail, e.message))
     } catch (e: RecoveryException) {
         Outcome(error = failText(e.code, e.message))
@@ -161,7 +168,22 @@ class DiskToolsController(private val ctx: Context, private val model: AppModel)
         override fun close() = synchronized(lock) { if (!closed) { closed = true; job.close() } }
     }
 
+    /** パーティション探索・ブートセクタの検査 / 修復のジョブ (ScanJob)。 */
+    private class ScanJobImpl : DiskOpJob {
+        val job = ScanJob()
+        private val lock = Any()
+        private var closed = false
+        override fun cancel() = synchronized(lock) { if (!closed) job.cancel() }
+        override fun pause(paused: Boolean) {}
+        override fun progress(): OpProgress? = synchronized(lock) {
+            if (closed) null else job.progress().let { OpProgress(it.phase, it.done, it.total) }
+        }
+        override fun close() = synchronized(lock) { if (!closed) { closed = true; job.close() } }
+    }
+
     override fun newCheckJob(): DiskOpJob = CheckJob()
+    override fun newScanJob(): DiskOpJob = ScanJobImpl()
+    private fun scanJob(job: DiskOpJob) = (job as ScanJobImpl).job
     override fun newRecoveryJob(): DiskOpJob = RecJob()
     private fun disk(job: DiskOpJob) = (job as CheckJob).job
     private fun rec(job: DiskOpJob) = (job as RecJob).job
@@ -174,20 +196,41 @@ class DiskToolsController(private val ctx: Context, private val model: AppModel)
 
     // ================================================================ フォーマット
 
-    override fun formatChoices(): List<Pair<String, Long>> = MkfsSession.supportedFormats()
-
-    override fun formatClusterChoices(t: DiskTarget, r: DiskRange, fs: String): List<Int> = try {
-        withDevice(t, writeAllowed(t)) { h ->
-            listOf(0, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536).filter { c ->
-                c == 0 || try {
-                    MkfsSession.open(h, fs, r.start, r.size, null, c, 0, 0, 0, false, 1, 1).use { it.plan().ok }
-                } catch (_: Exception) { false }
-            }
+    override fun formatCaps(r: DiskRange, sectorSize: Int): List<FormatCap> = try {
+        val ss = if (sectorSize in 512..4096) sectorSize else 512
+        val base = MkfsSession.capabilities(r.size, ss, 0)
+        fun sizeOkFor(fs: String, cluster: Int): Boolean {
+            val arr = MkfsSession.capabilities(r.size, ss, cluster)
+            for (i in 0 until arr.length()) { val o = arr.getJSONObject(i); if (o.optString("fs") == fs) return o.optBoolean("sizeOk") }
+            return false
         }
-    } catch (_: Exception) { listOf(0) }
+        List(base.length()) { i ->
+            val o = base.getJSONObject(i)
+            val fs = o.getString("fs")
+            val sizes = o.optJSONArray("clusterSizes")
+            val cs = if (sizes == null) emptyList() else List(sizes.length()) { k -> sizes.getInt(k) }
+            val feats = o.optJSONArray("features")
+            val supported = o.optBoolean("supported")
+            val sizeOk = o.optBoolean("sizeOk", true)
+            FormatCap(
+                fs = fs, supported = supported, experimental = o.optBoolean("experimental"),
+                minBytes = o.optString("minBytes", "0").toLongOrNull() ?: 0L, maxBytes = o.optString("maxBytes", "0").toLongOrNull() ?: 0L,
+                clusterSizes = cs, clusterOk = if (supported && sizeOk) cs.filter { c -> sizeOkFor(fs, c) } else emptyList(),
+                defaultCluster = o.optInt("defaultCluster"), labelMax = o.optInt("labelMax"), labelCharset = o.optString("labelCharset"),
+                features = if (feats == null) emptyList() else List(feats.length()) { k -> feats.getString(k) },
+                sizeOk = sizeOk, reasonCode = o.optString("reasonCode"), reason = o.optString("reason"),
+            )
+        }.filter { it.supported }
+    } catch (_: Exception) { emptyList() }
 
-    private fun openMkfs(h: Long, r: DiskRange, spec: FormatSpec) =
-        MkfsSession.open(h, spec.fs, r.start, r.size, spec.label.ifBlank { null }, spec.clusterSize, 0, 0, 0, false, spec.seed, spec.timestampSec)
+    private fun openMkfs(h: Long, r: DiskRange, spec: FormatSpec): MkfsSession {
+        if (spec.features.isBlank()) return MkfsSession.open(h, spec.fs, r.start, r.size, spec.label.ifBlank { null }, spec.clusterSize, 0, 0, 0, false, spec.seed, spec.timestampSec)
+        val opts = LinkedHashMap<String, String>()
+        if (spec.label.isNotBlank()) opts["label"] = spec.label
+        if (spec.clusterSize > 0) opts["cluster_size"] = spec.clusterSize.toString()
+        opts["features"] = spec.features
+        return MkfsSession.openEx(h, spec.fs, r.start, r.size, opts, false, spec.seed, spec.timestampSec)
+    }
 
     override fun formatPlan(t: DiskTarget, r: DiskRange, spec: FormatSpec): Outcome<MkfsPlan> = guard {
         withDevice(t, writeAllowed(t)) { h -> openMkfs(h, r, spec.copy()).use { it.plan() } }
@@ -302,6 +345,113 @@ class DiskToolsController(private val ctx: Context, private val model: AppModel)
         val out = ctx.contentResolver.openOutputStream(dest, "wt") ?: throw DiskUiError(s(R.string.dt_err_file_open))
         out.use { it.write(bytes) }
         bytes.size
+    }
+
+    // ================================================================ 失われたパーティションを探す (探索は読み取り専用。docs/partition-scan.md)
+
+    override fun scanRun(t: DiskTarget, spec: ScanSpec, job: DiskOpJob): Outcome<ScanReport> = guard {
+        // 計画の識別子は開き方 (rw / ro) を含むので、適用と同じ開き方で計画を作る (探索そのものは何も書かない)
+        withDevice(t, writeAllowed(t)) { h ->
+            val sc = PartitionScanner.run(h, spec.full, 0, spec.minConfidence, scanJob(job))
+            try {
+                val result = sc.resultJson()
+                if (sc.cancelled) {
+                    ScanReport(result, true, emptyList())
+                } else {
+                    val props = sc.proposalsJson()
+                    val list = ArrayList<ScanProposal>()
+                    for (i in 0 until props.length()) {
+                        val pj = props.getJSONObject(i)
+                        var plan: PartitionPlan? = null
+                        var err: String? = null
+                        try {
+                            PartitionEditSession.open(h, false, 0, spec.seed).use { ed ->
+                                sc.queueProposal(pj.getInt("index"), ed)
+                                plan = ed.plan()
+                            }
+                        } catch (e: PartitionEditException) {
+                            err = failText(e.detail, e.message)
+                        } catch (e: PartitionScanException) {
+                            err = failText(e.detail, e.message)
+                        }
+                        list.add(ScanProposal(pj, plan, err))
+                    }
+                    ScanReport(result, false, list)
+                }
+            } finally {
+                sc.close()
+            }
+        }
+    }
+
+    override fun scanApply(t: DiskTarget, spec: ScanSpec, proposalId: String, proposalIndex: Int, expectedPhrase: String, typed: String, job: DiskOpJob): Outcome<PartitionDone> = guard {
+        requireWritable(t, wholeRange())
+        val ts = nowSec()
+        val backup = File(sub("backups"), "scan-$ts.bak")
+        withDevice(t, true) { h ->
+            val sc = PartitionScanner.run(h, spec.full, 0, spec.minConfidence, scanJob(job))
+            try {
+                if (sc.cancelled) throw DiskUiError(s(R.string.dt_code_cancelled))
+                val props = sc.proposalsJson()
+                var same = false
+                for (i in 0 until props.length()) {
+                    val pj = props.getJSONObject(i)
+                    if (pj.getInt("index") == proposalIndex && pj.optString("id") == proposalId) same = true
+                }
+                if (!same) throw DiskUiError(s(R.string.dt_err_plan_changed))
+                val ed = PartitionEditSession.open(h, false, 0, spec.seed)
+                try {
+                    sc.queueProposal(proposalIndex, ed)
+                    val plan = ed.plan()
+                    if (plan.confirmPhrase != expectedPhrase) throw DiskUiError(s(R.string.dt_err_plan_changed))
+                    if (!plan.ok) throw DiskUiError(s(R.string.dt_plan_not_ok))
+                    val res = ed.apply(typed, backup.path, ts)
+                    var after: PartitionTable? = null
+                    if (res.ok) {
+                        ed.close()   // 表を読み直す前に、編集セッションを閉じる (ハンドルを閉じる前に閉じる規則)
+                        val err = IntArray(1)
+                        NativeBridge.nativeListPartitions(h, err)?.let { after = PartitionTable.parse(String(it, Charsets.UTF_8)) }
+                        val tbl = after
+                        if (t.kind == DiskTargetKind.Usb && tbl != null) main.post { usbState(t)?.table = tbl }
+                    }
+                    PartitionDone(res, backup.name.takeIf { backup.exists() }, after)
+                } finally {
+                    ed.close()
+                }
+            } finally {
+                sc.close()
+            }
+        }
+    }
+
+    // ================================================================ ブートセクタの検査 (読み取り専用) / 修復
+
+    private fun bootOffset(r: DiskRange) = if (r.whole) 0L else r.start
+    private fun bootLength(r: DiskRange) = if (r.whole) 0L else r.size
+
+    override fun bootInspect(t: DiskTarget, r: DiskRange, job: DiskOpJob): Outcome<JSONObject> = guard {
+        withDevice(t, false) { h -> BootFixSession.open(h, bootOffset(r), bootLength(r), null, scanJob(job)).use { it.inspection() } }
+    }
+
+    override fun bootPlan(t: DiskTarget, r: DiskRange, repairId: String, source: Long): Outcome<JSONObject> = guard {
+        // 計画の識別子は開き方 (rw / ro) を含むので、適用と同じ開き方で作る
+        withDevice(t, writeAllowed(t)) { h -> BootFixSession.open(h, bootOffset(r), bootLength(r), null, null).use { it.plan(repairId, source) } }
+    }
+
+    override fun bootApply(t: DiskTarget, r: DiskRange, repairId: String, source: Long, expectedPhrase: String, typed: String, job: DiskOpJob): Outcome<BootDone> = guard {
+        requireWritable(t, r)
+        val ts = nowSec()
+        val backup = File(sub("backups"), "boot-$ts-${r.index}.bak")
+        withDevice(t, true) { h ->
+            val res = BootFixSession.open(h, bootOffset(r), bootLength(r), null, null).use { b ->
+                val plan = b.plan(repairId, source)
+                if (!plan.optBoolean("ok")) throw DiskUiError(s(R.string.dt_plan_not_ok))
+                if (plan.optString("confirmPhrase") != expectedPhrase) throw DiskUiError(s(R.string.dt_err_plan_changed))
+                b.apply(typed, backup.path, false, scanJob(job), ts)
+            }
+            val after = try { BootFixSession.open(h, bootOffset(r), bootLength(r), null, null).use { it.inspection() } } catch (_: Exception) { null }
+            BootDone(res, backup.name.takeIf { backup.exists() }, after)
+        }
     }
 
     // ================================================================ バックアップ / 復元

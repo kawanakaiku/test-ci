@@ -5,21 +5,28 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -29,8 +36,9 @@ import org.usbmem.app.formatBytes
 import java.security.SecureRandom
 
 /**
- * フォーマット (mkfs。docs/disk-tools.md 3 章)。流れ: 範囲・種類・ラベル・サイズを選ぶ → 計画 (まだ何も書かない) → 確認文字列を打つ → 適用 → 読み戻しの検証。
- * 選択肢 (作れる FS・最小サイズ・使えるクラスタサイズ) は、ネイティブへの問い合わせの結果から出す。「すべて許可」で開いていないと実行できない。
+ * フォーマット (mkfs。docs/disk-tools.md 3 章・docs/mkfs-extended.md)。流れ: 範囲・種類・ラベル・サイズを選ぶ → 計画 (まだ何も書かない) → 確認文字列を打つ → 適用 → 読み戻しの検証。
+ * 選択肢 (作れる FS・容量の範囲・使えるクラスタサイズ・ラベルの上限・ext の機能) は、ネイティブの容量・機能の問い合わせ (`MkfsSession.capabilities`) の結果から出す。
+ * 「すべて許可」で開いていないと実行できない。
  */
 @Composable
 fun DiskFormatScreen(c: ToolContext) {
@@ -38,12 +46,13 @@ fun DiskFormatScreen(c: ToolContext) {
     val ranges = remember(c.table) { rangesOf(c.table, "") }
     var sel by rememberSaveable { mutableIntStateOf(initialRangeIndex(ranges, c.target.preselectStart, c.initialRange)) }
     val range = ranges.firstOrNull { it.index == sel } ?: ranges.first()
-    var choices by remember { mutableStateOf<List<Pair<String, Long>>>(emptyList()) }
+    var caps by remember { mutableStateOf<List<FormatCap>>(emptyList()) }
     var fs by rememberSaveable { mutableStateOf("") }
     var label by rememberSaveable { mutableStateOf("") }
     var cluster by rememberSaveable { mutableIntStateOf(0) }
-    var clusterChoices by remember { mutableStateOf(listOf(0)) }
     var seedText by rememberSaveable { mutableStateOf("") }
+    var advanced by rememberSaveable { mutableStateOf(false) }
+    val toggled = remember { mutableStateListOf<String>() }
     var plan by remember { mutableStateOf<MkfsPlan?>(null) }
     var planSpec by remember { mutableStateOf<FormatSpec?>(null) }
     var planError by remember { mutableStateOf<String?>(null) }
@@ -57,21 +66,30 @@ fun DiskFormatScreen(c: ToolContext) {
     val progress = jobProgress(job)
     val running = job != null
 
-    LaunchedEffectUi(Unit) { choices = withContext(Dispatchers.IO) { c.a.formatChoices() } }
-    // 範囲が変わったら、マウント中か・サイズの足りる種類・使えるクラスタサイズを取り直す
+    // 範囲が変わったら、マウント中か・作れる形式と容量の可否・使えるクラスタサイズを取り直す (ネイティブの問い合わせ。何も開かない・書かない)
     LaunchedEffectUi(range.index, c.table) { inUse = withContext(Dispatchers.IO) { c.a.inUse(c.target, range) } }
-    val fits = choices.filter { it.second <= range.size }
-    LaunchedEffectUi(range.index, fs) {
-        if (fs.isNotEmpty()) {
-            clusterChoices = withContext(Dispatchers.IO) { c.a.formatClusterChoices(c.target, range, fs) }
-            if (cluster !in clusterChoices) cluster = 0
-        }
-    }
-    // 選択肢が揃ったら、入る種類のうち最初のものを選んでおく (空の画面で何も選ばれていない状態にしない)
-    LaunchedEffectUi(choices, range.index) { if (fits.none { it.first == fs }) fits.firstOrNull()?.let { fs = it.first } }
+    LaunchedEffectUi(range.index, c.table) { caps = withContext(Dispatchers.IO) { c.a.formatCaps(range, c.table.sectorSize) } }
 
-    fun spec(seed: Long, ts: Long) = FormatSpec(fs, label.trim(), cluster, seed, ts)
-    val inputKey = listOf(range.index, fs, label.trim(), cluster, seedText.trim())
+    fun canMake(name: String): Boolean = caps.firstOrNull { it.fs == name }?.sizeOk == true
+    val fatAuto = if (caps.any { it.fs.startsWith("fat") }) FormatChoices.autoFat(range.size) { canMake(it) } else null
+    val effFs = if (fs == FormatChoices.FAT_AUTO) fatAuto ?: "" else fs
+    val cap = caps.firstOrNull { it.fs == effFs }
+    val fitsNow = if (fs == FormatChoices.FAT_AUTO) fatAuto != null else cap?.sizeOk == true
+    val clusterChoices = listOf(0) + (cap?.clusterOk ?: emptyList())
+
+    // 選択肢が揃ったら、作れる種類のうち最初のものを選んでおく (空の画面で何も選ばれていない状態にしない)。
+    // 選んだあとで範囲を変えて作れなくなったときは、選びなおさず理由を見せる (作れない形式のチップも押せる。計画のボタンだけが止まる)
+    LaunchedEffectUi(caps, range.index) { if (fs.isEmpty()) caps.firstOrNull { it.sizeOk }?.let { fs = it.fs } }
+    // 形式が変わったら、その形式で使えないクラスタサイズ・ext の機能・ラベルの文字を直す
+    LaunchedEffectUi(effFs, caps) {
+        if (cluster !in clusterChoices) cluster = 0
+        toggled.clear()
+        label = FormatChoices.sanitizeLabel(label, cap)
+    }
+
+    val features = if (cap != null && cap.features.isNotEmpty()) FormatChoices.featureSpec(cap.features, toggled.toSet()) else ""
+    fun spec(seed: Long, ts: Long) = FormatSpec(effFs, FormatChoices.sanitizeLabel(label.trim(), cap), cluster, seed, ts, features)
+    val inputKey = listOf(range.index, fs, effFs, label.trim(), cluster, seedText.trim(), features)
     var planKey by remember { mutableStateOf<List<Any>?>(null) }
     val planValid = plan != null && planKey == inputKey
 
@@ -103,29 +121,59 @@ fun DiskFormatScreen(c: ToolContext) {
 
         SectionCard(stringResource(R.string.dt_format_options)) {
             Text(stringResource(R.string.dt_format_fs), style = MaterialTheme.typography.titleSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                choices.forEach { (name, min) ->
+            ChipFlow {
+                caps.forEach { cp ->
+                    if (cp.fs == "fat12") {
+                        FilterChip(
+                            selected = fs == FormatChoices.FAT_AUTO, onClick = { fs = FormatChoices.FAT_AUTO }, enabled = !running && fatAuto != null,
+                            label = { Text(stringResource(R.string.dt_format_fat_auto)) }, modifier = Modifier.testTag("fmt_fs_fat_auto"),
+                        )
+                    }
                     FilterChip(
-                        selected = fs == name, onClick = { fs = name }, enabled = !running && min <= range.size,
-                        label = { Text(name.uppercase()) }, modifier = Modifier.testTag("fmt_fs_$name"),
+                        selected = fs == cp.fs, onClick = { fs = cp.fs }, enabled = !running,
+                        label = { Text(fsChipText(cp)) }, modifier = Modifier.testTag("fmt_fs_${cp.fs}"),
                     )
                 }
             }
-            choices.firstOrNull { it.first == fs }?.let { Text(stringResource(R.string.dt_format_min_size, formatBytes(it.second)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            if (choices.isNotEmpty() && fits.isEmpty()) Text(stringResource(R.string.dt_format_too_small), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            if (fs == FormatChoices.FAT_AUTO) {
+                if (fatAuto != null) Text(stringResource(R.string.dt_format_fat_auto_pick, formatBytes(range.size), fatAuto.uppercase()), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("fmt_fat_auto_pick"))
+                else Text(stringResource(R.string.dt_format_fat_auto_none), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("fmt_fat_auto_none"))
+            }
+            if (cap != null) {
+                Text(
+                    stringResource(R.string.dt_format_cap_range, formatBytes(cap.minBytes), capMax(cap), formatBytes(range.size)),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("fmt_cap_range"),
+                )
+                if (!cap.sizeOk) Banner(
+                    Notice(Severity.Warning, capReason(cap), cap.reason.ifBlank { null }),
+                    Modifier.testTag("fmt_cap_reason"),
+                )
+                if (cap.experimental) Banner(
+                    Notice(Severity.Warning, stringResource(R.string.dt_format_ntfs_experimental), stringResource(R.string.dt_format_ntfs_experimental_detail)),
+                    Modifier.testTag("fmt_ntfs_experimental"),
+                )
+            }
+            if (caps.isNotEmpty() && caps.none { it.sizeOk }) Text(stringResource(R.string.dt_format_too_small), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("fmt_none_fits"))
 
             OutlinedTextField(
-                value = label, onValueChange = { label = it }, singleLine = true, enabled = !running,
-                label = { Text(stringResource(R.string.dt_format_label)) }, supportingText = { Text(stringResource(R.string.dt_format_label_hint)) },
+                value = label, onValueChange = { label = FormatChoices.sanitizeLabel(it, cap) }, singleLine = true, enabled = !running,
+                label = { Text(stringResource(R.string.dt_format_label)) }, supportingText = { Text(labelHint(cap)) },
                 modifier = Modifier.fillMaxWidth().testTag("fmt_label"),
             )
 
-            Text(stringResource(if (fs.startsWith("ext")) R.string.dt_format_block else R.string.dt_format_cluster), style = MaterialTheme.typography.titleSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(if (effFs.startsWith("ext")) R.string.dt_format_block else R.string.dt_format_cluster), style = MaterialTheme.typography.titleSmall)
+            ChipFlow {
                 clusterChoices.forEach { cs ->
                     FilterChip(
                         selected = cluster == cs, onClick = { cluster = cs }, enabled = !running,
-                        label = { Text(if (cs == 0) stringResource(R.string.dt_format_auto) else formatBytes(cs.toLong())) }, modifier = Modifier.testTag("fmt_cluster_$cs"),
+                        label = {
+                            Text(
+                                if (cs != 0) formatBytes(cs.toLong())
+                                else if (cap != null && cap.defaultCluster > 0) stringResource(R.string.dt_format_auto_with, formatBytes(cap.defaultCluster.toLong()))
+                                else stringResource(R.string.dt_format_auto),
+                            )
+                        },
+                        modifier = Modifier.testTag("fmt_cluster_$cs"),
                     )
                 }
             }
@@ -134,11 +182,32 @@ fun DiskFormatScreen(c: ToolContext) {
                 label = { Text(stringResource(R.string.dt_format_seed)) }, supportingText = { Text(stringResource(R.string.dt_format_seed_hint)) },
                 modifier = Modifier.fillMaxWidth().testTag("fmt_seed"),
             )
+
+            // ext3 / ext4 の機能 (詳細設定。折りたたむ)
+            if (cap != null && cap.features.isNotEmpty()) {
+                TextButton(onClick = { advanced = !advanced }, modifier = Modifier.testTag("fmt_adv_toggle")) {
+                    Text(stringResource(if (advanced) R.string.dt_format_adv_hide else R.string.dt_format_adv_show))
+                }
+                if (advanced) Column(Modifier.testTag("fmt_adv"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(stringResource(R.string.dt_format_adv_text), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    cap.features.forEach { f ->
+                        val name = f.removePrefix("^")
+                        val on = (!f.startsWith("^")) != (name in toggled)
+                        Row(
+                            Modifier.fillMaxWidth().toggleable(value = on, enabled = !running, role = Role.Checkbox, onValueChange = { if (name in toggled) toggled.remove(name) else toggled.add(name) }).testTag("fmt_feat_$name"),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Checkbox(checked = on, onCheckedChange = null, enabled = !running)
+                            Text(name, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+            }
         }
 
         // ---- 計画 (まだ何も書かない)
         DangerOutlinedButton(
-            stringResource(R.string.dt_plan_button), enabled = fs.isNotEmpty() && !running && !planning && fits.isNotEmpty(),
+            stringResource(R.string.dt_plan_button), enabled = effFs.isNotEmpty() && fitsNow && !running && !planning,
             modifier = Modifier.testTag("fmt_plan"),
             onClick = {
                 plan = null; planError = null; done = null; applyError = null; planning = true
@@ -187,6 +256,35 @@ fun DiskFormatScreen(c: ToolContext) {
                 },
             )
         }
+    }
+}
+
+/** 形式のチップの文字 (exFAT は大小の混じった表記、NTFS は実験的の注記つき)。 */
+@Composable
+private fun fsChipText(cp: FormatCap): String {
+    val base = if (cp.fs == "exfat") "exFAT" else cp.fs.uppercase()
+    return if (cp.experimental) stringResource(R.string.dt_format_fs_experimental, base) else base
+}
+
+/** 作れない理由 (ネイティブの理由コード → 文言。容量の下限・上限は問い合わせの値を入れる)。詳しい英語の説明は、あとに付ける。 */
+@Composable
+private fun capReason(cp: FormatCap): String = when (cp.reasonCode) {
+    "too-small" -> stringResource(R.string.dt_format_cap_too_small, formatBytes(cp.minBytes))
+    "too-large" -> stringResource(R.string.dt_format_cap_too_large, capMax(cp))
+    else -> diskCode(cp.reasonCode).let { if (it == cp.reasonCode) stringResource(R.string.dt_format_cap_other) else it }
+}
+
+/** 作れる最大の容量の文字 (1 PiB 以上は、実質制限なし)。 */
+@Composable
+private fun capMax(cp: FormatCap): String = if (cp.maxBytes <= 0L || cp.maxBytes >= (1L shl 50)) stringResource(R.string.dt_format_unlimited) else formatBytes(cp.maxBytes)
+
+@Composable
+private fun labelHint(cap: FormatCap?): String {
+    if (cap == null || cap.labelMax <= 0) return stringResource(R.string.dt_format_label_hint)
+    return when (cap.labelCharset) {
+        "ascii-upper" -> stringResource(R.string.dt_format_label_ascii, cap.labelMax)
+        "utf8" -> stringResource(R.string.dt_format_label_utf8, cap.labelMax)
+        else -> stringResource(R.string.dt_format_label_utf16, cap.labelMax)
     }
 }
 

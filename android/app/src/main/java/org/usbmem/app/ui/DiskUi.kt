@@ -224,12 +224,12 @@ fun RangePicker(ranges: List<DiskRange>, selected: Int, onSelect: (DiskRange) ->
 // ================================================================ 見出し (読み取り専用 / 書き込みあり)
 
 @Composable
-fun ToolHeader(destructive: Boolean, title: String, text: String, modifier: Modifier = Modifier) {
+fun ToolHeader(destructive: Boolean, title: String, text: String, modifier: Modifier = Modifier, tag: String? = null) {
     val st = LocalStatusColors.current
     val cs = MaterialTheme.colorScheme
     val bg = if (destructive) cs.errorContainer else st.successContainer
     val fg = if (destructive) cs.onErrorContainer else st.onSuccessContainer
-    Surface(modifier.fillMaxWidth().testTag(if (destructive) "tool_header_destructive" else "tool_header_readonly"), color = bg, contentColor = fg, shape = MaterialTheme.shapes.medium) {
+    Surface(modifier.fillMaxWidth().testTag(tag ?: if (destructive) "tool_header_destructive" else "tool_header_readonly"), color = bg, contentColor = fg, shape = MaterialTheme.shapes.medium) {
         Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
             Icon(painterResource(if (destructive) R.drawable.ic_warning else R.drawable.ic_dt_lock), contentDescription = null, Modifier.size(24.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -241,6 +241,13 @@ fun ToolHeader(destructive: Boolean, title: String, text: String, modifier: Modi
             }
         }
     }
+}
+
+/** チップや短いラベルを、幅に収まらなければ折り返して並べる (大きい文字・横向きでも切れない)。 */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun ChipFlow(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    androidx.compose.foundation.layout.FlowRow(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { content() }
 }
 
 /** 書き込む操作の実行ボタン (赤)。 */

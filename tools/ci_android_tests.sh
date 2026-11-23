@@ -208,6 +208,56 @@ disk_ui_verify() {   # disk_ui_verify <取り出したイメージのディレ�
   [ -f "$o/fmt_ext2.img" ] && chk "label DUIFMT (fmt_ext2.img)" bash -c "dumpe2fs -h '$o/fmt_ext2.img' 2>/dev/null | grep -q 'volume name: *DUIFMT'"
   [ -f "$o/fmt_fat32.img" ] && chk "fsck.fat -n fmt_fat32.img" fsck.fat -n "$o/fmt_fat32.img" || { [ -f "$o/fmt_fat32.img" ] || { echo "FAIL: fmt_fat32.img was not produced"; rc=1; }; }
   [ -f "$o/fmt_exfat.img" ] && chk "fsck.exfat -n fmt_exfat.img" fsck.exfat -n "$o/fmt_exfat.img" || { [ -f "$o/fmt_exfat.img" ] || { echo "FAIL: fmt_exfat.img was not produced"; rc=1; }; }
+  # フォーマットの選択肢 (ネイティブの容量・機能の問い合わせ): FAT 自動 (40 MiB → FAT16・ラベルは大文字に整う)・ext4 の機能を外す・NTFS (実験的)・小さすぎる範囲は何も変えない
+  if [ -f "$o/fmt_fatauto.img" ]; then
+    chk "fsck.fat -n fmt_fatauto.img" fsck.fat -n "$o/fmt_fatauto.img"
+    chk "fmt_fatauto.img is FAT16 (auto for 40 MiB)" bash -c "[ \"\$(dd if='$o/fmt_fatauto.img' bs=1 skip=54 count=5 2>/dev/null)\" = FAT16 ]"
+    chk "fmt_fatauto.img label AUTOLBL" bash -c "dd if='$o/fmt_fatauto.img' bs=1 skip=43 count=11 2>/dev/null | grep -q AUTOLBL"
+  else echo "FAIL: fmt_fatauto.img was not produced"; rc=1; fi
+  if [ -f "$o/fmt_ext4.img" ]; then
+    chk "e2fsck -fn fmt_ext4.img" e2fsck -fn "$o/fmt_ext4.img"
+    chk "fmt_ext4.img label DUIEXT4" bash -c "dumpe2fs -h '$o/fmt_ext4.img' 2>/dev/null | grep -q 'volume name: *DUIEXT4'"
+    chk "fmt_ext4.img is ext4 (extent) without resize_inode" bash -c "dumpe2fs -h '$o/fmt_ext4.img' 2>/dev/null | grep 'Filesystem features:' | grep -q extent && ! dumpe2fs -h '$o/fmt_ext4.img' 2>/dev/null | grep 'Filesystem features:' | grep -q resize_inode"
+  else echo "FAIL: fmt_ext4.img was not produced"; rc=1; fi
+  if [ -f "$o/fmt_ntfs.img" ]; then chk "ntfsfix -n fmt_ntfs.img" ntfsfix -n "$o/fmt_ntfs.img"
+  else echo "FAIL: fmt_ntfs.img was not produced"; rc=1; fi
+  if [ -f "$o/fmt_small.img" ]; then chk "fmt_small.img (too small for the chosen FS) is untouched" cmp -n 6291456 "$o/fmt_small.img" /dev/zero
+  else echo "FAIL: fmt_small.img was not produced"; rc=1; fi
+  # 失われたパーティションを探す: 適用のあと、表が元の 2 つ (LBA 2048 と 16384) に戻り、FS の中身は変わっていない。取り消し・読み取り専用・マウント中は何も変えない
+  ptable_starts() { sfdisk -J "$1" | python3 -c 'import json,sys; print(" ".join(str(p["start"]) for p in json.load(sys.stdin)["partitiontable"]["partitions"]))'; }
+  expect_starts() { [ "$(ptable_starts "$1")" = "$2" ]; }
+  extract() { dd if="$o/$1.img" of="$o/part.tmp" bs=512 skip="$2" count="$3" status=none; }
+  same_range() { cmp -i "$((512 * $3))" -n "$((512 * $4))" "$o/$1.img" "$FIX/disk_ui/$2.img"; }   # <出力> <フィクスチャ> <開始セクタ> <セクタ数>: その範囲がフィクスチャと同じ
+  for f in lost_mbr_apply lost_gpt_apply; do
+    if [ -f "$o/$f.img" ]; then
+      chk "sfdisk -V $f.img" sfdisk -V "$o/$f.img"
+      chk "$f.img has partitions at 2048 and 16384" expect_starts "$o/$f.img" "2048 16384"
+      chk "e2fsck -fn $f.img p1" e2fsck -fn "$o/$f.img?offset=1048576"
+      extract "$f" 16384 14336
+      chk "fsck.fat -n $f.img p2" fsck.fat -n "$o/part.tmp"
+    else echo "FAIL: $f.img was not produced"; rc=1; fi
+  done
+  [ -f "$o/lost_gpt_apply.img" ] && chk "sgdisk -v lost_gpt_apply.img" sgdisk -v "$o/lost_gpt_apply.img" \
+    && chk "lost_gpt_apply.img keeps the names DUIP1 and DUIP2" bash -c "sgdisk -p '$o/lost_gpt_apply.img' | grep -q DUIP1 && sgdisk -p '$o/lost_gpt_apply.img' | grep -q DUIP2"
+  # ブートセクタの修復: 修復したパーティションだけが健全になり、ほかのパーティションと先頭の 1 MiB (表) は元のまま。配置は tools/gen_disk_ui_fixture.py の BOOT_P1 / P2 / P3
+  if [ -f "$o/boot_fat32.img" ]; then
+    extract boot_fat32 2048 73728;  chk "fsck.fat -n boot_fat32.img (#1 repaired)" fsck.fat -n "$o/part.tmp"
+    chk "boot_fat32.img: #2 and #3 untouched" same_range boot_fat32 boot_multi 75776 32768
+    chk "boot_fat32.img: table untouched" same_range boot_fat32 boot_multi 0 2048
+  else echo "FAIL: boot_fat32.img was not produced"; rc=1; fi
+  if [ -f "$o/boot_ntfs.img" ]; then
+    extract boot_ntfs 75776 16384;  chk "ntfsfix -n boot_ntfs.img (#2 repaired)" ntfsfix -n "$o/part.tmp"
+    chk "boot_ntfs.img: #1 untouched" same_range boot_ntfs boot_multi 2048 73728
+    chk "boot_ntfs.img: #3 untouched" same_range boot_ntfs boot_multi 92160 16384
+    chk "boot_ntfs.img: table untouched" same_range boot_ntfs boot_multi 0 2048
+  else echo "FAIL: boot_ntfs.img was not produced"; rc=1; fi
+  if [ -f "$o/boot_exfat.img" ]; then
+    extract boot_exfat 92160 16384; chk "fsck.exfat -n boot_exfat.img (#3 repaired)" fsck.exfat -n "$o/part.tmp"
+    chk "boot_exfat.img: #1 and #2 untouched" same_range boot_exfat boot_multi 2048 73728
+    chk "boot_exfat.img: #2 untouched" same_range boot_exfat boot_multi 75776 16384
+    chk "boot_exfat.img: table untouched" same_range boot_exfat boot_multi 0 2048
+  else echo "FAIL: boot_exfat.img was not produced"; rc=1; fi
+  rm -f "$o/part.tmp"
   # パーティション編集: 削除のあと GPT が 1 つ・健全、残った ext2 も健全。取り消し / 読み取り専用のイメージは 2 つのまま
   if [ -f "$o/pt_remove.img" ]; then
     chk "sgdisk -v pt_remove.img" sgdisk -v "$o/pt_remove.img"
@@ -227,7 +277,9 @@ disk_ui_verify() {   # disk_ui_verify <取り出したイメージのディレ�
   if [ -f "$o/rescue_out.img" ] && [ -f "$o/rescue_src.img" ]; then chk "cmp rescue_src.img rescue_out.img" cmp "$o/rescue_src.img" "$o/rescue_out.img"
   else echo "FAIL: rescue images were not produced"; rc=1; fi
   # 検査・バックアップ・取り消しは、元のイメージを変えない (フィクスチャとの一致)
-  for f in chk_clean:ext2_clean chk_bad:ext2_bad bak_src:ext2_clean res_src:ext2_clean fmt_ro:ext2_clean usb_ro:ext2_clean; do
+  for f in chk_clean:ext2_clean chk_bad:ext2_bad bak_src:ext2_clean res_src:ext2_clean fmt_ro:ext2_clean usb_ro:ext2_clean \
+           lost_ro:lost_mbr lost_cancel:lost_mbr lost_precancel:lost_mbr lost_land:lost_mbr lost_usb_mounted:lost_gpt \
+           boot_ro:boot_multi boot_cancel:boot_multi boot_usb_mounted:boot_multi boot_font:boot_multi; do
     [ -f "$o/${f%%:*}.img" ] || { echo "FAIL: ${f%%:*}.img was not produced"; rc=1; continue; }
     chk "${f%%:*}.img unchanged" cmp "$o/${f%%:*}.img" "$FIX/disk_ui/${f##*:}.img"
   done

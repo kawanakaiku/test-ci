@@ -209,10 +209,12 @@ class MkfsSession private constructor(private var h: Long) : AutoCloseable {
          * [open] の拡張版。[options] のキー: label / cluster_size / sector_size / inode_ratio / inode_size / reserved_percent / uuid (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx) /
          * features (ext3・ext4: "^resize_inode,64bit" のような mke2fs 風) / journal_size (バイト) / lazy_journal (true|false)。
          * [fsName] は ext2 / ext3 / ext4 / fat12 / fat16 / fat32 / exfat / ntfs (実験的)。不正なオプションは計画の problems に Error (bad-option) で出る。
+         * [seed] / [timestampSec] は [open] と同じ (0 以外なら UUID / シリアルと記録する時刻を固定する)。
          */
-        fun openEx(deviceHandle: Long, fsName: String, offset: Long = 0, length: Long = 0, options: Map<String, String> = emptyMap(), inUse: Boolean = false): MkfsSession {
+        fun openEx(deviceHandle: Long, fsName: String, offset: Long = 0, length: Long = 0, options: Map<String, String> = emptyMap(), inUse: Boolean = false,
+                   seed: Long = 0, timestampSec: Long = 0): MkfsSession {
             val text = options.entries.joinToString("\n") { "${it.key}=${it.value.replace('\n', ' ')}" }
-            val h = DiskTools.nativeMkfsOpenEx(deviceHandle, fsName.toByteArray(Charsets.UTF_8), offset, length, text.toByteArray(Charsets.UTF_8), inUse, 0, 0)
+            val h = DiskTools.nativeMkfsOpenEx(deviceHandle, fsName.toByteArray(Charsets.UTF_8), offset, length, text.toByteArray(Charsets.UTF_8), inUse, seed, timestampSec)
             if (Handle.isError(h)) {
                 val code = (-h).toInt()
                 val parts = String(DiskTools.nativeMkfsLastError(0), Charsets.UTF_8).split('\n', limit = 2)

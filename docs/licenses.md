@@ -4,6 +4,7 @@
 |---|---|---|---|
 | 本プロジェクトの自前コード(core/src, core/include, core/tests, android/ ほか) | — | Apache-2.0(SPDX 表記。公開版はこれで出す。個人版は GPL 系と同居するので配布しない) | **エディション分離 (docs/editions.md)**: 公開版は GPL 系を含まない |
 | AndroidX / Compose / Material3 | UI | Apache-2.0 | Phase 1 |
+| SMBJ 0.15.0 (`com.hierynomus:smbj`) と、その依存: `org.bouncycastle:bcprov-jdk18on` 1.85.2、`org.slf4j:slf4j-api` 2.0.18、`net.engio:mbassador` 1.3.2、`com.hierynomus:asn-one` 0.6.0 | SMB (ネットワーク共有) のクライアント (docs/smb.md)。Maven Central から解決、リポジトリにバイナリを置かない | SMBJ = Apache-2.0、asn-one = Apache-2.0、bcprov = MIT (POM の名前は "Bouncy Castle Licence"、jar の `META-INF/LICENSE.md` の本文は MIT)、slf4j-api = MIT、mbassador = MIT。**GPL / LGPL は無い** (POM と jar の LICENSE で確認、2026-11-23)。LGPL の libsmb2 / jcifs-ng は採用しない | 追加 (公開版に含める。NOTICE に記載。SMB1 は話せない・認証は NTLM のみ) |
 | org.json (JVM 単体テストのみ) | テスト | JSON License(テスト依存のみ、配布物に含めない) | Phase 1 |
 | libfdisk (util-linux) | パーティション編集 | LGPL-2.1+ | **採用しない** (自前実装。理由は docs/partition-edit.md 9 章) |
 | Linux `fs/ntfs` (NTFS Resurrection。`third_party/ntfs-resurrection`、無改変。`$MFTMirr` のパッチはビルド時の作業コピーに当てる) | NTFS の読み書き | GPL-2.0-or-later (各ファイルの SPDX。一部 MIT / GPL-2.0-only) | 取り込み済み。**公開版には入れない** (docs/editions.md) |

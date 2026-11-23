@@ -28,6 +28,7 @@ import org.usbmem.app.R
 private enum class Tab(@StringRes val label: Int, val icon: Int) {
     Usb(R.string.tab_usb, R.drawable.ic_storage),
     Image(R.string.tab_image, R.drawable.ic_folder),
+    Network(R.string.tab_network, R.drawable.ic_network),   // SMB 共有 (docs/smb.md)
     Diagnostics(R.string.tab_diagnostics, R.drawable.ic_tune),
 }
 
@@ -54,6 +55,7 @@ fun AppScaffold(model: AppModel, usb: UsbActions, image: ImageActions, diag: Dia
                 when (Tab.entries[tab]) {
                     Tab.Usb -> UsbScreen(model, usb, m)
                     Tab.Image -> ImageScreen(image, m)
+                    Tab.Network -> SmbScreen(m)
                     Tab.Diagnostics -> DiagnosticsScreen(model, diag, m)
                 }
             }

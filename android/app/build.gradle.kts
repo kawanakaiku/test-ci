@@ -98,6 +98,8 @@ android {
     // kfsd を起こす共通部 (Kotlin: KfsdSpawner / KfsdProtocol / KfsdSpawnNative、JNI: kfsd_spawn.cpp)。別 APK のプラグイン (:kfsd-plugin) と同じソースを使う
     sourceSets.getByName("main").java.srcDir("../kfsd-common/src/main/java")
     testOptions { unitTests.isReturnDefaultValues = true }
+    // SMB の依存 (bcprov / slf4j) の jar に同じパスの META-INF の文書・マルチリリースの記述がある。Android では使わない (ライセンス文は NOTICE に載せる)
+    packaging { resources { pickFirsts += setOf("META-INF/LICENSE.md", "META-INF/LICENSE.txt", "META-INF/NOTICE.md"); excludes += setOf("META-INF/versions/**", "META-INF/DEPENDENCIES", "META-INF/INDEX.LIST") } }
 }
 
 dependencies {
@@ -109,6 +111,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+    // SMB (ネットワーク共有。docs/smb.md): SMBJ (Apache-2.0) と、その依存 (BouncyCastle = MIT、slf4j-api = MIT、mbassador = MIT、asn-one = Apache-2.0) を Maven Central から解決する (リポジトリにバイナリを置かない)
+    implementation("com.hierynomus:smbj:0.15.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

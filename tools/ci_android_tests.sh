@@ -9,6 +9,7 @@
 #   nested-ntfs    ネスト (ループバック) マウント / NTFS 書き込み (SAF)
 #   crypt-ui       暗号ボリュームの UI 試験 (CryptoUiTest: 画面を操作して LUKS2 / BitLocker を解錠・書き込み・ロック。tools/gen_crypt_ui_fixture.py)
 #   disk-ui        ディスクツールの UI 試験 (DiskUiTest: 検査・フォーマット・パーティション編集・バックアップ/復元・救出の画面。書き込んだイメージは adb で取り出し、e2fsck / fsck.fat / fsck.exfat / sgdisk / cmp で外から検証。tools/gen_disk_ui_fixture.py。docs/disk-ui.md)
+#   smb            SMB (SMBJ) の計装試験 (SmbTest: 接続・認証・一覧・読み書き・名前変更・削除・大きなファイル・切断・暗号化・SAF)。runner 上の Samba (共有は tmpfs、ポート 4445) へエミュレータが 10.0.2.2 で接続し、書いた内容は runner 側の実ファイル (sha256sum) と smbclient で外から検証する。要 samba / smbclient。docs/smb.md
 #   wim-fuse       個人版の FUSE 層 (別プロセスの wimlib の wimmount): WimFuseTest (:wimfuse サービスの exec・RPC・WIM のツリーの一致・子プロセスの後始末)。要 wimtools (フィクスチャ)・-PusbmemWimFuse のビルド (docs/fuse-layer.md 10 章)
 #   kfsd           kfsd (GPL 系の FS ドライバを別プロセスの実行ファイルに分けたもの。docs/kfsd.md) 経由のマウント: KfsdInstrumentedTest (:kfsd サービスの libkfsd.so と別 APK のプラグイン)、既存の読み取りテスト (ext2 / ext4 / exfat / iso / ntfs) と WriteSelfTest を kfsd 経由で通す。要 -PusbmemKfsd=true と :kfsd-plugin のビルド
 #   ro-misc        読み取りテスト (ext2 / ext4 / exFAT / ISO 9660 / NTFS) と アプリ側テスト (DocumentsProvider / リンク / raw イメージ / 転送チューニング)。専用スクリプトが無いので ci_android_tests.sh が直接 push して実行する
@@ -43,6 +44,7 @@ gen_fs() {
     ext2_write)  py "$HERE/gen_ext2_fixture.py" "$FIX/ext2" ;;
     exfat_write) py "$HERE/gen_exfat_fixture.py" "$FIX/exfat" ;;
     btrfs)       py "$HERE/gen_btrfs_fixture.py" "$FIX/btrfs" ;;
+    smb)         true ;;   # フィクスチャは run_smb が Samba の共有 (tmpfs) に作る
     btrfs_write) true ;;   # イメージは run_android_btrfs_write_test.sh が mkfs.btrfs --rootdir で作る
     xfs_write)   true ;;   # イメージは run_android_xfs_write_test.sh が mkfs.xfs -p で作る
     xfs)         py "$HERE/gen_xfs_fixture.py" "$FIX/xfs" ;;
@@ -302,6 +304,121 @@ run_disk_ui() {
   [ $r -eq 0 ] && [ $v -eq 0 ]
 }
 
+# SMB の計装試験 (docs/smb.md): runner 上に使い捨ての Samba (ポート 4445、共有は tmpfs、使い捨てのテストユーザー) を立て、SmbTest を実行してから、
+# 試験が logcat に出した SMB_EXPECT / SMB_ABSENT を、サーバー側の実ファイル (sha256sum) と smbclient で独立に照合する。ローカルでは動かさない (sudo で system を触る)
+SMB_PORT=4445
+SMB_USER=smbtest
+SMB_PW=ci-only-Pw-7f3a9
+smb_setup() {
+  local d=$1 f
+  sudo rm -rf "$d"; mkdir -p "$d/test/seed" "$d/enc" "$d/run" "$d/lock" "$d/cache" "$d/state" || return 1
+  sudo useradd -M -s /usr/sbin/nologin "$SMB_USER" 2>/dev/null || true
+  printf '%s\n%s\n' "$SMB_PW" "$SMB_PW" | sudo smbpasswd -a -s "$SMB_USER" >/dev/null || return 1
+  printf 'hello from samba\n' > "$d/test/seed/hello.txt"
+  printf 'こんにちは\n' > "$d/test/seed/日本語.txt"
+  head -c $((6 * 1024 * 1024)) /dev/urandom > "$d/test/seed/blob.bin"
+  sha256sum "$d/test/seed/blob.bin" | cut -d' ' -f1 > "$d/test/seed/blob.bin.sha256"
+  printf 'encrypted hello\n' > "$d/enc/hello-enc.txt"
+  cat > "$d/smb.conf" <<CONF
+[global]
+  workgroup = WORKGROUP
+  server role = standalone server
+  smb ports = $SMB_PORT
+  interfaces = lo
+  bind interfaces only = yes
+  disable netbios = yes
+  map to guest = never
+  restrict anonymous = 2
+  server min protocol = SMB2_02
+  server max protocol = SMB3_11
+  server signing = mandatory
+  load printers = no
+  printing = bsd
+  printcap name = /dev/null
+  disable spoolss = yes
+  log file = $d/log.%m
+  max log size = 5000
+  pid directory = $d/run
+  lock directory = $d/lock
+  cache directory = $d/cache
+  state directory = $d/state
+  create mask = 0644
+  directory mask = 0755
+[test]
+  path = $d/test
+  read only = no
+  valid users = $SMB_USER
+[enc]
+  path = $d/enc
+  read only = no
+  valid users = $SMB_USER
+  smb encrypt = required
+CONF
+  sudo chown -R "$SMB_USER" "$d/test" "$d/enc" || return 1
+  chmod 755 "$d"
+  testparm -s "$d/smb.conf" >/dev/null 2>"$d/testparm.err" || { cat "$d/testparm.err"; return 1; }
+  sudo smbd -D -s "$d/smb.conf" || return 1
+  for f in 1 2 3 4 5 6 7 8 9 10; do
+    smbclient -p $SMB_PORT -U "$SMB_USER%$SMB_PW" "//127.0.0.1/test" -c 'ls seed' >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  echo "smbd did not come up"; sudo tail -30 "$d"/log.* 2>/dev/null; return 1
+}
+smb_stop() {
+  local d=$1
+  [ -f "$d/run/smbd.pid" ] && sudo kill "$(cat "$d/run/smbd.pid")" 2>/dev/null
+  sleep 1
+  sudo pkill -f "smbd.*$d/smb.conf" 2>/dev/null
+  true
+}
+smb_verify() {   # smb_verify <dir>: 試験が書いた内容を、サーバー側の実ファイルと smbclient で確かめる
+  local d=$1 rc=0 share path sha size n=0
+  declare -A want_sha want_size
+  local order=()
+  while IFS='|' read -r share path sha size; do
+    [ -n "$sha" ] || continue
+    local k="$share|$path"
+    [ -n "${want_sha[$k]:-}" ] || order+=("$k")
+    want_sha[$k]=$sha; want_size[$k]=$size   # 同じパスは最後に書いたものが正
+  done < <(adbs logcat -d -v raw -s SMB_EXPECT:I | tr -d '\r')
+  local k
+  for k in "${order[@]}"; do
+    share=${k%%|*}; path=${k#*|}
+    local f="$d/$share/$path" got gots
+    if [ ! -f "$f" ]; then echo "FAIL: server file missing: $share/$path"; rc=1; continue; fi
+    got=$(sha256sum "$f" | cut -d' ' -f1); gots=$(stat -c %s "$f")
+    if [ "$got" = "${want_sha[$k]}" ] && [ "$gots" = "${want_size[$k]}" ]; then n=$((n + 1)); echo "ok:   $share/$path ($gots bytes, sha256 ${got:0:12}...)"
+    else echo "FAIL: $share/$path sha/size mismatch: server $got $gots, test ${want_sha[$k]} ${want_size[$k]}"; rc=1; fi
+    # サーバー経由 (別のクライアント) でも見える
+    if ! smbclient -p $SMB_PORT -U "$SMB_USER%$SMB_PW" "//127.0.0.1/$share" -c "ls \"$path\"" 2>&1 | grep -q "${want_size[$k]}"; then echo "FAIL: smbclient ls does not show $share/$path (${want_size[$k]})"; rc=1; fi
+  done
+  [ $n -gt 0 ] || { echo "FAIL: no SMB_EXPECT lines in logcat"; rc=1; }
+  while IFS='|' read -r share path; do
+    [ -n "$path" ] || continue
+    if [ -e "$d/$share/$path" ]; then echo "FAIL: should be gone: $share/$path"; rc=1
+    elif smbclient -p $SMB_PORT -U "$SMB_USER%$SMB_PW" "//127.0.0.1/$share" -c "ls \"$path\"" 2>&1 | grep -q "NT_STATUS_NO_SUCH_FILE\|NT_STATUS_OBJECT_NAME_NOT_FOUND\|NT_STATUS_OBJECT_PATH_NOT_FOUND"; then echo "ok:   gone $share/$path"
+    else echo "FAIL: smbclient still sees $share/$path"; rc=1; fi
+  done < <(adbs logcat -d -v raw -s SMB_ABSENT:I | tr -d '\r' | sort -u)
+  # 試験が元の seed を壊していない
+  [ "$(sha256sum "$d/test/seed/blob.bin" | cut -d' ' -f1)" = "$(cat "$d/test/seed/blob.bin.sha256")" ] || { echo "FAIL: seed blob.bin changed"; rc=1; }
+  [ "$(cat "$d/test/seed/hello.txt")" = "hello from samba" ] || { echo "FAIL: seed hello.txt changed"; rc=1; }
+  return $rc
+}
+run_smb() {
+  [ -n "${GITHUB_ACTIONS:-}" ] || { echo "run_smb: GitHub Actions の runner 専用 (ローカルでは sudo で Samba を立てない)" >&2; return 2; }
+  local d=/dev/shm/smbci r v
+  smb_setup "$d" || { smb_stop "$d"; return 1; }
+  adbs logcat -c
+  instr_classes $APP.SmbTest; r=$?
+  echo "--- 測定値 (SMB_METRIC)"; adbs logcat -d -v raw -s SMB_METRIC:I | tr -d '\r' | head -80
+  smb_verify "$d"; v=$?
+  # 認証失敗などの Samba 側のログを残す (パスワードは出ない)
+  sudo cp "$d"/log.* "$LOG/" 2>/dev/null; sudo chmod a+r "$LOG"/log.* 2>/dev/null
+  smb_stop "$d"
+  sudo rm -rf "$d"
+  [ $r -eq 0 ] && [ $v -eq 0 ]
+}
+
 run_fs() {
   case $1 in
     kfsd_unit)   run_kfsd_unit ;;
@@ -332,6 +449,7 @@ run_fs() {
                    && run_generic $APP.DocumentsProviderTest,$APP.LinkProviderTest,$APP.WriteSelfTestInstrumented,$APP.RawImageInstrumentedTest,$APP.TransferTuningTest,$APP.VaultRealPathTest "$FIX/ntfs:" "$FIX/misc:" ;;
     crypt_ui)    run_generic $APP.CryptoUiTest "$FIX/crypt_ui:cui_" ;;
     disk_ui)     run_disk_ui ;;
+    smb)         run_smb ;;
     wim_fuse)    run_wim_fuse ;;
     *) echo "unknown fs $1" >&2; return 2 ;;
   esac
@@ -345,6 +463,7 @@ group_fs() {
     nested-ntfs)   echo "nested write" ;;
     crypt-ui)      echo "crypt_ui" ;;
     disk-ui)       echo "disk_ui" ;;
+    smb)           echo "smb" ;;
     ro-misc)       echo "ext2_read ext4_read exfat_read iso_read ntfs_read app_misc" ;;
     wim-fuse)      echo "wim_fuse" ;;
     kfsd)          echo "kfsd_unit kfsd_read_local kfsd_read_plugin kfsd_write" ;;

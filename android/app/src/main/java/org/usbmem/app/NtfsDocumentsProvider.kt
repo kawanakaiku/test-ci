@@ -17,11 +17,13 @@ import android.system.ErrnoException
 import android.system.OsConstants
 import android.webkit.MimeTypeMap
 import java.io.FileNotFoundException
+import org.usbmem.app.smb.SmbDocuments
 
 /**
  * 他アプリ(ファイルマネージャ等)に NTFS ボリュームを見せる SAF プロバイダ。既定は読み取り専用。
  * 書き込み (作成・削除・名前変更・書き込み・切り詰め) は、**書き込み可能でマウントされたボリュームにだけ**許可する (実験的。VolumeRegistry の writable)。
  * documentId = "<volumeId>:<絶対パス>" (ルートは "<volumeId>:/")。
+ * 同じプロバイダの下に、マウント中の SMB 共有 (ドキュメント ID が "smb-" で始まる) も公開する: その処理は [SmbDocuments] に任せる (USB 側の処理は変えない。docs/smb.md)。
  */
 class NtfsDocumentsProvider : DocumentsProvider() {
     private val ioThread by lazy { HandlerThread("ntfs-io").apply { start() } }
@@ -30,6 +32,9 @@ class NtfsDocumentsProvider : DocumentsProvider() {
     private companion object { const val AUTHORITY = "org.usbmem.app.documents" }
 
     override fun onCreate(): Boolean = true
+
+    /** SMB 共有 (ネットワーク) の公開。IO スレッドは USB とは別 */
+    private val smbDocs by lazy { SmbDocuments(ctx, AUTHORITY) }
 
     private val ctx: Context get() = context!!
 
@@ -46,6 +51,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
                 .add(Root.COLUMN_SUMMARY, rootSummary(e))
                 .add(Root.COLUMN_ICON, android.R.drawable.ic_menu_save)
         }
+        smbDocs.addRoots(c)
         return c
     }
 
@@ -109,6 +115,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
     private fun fail(e: NativeException, id: String): Nothing = throw FileNotFoundException("$id (errno ${e.code})")
 
     override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor {
+        if (SmbDocuments.owns(documentId)) return smbDocs.queryDocument(documentId, projection)
         val (vol, path) = parse(documentId)
         val c = MatrixCursor(projection ?: docCols)
         try {
@@ -121,6 +128,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
     }
 
     override fun queryChildDocuments(parentDocumentId: String, projection: Array<out String>?, sortOrder: String?): Cursor {
+        if (SmbDocuments.owns(parentDocumentId)) return smbDocs.queryChildDocuments(parentDocumentId, projection)
         val (vol, path) = parse(parentDocumentId)
         val c = MatrixCursor(projection ?: docCols)
         c.setNotificationUri(ctx.contentResolver, DocumentsContract.buildChildDocumentsUri(AUTHORITY, parentDocumentId))
@@ -135,6 +143,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
     }
 
     override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean {
+        if (SmbDocuments.owns(parentDocumentId) || SmbDocuments.owns(documentId)) return SmbDocuments.owns(parentDocumentId) && SmbDocuments.owns(documentId) && smbDocs.isChildDocument(parentDocumentId, documentId)
         val (v1, p1) = try { parse(parentDocumentId) } catch (_: FileNotFoundException) { return false }
         val (v2, p2) = try { parse(documentId) } catch (_: FileNotFoundException) { return false }
         if (v1.id != v2.id) return false
@@ -151,6 +160,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
     private fun wrap(ex: NativeException, id: String): Nothing = throw FileNotFoundException("$id (errno ${ex.code})")
 
     override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
+        if (SmbDocuments.owns(parentDocumentId)) return smbDocs.createDocument(parentDocumentId, mimeType, displayName)
         val (vol, parentVirtual) = parse(parentDocumentId)
         requireWritable(vol)
         checkName(displayName)
@@ -176,6 +186,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
     }
 
     override fun deleteDocument(documentId: String) {
+        if (SmbDocuments.owns(documentId)) { smbDocs.deleteDocument(documentId); return }
         val (vol, path) = parse(documentId)
         requireWritable(vol)
         requireNotCreateOnly(vol, "削除")
@@ -186,6 +197,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
     }
 
     override fun renameDocument(documentId: String, displayName: String): String? {
+        if (SmbDocuments.owns(documentId)) return smbDocs.renameDocument(documentId, displayName)
         val (vol, path) = parse(documentId)
         requireWritable(vol)
         requireNotCreateOnly(vol, "名前変更")
@@ -198,6 +210,10 @@ class NtfsDocumentsProvider : DocumentsProvider() {
 
     /** 別のディレクトリへ移動する (同じボリューム内のみ)。移動先に同名があれば失敗。 */
     override fun moveDocument(sourceDocumentId: String, sourceParentDocumentId: String, targetParentDocumentId: String): String {
+        if (SmbDocuments.owns(sourceDocumentId) || SmbDocuments.owns(targetParentDocumentId)) {
+            if (!(SmbDocuments.owns(sourceDocumentId) && SmbDocuments.owns(targetParentDocumentId))) throw UnsupportedOperationException("cross-volume move")
+            return smbDocs.moveDocument(sourceDocumentId, sourceParentDocumentId, targetParentDocumentId)
+        }
         val (vol, path) = parse(sourceDocumentId)
         val (vol2, targetVirtual) = parse(targetParentDocumentId)
         if (vol.id != vol2.id) throw UnsupportedOperationException("cross-volume move")
@@ -221,6 +237,7 @@ class NtfsDocumentsProvider : DocumentsProvider() {
     }
 
     override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
+        if (SmbDocuments.owns(documentId)) return smbDocs.openDocument(documentId, mode, signal)
         val (vol, virtualPath) = parse(documentId)
         // リンクは辿った先の実体を開く。辿れない/循環するリンクは、リンク先の文字列を中身とする読み取り専用の小さなファイルとして開く
         var path = virtualPath
@@ -299,5 +316,5 @@ class NtfsDocumentsProvider : DocumentsProvider() {
         return sm.openProxyFileDescriptor(fdMode, cb, ioHandler)
     }
 
-    override fun shutdown() { ioThread.quitSafely() }
+    override fun shutdown() { ioThread.quitSafely(); smbDocs.shutdown() }
 }

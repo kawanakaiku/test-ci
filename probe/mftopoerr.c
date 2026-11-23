@@ -5,11 +5,7 @@
  * 端末や Windows に入っている復号の部品に左右されない。
  *
  * 使い方: mftopoerr.exe [場合...]   場合を省くと全部
- *   session-fake  セッション: 偽の映像 → sample grabber (RGB32)。解決に失敗するはず
- *   session-ok    セッション: RGB32 → sample grabber。対照
- *   engine-fake   エンジン (frame server): 偽の映像だけ
- *   engine-mixed  エンジン: 偽の音声 + RGB32 の映像
- *   engine-ok     エンジン: RGB32 の映像だけ。対照
+ *   session-*: セッション (sample grabber へ)。engine-*: エンジン (frame server)。一覧は main の cases
  */
 #define COBJMACROS
 #include <windows.h>
@@ -26,6 +22,7 @@ DEFINE_GUID(MFVideoFormat_WTST, MAKEFOURCC('W','T','S','T'), 0x0000, 0x0010, 0x8
 DEFINE_GUID(MFAudioFormat_WTSA, MAKEFOURCC('W','T','S','A'), 0x0000, 0x0010, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71);
 
 static DWORD start_tick;
+static IMFTopology *session_topology;
 #define LOG(...) do { printf("%6lu ", GetTickCount() - start_tick); printf(__VA_ARGS__); fflush(stdout); } while (0)
 
 static const char *session_event_name(MediaEventType t)
@@ -67,7 +64,10 @@ static const char *engine_event_name(DWORD e)
 
 /* ---- 自作のソース ---- */
 
-enum stream_kind { KIND_FAKE_VIDEO, KIND_RGB32_VIDEO, KIND_FAKE_AUDIO };
+enum stream_kind { KIND_FAKE_VIDEO, KIND_RGB32_VIDEO, KIND_FAKE_AUDIO, KIND_PCM_AUDIO, KIND_RGB32_ERR };
+
+/* KIND_RGB32_ERR: この回数目の RequestSample で流れに MEError (E_FAIL) を積む */
+#define ERROR_AT 3
 
 struct test_source;
 
@@ -180,13 +180,21 @@ static HRESULT WINAPI stream_RequestSample(IMFMediaStream *iface, IUnknown *toke
     struct test_source *source = stream->source;
     IMFMediaBuffer *buffer;
     IMFSample *sample;
-    DWORD size = stream->kind == KIND_FAKE_AUDIO ? 4096 : 64 * 64 * 4, i;
+    DWORD size = (stream->kind == KIND_FAKE_AUDIO || stream->kind == KIND_PCM_AUDIO) ? 4800 * 4 : 64 * 64 * 4, i;
     BYTE *data;
     HRESULT hr;
 
     EnterCriticalSection(&source->cs);
     if (stream->sent == 0)
         LOG("  source: 流れ %u の最初の RequestSample\n", stream->kind);
+    if (stream->kind == KIND_RGB32_ERR && stream->sent == ERROR_AT)
+    {
+        LOG("  source: 流れに MEError (E_FAIL) を積む\n");
+        stream->sent++;
+        IMFMediaEventQueue_QueueEventParamVar(stream->queue, MEError, &GUID_NULL, E_FAIL, NULL);
+        LeaveCriticalSection(&source->cs);
+        return S_OK;
+    }
     if (stream->sent >= FRAMES)
     {
         BOOL all = TRUE;
@@ -214,8 +222,16 @@ static HRESULT WINAPI stream_RequestSample(IMFMediaStream *iface, IUnknown *toke
         if (SUCCEEDED(hr))
         {
             IMFSample_AddBuffer(sample, buffer);
-            IMFSample_SetSampleTime(sample, (LONGLONG)stream->sent * FRAME_DURATION);
-            IMFSample_SetSampleDuration(sample, FRAME_DURATION);
+            if (stream->kind == KIND_FAKE_AUDIO || stream->kind == KIND_PCM_AUDIO)
+            {
+                IMFSample_SetSampleTime(sample, (LONGLONG)stream->sent * 1000000);
+                IMFSample_SetSampleDuration(sample, 1000000);
+            }
+            else
+            {
+                IMFSample_SetSampleTime(sample, (LONGLONG)stream->sent * FRAME_DURATION);
+                IMFSample_SetSampleDuration(sample, FRAME_DURATION);
+            }
             if (token)
                 IMFSample_SetUnknown(sample, &MFSampleExtension_Token, token);
             stream->sent++;
@@ -396,12 +412,19 @@ static IMFMediaType *create_type(enum stream_kind kind)
 {
     IMFMediaType *type;
     MFCreateMediaType(&type);
-    if (kind == KIND_FAKE_AUDIO)
+    if (kind == KIND_FAKE_AUDIO || kind == KIND_PCM_AUDIO)
     {
         IMFMediaType_SetGUID(type, &MF_MT_MAJOR_TYPE, &MFMediaType_Audio);
-        IMFMediaType_SetGUID(type, &MF_MT_SUBTYPE, &MFAudioFormat_WTSA);
+        IMFMediaType_SetGUID(type, &MF_MT_SUBTYPE, kind == KIND_FAKE_AUDIO ? &MFAudioFormat_WTSA : &MFAudioFormat_PCM);
         IMFMediaType_SetUINT32(type, &MF_MT_AUDIO_NUM_CHANNELS, 2);
         IMFMediaType_SetUINT32(type, &MF_MT_AUDIO_SAMPLES_PER_SECOND, 48000);
+        if (kind == KIND_PCM_AUDIO)
+        {
+            IMFMediaType_SetUINT32(type, &MF_MT_AUDIO_BITS_PER_SAMPLE, 16);
+            IMFMediaType_SetUINT32(type, &MF_MT_AUDIO_BLOCK_ALIGNMENT, 4);
+            IMFMediaType_SetUINT32(type, &MF_MT_AUDIO_AVG_BYTES_PER_SECOND, 48000 * 4);
+            IMFMediaType_SetUINT32(type, &MF_MT_ALL_SAMPLES_INDEPENDENT, 1);
+        }
     }
     else
     {
@@ -410,7 +433,7 @@ static IMFMediaType *create_type(enum stream_kind kind)
         IMFMediaType_SetUINT64(type, &MF_MT_FRAME_SIZE, ((UINT64)64 << 32) | 64);
         IMFMediaType_SetUINT64(type, &MF_MT_FRAME_RATE, ((UINT64)30 << 32) | 1);
         IMFMediaType_SetUINT64(type, &MF_MT_PIXEL_ASPECT_RATIO, ((UINT64)1 << 32) | 1);
-        if (kind == KIND_RGB32_VIDEO)
+        if (kind == KIND_RGB32_VIDEO || kind == KIND_RGB32_ERR)
         {
             IMFMediaType_SetUINT32(type, &MF_MT_DEFAULT_STRIDE, 64 * 4);
             IMFMediaType_SetUINT32(type, &MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
@@ -518,6 +541,14 @@ static void print_session_event(IMFMediaEvent *event)
             value.vt == VT_UNKNOWN && !value.punkVal ? " (NULL)" : "");
     if (type == MESessionTopologyStatus)
         printf(" topo_status %u", topo_status);
+    if (type == MESessionTopologySet && value.vt == VT_UNKNOWN && value.punkVal)
+    {
+        IMFTopology *t = NULL;
+        WORD nodes = 0;
+        IUnknown_QueryInterface(value.punkVal, &IID_IMFTopology, (void **)&t);
+        if (t) { IMFTopology_GetNodeCount(t, &nodes); IMFTopology_Release(t); }
+        printf(" %s nodes %u", t == session_topology ? "(渡したトポロジー)" : "(別のトポロジー)", nodes);
+    }
     printf("\n");
     fflush(stdout);
     PropVariantClear(&value);
@@ -549,43 +580,52 @@ static void pump_session(IMFMediaSession *session, DWORD ms, MediaEventType unti
     }
 }
 
-static void run_session(BOOL fake)
+
+
+static void run_session(const char *name, const enum stream_kind *kinds, unsigned int count)
 {
-    static const enum stream_kind fake_kinds[] = {KIND_FAKE_VIDEO}, ok_kinds[] = {KIND_RGB32_VIDEO};
-    struct grabber grabber = {{&grabber_vtbl}, 1, 0};
-    struct test_source *source = create_source(fake ? fake_kinds : ok_kinds, 1);
-    IMFTopologyNode *src_node, *sink_node;
+    struct grabber grabbers[2] = {{{&grabber_vtbl}, 1, 0}, {{&grabber_vtbl}, 1, 0}};
+    struct test_source *source = create_source(kinds, count);
+    IMFTopologyNode *src_nodes[2], *sink_nodes[2];
+    IMFActivate *activates[2];
     IMFPresentationDescriptor *pd;
-    IMFStreamDescriptor *sd;
     IMFMediaSession *session;
     IMFTopology *topology;
-    IMFActivate *activate;
-    IMFMediaType *type;
     PROPVARIANT start;
-    BOOL selected;
+    unsigned int i;
     HRESULT hr;
 
-    LOG("== session-%s\n", fake ? "fake" : "ok");
+    LOG("== %s\n", name);
     hr = MFCreateMediaSession(NULL, &session);
     LOG("MFCreateMediaSession hr %#lx\n", hr);
     if (FAILED(hr)) return;
     MFCreateTopology(&topology);
+    session_topology = topology;
     IMFMediaSource_CreatePresentationDescriptor(&source->IMFMediaSource_iface, &pd);
-    IMFPresentationDescriptor_GetStreamDescriptorByIndex(pd, 0, &selected, &sd);
-    MFCreateTopologyNode(MF_TOPOLOGY_SOURCESTREAM_NODE, &src_node);
-    IMFTopologyNode_SetUnknown(src_node, &MF_TOPONODE_SOURCE, (IUnknown *)&source->IMFMediaSource_iface);
-    IMFTopologyNode_SetUnknown(src_node, &MF_TOPONODE_PRESENTATION_DESCRIPTOR, (IUnknown *)pd);
-    IMFTopologyNode_SetUnknown(src_node, &MF_TOPONODE_STREAM_DESCRIPTOR, (IUnknown *)sd);
-    IMFTopology_AddNode(topology, src_node);
-    MFCreateMediaType(&type);
-    IMFMediaType_SetGUID(type, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
-    IMFMediaType_SetGUID(type, &MF_MT_SUBTYPE, &MFVideoFormat_RGB32);
-    hr = MFCreateSampleGrabberSinkActivate(type, &grabber.iface, &activate);
-    LOG("MFCreateSampleGrabberSinkActivate hr %#lx\n", hr);
-    MFCreateTopologyNode(MF_TOPOLOGY_OUTPUT_NODE, &sink_node);
-    IMFTopologyNode_SetObject(sink_node, (IUnknown *)activate);
-    IMFTopology_AddNode(topology, sink_node);
-    IMFTopologyNode_ConnectOutput(src_node, 0, sink_node, 0);
+    for (i = 0; i < count; ++i)
+    {
+        IMFStreamDescriptor *sd;
+        IMFMediaType *type;
+        BOOL selected, audio = kinds[i] == KIND_FAKE_AUDIO || kinds[i] == KIND_PCM_AUDIO;
+
+        IMFPresentationDescriptor_GetStreamDescriptorByIndex(pd, i, &selected, &sd);
+        MFCreateTopologyNode(MF_TOPOLOGY_SOURCESTREAM_NODE, &src_nodes[i]);
+        IMFTopologyNode_SetUnknown(src_nodes[i], &MF_TOPONODE_SOURCE, (IUnknown *)&source->IMFMediaSource_iface);
+        IMFTopologyNode_SetUnknown(src_nodes[i], &MF_TOPONODE_PRESENTATION_DESCRIPTOR, (IUnknown *)pd);
+        IMFTopologyNode_SetUnknown(src_nodes[i], &MF_TOPONODE_STREAM_DESCRIPTOR, (IUnknown *)sd);
+        IMFStreamDescriptor_Release(sd);
+        IMFTopology_AddNode(topology, src_nodes[i]);
+        MFCreateMediaType(&type);
+        IMFMediaType_SetGUID(type, &MF_MT_MAJOR_TYPE, audio ? &MFMediaType_Audio : &MFMediaType_Video);
+        IMFMediaType_SetGUID(type, &MF_MT_SUBTYPE, audio ? &MFAudioFormat_PCM : &MFVideoFormat_RGB32);
+        hr = MFCreateSampleGrabberSinkActivate(type, &grabbers[i].iface, &activates[i]);
+        IMFMediaType_Release(type);
+        LOG("MFCreateSampleGrabberSinkActivate %u hr %#lx\n", i, hr);
+        MFCreateTopologyNode(MF_TOPOLOGY_OUTPUT_NODE, &sink_nodes[i]);
+        IMFTopologyNode_SetObject(sink_nodes[i], (IUnknown *)activates[i]);
+        IMFTopology_AddNode(topology, sink_nodes[i]);
+        IMFTopologyNode_ConnectOutput(src_nodes[i], 0, sink_nodes[i], 0);
+    }
 
     hr = IMFMediaSession_SetTopology(session, 0, topology);
     LOG("SetTopology hr %#lx\n", hr);
@@ -594,20 +634,23 @@ static void run_session(BOOL fake)
     hr = IMFMediaSession_Start(session, &GUID_NULL, &start);
     LOG("Start hr %#lx\n", hr);
     pump_session(session, 2500, 0);
-    LOG("grabber の受けたサンプル %ld\n", grabber.samples);
+    for (i = 0; i < count; ++i)
+        LOG("grabber %u の受けたサンプル %ld\n", i, grabbers[i].samples);
     hr = IMFMediaSession_Close(session);
     LOG("Close hr %#lx\n", hr);
     pump_session(session, 2000, MESessionClosed);
     IMFMediaSession_Shutdown(session);
     IMFMediaSource_Shutdown(&source->IMFMediaSource_iface);
     IMFMediaSession_Release(session);
-    IMFTopologyNode_Release(src_node);
-    IMFTopologyNode_Release(sink_node);
+    for (i = 0; i < count; ++i)
+    {
+        IMFTopologyNode_Release(src_nodes[i]);
+        IMFTopologyNode_Release(sink_nodes[i]);
+        IMFActivate_ShutdownObject(activates[i]);
+        IMFActivate_Release(activates[i]);
+    }
+    session_topology = NULL;
     IMFTopology_Release(topology);
-    IMFActivate_ShutdownObject(activate);
-    IMFActivate_Release(activate);
-    IMFMediaType_Release(type);
-    IMFStreamDescriptor_Release(sd);
     IMFPresentationDescriptor_Release(pd);
     IMFMediaSource_Release(&source->IMFMediaSource_iface);
 }
@@ -759,7 +802,17 @@ static void run_engine(const char *name, const enum stream_kind *kinds, unsigned
     print_engine_state(engine, "読み込みの後");
     hr = IMFMediaEngine_Play(engine);
     LOG("Play hr %#lx\n", hr);
-    Sleep(2000);
+    {
+        DWORD end = GetTickCount() + 2500;
+        LONGLONG pts;
+        int frames = 0;
+        while ((LONG)(end - GetTickCount()) > 0)
+        {
+            if (IMFMediaEngine_OnVideoStreamTick(engine, &pts) == S_OK) frames++;
+            Sleep(16);
+        }
+        LOG("OnVideoStreamTick の新しいコマ %d\n", frames);
+    }
     print_engine_state(engine, "Play の後");
     hr = IMFMediaEngine_Shutdown(engine);
     LOG("Shutdown hr %#lx\n", hr);
@@ -770,20 +823,39 @@ static void run_engine(const char *name, const enum stream_kind *kinds, unsigned
 
 int main(int argc, char **argv)
 {
-    static const enum stream_kind fake[] = {KIND_FAKE_VIDEO}, ok[] = {KIND_RGB32_VIDEO}, mixed[] = {KIND_FAKE_AUDIO, KIND_RGB32_VIDEO};
-    int i, all = argc < 2;
+    static const enum stream_kind fake[] = {KIND_FAKE_VIDEO}, ok[] = {KIND_RGB32_VIDEO}, mixed[] = {KIND_FAKE_AUDIO, KIND_RGB32_VIDEO},
+            afake[] = {KIND_FAKE_AUDIO}, pcm[] = {KIND_PCM_AUDIO, KIND_RGB32_VIDEO}, vfake_pcm[] = {KIND_PCM_AUDIO, KIND_FAKE_VIDEO},
+            err[] = {KIND_RGB32_ERR}, two_video[] = {KIND_FAKE_VIDEO, KIND_RGB32_VIDEO};
+    static const struct { const char *name; BOOL engine; const enum stream_kind *kinds; unsigned int count; } cases[] =
+    {
+        {"session-fake", FALSE, fake, 1},
+        {"session-ok", FALSE, ok, 1},
+        {"session-two", FALSE, two_video, 2},
+        {"session-err", FALSE, err, 1},
+        {"session-pcm", FALSE, pcm, 2},
+        {"session-mixed", FALSE, mixed, 2},
+        {"engine-fake", TRUE, fake, 1},
+        {"engine-mixed", TRUE, mixed, 2},
+        {"engine-afake", TRUE, afake, 1},
+        {"engine-pcm", TRUE, pcm, 2},
+        {"engine-vfake-pcm", TRUE, vfake_pcm, 2},
+        {"engine-err", TRUE, err, 1},
+        {"engine-ok", TRUE, ok, 1},
+    };
+    unsigned int i;
+    int j;
 
     start_tick = GetTickCount();
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
     MFStartup(MF_VERSION, MFSTARTUP_FULL);
-    for (i = all ? 0 : 1; i < (all ? 1 : argc); ++i)
+    for (i = 0; i < ARRAYSIZE(cases); ++i)
     {
-        const char *c = all ? NULL : argv[i];
-        if (!c || !strcmp(c, "session-fake")) run_session(TRUE);
-        if (!c || !strcmp(c, "session-ok")) run_session(FALSE);
-        if (!c || !strcmp(c, "engine-fake")) run_engine("engine-fake", fake, 1);
-        if (!c || !strcmp(c, "engine-mixed")) run_engine("engine-mixed", mixed, 2);
-        if (!c || !strcmp(c, "engine-ok")) run_engine("engine-ok", ok, 1);
+        BOOL want = argc < 2;
+        for (j = 1; j < argc; ++j)
+            if (!strcmp(argv[j], cases[i].name)) want = TRUE;
+        if (!want) continue;
+        if (cases[i].engine) run_engine(cases[i].name, cases[i].kinds, cases[i].count);
+        else run_session(cases[i].name, cases[i].kinds, cases[i].count);
     }
     MFShutdown();
     CoUninitialize();

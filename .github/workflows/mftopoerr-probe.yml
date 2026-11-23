@@ -12,6 +12,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: sound
+        if: matrix.os == 'windows-latest'
+        continue-on-error: true
+        uses: LABSN/sound-ci-helpers@v1
       - name: os
         shell: pwsh
         run: |
@@ -22,6 +26,7 @@ jobs:
           (Get-Item C:\Windows\System32\mfmediaengine.dll).VersionInfo.FileVersion
           (Get-Item C:\Windows\System32\mf.dll).VersionInfo.FileVersion
           Get-CimInstance Win32_SoundDevice | Select-Object -ExpandProperty Name
+          Get-PnpDevice -Class AudioEndpoint -ErrorAction SilentlyContinue | Select-Object Status,FriendlyName | Format-Table -AutoSize | Out-String
       - name: probe
         shell: pwsh
         run: |

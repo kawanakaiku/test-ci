@@ -213,8 +213,16 @@ def gz(seed):
     return bio.getvalue()
 
 
+def sevenz_synth(seed):
+    """7z の構造だけを持つ合成 (署名ヘッダ + パック済みデータ + 次ヘッダ。2 つの CRC が合う)。7z コマンドが無い環境でも形式を試験するため"""
+    packed = _rnd(seed, 3000)
+    nh = b"\x01\x04\x06\x00\x01\x09" + struct.pack("<Q", 3000)[:2] + b"\x00\x0a\x01" + struct.pack("<I", zlib.crc32(packed)) + b"\x00\x00"
+    tail = struct.pack("<QQI", len(packed), len(nh), zlib.crc32(nh))
+    return b"7z\xbc\xaf\x27\x1c\x00\x04" + struct.pack("<I", zlib.crc32(tail)) + tail + packed + nh
+
+
 def sevenz(seed):
-    if not shutil.which("7z"):
+    if os.environ.get("USBMEM_CARVE_NO_EXTERNAL") or not shutil.which("7z"):
         return None
     d = tempfile.mkdtemp(prefix="c7z_")
     try:
@@ -299,6 +307,7 @@ def basic_samples(seed=1):
     z = sevenz(seed)
     if z:
         s["7z"] = ("7z", "7z", z)
+    s["7z_synth"] = ("7z", "7z", sevenz_synth(seed))
     s["sqlite"] = ("sqlite", "sqlite", sqlite_db(seed))
     s["exe"] = ("pe", "exe", pe(seed))
     s["dll"] = ("pe", "dll", pe(seed + 1, dll=True))
@@ -306,8 +315,10 @@ def basic_samples(seed=1):
 
 
 def extra_samples():
-    """本物のエンコーダの出力 (PIL / ffmpeg / cjpeg があれば)。名前 → (形式の id, 拡張子, バイト列)"""
+    """本物のエンコーダの出力 (PIL / ffmpeg / cjpeg があれば)。名前 → (形式の id, 拡張子, バイト列)。USBMEM_CARVE_NO_EXTERNAL=1 なら使わない (道具の無い環境の再現用)"""
     s = {}
+    if os.environ.get("USBMEM_CARVE_NO_EXTERNAL"):
+        return s
     try:
         from PIL import Image
         r = random.Random(7)

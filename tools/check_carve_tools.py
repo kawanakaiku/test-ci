@@ -80,8 +80,13 @@ def build_layout(path, samples, decoys, size_mb=96, seed=5):
     with open(path, "wb") as f:
         f.truncate(size_mb << 20)
         pos = 1 << 20
-        items = [("good", n, v) for n, v in samples.items()] + [("decoy", n, v) for n, v in decoys.items()]
-        r.shuffle(items)
+        # 壊れた見本 (decoy) は、正しい見本をすべて置いた後ろにまとめる。途中で切れた sqlite / mp4 / riff などは、ヘッダの宣言する長さが
+        # 後続のデータまで届き、直後にある正しいファイルを飲み込む (切れていることは分からないので仕様どおり)。その干渉を試験から外す
+        good_items = [("good", n, v) for n, v in samples.items()]
+        decoy_items = [("decoy", n, v) for n, v in decoys.items()]
+        r.shuffle(good_items)
+        r.shuffle(decoy_items)
+        items = good_items + decoy_items
         bg = [lambda n: r.randbytes(n), lambda n: bytes(n), lambda n: rand_text(r, n)]
         for kind, name, v in items:
             data = v[2]
@@ -120,7 +125,7 @@ def make_decoys(samples):
             if fid in SOFT:
                 SOFT_NAMES.add(n + "_trunc")
     # 1 バイト壊したもの (CRC・長さ・チェックサムのある形式)
-    for n in ("png", "7z", "gzip", "sqlite", "exe"):
+    for n in ("png", "7z_synth", "gzip", "sqlite", "exe"):
         if n in samples:
             fid, ext, data = samples[n]
             b = bytearray(data)
@@ -154,7 +159,9 @@ def test_layout():
     for kind, name, off, data, fid, ext in good:
         h = hits.get(off)
         if not h:
-            check(False, "layout: not found: %s (%s, %d bytes, offset %d)" % (name, fid, len(data), off))
+            cover = [(x["offset"], x["length"], x["format"]) for x in j["hits"] if x["offset"] < off < x["offset"] + x["length"]]
+            before = [p[1] for p in placed if p[2] + len(p[3]) <= off][-1:] or [""]
+            check(False, "layout: not found: %s (%s, %d bytes, offset %d); covered by hit %s; previous item %s" % (name, fid, len(data), off, cover, before))
             continue
         ok = h["length"] == len(data) and h["format"] == fid and h["ext"] == ext
         if not check(ok, "layout: %s wrong: got len=%d format=%s ext=%s, want len=%d %s %s" % (name, h["length"], h["format"], h["ext"], len(data), fid, ext)):

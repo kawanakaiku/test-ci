@@ -88,6 +88,8 @@ include(${CMAKE_CURRENT_LIST_DIR}/disktools.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/recovery.cmake)
 # パーティション探索 / ブートセクタの検査と修復 (TestDisk 相当)
 include(${CMAKE_CURRENT_LIST_DIR}/partscan.cmake)
+# 削除ファイルの一覧と救出 / カービング (PhotoRec 相当)
+include(${CMAKE_CURRENT_LIST_DIR}/undelete.cmake)
 
 if(NOT USBMEM_EDITION STREQUAL "public")
   # FUSE アダプター (xfstests 用。docs/xfstests.md)

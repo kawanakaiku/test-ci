@@ -1,0 +1,27 @@
+name: keepon-probe
+on:
+  push:
+    branches: [keepon-probe]
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-11-arm, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: os
+        shell: pwsh
+        run: |
+          [Environment]::OSVersion.VersionString
+          (Get-CimInstance Win32_OperatingSystem).Caption
+          $env:PROCESSOR_ARCHITECTURE
+      - name: x64
+        shell: cmd
+        run: probe\powerprobe-x64.exe
+      - name: arm64
+        if: matrix.os == 'windows-11-arm'
+        shell: cmd
+        run: probe\powerprobe-arm64.exe

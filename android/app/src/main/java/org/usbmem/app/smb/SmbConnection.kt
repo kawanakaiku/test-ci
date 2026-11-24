@@ -77,10 +77,30 @@ data class SmbConnection(
             } catch (_: Exception) { emptyList() }
         }
 
+        /**
+         * ホスト名・IP アドレスの形式: IPv4 (4 つの 0〜255)、IPv6 (16 進と ":"、"%" 以降はインターフェース名。角かっこは付けない)、ホスト名 (「.」で区切った 1〜63 文字のラベル。
+         * 文字・数字・"-"・"_"。先頭・末尾が "-" は不可。末尾の "." は可)。数字と「.」だけなのに IPv4 の形でないもの (999.1.1.1 など) は誤り。空白・制御文字・"/"・"\\"・"@" は不可。
+         */
+        fun isValidHost(host: String): Boolean {
+            if (host.isEmpty() || host.length > 253) return false
+            if (host.any { it.isWhitespace() || it.code < 0x20 || it == '/' || it == '\\' || it == '@' || it == '[' || it == ']' }) return false
+            if (':' in host) {
+                val addr = host.substringBefore('%'); val zone = host.substringAfter('%', "")
+                if (addr.count { it == ':' } < 2 || addr.any { it != ':' && it != '.' && Character.digit(it, 16) < 0 }) return false
+                return zone.all { it.isLetterOrDigit() || it == '_' || it == '-' || it == '.' } && (!host.contains('%') || zone.isNotEmpty())
+            }
+            if (host.all { it in '0'..'9' || it == '.' }) {
+                val p = host.split('.')
+                return p.size == 4 && p.all { it.isNotEmpty() && it.length <= 3 && it.toInt() <= 255 }
+            }
+            val labels = (if (host.endsWith('.')) host.dropLast(1) else host).split('.')
+            return labels.all { l -> l.isNotEmpty() && l.length <= 63 && !l.startsWith('-') && !l.endsWith('-') && l.all { it.isLetterOrDigit() || it == '-' || it == '_' } }
+        }
+
         /** 入力の検査。ホスト名・共有名は区切り文字・制御文字・空白を許さない (パスの混入・表示の崩れを防ぐ) */
         fun validateFields(name: String, host: String, port: Int, share: String, domain: String, user: String): SmbInputError? {
             if (name.isBlank() || name.length > MAX_NAME || name.any { it.code < 0x20 }) return SmbInputError.Name
-            if (host.isEmpty() || host.length > 253 || host.any { it.isWhitespace() || it.code < 0x20 || it == '/' || it == '\\' || it == '@' }) return SmbInputError.Host
+            if (!isValidHost(host)) return SmbInputError.Host
             if (port !in 1..65535) return SmbInputError.Port
             if (share.isEmpty() || share.length > 80 || share.any { it.code < 0x20 || it in "/\\:*?\"<>|" }) return SmbInputError.Share
             if (domain.length > 255 || domain.any { it.code < 0x20 || it == '\\' || it == '/' }) return SmbInputError.Domain

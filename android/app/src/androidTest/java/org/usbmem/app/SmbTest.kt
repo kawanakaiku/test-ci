@@ -26,6 +26,8 @@ import org.usbmem.app.smb.SmbMounts
 import org.usbmem.app.smb.SmbRecalled
 import org.usbmem.app.smb.SmbRemoteFs
 import org.usbmem.app.smb.SmbStore
+import org.usbmem.app.smb.SmbTuning
+import org.usbmem.app.smb.HybridSecurityProvider
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
@@ -57,6 +59,8 @@ class SmbTest {
 
     private val host = InstrumentationRegistry.getArguments().getString("smb_host") ?: "10.0.2.2"
     private val port = InstrumentationRegistry.getArguments().getString("smb_port")?.toIntOrNull() ?: 4445
+    /** 署名を求めない 2 つめの smbd (tools/ci_android_tests.sh の run_smb。`server signing = auto`)。無ければ、署名なしの比較は省く */
+    private val portNoSig = InstrumentationRegistry.getArguments().getString("smb_port_nosig")?.toIntOrNull() ?: 4446
     private val user = "smbtest"
     private val goodPw = "ci-only-Pw-7f3a9"
 
@@ -368,6 +372,131 @@ class SmbTest {
             assertTrue("ヒープの使用が全体のサイズに比例していない (ストリーム)", peak < total / 2 || peak < maxHeap)
             assertTrue("320 MiB をメモリに載せていない: ピーク ${peak shr 20} MiB", peak < 200L * 1024 * 1024)
             expect("test", "out/large.bin", want, total)
+        } finally { fs.close() }
+    }
+
+    // ---------------------------------------------------------------- 転送の調整 (docs/smb.md 13 章)
+
+    /** [path] を [step] バイトずつ順番に読み、(SHA-256, 秒) を返す。SAF (ProxyFileDescriptor) の onRead に近い使い方 (128 KiB など) */
+    private fun readSequential(fs: RemoteFs, path: String, step: Int): Pair<String, Double> {
+        val md = MessageDigest.getInstance("SHA-256"); val buf = ByteArray(step)
+        val t = System.nanoTime()
+        fs.openRead(path).use { r ->
+            var off = 0L
+            while (true) { val n = r.read(off, buf, 0, step); if (n <= 0) break; md.update(buf, 0, n); off += n }
+        }
+        return hex(md.digest()) to (System.nanoTime() - t) / 1e9
+    }
+
+    private fun mibps(bytes: Long, sec: Double) = "%.1f".format((bytes shr 20) / maxOf(sec, 1e-3))
+
+    /** 同じ条件 (署名の有無・暗号・先読み・バッファ) で、書き込み・読み取りの速さを測って出す。**速さのアサートはしない**。内容は SHA-256 で必ず確かめる */
+    private fun speedRun(label: String, c: SmbConnection, t: SmbTuning, size: Long, seed: Long) {
+        val fs = SmbRemoteFs.connect(c, pw(), tuning = t)
+        try {
+            if (!fs.exists("/speed")) fs.mkdir("/speed")
+            val path = "/speed/s$seed.bin"
+            val md = MessageDigest.getInstance("SHA-256")
+            val t0 = System.nanoTime(); fs.copyFrom(path, PatternStream(size, seed, md)); val t1 = System.nanoTime()
+            val want = hex(md.digest())
+            val sink = DigestSink(); fs.copyTo(path, sink); val t2 = System.nanoTime()
+            assertEquals("$label: copyTo の内容", want, hex(sink.md.digest()))
+            val (h128, s128) = readSequential(fs, path, 128 * 1024)
+            assertEquals("$label: 128 KiB ずつの読み取りの内容", want, h128)
+            metric("speed $label: write ${mibps(size, (t1 - t0) / 1e9)} MiB/s, read(1 MiB calls) ${mibps(size, (t2 - t1) / 1e9)} MiB/s, read(128 KiB calls) ${mibps(size, s128)} MiB/s [${fs.dialect} signed=${fs.signed} encrypted=${fs.encrypted}]")
+            fs.delete(path)
+        } finally { fs.close() }
+    }
+
+    @Test
+    fun transferSpeedMatrix() {
+        val size = 24L * 1024 * 1024
+        run {
+            val base = DigestSink(); val t = System.nanoTime()
+            PatternStream(size, 3).copyTo(base, 1 shl 20)
+            metric("speed baseline (generate+sha256 only, no network): ${mibps(size, (System.nanoTime() - t) / 1e9)} MiB/s")
+        }
+        metric("speed native crypto parts: ${HybridSecurityProvider.get().jceParts.sorted()}")
+        val configs = listOf(
+            "bc-crypto buf1M no-readahead (old default)" to SmbTuning(nativeCrypto = false, readAhead = false),
+            "jce-crypto buf1M no-readahead" to SmbTuning(nativeCrypto = true, readAhead = false),
+            "jce-crypto buf1M readahead (default)" to SmbTuning(),
+            "jce-crypto buf4M readahead" to SmbTuning(bufferSize = 4 shl 20),
+            "jce-crypto buf256K readahead" to SmbTuning(bufferSize = 256 shl 10),
+            "jce-crypto buf1M readahead sockbuf1M" to SmbTuning(socketBuffer = 1 shl 20),
+        )
+        var seed = 40L
+        for ((name, t) in configs) speedRun("[signing=required] $name", conn(), t, size, seed++)
+        // 署名を求めないサーバー (server signing = auto)。クライアントも署名を求めない
+        val up = runCatching { SmbRemoteFs.connect(conn(port = portNoSig), pw()).also { it.close() } }
+        if (up.isFailure) { metric("speed [signing=none]: the unsigned server (port $portNoSig) is not available: ${(up.exceptionOrNull() as? SmbException)?.kind}"); return }
+        for ((name, t) in configs) speedRun("[signing=none] $name", conn(port = portNoSig), t, size, seed++)
+    }
+
+    /** JCE と BouncyCastle の暗号で、同じサーバー (署名必須・暗号化必須) と互いに話せること。両方の経路で seed の SHA-256 が合う */
+    @Test
+    fun nativeAndBouncyCastleCryptoBothInteroperate() {
+        val parts = HybridSecurityProvider.get().jceParts
+        metric("native crypto parts used: ${parts.sorted()}")
+        for (native in listOf(false, true)) {
+            for ((share, enc) in listOf("test" to false, "enc" to true)) {
+                val fs = SmbRemoteFs.connect(conn(share = share, encrypt = enc), pw(), tuning = SmbTuning(nativeCrypto = native))
+                try {
+                    assertTrue("署名または暗号化 (native=$native, $share)", fs.signed || fs.encrypted)
+                    if (enc) assertTrue(fs.encrypted)
+                    if (share == "test") {
+                        val sink = DigestSink(); fs.copyTo("/seed/blob.bin", sink)
+                        assertEquals("seed の SHA-256 (native=$native)", readText(fs, "/seed/blob.bin.sha256").trim(), hex(sink.md.digest()))
+                    } else {
+                        assertEquals("encrypted hello\n", readText(fs, "/hello-enc.txt"))
+                    }
+                } finally { fs.close() }
+            }
+        }
+    }
+
+    /** 先読みを使う読み取りが、順番・ランダム・逆戻り・重なり・末尾を超える位置のどれでも、直接読んだ結果と同じ内容を返す */
+    @Test
+    fun readAheadReturnsExactBytes() {
+        val size = 5 * 1024 * 1024 + 123
+        val data = patternBytes(size, 77)
+        val fs = SmbRemoteFs.connect(conn(), pw(), tuning = SmbTuning(bufferSize = 256 shl 10))   // 小さいバッファで、先読みの境界を何度も越える
+        try {
+            if (!fs.exists("/ra")) fs.mkdir("/ra")
+            assertEquals(size.toLong(), fs.copyFrom("/ra/ra.bin", java.io.ByteArrayInputStream(data)))
+            fun check(r: org.usbmem.app.smb.RemoteReader, off: Long, len: Int) {
+                val b = ByteArray(len); val n = r.read(off, b, 0, len)
+                val want = if (off >= size) 0 else minOf(len.toLong(), size - off).toInt()
+                assertEquals("offset=$off len=$len の長さ", want, n)
+                assertArrayEquals("offset=$off len=$len の内容", data.copyOfRange(off.toInt().coerceAtMost(size), off.toInt().coerceAtMost(size) + want), b.copyOf(n))
+            }
+            fs.openRead("/ra/ra.bin").use { r ->
+                assertEquals(size.toLong(), r.size)
+                var off = 0L
+                while (off < 1_700_000) { check(r, off, 100_000); off += 100_000 }   // 順番 (先読みが始まる)
+                check(r, off, 70_000); off += 70_000                                 // 続きで、中途半端な大きさ
+                check(r, 3_000_000, 50_000)                                          // 先へ飛ぶ (ストリームを捨てる)
+                check(r, 3_050_000, 50_000); check(r, 3_100_000, 300_000)             // また順番
+                check(r, 10, 4096)                                                   // 逆戻り
+                check(r, 4106L, 4096)                                           // 直後 (順番)
+                check(r, size - 1000L, 4096)                                         // 末尾を超える
+                check(r, size.toLong(), 10); check(r, size + 5000L, 10)              // ちょうど末尾・末尾より後
+                check(r, 0, 1); check(r, 1, 1); check(r, 2, 1_000_000)               // 1 バイトずつから大きな読み取り
+                var o2 = 2L + 1_000_000
+                while (o2 < size) { check(r, o2, 262_144); o2 += 262_144 }             // 最後まで順番 (EOF の応答を受ける)
+            }
+            // 先読みなし (書き込みもするハンドルの読み取り) でも同じ
+            fs.openRead("/ra/ra.bin", readAhead = false).use { r -> check(r, 0, 100); check(r, 100, 100); check(r, 200, 300_000) }
+            // 書き込みも許したハンドルでは、書いた内容がすぐ読める (先読みの古い内容を返さない)
+            fs.openWrite("/ra/ra.bin", create = false, truncate = false, readToo = true).use { w ->
+                fs.openRead("/ra/ra.bin", readAhead = false).use { r ->
+                    val before = ByteArray(1000); r.read(0, before, 0, 1000); r.read(1000, before, 0, 1000)
+                    w.write(2000, byteArrayOf(9, 8, 7), 0, 3)
+                    val after = ByteArray(3); r.read(2000, after, 0, 3)
+                    assertArrayEquals(byteArrayOf(9, 8, 7), after)
+                }
+            }
+            fs.delete("/ra/ra.bin")
         } finally { fs.close() }
     }
 

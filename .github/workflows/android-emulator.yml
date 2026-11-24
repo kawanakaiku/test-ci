@@ -9,6 +9,10 @@ on:
         description: 'グループを 1 つだけ実行する (空 = 全部)。例: crypt-ui。(既定ブランチにワークフローが無い運用では push のブランチ名 usbmem-ci-only-<グループ> を使う)'
         required: false
         default: ''
+      smb_size_base:
+        description: 'smb グループの APK サイズ測定の比較元 (SMB を入れる直前のコミット SHA またはブランチ名)。空 = docs/smb.md 11 章の既定値'
+        required: false
+        default: ''
   push:
     branches: [usbmem-ci, 'usbmem-ci-*', '!usbmem-ci-apk', '!usbmem-ci-apk-*', '!usbmem-ci-kfsd-*']
 
@@ -162,6 +166,11 @@ jobs:
       - name: Release APK size (smb only)
         if: matrix.group == 'smb'
         continue-on-error: true   # 失敗しても計装試験は続ける (結果は step の失敗として見える)
+        timeout-minutes: 50
+        env:
+          # 比較元 (SMB を入れる直前 = 26f4729 の親) と、SMB だけを入れた時点 (cbf9b73)。docs/smb.md 11 章。push では既定値、workflow_dispatch では入力で上書きできる
+          SMB_SIZE_BASE_REF: ${{ inputs.smb_size_base || '4930829380b51f862cd322ba854dd34c0b1be43d' }}
+          SMB_SIZE_SMB_REF: cbf9b73aec83df414d191f720573ea28c6d9c685
         run: tools/ci/smb_apk_size.sh
 
       - name: Generate fixtures

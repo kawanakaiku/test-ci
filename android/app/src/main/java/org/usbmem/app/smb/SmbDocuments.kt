@@ -241,7 +241,7 @@ class SmbDocuments(private val ctx: Context, private val authority: String) {
             val st = fs.stat(r.path)
             if (st.isDir) throw FileNotFoundException("is a directory")
             if (write) writer = fs.openWrite(r.path, create = false, truncate = truncate, readToo = canRead)
-            if (!write || canRead) reader = fs.openRead(r.path)
+            if (!write || canRead) reader = fs.openRead(r.path, readAhead = !write)   // 書き込みもするハンドルは先読みしない (書いた内容が読み取りに見えるように)
         } catch (ex: Exception) {
             try { reader?.close() } catch (_: Exception) { }
             try { writer?.close() } catch (_: Exception) { }

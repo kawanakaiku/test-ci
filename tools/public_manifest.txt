@@ -236,6 +236,7 @@ include   own-doc docs/nested-mount.md
 include   own-doc docs/partition-edit.md
 include   own-doc docs/partition-scan.md
 include   own-doc docs/smb.md
+include   own-doc docs/privacy-and-permissions.md
 include   own-doc docs/undelete-carving.md
 include   own-doc docs/phase3-progress.md
 include   own-doc docs/recovery-backup.md

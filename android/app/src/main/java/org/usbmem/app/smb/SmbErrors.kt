@@ -44,7 +44,7 @@ enum class SmbErrorKind {
  * SMB の操作の失敗。[message] は固定の短い英文 + 種類 + NT ステータス (16 進) だけ: **パスワードはもちろん、ユーザー名・パス・サーバーが返した文字列も含めない**
  * (例外のメッセージは、ログ・クラッシュレポートに出ることがあるため)。原因の例外 (cause) もつながない。
  */
-class SmbException(val kind: SmbErrorKind, val status: Long = 0L, detail: String = "") :
+class SmbException(val kind: SmbErrorKind, val status: Long = 0L, val detail: String = "") :
     IOException("smb " + kind.name + (if (status != 0L) " (0x" + java.lang.Long.toHexString(status) + ")" else "") + (if (detail.isNotEmpty()) " " + detail else ""))
 
 /** 例外 → [SmbException]。NT ステータスの値は MS-ERREF。 */
@@ -116,7 +116,8 @@ object SmbErrors {
         for (t in chain(e)) {
             when (t) {
                 is SmbCancelled, is InterruptedException, is java.nio.channels.ClosedByInterruptException -> return SmbException(SmbErrorKind.Cancelled)
-                is UnknownHostException, is ConnectException, is NoRouteToHostException -> return SmbException(SmbErrorKind.Network, detail = t.javaClass.simpleName)
+                is UnknownHostException, is NoRouteToHostException -> return SmbException(SmbErrorKind.Network, detail = t.javaClass.simpleName)
+                is ConnectException -> return SmbException(SmbErrorKind.Network, detail = "ConnectException" + connectSuffix(t))
                 is SocketTimeoutException, is TimeoutException ->
                     return SmbException(if (connecting) SmbErrorKind.Network else SmbErrorKind.Timeout, detail = t.javaClass.simpleName)
                 is InterruptedIOException -> return SmbException(SmbErrorKind.Timeout, detail = t.javaClass.simpleName)
@@ -129,6 +130,36 @@ object SmbErrors {
         if (e is com.hierynomus.smbj.common.SMBRuntimeException) return SmbException(if (connecting) SmbErrorKind.Protocol else SmbErrorKind.Other, detail = e.javaClass.simpleName)
         if (e is IllegalStateException || e is NullPointerException) return SmbException(if (connecting) SmbErrorKind.Protocol else SmbErrorKind.Disconnected, detail = e.javaClass.simpleName)
         return SmbException(SmbErrorKind.Other, detail = e.javaClass.simpleName)
+    }
+
+    /**
+     * ConnectException の原因 (拒否 / 経路なし) を、メッセージの定型の語から見分けて、固定の短い接尾辞にする (メッセージ本体 = ホスト名・ポートを含みうるものは、保存しない)。
+     * Android は "ECONNREFUSED (Connection refused)" / "ENETUNREACH (Network is unreachable)" / "EHOSTUNREACH (No route to host)" の形で出す。
+     */
+    private fun connectSuffix(t: Throwable): String {
+        val m = t.message ?: return ""
+        return when {
+            m.contains("ECONNREFUSED") || m.contains("refused", ignoreCase = true) -> "/refused"
+            m.contains("ENETUNREACH") || m.contains("EHOSTUNREACH") || m.contains("unreachable", ignoreCase = true) || m.contains("No route", ignoreCase = true) -> "/unreachable"
+            else -> ""
+        }
+    }
+
+    /** 接続できなかった理由 (画面が文言を分ける) */
+    enum class NetReason { HostUnknown, Refused, Unreachable, ConnectTimeout, Other }
+
+    /** [SmbErrorKind.Network] の失敗の、細かい理由。それ以外の種類では [NetReason.Other] */
+    fun netReason(e: SmbException): NetReason {
+        if (e.kind != SmbErrorKind.Network) return NetReason.Other
+        val d = e.detail
+        return when {
+            d == "UnknownHostException" -> NetReason.HostUnknown
+            d.startsWith("ConnectException") && d.endsWith("/refused") -> NetReason.Refused
+            d == "NoRouteToHostException" || (d.startsWith("ConnectException") && d.endsWith("/unreachable")) -> NetReason.Unreachable
+            d == "SocketTimeoutException" || d == "TimeoutException" -> NetReason.ConnectTimeout
+            d.startsWith("ConnectException") -> NetReason.Refused   // 理由の語が無い ConnectException は、まず拒否 (ポート違い) として案内する
+            else -> NetReason.Other
+        }
     }
 
     /** 通信が壊れた (接続はもう使えない) 種類か */

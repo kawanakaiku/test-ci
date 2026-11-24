@@ -68,7 +68,32 @@ import org.usbmem.app.smb.SmbTestResult
 
 /** 失敗の種類 → 画面の文言 (サーバー・SMBJ の文字列は出さない) */
 object SmbUiText {
-    fun error(ctx: Context, e: Throwable): String = error(ctx, SmbErrors.map(e).kind)
+    /**
+     * 失敗 → 文言。接続できなかった (Network) は理由 (ホスト不明 / 拒否 / 経路なし / 時間切れ) で、署名・暗号化・バージョンの不一致 (Protocol) は [conn] の設定で、案内を分ける。
+     * 通信が切れた (Disconnected / Timeout) には、もう一度「マウント」する案内が付く (文言側)。
+     */
+    fun error(ctx: Context, e: Throwable, conn: SmbConnection? = null): String {
+        val m = SmbErrors.map(e)
+        val res = when (m.kind) {
+            SmbErrorKind.Network -> when (SmbErrors.netReason(m)) {
+                SmbErrors.NetReason.HostUnknown -> R.string.smb_error_host_unknown
+                SmbErrors.NetReason.Refused -> R.string.smb_error_refused
+                SmbErrors.NetReason.Unreachable -> R.string.smb_error_unreachable
+                SmbErrors.NetReason.ConnectTimeout -> R.string.smb_error_connect_timeout
+                SmbErrors.NetReason.Other -> R.string.smb_error_network
+            }
+            SmbErrorKind.Protocol -> when {
+                conn == null -> R.string.smb_error_protocol
+                conn.requireEncryption -> R.string.smb_error_protocol_encryption
+                conn.requireSigning -> R.string.smb_error_protocol_signing
+                conn.minVersion != SmbMinVersion.V202 && conn.minVersion != SmbMinVersion.V21 -> R.string.smb_error_protocol_version
+                else -> R.string.smb_error_protocol
+            }
+            else -> null
+        }
+        if (res == null) return error(ctx, m.kind)
+        return if (res == R.string.smb_error_protocol_version && conn != null) ctx.getString(res, conn.minVersion.key) else ctx.getString(res)
+    }
 
     fun error(ctx: Context, k: SmbErrorKind): String = ctx.getString(when (k) {
         SmbErrorKind.Auth -> R.string.smb_error_auth
@@ -266,7 +291,7 @@ private fun SmbEditDialog(initial: SmbConnection?, hasSavedPassword: Boolean, on
     var encrypt by remember { mutableStateOf(initial?.requireEncryption ?: false) }
     var signing by remember { mutableStateOf(initial?.requireSigning ?: false) }
     var savePassword by remember { mutableStateOf(hasSavedPassword) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var attempted by remember { mutableStateOf(false) }   // 保存・接続テストを一度押したら、以後は入力のたびに欄の誤りを更新する
     var testNotice by remember { mutableStateOf<Notice?>(null) }
     var testing by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -278,13 +303,19 @@ private fun SmbEditDialog(initial: SmbConnection?, hasSavedPassword: Boolean, on
     OnStopEffect { password = ""; showPassword = false }
     DisposableEffect(Unit) { onDispose { password = ""; attempt?.cancel() } }
 
+    /** 入力の正規化: ホストの前後の空白と IPv6 の角かっこ (「[fe80::1]」と貼り付けられたとき) を取る */
+    fun hostText(): String = host.trim().removePrefix("[").removeSuffix("]")
+    fun portNumber(): Int = port.trim().toIntOrNull() ?: -1
+    fun inputError(): SmbInputError? = SmbConnection.validateFields(name.trim(), hostText(), portNumber(), share.trim(), domain.trim(), user.trim())
+    val fieldError: SmbInputError? = if (attempted) inputError() else null
+
     fun build(): SmbConnection? {
-        val p = port.trim().toIntOrNull() ?: -1
-        val err = SmbConnection.validateFields(name.trim(), host.trim(), p, share.trim(), domain.trim(), user.trim())
-        if (err != null) { error = SmbUiText.input(ctx, err); return null }
-        error = null
+        attempted = true
+        val p = portNumber()
+        val err = inputError()
+        if (err != null) return null   // 誤りの表示は fieldError (入力のたびに更新される)
         return SmbConnection(
-            id = initial?.id ?: SmbConnection.newId(), name = name.trim(), host = host.trim(), port = p, share = share.trim(),
+            id = initial?.id ?: SmbConnection.newId(), name = name.trim(), host = hostText(), port = p, share = share.trim(),
             domain = domain.trim(), user = user.trim(), minVersion = minVersion, requireEncryption = encrypt, requireSigning = signing,
         )
     }
@@ -304,7 +335,7 @@ private fun SmbEditDialog(initial: SmbConnection?, hasSavedPassword: Boolean, on
                     val extra = (if (it.encrypted) ctx.getString(R.string.smb_test_ok_encrypted) else "") + (if (it.signed) ctx.getString(R.string.smb_test_ok_signed) else "")
                     Notice(Severity.Success, ctx.getString(R.string.smb_test_ok, c.target()), ctx.getString(R.string.smb_test_ok_detail, it.dialect, it.rootEntries, extra))
                 },
-                onFailure = { Notice(Severity.Error, SmbUiText.error(ctx, it)) },
+                onFailure = { Notice(Severity.Error, SmbUiText.error(ctx, it, c)) },
             )
         }
     }
@@ -347,19 +378,38 @@ private fun SmbEditDialog(initial: SmbConnection?, hasSavedPassword: Boolean, on
         title = { Text(stringResource(if (initial == null) R.string.smb_edit_title_new else R.string.smb_edit_title_edit)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                error?.let { Banner(Notice(Severity.Error, it), Modifier.testTag("smb_edit_error")) }
-                OutlinedTextField(value = name, onValueChange = { name = it }, enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.smb_field_name)) }, modifier = Modifier.fillMaxWidth().testTag("smb_field_name"))
+                // 先頭の誤りの表示は、まだ直っていない間だけ (直した欄の表示は、入力のたびに消える)
+                fieldError?.let { Banner(Notice(Severity.Error, SmbUiText.input(ctx, it)), Modifier.testTag("smb_edit_error")) }
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it }, enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.smb_field_name)) },
+                    isError = fieldError == SmbInputError.Name, supportingText = { if (fieldError == SmbInputError.Name) Text(stringResource(R.string.smb_err_name)) },
+                    modifier = Modifier.fillMaxWidth().testTag("smb_field_name"),
+                )
                 OutlinedTextField(
                     value = host, onValueChange = { host = it }, enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.smb_field_host)) },
+                    isError = fieldError == SmbInputError.Host, supportingText = { if (fieldError == SmbInputError.Host) Text(stringResource(R.string.smb_err_host)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth().testTag("smb_field_host"),
                 )
                 OutlinedTextField(
                     value = port, onValueChange = { port = it.filter { ch -> ch.isDigit() }.take(5) }, enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.smb_field_port)) },
+                    isError = fieldError == SmbInputError.Port, supportingText = { if (fieldError == SmbInputError.Port) Text(stringResource(R.string.smb_err_port)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth().testTag("smb_field_port"),
                 )
-                OutlinedTextField(value = share, onValueChange = { share = it }, enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.smb_field_share)) }, modifier = Modifier.fillMaxWidth().testTag("smb_field_share"))
-                OutlinedTextField(value = domain, onValueChange = { domain = it }, enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.smb_field_domain)) }, modifier = Modifier.fillMaxWidth().testTag("smb_field_domain"))
-                OutlinedTextField(value = user, onValueChange = { user = it }, enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.smb_field_user)) }, modifier = Modifier.fillMaxWidth().testTag("smb_field_user"))
+                OutlinedTextField(
+                    value = share, onValueChange = { share = it }, enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.smb_field_share)) },
+                    isError = fieldError == SmbInputError.Share, supportingText = { if (fieldError == SmbInputError.Share) Text(stringResource(R.string.smb_err_share)) },
+                    modifier = Modifier.fillMaxWidth().testTag("smb_field_share"),
+                )
+                OutlinedTextField(
+                    value = domain, onValueChange = { domain = it }, enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.smb_field_domain)) },
+                    isError = fieldError == SmbInputError.Domain, supportingText = { if (fieldError == SmbInputError.Domain) Text(stringResource(R.string.smb_err_domain)) },
+                    modifier = Modifier.fillMaxWidth().testTag("smb_field_domain"),
+                )
+                OutlinedTextField(
+                    value = user, onValueChange = { user = it }, enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.smb_field_user)) },
+                    isError = fieldError == SmbInputError.User, supportingText = { if (fieldError == SmbInputError.User) Text(stringResource(R.string.smb_err_user)) },
+                    modifier = Modifier.fillMaxWidth().testTag("smb_field_user"),
+                )
                 OutlinedTextField(
                     value = password, onValueChange = { password = it }, enabled = !busy, singleLine = true, label = { Text(stringResource(R.string.smb_field_password)) },
                     visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
@@ -481,7 +531,7 @@ private fun SmbMountDialog(conn: SmbConnection, hasSavedPassword: Boolean, onDis
                         ctx.getString(R.string.smb_notice_mounted_detail, conn.name, modeText) + (if (forced) "\n" + ctx.getString(R.string.smb_notice_mounted_forced_read_only) else ""),
                     ))
                 },
-                onFailure = { error = SmbUiText.error(ctx, it) },
+                onFailure = { error = SmbUiText.error(ctx, it, conn) },
             )
         }
     }
@@ -525,7 +575,7 @@ private fun SmbMountDialog(conn: SmbConnection, hasSavedPassword: Boolean, onDis
                 if (busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                     Text(stringResource(R.string.smb_mounting), style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { attempt?.cancel() }, modifier = Modifier.testTag("smb_mount_cancel_connect")) { Text(stringResource(R.string.smb_cancel_connect)) }
+                    TextButton(onClick = { attempt?.cancel() }, modifier = Modifier.testTag("smb_mount_cancel_connect")) { Text(stringResource(R.string.smb_cancel_mount)) }
                 }
             }
         },

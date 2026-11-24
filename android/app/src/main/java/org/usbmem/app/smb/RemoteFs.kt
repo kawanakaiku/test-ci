@@ -70,6 +70,8 @@ interface RemoteFs : AutoCloseable {
     fun list(path: String): List<RemoteEntry>
     fun exists(path: String): Boolean = try { stat(path); true } catch (e: SmbException) { if (e.kind == SmbErrorKind.NotFound) false else throw e }
     fun openRead(path: String): RemoteReader
+    /** [readAhead] = false なら、先読みをしない (同じファイルへ書き込みもするハンドルの読み取り: 先読みした古い内容を返さないため)。先読みを持たない実装は、無視してよい */
+    fun openRead(path: String, readAhead: Boolean): RemoteReader = openRead(path)
     /** [create] = 無ければ作る (有れば失敗しない)、[truncate] = 開くとき長さ 0 にする、[readToo] = 読み取りも許す */
     fun openWrite(path: String, create: Boolean, truncate: Boolean, readToo: Boolean = false): RemoteWriter
     /** 新しい空のファイルを作る。同名があれば [SmbErrorKind.Exists] */

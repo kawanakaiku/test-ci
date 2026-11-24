@@ -307,6 +307,7 @@ run_disk_ui() {
 # SMB の計装試験 (docs/smb.md): runner 上に使い捨ての Samba (ポート 4445、共有は tmpfs、使い捨てのテストユーザー) を立て、SmbTest を実行してから、
 # 試験が logcat に出した SMB_EXPECT / SMB_ABSENT を、サーバー側の実ファイル (sha256sum) と smbclient で独立に照合する。ローカルでは動かさない (sudo で system を触る)
 SMB_PORT=4445
+SMB_PORT_NOSIG=4446   # 署名を求めない 2 つめの smbd (転送速度の比較用。SmbTest.transferSpeedMatrix)。署名・暗号化以外は同じ設定・同じ共有
 SMB_USER=smbtest
 SMB_PW=ci-only-Pw-7f3a9
 smb_setup() {
@@ -357,7 +358,15 @@ CONF
   sudo chown -R "$SMB_USER" "$d/test" "$d/enc" || return 1
   chmod 755 "$d"
   testparm -s "$d/smb.conf" >/dev/null 2>"$d/testparm.err" || { cat "$d/testparm.err"; return 1; }
+  # 2 つめの設定: ポートと署名 (auto = サーバーは署名を求めない) と、状態の置き場だけを変える。ユーザー・共有は同じ
+  mkdir -p "$d/run2" "$d/lock2" "$d/cache2" "$d/state2" || return 1
+  sed -e "s/^  smb ports = .*/  smb ports = $SMB_PORT_NOSIG/" -e 's/^  server signing = mandatory/  server signing = auto/' \
+      -e "s#= $d/run\$#= $d/run2#" -e "s#= $d/lock\$#= $d/lock2#" -e "s#= $d/cache\$#= $d/cache2#" -e "s#= $d/state\$#= $d/state2#" \
+      -e "s#log file = $d/log\.%m#log file = $d/log2.%m#" -e "/^\[global\]/a\\  ncalrpc dir = $d/run2/ncalrpc" "$d/smb.conf" > "$d/smb2.conf"
+  grep -q 'server signing = auto' "$d/smb2.conf" && grep -q "smb ports = $SMB_PORT_NOSIG" "$d/smb2.conf" && grep -q "= $d/run2$" "$d/smb2.conf" || { echo "smb2.conf was not generated as expected"; cat "$d/smb2.conf"; return 1; }
+  testparm -s "$d/smb2.conf" >/dev/null 2>"$d/testparm2.err" || { cat "$d/testparm2.err"; return 1; }
   sudo smbd -D -s "$d/smb.conf" || return 1
+  sudo smbd -D -s "$d/smb2.conf" || echo "WARNING: the unsigned smbd did not start (the speed comparison without signing is skipped)"
   for f in 1 2 3 4 5 6 7 8 9 10; do
     smbclient -p $SMB_PORT -U "$SMB_USER%$SMB_PW" "//127.0.0.1/test" -c 'ls seed' >/dev/null 2>&1 && return 0
     sleep 1
@@ -367,8 +376,10 @@ CONF
 smb_stop() {
   local d=$1
   [ -f "$d/run/smbd.pid" ] && sudo kill "$(cat "$d/run/smbd.pid")" 2>/dev/null
+  [ -f "$d/run2/smbd.pid" ] && sudo kill "$(cat "$d/run2/smbd.pid")" 2>/dev/null
   sleep 1
   sudo pkill -f "smbd.*$d/smb.conf" 2>/dev/null
+  sudo pkill -f "smbd.*$d/smb2.conf" 2>/dev/null
   true
 }
 smb_verify() {   # smb_verify <dir>: 試験が書いた内容を、サーバー側の実ファイルと smbclient で確かめる
@@ -410,10 +421,10 @@ run_smb() {
   smb_setup "$d" || { smb_stop "$d"; return 1; }
   adbs logcat -c
   instr_classes $APP.SmbTest; r=$?
-  echo "--- 測定値 (SMB_METRIC)"; adbs logcat -d -v raw -s SMB_METRIC:I | tr -d '\r' | head -80
+  echo "--- 測定値 (SMB_METRIC)"; adbs logcat -d -v raw -s SMB_METRIC:I | tr -d '\r' | head -120
   smb_verify "$d"; v=$?
   # 認証失敗などの Samba 側のログを残す (パスワードは出ない)
-  sudo cp "$d"/log.* "$LOG/" 2>/dev/null; sudo chmod a+r "$LOG"/log.* 2>/dev/null
+  sudo cp "$d"/log.* "$d"/log2.* "$LOG/" 2>/dev/null; sudo chmod a+r "$LOG"/log.* "$LOG"/log2.* 2>/dev/null
   smb_stop "$d"
   sudo rm -rf "$d"
   [ $r -eq 0 ] && [ $v -eq 0 ]

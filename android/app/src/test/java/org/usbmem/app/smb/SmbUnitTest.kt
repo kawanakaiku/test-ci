@@ -46,6 +46,33 @@ class SmbUnitTest {
         assertNull(conn(host = "fe80::1").validate())
     }
 
+    @Test fun hostFormatIsChecked() {
+        for (h in listOf("nas", "nas.local", "my-nas_1.example.co.jp", "NAS.", "192.168.1.10", "0.0.0.0", "255.255.255.255", "fe80::1", "::1", "fe80::1%wlan0", "2001:db8::8a2e:370:7334", "::ffff:192.0.2.1", "日本語.example"))
+            assertTrue("valid: $h", SmbConnection.isValidHost(h))
+        for (h in listOf("", " ", "a b", "a/b", "a\\b", "u@h", "smb://nas", "//nas", "[fe80::1]", "999.1.1.1", "192.168.1", "1.2.3.4.5", "1.2.3.", ".", "..", "-a.example", "a-.example", "a..b", "x".repeat(64) + ".example",
+                "a".repeat(254), "fe80:zz::1", "fe80::1%", "nas:445", "a:b", "1"))
+            assertFalse("invalid: $h", SmbConnection.isValidHost(h))
+        assertEquals(SmbInputError.Host, conn(host = "999.1.1.1").validate())
+        assertEquals(SmbInputError.Host, conn(host = "smb://nas").validate())
+        assertEquals(SmbInputError.Port, conn(port = -1).validate())
+    }
+
+    @Test fun connectFailuresAreToldApart() {
+        fun reason(e: Throwable) = SmbErrors.netReason(SmbErrors.map(e, connecting = true))
+        assertEquals(SmbErrors.NetReason.HostUnknown, reason(UnknownHostException("no-such-host.invalid")))
+        assertEquals(SmbErrors.NetReason.Refused, reason(ConnectException("failed to connect to /192.0.2.1 (port 445): connect failed: ECONNREFUSED (Connection refused)")))
+        assertEquals(SmbErrors.NetReason.Unreachable, reason(ConnectException("connect failed: ENETUNREACH (Network is unreachable)")))
+        assertEquals(SmbErrors.NetReason.Unreachable, reason(java.net.NoRouteToHostException("No route to host")))
+        assertEquals(SmbErrors.NetReason.ConnectTimeout, reason(SocketTimeoutException("connect timed out")))
+        assertEquals(SmbErrors.NetReason.ConnectTimeout, reason(TransportException(TimeoutException("t"))))
+        assertEquals(SmbErrors.NetReason.Other, reason(TransportException(SocketException("reset"))))
+        // 接続の後の失敗は理由を持たない
+        assertEquals(SmbErrors.NetReason.Other, SmbErrors.netReason(SmbErrors.map(SocketException("reset"))))
+        // 詳細にもメッセージにも、ホスト名・ポートを入れない
+        val m = SmbErrors.map(ConnectException("failed to connect to /192.0.2.1 (port 445): ECONNREFUSED"), connecting = true)
+        assertFalse(m.message!!.contains("192.0.2.1")); assertFalse(m.detail.contains("445"))
+    }
+
     @Test fun jsonRoundTripKeepsEverythingButNoPassword() {
         val c = conn(domain = "WG", port = 4445).copy(minVersion = SmbMinVersion.V311, requireEncryption = true, requireSigning = true)
         val j = c.toJson().toString()

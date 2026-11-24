@@ -28,10 +28,15 @@ import com.hierynomus.smbj.share.File as SmbFile
  * 読み取りのタイムアウト (SO_TIMEOUT) は付けない: SMBJ の読み取りスレッドが、何も流れていない接続を「切れた」と見なしてしまうため。
  * 応答が来ないことの検出は、SMBJ の要求ごとのタイムアウト ([SmbRemoteFs.connect] の timeoutSec) が担う。
  */
-internal class SmbSocketFactory(private val connectTimeoutMs: Int) : SocketFactory() {
+internal class SmbSocketFactory(private val connectTimeoutMs: Int, private val socketBuffer: Int = 0) : SocketFactory() {
     /** 作ったソケット。取り消し・切断のとき、SMBJ の内部の待ち (ネゴシエーション中など。SMBJ 自身は閉じられない) を、ソケットを閉じて起こすために持つ */
     private val sockets = java.util.concurrent.CopyOnWriteArrayList<Socket>()
-    private fun tune(s: Socket): Socket { s.keepAlive = true; s.tcpNoDelay = true; sockets.add(s); return s }
+    private fun tune(s: Socket): Socket {
+        s.keepAlive = true; s.tcpNoDelay = true
+        // 送受信バッファ (接続の前に指定する。OS の上限までに丸められる。0 = OS の既定)。遅延の大きい回線で、1 度に飛ばせる量が増える
+        if (socketBuffer > 0) try { s.receiveBufferSize = socketBuffer; s.sendBufferSize = socketBuffer } catch (_: Exception) { }
+        sockets.add(s); return s
+    }
 
     /** 全部閉じる (ブロック中の接続・読み書きは例外で戻る。SMBJ の読み取りスレッドが失敗を待ち手へ伝える) */
     fun closeAll() { for (s in sockets) try { s.close() } catch (_: Exception) { }; sockets.clear() }
@@ -56,6 +61,21 @@ internal class SmbSocketFactory(private val connectTimeoutMs: Int) : SocketFacto
 }
 
 /**
+ * 転送の調整 (docs/smb.md 13 章)。既定値は、CI の測定 (SmbTest.transferSpeedMatrix) で選んだもの。試験は値を変えて速さを比べる。
+ * どの値でも、通信の内容 (SMB のメッセージ) の意味は変わらない。
+ */
+data class SmbTuning(
+    /** 1 要求の最大の大きさ (読み・書き・ディレクトリの一覧)。サーバーが許す上限 (MaxRead / MaxWrite / MaxTransact) を超えない */
+    val bufferSize: Int = 1 shl 20,
+    /** 順番に読んでいるとき、いまの要求の応答を待つ間に、次の要求を先に出す (読み取りの先読み)。ランダムなアクセスでは働かない */
+    val readAhead: Boolean = true,
+    /** 署名・暗号化・ハッシュを、端末の JCE (ネイティブ) で行う。BouncyCastle と結果が一致した部品だけ ([HybridSecurityProvider]) */
+    val nativeCrypto: Boolean = true,
+    /** TCP の送受信バッファ (バイト。0 = OS の既定) */
+    val socketBuffer: Int = 0,
+)
+
+/**
  * [RemoteFs] の SMB 実装 (SMBJ。SMB 2.x / 3.x のみ。SMB 1 は実装しない)。1 つの共有 (DiskShare) への 1 つの接続・1 つのセッション。
  *
  * - **パスワード**: [connect] の引数の配列は、認証が済んだらすぐゼロで埋める (成功・失敗・取り消しのどれでも)。接続後は持たない。
@@ -71,6 +91,7 @@ class SmbRemoteFs private constructor(
     private val share: DiskShare,
     private val sockets: SmbSocketFactory,
     private val chunk: Int,
+    private val tuning: SmbTuning,
     override val dialect: String,
     override val encrypted: Boolean,
     override val signed: Boolean,
@@ -111,8 +132,15 @@ class SmbRemoteFs private constructor(
         share.list(p).filter { it.fileName != "." && it.fileName != ".." }.map { entryOf(it) }
     }
 
-    private inner class Reader(private val f: SmbFile, override val size: Long) : RemoteReader {
-        override fun read(offset: Long, buf: ByteArray, off: Int, len: Int): Int = guard {
+    private inner class Reader(private val f: SmbFile, override val size: Long, private val aheadAllowed: Boolean) : RemoteReader {
+        /** 順番に読んでいるときの先読み (SMBJ の入力ストリーム = 次の 1 要求を、いまの分を使っている間に先に出す)。位置がずれたら捨てる */
+        private var stream: java.io.InputStream? = null
+        private var streamPos = -1L
+        private var lastEnd = -1L
+
+        private fun closeStream() { try { stream?.close() } catch (_: Exception) { }; stream = null; streamPos = -1L }
+
+        private fun readDirect(offset: Long, buf: ByteArray, off: Int, len: Int): Int {
             var done = 0
             while (done < len) {
                 val want = minOf(len - done, chunk)
@@ -120,9 +148,37 @@ class SmbRemoteFs private constructor(
                 if (n <= 0) break
                 done += n
             }
-            done
+            return done
         }
-        override fun close() { try { f.close() } catch (_: Exception) { } }
+
+        private fun readStream(offset: Long, buf: ByteArray, off: Int, len: Int): Int {
+            try {
+                if (stream == null && offset >= size) return 0
+                val s: java.io.InputStream = stream ?: run {
+                    val ns: java.io.InputStream = f.inputStream
+                    ns.skip(offset)   // まだ何も読んでいないストリームでは、次に要求する位置を進めるだけ (通信しない)
+                    stream = ns; streamPos = offset
+                    ns
+                }
+                var done = 0
+                while (done < len) {
+                    val n = s.read(buf, off + done, len - done)
+                    if (n <= 0) break   // -1 = ファイルの終わり
+                    done += n
+                }
+                streamPos += done
+                return done
+            } catch (e: Throwable) { closeStream(); throw e }
+        }
+
+        override fun read(offset: Long, buf: ByteArray, off: Int, len: Int): Int = guard {
+            // 直前の続きの位置 (2 回続けて順番に読まれたとき) から先読みを始める。ランダムなアクセス (先頭と末尾だけ読むなど) では先読みしない
+            val sequential = aheadAllowed && tuning.readAhead && (offset == lastEnd || (stream != null && offset == streamPos))
+            val n = if (sequential) readStream(offset, buf, off, len) else { closeStream(); readDirect(offset, buf, off, len) }
+            lastEnd = offset + n
+            n
+        }
+        override fun close() { closeStream(); try { f.close() } catch (_: Exception) { } }
     }
 
     private inner class Writer(private val f: SmbFile) : RemoteWriter {
@@ -143,9 +199,11 @@ class SmbRemoteFs private constructor(
     private fun attrs() = EnumSet.of(FileAttributes.FILE_ATTRIBUTE_NORMAL)
     private fun fileOpts() = EnumSet.of(SMB2CreateOptions.FILE_NON_DIRECTORY_FILE)
 
-    override fun openRead(path: String): RemoteReader = guard {
+    override fun openRead(path: String): RemoteReader = openRead(path, true)
+
+    override fun openRead(path: String, readAhead: Boolean): RemoteReader = guard {
         val f = share.openFile(SmbPaths.toSmb(path), EnumSet.of(AccessMask.GENERIC_READ), attrs(), SMB2ShareAccess.ALL, SMB2CreateDisposition.FILE_OPEN, fileOpts())
-        try { Reader(f, f.fileInformation.standardInformation.endOfFile) } catch (e: Throwable) { try { f.close() } catch (_: Exception) { }; throw e }
+        try { Reader(f, f.fileInformation.standardInformation.endOfFile, readAhead) } catch (e: Throwable) { try { f.close() } catch (_: Exception) { }; throw e }
     }
 
     override fun openWrite(path: String, create: Boolean, truncate: Boolean, readToo: Boolean): RemoteWriter = guard {
@@ -206,7 +264,6 @@ class SmbRemoteFs private constructor(
     companion object {
         const val DEFAULT_TIMEOUT_SEC = 30
         private const val CONNECT_TIMEOUT_MS = 10_000
-        private const val MAX_BUFFER = 1 shl 20
 
         internal fun dialectsFor(min: SmbMinVersion): List<SMB2Dialect> = when (min) {
             SmbMinVersion.V202 -> listOf(SMB2Dialect.SMB_2_0_2, SMB2Dialect.SMB_2_1, SMB2Dialect.SMB_3_0, SMB2Dialect.SMB_3_0_2, SMB2Dialect.SMB_3_1_1)
@@ -231,8 +288,8 @@ class SmbRemoteFs private constructor(
          * [cancel] を取り消すと、通信中の接続を閉じて [SmbErrorKind.Cancelled] で失敗する。[timeoutSec] = 要求 1 つごとの応答の上限 (読み・書き・その他)。
          * ネットワークの操作なので、メインスレッドから呼ばない。
          */
-        fun connect(cfg: SmbConnection, password: CharArray, cancel: SmbCancel? = null, timeoutSec: Int = DEFAULT_TIMEOUT_SEC): SmbRemoteFs {
-            val sockets = SmbSocketFactory(CONNECT_TIMEOUT_MS)
+        fun connect(cfg: SmbConnection, password: CharArray, cancel: SmbCancel? = null, timeoutSec: Int = DEFAULT_TIMEOUT_SEC, tuning: SmbTuning = SmbTuning()): SmbRemoteFs {
+            val sockets = SmbSocketFactory(CONNECT_TIMEOUT_MS, tuning.socketBuffer)
             val config = SmbConfig.builder()
                 .withDialects(dialectsFor(cfg.minVersion))
                 .withMultiProtocolNegotiate(false)
@@ -240,7 +297,8 @@ class SmbRemoteFs private constructor(
                 .withDfsEnabled(false)
                 .withSigningRequired(cfg.requireSigning)
                 .withEncryptData(cfg.requireEncryption)
-                .withBufferSize(MAX_BUFFER)
+                .withBufferSize(tuning.bufferSize)
+                .withSecurityProvider(if (tuning.nativeCrypto) HybridSecurityProvider.get() else HybridSecurityProvider.bcOnly())
                 .withTimeout(timeoutSec.toLong(), TimeUnit.SECONDS)
                 .withSocketFactory(sockets)
                 // ディレクトリのリース (SMB 3 のキャッシュ): 有効だと 2 回目以降の一覧がサーバーに問い合わせずにキャッシュから返り、
@@ -278,7 +336,7 @@ class SmbRemoteFs private constructor(
                 val writeOk = maxAccess == null || maxAccess.isEmpty() || maxAccess.contains(AccessMask.FILE_WRITE_DATA) || maxAccess.contains(AccessMask.FILE_ADD_FILE) ||
                     maxAccess.contains(AccessMask.GENERIC_WRITE) || maxAccess.contains(AccessMask.GENERIC_ALL)
                 return SmbRemoteFs(
-                    client, c, s, d, sockets, minOf(MAX_BUFFER, np.maxReadSize.coerceAtLeast(4096), np.maxWriteSize.coerceAtLeast(4096)),
+                    client, c, s, d, sockets, minOf(tuning.bufferSize, np.maxReadSize.coerceAtLeast(4096), np.maxWriteSize.coerceAtLeast(4096)), tuning,
                     dialectName(np.dialect), s.shouldEncryptData(), s.isSigningRequired, writeOk,
                 )
             } catch (e: Throwable) {

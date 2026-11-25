@@ -9,6 +9,7 @@
  * self:  自分で作る・書く・名前を変える・属性を変える・消すを行い、届いた知らせを書く。
  *        同期・重ね合わせ・完了ポート・完了ルーチン、FindFirstChangeNotification、サブフォルダー、絞りを試す。
  * watch: 基の場所を見て、外からの変更で届いた知らせを時刻つきで書く。終わりに自分の CPU 時間を書く。
+ * idle:  見ないで RDCW_SECONDS 待つ (CPU の比べ)。
  * big:   基の場所の下にフォルダーを RDCW_NDIRS 個作り (2 段)、サブフォルダーを含めて見て、外からの変更を書く。
  *
  * 結果の行は「CASE <名前>: <知らせ>|<知らせ>...」の形。Windows の結果と行ごとに比べる。
@@ -226,6 +227,15 @@ static void script_mv(const WCHAR *dir)
     Sleep(GAP);
     swprintf(a, MAX_PATH, L"%ls\\m\\deep", outside);
     op_create(a, L"z.txt");              Sleep(GAP);   /* 外に出した後: 届かないはず */
+}
+
+/* 前からある木 A\\C の名前を変えた直後に、その中で作る */
+static void script_quick(const WCHAR *dir)
+{
+    WCHAR a[MAX_PATH];
+    op_rename(dir, L"A", L"B");
+    swprintf(a, MAX_PATH, L"%ls\\B\\C", dir);
+    op_create(a, L"f.txt");             Sleep(GAP);
 }
 
 static void (*cur_script)(const WCHAR *dir) = script;
@@ -492,6 +502,42 @@ static void fcn_cases(void)
     }
 }
 
+/* 下のフォルダー A を LAST_WRITE で直接見ているところへ、親を FILE_NAME の subtree で見る。A の中の書き込みが A の見張りに届くか */
+static void nested_case(void)
+{
+    WCHAR dir[MAX_PATH], a[MAX_PATH];
+    HANDLE ha, hr;
+    OVERLAPPED oa, orr;
+    BYTE *ba = calloc(1, 4096), *br = calloc(1, 4096);
+    evlist *ev = calloc(1, sizeof(*ev)), *evr = calloc(1, sizeof(*evr));
+    DWORD bytes;
+
+    fresh_dir(dir, "nested");
+    path(a, dir, L"A");
+    CreateDirectoryW(a, NULL);
+    op_create(a, L"f.txt");
+    Sleep(100);
+    memset(&oa, 0, sizeof(oa)); oa.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    memset(&orr, 0, sizeof(orr)); orr.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    ha = open_dir(a, TRUE);
+    hr = open_dir(dir, TRUE);
+    ReadDirectoryChangesW(ha, ba, 4096, FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE, NULL, &oa, NULL);
+    ReadDirectoryChangesW(hr, br, 4096, TRUE, FILE_NOTIFY_CHANGE_FILE_NAME, NULL, &orr, NULL);
+    Sleep(100);
+    op_write(a, L"f.txt");
+    if (WaitForSingleObject(oa.hEvent, 1500) == WAIT_OBJECT_0 && GetOverlappedResult(ha, &oa, &bytes, FALSE))
+        parse(ba, bytes, ev, 0);
+    report("nested A の LAST_WRITE (親の FILE_NAME subtree の後)", ev);
+    op_create(a, L"g.txt");
+    if (WaitForSingleObject(orr.hEvent, 1500) == WAIT_OBJECT_0 && GetOverlappedResult(hr, &orr, &bytes, FALSE))
+        parse(br, bytes, evr, 0);
+    report("nested 親の FILE_NAME subtree", evr);
+    CancelIo(ha); CancelIo(hr);
+    WaitForSingleObject(oa.hEvent, 1000); WaitForSingleObject(orr.hEvent, 1000);
+    CloseHandle(ha); CloseHandle(hr); CloseHandle(oa.hEvent); CloseHandle(orr.hEvent);
+    free(ba); free(br); free(ev); free(evr);
+}
+
 /* ---- self ---- */
 
 static void self_test(void)
@@ -561,6 +607,19 @@ static void self_test(void)
         cur_script = script;
     }
 
+    /* 名前の変更の直後 */
+    {
+        WCHAR p[MAX_PATH];
+        fresh_dir(dir, "quick");
+        swprintf(p, MAX_PATH, L"%ls\\A", dir); CreateDirectoryW(p, NULL);
+        swprintf(p, MAX_PATH, L"%ls\\A\\C", dir); CreateDirectoryW(p, NULL);
+        cur_script = script_quick;
+        run_rdcw(dir, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME, TRUE, M_OVL, 65536, ev);
+        report("ovl FILE_NAME|DIR_NAME subtree=1 名前の変更の直後", ev);
+        cur_script = script;
+    }
+    nested_case();
+
     fcn_cases();
     free(ev);
 }
@@ -593,11 +652,17 @@ static void watch_dir(const WCHAR *dir, BOOL subtree, DWORD seconds)
     if (h == INVALID_HANDLE_VALUE) { say("開けない: %lu\n", GetLastError()); return; }
     memset(&ov, 0, sizeof(ov));
     ov.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
-    fcn = FindFirstChangeNotificationW(dir, subtree, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE);
-    if (!ReadDirectoryChangesW(h, buf, 65536, subtree, all, NULL, &ov, NULL))
     {
-        say("RDCW 失敗: %lu\n", GetLastError());
-        return;
+        DWORD w0 = GetTickCount(), w1;
+        fcn = FindFirstChangeNotificationW(dir, subtree, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE);
+        w1 = GetTickCount();
+        if (!ReadDirectoryChangesW(h, buf, 65536, subtree, all, NULL, &ov, NULL))
+        {
+            say("RDCW 失敗: %lu\n", GetLastError());
+            return;
+        }
+        /* 1 つ目の見張りで wineserver が下のフォルダーを辿る */
+        say("見張りの開始 FCN %lums RDCW %lums\n", w1 - w0, GetTickCount() - w1);
     }
     t0 = GetTickCount();
     cpu_line("start");
@@ -693,6 +758,14 @@ int wmain(int argc, WCHAR **argv)
     }
     else if (!wcscmp(mode, L"watch"))
         watch_dir(base, subtree, seconds);
+    else if (!wcscmp(mode, L"idle"))
+    {
+        /* 比べ: 見ないで待つだけ */
+        cpu_line("start");
+        say("READY\n");
+        Sleep(seconds * 1000);
+        cpu_line("end");
+    }
     else if (!wcscmp(mode, L"big"))
         big_test(base, ndirs, seconds);
     say("RDCW_RESULT done\n");

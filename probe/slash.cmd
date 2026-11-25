@@ -37,11 +37,12 @@ call :case a "copy b/1 c/b"
 call :case a "copy b/x.cmd/a c/"
 call :case a "if exist b/1 echo yes"
 call :case a "call b/x.cmd"
-call :case a "b/x.cmd"
 call :case a "pushd d/e"
 call :case a "del b/q"
 call :case a "type b/1 b/2"
 call :case a "dir b/2/b"
+rem Windows では b を命令として読み、スクリプトがここで止まる (最後に置く)
+call :case a "b/x.cmd"
 goto :eof
 
 :reset

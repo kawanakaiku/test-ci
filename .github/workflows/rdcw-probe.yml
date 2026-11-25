@@ -1,0 +1,33 @@
+name: rdcw-probe
+on:
+  push:
+    branches: [rdcw-probe]
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-11-arm
+            exe: rdcwtest-aarch64.exe
+          - os: windows-latest
+            exe: rdcwtest-x86_64.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: os
+        shell: pwsh
+        run: |
+          [Environment]::OSVersion.VersionString
+          $env:PROCESSOR_ARCHITECTURE
+          Get-Volume -DriveLetter ($PWD.Path.Substring(0,1)) | Format-List FileSystem
+      - name: self
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory work | Out-Null
+          $env:RDCW_OUT = "$PWD\out.txt"
+          $p = Start-Process -FilePath probe\${{ matrix.exe }} -ArgumentList "self","$PWD\work" -NoNewWindow -PassThru
+          if (-not $p.WaitForExit(600000)) { $p.Kill() ; "TIMEOUT" }
+          "exit=$($p.ExitCode)"
+          Get-Content -Encoding UTF8 out.txt

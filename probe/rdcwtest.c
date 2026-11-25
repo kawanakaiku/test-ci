@@ -205,6 +205,29 @@ static void script_pre(const WCHAR *dir)
     op_rmdir(s, L"nd");                 Sleep(GAP);
 }
 
+/* 名前を変えたフォルダー・外から移したフォルダーの中の変化 (見張りの外に out\\m\\deep を用意しておく) */
+static WCHAR outside[MAX_PATH];
+static void script_mv(const WCHAR *dir)
+{
+    WCHAR a[MAX_PATH], b[MAX_PATH];
+    op_mkdir(dir, L"r1");                Sleep(GAP);
+    op_rename(dir, L"r1", L"r2");        Sleep(GAP);
+    swprintf(a, MAX_PATH, L"%ls\\r2", dir);
+    op_create(a, L"x.txt");              Sleep(GAP);
+    swprintf(a, MAX_PATH, L"%ls\\m", outside);
+    swprintf(b, MAX_PATH, L"%ls\\m", dir);
+    if (!MoveFileW(a, b)) say("  ! move in: %lu\n", GetLastError());
+    Sleep(GAP);
+    swprintf(a, MAX_PATH, L"%ls\\m\\deep", dir);
+    op_create(a, L"y.txt");              Sleep(GAP);
+    swprintf(a, MAX_PATH, L"%ls\\m", dir);
+    swprintf(b, MAX_PATH, L"%ls\\m", outside);
+    if (!MoveFileW(a, b)) say("  ! move out: %lu\n", GetLastError());
+    Sleep(GAP);
+    swprintf(a, MAX_PATH, L"%ls\\m\\deep", outside);
+    op_create(a, L"z.txt");              Sleep(GAP);   /* 外に出した後: 届かないはず */
+}
+
 static void (*cur_script)(const WCHAR *dir) = script;
 
 typedef struct
@@ -522,6 +545,19 @@ static void self_test(void)
         swprintf(p, MAX_PATH, L"%ls\\pre", dir); CreateDirectoryW(p, NULL);
         swprintf(p, MAX_PATH, L"%ls\\pre\\deep", dir); CreateDirectoryW(p, NULL);
         run_rdcw(dir, all, FALSE, M_OVL, 65536, ev); report("ovl all subtree=0 既存の下のフォルダー", ev);
+        cur_script = script;
+    }
+    /* 名前の変更・移動 */
+    {
+        WCHAR p[MAX_PATH];
+        fresh_dir(dir, "mv");
+        swprintf(outside, MAX_PATH, L"%ls\\out%02d", base, casenum);
+        CreateDirectoryW(outside, NULL);
+        swprintf(p, MAX_PATH, L"%ls\\m", outside); CreateDirectoryW(p, NULL);
+        swprintf(p, MAX_PATH, L"%ls\\m\\deep", outside); CreateDirectoryW(p, NULL);
+        cur_script = script_mv;
+        run_rdcw(dir, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME, TRUE, M_OVL, 65536, ev);
+        report("ovl FILE_NAME|DIR_NAME subtree=1 名前の変更と移動", ev);
         cur_script = script;
     }
 

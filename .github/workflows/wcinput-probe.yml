@@ -21,15 +21,19 @@ jobs:
           Get-ItemProperty 'HKCU:\Software\Microsoft\Command Processor' -ErrorAction SilentlyContinue
       - name: slash
         shell: cmd
+        continue-on-error: true
         run: call probe\slash.cmd %RUNNER_TEMP%\wcslash
       - name: tab
         shell: cmd
+        continue-on-error: true
         run: probe\winprobe-x64.exe tab %RUNNER_TEMP%\wctab
       - name: vtexit
         shell: cmd
+        continue-on-error: true
         run: probe\winprobe-x64.exe vtexit %RUNNER_TEMP%\wcvt
       - name: ime
         shell: cmd
+        continue-on-error: true
         run: |
           where node
           mkdir %RUNNER_TEMP%\wcime

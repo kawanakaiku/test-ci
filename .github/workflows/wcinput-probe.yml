@@ -28,3 +28,11 @@ jobs:
       - name: vtexit
         shell: cmd
         run: probe\winprobe-x64.exe vtexit %RUNNER_TEMP%\wcvt
+      - name: ime
+        shell: cmd
+        run: |
+          where node
+          mkdir %RUNNER_TEMP%\wcime
+          copy probe\keys.js %RUNNER_TEMP%\wcime\
+          for /f "delims=" %%n in ('where node') do probe\winprobe-x64.exe ime %RUNNER_TEMP%\wcime "%%n" & goto :done
+          :done

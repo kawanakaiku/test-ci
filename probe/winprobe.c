@@ -4,6 +4,13 @@
  *   winprobe vtexit <dir>      子が VT の状態を変えたまま終わった後の、コンソールの状態を読む
  *   winprobe vtchild <log> <processed 0/1>   (vtexit が cmd から起こす子)
  *   winprobe keys <log>        入力の記録を <log> に書く (Ctrl+C を 2 回で終わる、30 秒で終わる)
+ *   winprobe sel <dir>         新しいコンソールに字を書き、SendInput のマウスで選んでコピーし、クリップボードを読む
+ *                              (PC の Xvfb の中だけで使う。端末の入力は adb shell input で)
+ *   winprobe devsel <dir>      端末用: sel と同じ字を新しいコンソールの cmd に出し、窓の位置・セルの大きさ・
+ *                              矢印の位置・入力のモード・画面の字を 300ms ごとに <dir>\state.txt に書く
+ *                              (コンソールの cmd が終わるか 30 分で終わる。操作は PC から adb shell input で)
+ *   winprobe ime <dir> <node>  新しいコンソールの窓へ WM_IME_CHAR (IME の確定の字) を送り、cmd の行と
+ *                              raw mode の Node (<dir>\keys.js) が受けた字を数える
  *
  * 作り方: x86_64-w64-mingw32-clang -O1 -municode -o winprobe.exe winprobe.c
  */
@@ -292,6 +299,8 @@ static int do_vtexit( const WCHAR *dir )
     GetModuleFileNameW( NULL, self, MAX_PATH );
     CreateDirectoryW( dir, NULL );
     start_cmd( dir, L"/k prompt $G" );
+    /* the processed child's Ctrl+C goes to every process of the console, also to this one */
+    SetConsoleCtrlHandler( NULL, TRUE );
     type( L"echo MAINMARK" );
     enter();
     Sleep( 800 );
@@ -327,12 +336,389 @@ static int do_keys( const WCHAR *log )
     return do_vtchild( log, 0 );
 }
 
+/* ---- sel: selection and copy with the mouse (quick edit) ---- */
+static HWND sel_win;
+static int sel_cw, sel_ch;
+static POINT sel_origin;
+
+static void sel_mouse( int col, int row, DWORD flags )
+{
+    INPUT in = { INPUT_MOUSE };
+    int sw = GetSystemMetrics( SM_CXSCREEN ), sh = GetSystemMetrics( SM_CYSCREEN );
+    int x = sel_origin.x + col * sel_cw + sel_cw / 2, y = sel_origin.y + row * sel_ch + sel_ch / 2;
+    in.mi.dx = (x * 65535 + sw / 2) / (sw - 1);
+    in.mi.dy = (y * 65535 + sh / 2) / (sh - 1);
+    in.mi.dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE | flags;
+    SendInput( 1, &in, sizeof(in) );
+    Sleep( 60 );
+}
+
+static void sel_key( WORD vk, BOOL down )
+{
+    INPUT in = { INPUT_KEYBOARD };
+    in.ki.wVk = vk;
+    in.ki.wScan = MapVirtualKeyW( vk, 0 );
+    in.ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
+    SendInput( 1, &in, sizeof(in) );
+    Sleep( 40 );
+}
+
+static void sel_drag( int c0, int r0, int c1, int r1, BOOL alt )
+{
+    int i;
+    if (alt) sel_key( VK_MENU, TRUE );
+    sel_mouse( c0, r0, 0 );
+    sel_mouse( c0, r0, MOUSEEVENTF_LEFTDOWN );
+    for (i = 1; i <= 4; i++) sel_mouse( c0 + (c1 - c0) * i / 4, r0 + (r1 - r0) * i / 4, 0 );
+    sel_mouse( c1, r1, MOUSEEVENTF_LEFTUP );
+    if (alt) sel_key( VK_MENU, FALSE );
+    Sleep( 200 );
+}
+
+static void sel_clear_clipboard(void)
+{
+    if (OpenClipboard( NULL )) { EmptyClipboard(); CloseClipboard(); }
+}
+
+static void sel_print_clipboard( const char *name, const WCHAR *expect )
+{
+    WCHAR text[2048] = L"(none)";
+    HANDLE h;
+    Sleep( 300 );
+    if (OpenClipboard( NULL ))
+    {
+        if ((h = GetClipboardData( CF_UNICODETEXT )))
+        {
+            WCHAR *p = GlobalLock( h );
+            if (p) { lstrcpynW( text, p, ARRAYSIZE(text) ); GlobalUnlock( h ); }
+        }
+        CloseClipboard();
+    }
+    {
+        WCHAR shown[4096], *d = shown;
+        const WCHAR *c;
+        for (c = text; *c && d < shown + ARRAYSIZE(shown) - 4; c++)
+        {
+            if (*c == '\r') { *d++ = '\\'; *d++ = 'r'; }
+            else if (*c == '\n') { *d++ = '\\'; *d++ = 'n'; }
+            else *d++ = *c;
+        }
+        *d = 0;
+        printf( "%s: %s (%d chars) ", name, expect ? (wcscmp( text, expect ) ? "NG" : "OK") : "--", lstrlenW( text ) );
+        print_w( "[", shown );
+    }
+}
+
+static int do_sel( const WCHAR *dir )
+{
+    static const WCHAR jp[] = L"日本語のテキストです";  /* 日本語のテキストです */
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    WCHAR cmdline[64] = L"cmd.exe /k", url[256], url2[256], expect[512], row[256];
+    RECT rc;
+    DWORD n, mode;
+    int i, width, top;
+
+    if (!CreateProcessW( NULL, cmdline, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, dir, &si, &pi ))
+    {
+        printf( "CreateProcess failed %lu\n", GetLastError() );
+        return 1;
+    }
+    Sleep( 2500 );
+    FreeConsole();
+    if (!AttachConsole( pi.dwProcessId )) { printf( "AttachConsole failed %lu\n", GetLastError() ); return 1; }
+    in_h = CreateFileW( L"CONIN$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL );
+    out_h = open_out();
+    GetConsoleMode( in_h, &mode );
+    printf( "input mode %#lx (quick edit %s)\n", mode, mode & ENABLE_QUICK_EDIT_MODE ? "on" : "off" );
+    GetConsoleScreenBufferInfo( out_h, &info );
+    width = info.dwSize.X;
+    /* the test text, written by cmd (type) from row 0: hello (0), a URL wrapped by the console
+     * (1..3), a URL cut by the program at the width (4, 5), Japanese (6) */
+    {
+        char text[2048], *p = text;
+        p += sprintf( p, "hello world   \r\n" );
+        wcscpy( url, L"https://example.com/" );
+        for (i = lstrlenW( url ); i < 200; i++) url[i] = 'a' + i % 26;
+        url[200] = 0;
+        p += sprintf( p, "%ls\r\n", url );
+        wcscpy( url2, L"https://example.org/ink?" );
+        for (i = lstrlenW( url2 ); i < 130; i++) url2[i] = 'A' + i % 26;
+        url2[130] = 0;
+        p += sprintf( p, "%.*ls\r\n%ls\r\n", width, url2, url2 + width );
+        p += WideCharToMultiByte( CP_UTF8, 0, jp, -1, p, 256, NULL, NULL ) - 1;
+        p += sprintf( p, "\r\n" );
+        swprintf( row, ARRAYSIZE(row), L"%s\\sel.txt", dir );
+        make_file( row, text );
+    }
+    type( L"chcp 65001 >nul & cls & type sel.txt" );
+    enter();
+    Sleep( 1500 );
+    GetConsoleScreenBufferInfo( out_h, &info );
+    top = info.srWindow.Top;
+    for (i = top; i < top + 9; i++)
+    {
+        char pre[16];
+        read_row( out_h, i, row, width );
+        sprintf( pre, "%3d| ", i - top );
+        print_w( pre, row );
+    }
+
+    sel_win = GetConsoleWindow();
+    GetClientRect( sel_win, &rc );
+    sel_cw = rc.right / (info.srWindow.Right - info.srWindow.Left + 1);
+    sel_ch = rc.bottom / (info.srWindow.Bottom - info.srWindow.Top + 1);
+    sel_origin.x = sel_origin.y = 0;
+    ClientToScreen( sel_win, &sel_origin );
+    SetForegroundWindow( sel_win );
+    printf( "window %p client %ldx%ld cell %dx%d origin %ld,%ld\n", sel_win, rc.right, rc.bottom, sel_cw, sel_ch,
+            sel_origin.x, sel_origin.y );
+    Sleep( 300 );
+
+    sel_clear_clipboard();
+    sel_drag( 0, 0, 10, 0, FALSE );
+    sel_mouse( 5, 0, MOUSEEVENTF_RIGHTDOWN ); sel_mouse( 5, 0, MOUSEEVENTF_RIGHTUP );
+    sel_print_clipboard( "drag+right click", L"hello world" );
+
+    sel_clear_clipboard();
+    sel_drag( 0, 1, (200 - 1) % width, 1 + 199 / width, FALSE );
+    sel_key( VK_RETURN, TRUE ); sel_key( VK_RETURN, FALSE );
+    sel_print_clipboard( "wrapped URL drag+Enter", url );
+
+    sel_clear_clipboard();
+    sel_mouse( 30, 2, MOUSEEVENTF_LEFTDOWN ); sel_mouse( 30, 2, MOUSEEVENTF_LEFTUP );
+    sel_mouse( 30, 2, MOUSEEVENTF_LEFTDOWN ); sel_mouse( 30, 2, MOUSEEVENTF_LEFTUP );
+    Sleep( 200 );
+    sel_key( VK_CONTROL, TRUE ); sel_key( 'C', TRUE ); sel_key( 'C', FALSE ); sel_key( VK_CONTROL, FALSE );
+    sel_print_clipboard( "wrapped URL double click+Ctrl+C", url );
+
+    sel_clear_clipboard();
+    sel_mouse( 10, 5, MOUSEEVENTF_LEFTDOWN ); sel_mouse( 10, 5, MOUSEEVENTF_LEFTUP );
+    sel_mouse( 10, 5, MOUSEEVENTF_LEFTDOWN ); sel_mouse( 10, 5, MOUSEEVENTF_LEFTUP );
+    Sleep( 200 );
+    sel_key( VK_CONTROL, TRUE ); sel_key( 'C', TRUE ); sel_key( 'C', FALSE ); sel_key( VK_CONTROL, FALSE );
+    sel_print_clipboard( "cut URL (ink) double click+Ctrl+C", url2 );
+
+    sel_clear_clipboard();
+    sel_drag( 0, 6, 19, 6, FALSE );
+    sel_mouse( 5, 6, MOUSEEVENTF_RIGHTDOWN ); sel_mouse( 5, 7, MOUSEEVENTF_RIGHTUP );
+    sel_print_clipboard( "japanese drag+right click", jp );
+
+    sel_clear_clipboard();
+    sel_drag( 6, 0, 4, 1, FALSE );
+    sel_key( VK_RETURN, TRUE ); sel_key( VK_RETURN, FALSE );
+    swprintf( expect, ARRAYSIZE(expect), L"world\r\nhttps" );
+    sel_print_clipboard( "two lines drag+Enter", expect );
+
+    /* Alt + drag: PC's X11 driver drops the Alt of SendInput with the pointer's X events, so the
+     * mouse messages are posted to the window, with Alt held by SendInput */
+    sel_clear_clipboard();
+    sel_key( VK_MENU, TRUE );
+    PostMessageW( sel_win, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM( 0 * sel_cw + 2, 0 * sel_ch + 2 ) );
+    PostMessageW( sel_win, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM( 4 * sel_cw + 2, 1 * sel_ch + 2 ) );
+    PostMessageW( sel_win, WM_LBUTTONUP, 0, MAKELPARAM( 4 * sel_cw + 2, 1 * sel_ch + 2 ) );
+    Sleep( 200 );
+    sel_key( VK_MENU, FALSE );
+    Sleep( 200 );
+    if (0) sel_drag( 0, 0, 4, 1, TRUE );
+    sel_key( VK_RETURN, TRUE ); sel_key( VK_RETURN, FALSE );
+    sel_print_clipboard( "block (Alt) drag+Enter", L"hello\r\nhttps" );
+
+    sel_clear_clipboard();
+    sel_drag( 0, 0, 10, 0, FALSE );
+    sel_key( VK_ESCAPE, TRUE ); sel_key( VK_ESCAPE, FALSE );
+    sel_mouse( 5, 0, MOUSEEVENTF_RIGHTDOWN ); sel_mouse( 5, 0, MOUSEEVENTF_RIGHTUP );
+    sel_print_clipboard( "drag+Esc+right click (nothing copied)", NULL );
+
+    /* a tap leaves no selection: the right click pastes into the prompt */
+    {
+        HANDLE mem = GlobalAlloc( GMEM_MOVEABLE, 32 );
+        wcscpy( GlobalLock( mem ), L"echo pasted" );
+        GlobalUnlock( mem );
+        if (OpenClipboard( NULL )) { EmptyClipboard(); SetClipboardData( CF_UNICODETEXT, mem ); CloseClipboard(); }
+    }
+    sel_mouse( 3, 1, MOUSEEVENTF_LEFTDOWN ); sel_mouse( 3, 1, MOUSEEVENTF_LEFTUP );
+    Sleep( 300 );
+    sel_mouse( 3, 1, MOUSEEVENTF_RIGHTDOWN ); sel_mouse( 3, 1, MOUSEEVENTF_RIGHTUP );
+    Sleep( 500 );
+    cursor_line( row );
+    printf( "tap+right click pastes: %s ", wcsstr( row, L"echo pasted" ) ? "OK" : "NG" );
+    print_w( "[", row );
+    tap( VK_ESCAPE, 0x1b, 0 );
+    type( L"exit" );
+    enter();
+    return 0;
+}
+
+/* ---- devsel: the state of a console for the device tests (the input comes from adb shell input) ---- */
+/* written into the open file: looking up a path each time makes Android log an SELinux denial
+ * (an ioctl on the folder) and floods logcat */
+static void devsel_state( HANDLE file, HWND win )
+{
+    static char buf[65536];
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    WCHAR row[512];
+    POINT cur, org = { 0, 0 };
+    RECT rc;
+    DWORD mode = 0, omode = 0;
+    char *p = buf, u[2048];
+    HANDLE out = open_out(), in = CreateFileW( L"CONIN$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL );
+    int i, cols = 1, rows = 1;
+
+    GetConsoleScreenBufferInfo( out, &info );
+    GetConsoleMode( in, &mode );
+    GetConsoleMode( out, &omode );
+    GetCursorPos( &cur );
+    GetClientRect( win, &rc );
+    ClientToScreen( win, &org );
+    cols = info.srWindow.Right - info.srWindow.Left + 1;
+    rows = info.srWindow.Bottom - info.srWindow.Top + 1;
+    p += sprintf( p, "screen %d %d\r\ncursor %ld %ld\r\nclient %ld %ld %ld %ld cell %ld %ld\r\n",
+                  GetSystemMetrics( SM_CXSCREEN ), GetSystemMetrics( SM_CYSCREEN ), cur.x, cur.y, org.x, org.y,
+                  rc.right, rc.bottom, rc.right / cols, rc.bottom / rows );
+    p += sprintf( p, "mode %#lx out %#lx foreground %d\r\nconsole cursor %d %d top %d size %d %d\r\n", mode, omode,
+                  GetForegroundWindow() == win, info.dwCursorPosition.X, info.dwCursorPosition.Y - info.srWindow.Top,
+                  info.srWindow.Top, info.dwSize.X, info.dwSize.Y );
+    for (i = 0; i < rows && p < buf + sizeof(buf) - 4200; i++)
+    {
+        read_row( out, info.srWindow.Top + i, row, min( info.dwSize.X, 500 ) );
+        WideCharToMultiByte( CP_UTF8, 0, row, -1, u, sizeof(u), NULL, NULL );
+        p += sprintf( p, "%03d|%s\r\n", i, u );
+    }
+    CloseHandle( out );
+    CloseHandle( in );
+    p += sprintf( p, "END\r\n" );
+    {
+        DWORD n;
+        SetFilePointer( file, 0, NULL, FILE_BEGIN );
+        WriteFile( file, buf, p - buf, &n, NULL );
+        SetEndOfFile( file );
+    }
+}
+
+static int do_devsel( const WCHAR *dir )
+{
+    static const WCHAR jp[] = L"日本語のテキストです";
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    WCHAR cmdline[64] = L"cmd.exe /k", url[256], url2[256], path[MAX_PATH];
+    HANDLE file;
+    HWND win;
+    int i, width;
+
+    if (!CreateProcessW( NULL, cmdline, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, dir, &si, &pi )) return 1;
+    Sleep( 3000 );
+    FreeConsole();
+    if (!AttachConsole( pi.dwProcessId )) return 1;
+    in_h = CreateFileW( L"CONIN$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL );
+    out_h = open_out();
+    GetConsoleScreenBufferInfo( out_h, &info );
+    width = info.dwSize.X;
+    {
+        char text[2048], *p = text;
+        p += sprintf( p, "hello world   \r\n" );
+        wcscpy( url, L"https://example.com/" );
+        for (i = lstrlenW( url ); i < 200; i++) url[i] = 'a' + i % 26;
+        url[200] = 0;
+        p += sprintf( p, "%ls\r\n", url );
+        wcscpy( url2, L"https://example.org/ink?" );
+        for (i = lstrlenW( url2 ); i < 130; i++) url2[i] = 'A' + i % 26;
+        url2[130] = 0;
+        p += sprintf( p, "%.*ls\r\n%ls\r\n", width, url2, url2 + width );
+        p += WideCharToMultiByte( CP_UTF8, 0, jp, -1, p, 256, NULL, NULL ) - 1;
+        p += sprintf( p, "\r\n" );
+        swprintf( path, ARRAYSIZE(path), L"%s\\sel.txt", dir );
+        make_file( path, text );
+    }
+    type( L"chcp 65001 >nul & cls & type sel.txt" );
+    enter();
+    win = GetConsoleWindow();
+    swprintf( path, ARRAYSIZE(path), L"%s\\state.txt", dir );
+    file = CreateFileW( path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, CREATE_ALWAYS, 0, NULL );
+    /* ends with the console's cmd (type exit), or after 30 minutes */
+    for (i = 0; i < 30 * 60 * 1000 / 300; i++)
+    {
+        if (WaitForSingleObject( pi.hProcess, 300 ) == WAIT_OBJECT_0) break;
+        devsel_state( file, win );
+    }
+    CloseHandle( file );
+    return 0;
+}
+
+/* ---- ime: the IME's committed chars (WM_IME_CHAR to the console window), in cmd and in raw mode Node ---- */
+static void ime_chars( HWND win, const WCHAR *s )
+{
+    for (; *s; s++) PostMessageW( win, WM_IME_CHAR, *s, 1 );
+}
+
+static int do_ime( const WCHAR *dir, const WCHAR *node )
+{
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    WCHAR cmdline[64] = L"cmd.exe /k", row[512], line[512], path[MAX_PATH];
+    char buf[8192];
+    HWND win;
+    HANDLE f;
+    DWORD n = 0;
+
+    if (!CreateProcessW( NULL, cmdline, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, dir, &si, &pi )) return 1;
+    Sleep( 2500 );
+    FreeConsole();
+    if (!AttachConsole( pi.dwProcessId )) return 1;
+    in_h = CreateFileW( L"CONIN$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL );
+    out_h = open_out();
+    win = GetConsoleWindow();
+    ime_chars( win, L"日本語" );
+    Sleep( 1500 );
+    cursor_line( row );
+    /* ReadConsoleOutputCharacter of Wine gives a wide char once for each of its two cells */
+    {
+        int i, kanji = 0;
+        for (i = 0; row[i]; i++) if (row[i] == L'日') kanji++;
+        printf( "cmd: 日本語 (日 %d セル、期待 1 字 = 2 セル) %s ", kanji, kanji == 2 || (kanji == 1 && wcsstr( row, L"日本" )) ? "OK" : "NG" );
+    }
+    print_w( "[", row );
+    tap( VK_ESCAPE, 0x1b, 0 );
+    swprintf( line, ARRAYSIZE(line), L"\"%s\" keys.js keys.log", node );
+    type( line );
+    enter();
+    Sleep( 6000 );
+    ime_chars( win, L"日本語" );
+    Sleep( 1500 );
+    ime_chars( win, L"あ" );
+    Sleep( 1500 );
+    /* Ctrl+C twice ends keys.js (raw mode: it is the char 3) */
+    tap( 'C', 3, LEFT_CTRL_PRESSED );
+    Sleep( 500 );
+    tap( 'C', 3, LEFT_CTRL_PRESSED );
+    Sleep( 3000 );
+    swprintf( path, ARRAYSIZE(path), L"%s\\keys.log", dir );
+    f = CreateFileW( path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL );
+    if (f != INVALID_HANDLE_VALUE) { ReadFile( f, buf, sizeof(buf) - 1, &n, NULL ); CloseHandle( f ); }
+    buf[n] = 0;
+    {
+        WCHAR w[8192];
+        int i, kanji = 0, a = 0, len = MultiByteToWideChar( CP_UTF8, 0, buf, n, w, ARRAYSIZE(w) - 1 );
+        for (i = 0; i < len; i++) { if (w[i] == L'日') kanji++; if (w[i] == L'あ') a++; }
+        printf( "node: 日 %d 回、あ %d 回 (期待 1 と 1) %s, log %lu バイト\n", kanji, a, kanji == 1 && a == 1 ? "OK" : "NG", n );
+        printf( "%.600s\n", buf );
+    }
+    type( L"exit" );
+    enter();
+    return 0;
+}
+
 int wmain( int argc, WCHAR **argv )
 {
     if (argc >= 3 && !wcscmp( argv[1], L"tab" )) return do_tab( argv[2] );
     if (argc >= 3 && !wcscmp( argv[1], L"vtexit" )) return do_vtexit( argv[2] );
     if (argc >= 4 && !wcscmp( argv[1], L"vtchild" )) return do_vtchild( argv[2], _wtoi( argv[3] ) );
     if (argc >= 3 && !wcscmp( argv[1], L"keys" )) return do_keys( argv[2] );
-    printf( "usage: winprobe tab|vtexit <dir>\n" );
+    if (argc >= 3 && !wcscmp( argv[1], L"sel" )) return do_sel( argv[2] );
+    if (argc >= 3 && !wcscmp( argv[1], L"devsel" )) return do_devsel( argv[2] );
+    if (argc >= 4 && !wcscmp( argv[1], L"ime" )) return do_ime( argv[2], argv[3] );
+    printf( "usage: winprobe tab|vtexit <dir> (argc %d, argv[1] %ls)\n", argc, argc > 1 ? argv[1] : L"" );
     return 1;
 }

@@ -1,0 +1,30 @@
+name: wcinput-probe
+on:
+  push:
+    branches: [wcinput-probe]
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-11-arm, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: os
+        shell: pwsh
+        run: |
+          [Environment]::OSVersion.VersionString
+          (Get-CimInstance Win32_OperatingSystem).Caption
+          $env:PROCESSOR_ARCHITECTURE
+          Get-ItemProperty 'HKCU:\Software\Microsoft\Command Processor' -ErrorAction SilentlyContinue
+      - name: slash
+        shell: cmd
+        run: call probe\slash.cmd %RUNNER_TEMP%\wcslash
+      - name: tab
+        shell: cmd
+        run: probe\winprobe-x64.exe tab %RUNNER_TEMP%\wctab
+      - name: vtexit
+        shell: cmd
+        run: probe\winprobe-x64.exe vtexit %RUNNER_TEMP%\wcvt

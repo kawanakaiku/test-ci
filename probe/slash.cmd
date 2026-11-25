@@ -31,6 +31,17 @@ call :case a "copy b/1+b/2 c/12"
 call :case a "dir /b b/2"
 call :case a "copy b/a c/"
 call :case a "xcopy b/1 c/"
+call :case a "dir b/a"
+call :case a "copy b/* c/"
+call :case a "copy b/1 c/b"
+call :case a "copy b/x.cmd/a c/"
+call :case a "if exist b/1 echo yes"
+call :case a "call b/x.cmd"
+call :case a "b/x.cmd"
+call :case a "pushd d/e"
+call :case a "del b/q"
+call :case a "type b/1 b/2"
+call :case a "dir b/2/b"
 goto :eof
 
 :reset
@@ -40,6 +51,7 @@ mkdir t\a\b t\a\c t\a\d\e
 echo one> t\a\b\1
 echo two> t\a\b\2
 echo aaa> t\a\b\a
+echo @echo xcmd %%CD%%> t\a\b\x.cmd
 goto :eof
 
 :case

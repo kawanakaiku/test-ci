@@ -1,0 +1,25 @@
+name: CONTEXT_EX の無い CONTEXT_XSTATE の復元
+on:
+  push:
+    branches: [x64-nullref-restore-xstate]
+jobs:
+  probe:
+    runs-on: windows-11-arm
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Windows と Prism の版
+        shell: pwsh
+        run: |
+          [Environment]::OSVersion.VersionString
+          (Get-Item C:\Windows\System32\xtajit64.dll).VersionInfo.FileVersion
+      - name: x64 の RtlRestoreContext・NtContinue (場合ごとに別のプロセス)
+        shell: pwsh
+        run: |
+          foreach ($i in 0..7) {
+            $p = Start-Process -FilePath probe\restore-xstate-x64.exe -ArgumentList $i -NoNewWindow -PassThru -RedirectStandardOutput "out$i.txt" -RedirectStandardError "err$i.txt"
+            if (-not $p.WaitForExit(20000)) { $p.Kill(); "case=$i TIMEOUT" }
+            Get-Content "out$i.txt"
+            Get-Content "err$i.txt"
+            "case=$i exit=$($p.ExitCode)"
+          }

@@ -1,0 +1,40 @@
+name: x86・x64 の整数除算の例外 (Prism)
+on:
+  push:
+    branches: [divzero-probe]
+jobs:
+  probe:
+    runs-on: windows-11-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Windows と Prism の版
+        shell: pwsh
+        run: |
+          [Environment]::OSVersion.VersionString
+          (Get-Item C:\Windows\System32\xtajit64.dll).VersionInfo.FileVersion
+          (Get-Item C:\Windows\SysWOW64\xtajit.dll -ErrorAction SilentlyContinue).VersionInfo.FileVersion
+          Get-ChildItem C:\Windows\Microsoft.NET -Directory | Select-Object -ExpandProperty Name
+      - name: ネイティブの除算 (自作の exe)
+        shell: pwsh
+        run: |
+          foreach ($exe in 'native-i686','native-x86_64','extra-i686','extra-x86_64') {
+            "== $exe"
+            $p = Start-Process -FilePath "probe\$exe.exe" -NoNewWindow -PassThru -RedirectStandardOutput "$exe.txt" -RedirectStandardError "$exe.err"
+            if (-not $p.WaitForExit(30000)) { $p.Kill(); "TIMEOUT" }
+            Get-Content "$exe.txt"; Get-Content "$exe.err"
+            "exit=$($p.ExitCode)"
+          }
+      - name: .NET Framework の除算 (x86・x64・anycpu)
+        shell: pwsh
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe'
+          foreach ($pl in 'x86','x64','anycpu') {
+            "== $pl"
+            & $csc /nologo /optimize+ /platform:$pl /out:managed-$pl.exe probe\Managed.cs
+            $out = "$PWD\managed-$pl.txt"
+            $p = Start-Process -FilePath ".\managed-$pl.exe" -ArgumentList "`"$out`"",13,3,0 -NoNewWindow -PassThru
+            if (-not $p.WaitForExit(60000)) { $p.Kill(); "TIMEOUT" }
+            Get-Content $out
+            "exit=$($p.ExitCode)"
+          }
